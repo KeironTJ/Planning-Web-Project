@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% from 'components/pagination.html' import render_pagination %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Username</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Department</th>
+                        <th>Roles</th>
+                        <th>Last Login</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users.items %}
+                    <tr>
+                        <td class="fw-semibold">{{ user.username }}</td>
+                        <td>{{ user.full_name }}</td>
+                        <td class="text-muted">{{ user.email }}</td>
+                        <td class="text-muted">{{ user.department or '—' }}</td>
+                        <td>
+                            {% for role in user.roles %}
+                            <span class="badge bg-primary-subtle text-primary-emphasis me-1">{{ role.name }}</span>
+                            {% endfor %}
+                        </td>
+                        <td class="text-muted small">
+                            {{ user.last_login.strftime('%d %b %Y') if user.last_login else 'Never' }}
+                        </td>
+                        <td>
+                            <span class="badge {% if user.is_active %}bg-success{% else %}bg-danger{% endif %}">
+                                {{ 'Active' if user.is_active else 'Inactive' }}
+                            </span>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('admin.user_detail', user_id=user.id) }}" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer border-0 bg-transparent py-3">
+        {{ render_pagination(users) }}
+    </div>
+</div>
+{% endblock %}

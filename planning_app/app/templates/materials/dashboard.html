@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+
+{% block page_actions %}
+{% if alerts %}
+<span class="badge bg-warning text-dark fs-6">
+    <i class="bi bi-exclamation-triangle me-1"></i>{{ alerts | length }} reorder alert(s)
+</span>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if alerts %}
+<div class="alert alert-warning d-flex align-items-center gap-2 mb-4">
+    <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+    <div>
+        <strong>{{ alerts | length }} material(s)</strong> are at or below their reorder point.
+        <a href="?below_reorder=true" class="alert-link ms-1">View affected materials</a>
+    </div>
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">Material Stock Levels</span>
+        <span class="text-muted small">{{ materials | length }} materials</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Code</th>
+                        <th>Description</th>
+                        <th>UOM</th>
+                        <th class="text-end">Stock on Hand</th>
+                        <th class="text-end">Safety Stock</th>
+                        <th class="text-end">Reorder Point</th>
+                        <th>Lead Time</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in materials %}
+                    <tr class="{% if m.is_below_safety_stock %}table-danger{% elif m.is_below_reorder_point %}table-warning{% endif %}">
+                        <td class="fw-semibold">{{ m.code }}</td>
+                        <td>{{ m.description }}</td>
+                        <td class="text-muted">{{ m.unit_of_measure }}</td>
+                        <td class="text-end">{{ m.stock_on_hand }}</td>
+                        <td class="text-end text-muted">{{ m.safety_stock }}</td>
+                        <td class="text-end text-muted">{{ m.reorder_point }}</td>
+                        <td class="text-muted">{{ m.lead_time_days }}d</td>
+                        <td>
+                            {% if m.is_below_safety_stock %}
+                            <span class="badge bg-danger">Critical</span>
+                            {% elif m.is_below_reorder_point %}
+                            <span class="badge bg-warning text-dark">Reorder</span>
+                            {% else %}
+                            <span class="badge bg-success">OK</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-center py-4 text-muted">No materials loaded.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

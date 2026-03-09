@@ -1,0 +1,61 @@
+{% extends 'base_auth.html' %}
+
+{% block content %}
+<div class="min-vh-100 d-flex align-items-center justify-content-center bg-body-secondary py-4">
+    <div class="card shadow-sm border-0" style="width: 100%; max-width: 500px;">
+        <div class="card-body p-4 p-md-5">
+            <div class="text-center mb-4">
+                <i class="bi bi-diagram-3-fill text-primary" style="font-size: 2rem;"></i>
+                <h4 class="mt-2 fw-bold">Create Account</h4>
+            </div>
+
+            <form method="POST" action="{{ url_for('auth.register') }}" novalidate>
+                {{ form.hidden_tag() }}
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        {{ form.first_name.label(class="form-label") }}
+                        {{ form.first_name(class="form-control") }}
+                    </div>
+                    <div class="col-md-6">
+                        {{ form.last_name.label(class="form-label") }}
+                        {{ form.last_name(class="form-control") }}
+                    </div>
+                    <div class="col-12">
+                        {{ form.username.label(class="form-label") }}
+                        {{ form.username(class="form-control" + (" is-invalid" if form.username.errors else "")) }}
+                        {% for e in form.username.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+                    </div>
+                    <div class="col-12">
+                        {{ form.email.label(class="form-label") }}
+                        {{ form.email(class="form-control" + (" is-invalid" if form.email.errors else "")) }}
+                        {% for e in form.email.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+                    </div>
+                    <div class="col-12">
+                        {{ form.department.label(class="form-label") }}
+                        {{ form.department(class="form-control") }}
+                    </div>
+                    <div class="col-12">
+                        {{ form.password.label(class="form-label") }}
+                        {{ form.password(class="form-control" + (" is-invalid" if form.password.errors else "")) }}
+                        <div class="form-text">Minimum 10 characters, including uppercase, lowercase, digit and special character.</div>
+                        {% for e in form.password.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+                    </div>
+                    <div class="col-12">
+                        {{ form.password_confirm.label(class="form-label") }}
+                        {{ form.password_confirm(class="form-control" + (" is-invalid" if form.password_confirm.errors else "")) }}
+                        {% for e in form.password_confirm.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+                    </div>
+                    <div class="col-12">
+                        {{ form.submit(class="btn btn-primary w-100 mt-2") }}
+                    </div>
+                </div>
+            </form>
+
+            <p class="text-center text-muted small mt-3 mb-0">
+                Already have an account? <a href="{{ url_for('auth.login') }}" class="text-decoration-none">Sign in</a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

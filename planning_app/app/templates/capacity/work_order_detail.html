@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+
+{% block page_title %}
+    Work Order: {{ wo.order_number }}
+    <span class="badge ms-2 rounded-pill
+        {% if wo.status == 'completed' %}bg-success
+        {% elif wo.status == 'released' %}bg-primary
+        {% elif wo.status == 'in_progress' %}bg-info text-dark
+        {% elif wo.status == 'cancelled' %}bg-secondary
+        {% else %}bg-light text-dark border{% endif %}">
+        {{ wo.status | replace('_', ' ') | title }}
+    </span>
+{% endblock %}
+
+{% block page_actions %}
+    {% if wo.status == 'draft' and current_user.has_permission('edit_work_order') %}
+    <form method="POST" action="{{ url_for('capacity.work_order_release', wo_id=wo.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Release this work order to production?')">
+            <i class="bi bi-send me-1"></i>Release
+        </button>
+    </form>
+    {% endif %}
+    {% if wo.status in ('released', 'in_progress') and current_user.has_permission('close_work_order') %}
+    <form method="POST" action="{{ url_for('capacity.work_order_complete', wo_id=wo.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Mark as completed?')">
+            <i class="bi bi-check-lg me-1"></i>Complete
+        </button>
+    </form>
+    {% endif %}
+    <a href="{{ url_for('capacity.work_order_list') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>Back
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-md-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent fw-semibold">Order Details</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4 text-muted">Order Number</dt>
+                    <dd class="col-sm-8 fw-semibold">{{ wo.order_number }}</dd>
+
+                    <dt class="col-sm-4 text-muted">Product Code</dt>
+                    <dd class="col-sm-8">{{ wo.product_code }}</dd>
+
+                    <dt class="col-sm-4 text-muted">Description</dt>
+                    <dd class="col-sm-8">{{ wo.product_description or '—' }}</dd>
+
+                    <dt class="col-sm-4 text-muted">Routing</dt>
+                    <dd class="col-sm-8">{{ wo.routing.code if wo.routing else '—' }}</dd>
+
+                    <dt class="col-sm-4 text-muted">Quantity</dt>
+                    <dd class="col-sm-8">{{ wo.quantity | int }}</dd>
+
+                    <dt class="col-sm-4 text-muted">Qty Completed</dt>
+                    <dd class="col-sm-8">{{ wo.quantity_completed | int }}</dd>
+
+                    <dt class="col-sm-4 text-muted">Progress</dt>
+                    <dd class="col-sm-8">
+                        <div class="progress" style="height: 10px; max-width: 200px;">
+                            <div class="progress-bar bg-success" style="width: {{ wo.completion_pct }}%"></div>
+                        </div>
+                        <small>{{ wo.completion_pct | round(1) }}%</small>
+                    </dd>
+
+                    <dt class="col-sm-4 text-muted">Priority</dt>
+                    <dd class="col-sm-8">{{ wo.priority }}</dd>
+
+                    <dt class="col-sm-4 text-muted">Planned Start</dt>
+                    <dd class="col-sm-8">{{ wo.planned_start.strftime('%d %b %Y') if wo.planned_start else '—' }}</dd>
+
+                    <dt class="col-sm-4 text-muted">Planned End</dt>
+                    <dd class="col-sm-8 {% if wo.is_overdue %}text-danger fw-semibold{% endif %}">
+                        {{ wo.planned_end.strftime('%d %b %Y') if wo.planned_end else '—' }}
+                        {% if wo.is_overdue %}<span class="badge bg-danger ms-1">Overdue</span>{% endif %}
+                    </dd>
+
+                    <dt class="col-sm-4 text-muted">Notes</dt>
+                    <dd class="col-sm-8">{{ wo.notes or '—' }}</dd>
+
+                    <dt class="col-sm-4 text-muted">Created By</dt>
+                    <dd class="col-sm-8">{{ wo.created_by.full_name if wo.created_by else '—' }}</dd>
+
+                    <dt class="col-sm-4 text-muted">Created At</dt>
+                    <dd class="col-sm-8">{{ wo.created_at.strftime('%d %b %Y %H:%M') }}</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    {% if wo.routing %}
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent fw-semibold">Routing Operations</div>
+            <div class="card-body p-0">
+                <ol class="list-group list-group-flush list-group-numbered">
+                    {% for op in wo.routing.operations %}
+                    <li class="list-group-item d-flex justify-content-between align-items-start">
+                        <div class="ms-2 me-auto">
+                            <div class="fw-medium">{{ op.work_centre.name }}</div>
+                            <small class="text-muted">{{ op.description or '' }}</small>
+                        </div>
+                        <small class="text-muted">{{ op.run_time_hrs }}h/unit</small>
+                    </li>
+                    {% endfor %}
+                </ol>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

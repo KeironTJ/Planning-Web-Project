@@ -1,0 +1,64 @@
+<nav class="navbar navbar-expand-md sticky-top bg-body-tertiary border-bottom shadow-sm px-3" aria-label="Top navigation">
+    <div class="container-fluid">
+        <!-- Brand -->
+        <a class="navbar-brand fw-bold text-primary" href="{{ url_for('capacity.dashboard') }}">
+            <i class="bi bi-diagram-3-fill me-1"></i>{{ app_name }}
+        </a>
+
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarTop" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarTop">
+            <!-- Right-side controls -->
+            <ul class="navbar-nav ms-auto mb-2 mb-md-0 align-items-md-center gap-2">
+
+                <!-- Dark/Light theme toggle -->
+                <li class="nav-item">
+                    <button class="btn btn-sm btn-outline-secondary" id="theme-toggle" title="Toggle theme" aria-label="Toggle colour theme">
+                        <i class="bi bi-moon-stars-fill" id="theme-icon"></i>
+                    </button>
+                </li>
+
+                <!-- User menu -->
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle d-flex align-items-center gap-1" href="#"
+                       id="userMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <span class="badge rounded-circle bg-primary text-white p-2" style="font-size: .75rem;">
+                            {{ current_user.username[0].upper() }}
+                        </span>
+                        <span class="d-none d-md-inline">{{ current_user.full_name }}</span>
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="userMenu">
+                        <li><span class="dropdown-item-text text-muted small">{{ current_user.email }}</span></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <a class="dropdown-item" href="{{ url_for('auth.profile') }}">
+                                <i class="bi bi-person me-2"></i>My Profile
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="{{ url_for('auth.change_password') }}">
+                                <i class="bi bi-key me-2"></i>Change Password
+                            </a>
+                        </li>
+                        {% if current_user.is_admin %}
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <a class="dropdown-item" href="{{ url_for('admin.dashboard') }}">
+                                <i class="bi bi-shield-lock me-2"></i>Admin Panel
+                            </a>
+                        </li>
+                        {% endif %}
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}">
+                                <i class="bi bi-box-arrow-right me-2"></i>Sign Out
+                            </a>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>

@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+
+{% block page_actions %}
+{% if current_user.has_permission('create_scenario') %}
+<a href="{{ url_for('scenarios.new_scenario') }}" class="btn btn-sm btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>New Scenario
+</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+    {% for s in scenarios %}
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <h6 class="fw-semibold mb-0">{{ s.name }}</h6>
+                    <span class="badge {% if s.status == 'active' %}bg-success{% elif s.status == 'archived' %}bg-secondary{% else %}bg-light text-dark border{% endif %}">
+                        {{ s.status | title }}
+                    </span>
+                </div>
+                {% if s.is_baseline %}
+                <span class="badge bg-primary mb-2">Baseline</span>
+                {% endif %}
+                <p class="text-muted small">{{ s.description or 'No description.' }}</p>
+                <p class="text-muted small mb-0">
+                    {{ s.assumptions | length }} assumption(s) &middot;
+                    Created {{ s.created_at.strftime('%d %b %Y') }}
+                </p>
+            </div>
+            <div class="card-footer border-0 bg-transparent">
+                <a href="{{ url_for('scenarios.scenario_detail', scenario_id=s.id) }}" class="btn btn-sm btn-outline-primary">
+                    View Details
+                </a>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="col-12 text-center py-5 text-muted">
+        <i class="bi bi-layers fs-1 d-block mb-3"></i>
+        <p>No scenarios created yet. Start by creating a baseline scenario.</p>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

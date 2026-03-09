@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Profile card -->
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm text-center p-4">
+            <div class="display-1 text-primary">
+                <i class="bi bi-person-circle"></i>
+            </div>
+            <h4 class="mt-2">{{ current_user.full_name }}</h4>
+            <p class="text-muted">{{ current_user.email }}</p>
+            <p class="text-muted small">{{ current_user.department or 'No department set' }}</p>
+            <div class="d-flex flex-wrap gap-1 justify-content-center mt-2">
+                {% for role in current_user.roles %}
+                <span class="badge bg-primary-subtle text-primary-emphasis">{{ role.name }}</span>
+                {% endfor %}
+            </div>
+            <hr>
+            <p class="text-muted small mb-0">
+                Last login: {{ current_user.last_login.strftime('%d %b %Y %H:%M') if current_user.last_login else 'Never' }}
+            </p>
+        </div>
+    </div>
+
+    <!-- Edit form -->
+    <div class="col-md-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent fw-semibold">Edit Profile</div>
+            <div class="card-body p-4">
+                <form method="POST" action="{{ url_for('auth.profile') }}" novalidate>
+                    {{ form.hidden_tag() }}
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            {{ form.first_name.label(class="form-label") }}
+                            {{ form.first_name(class="form-control") }}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.last_name.label(class="form-label") }}
+                            {{ form.last_name(class="form-control") }}
+                        </div>
+                        <div class="col-12">
+                            {{ form.department.label(class="form-label") }}
+                            {{ form.department(class="form-control") }}
+                        </div>
+                        <div class="col-12">
+                            {{ form.submit(class="btn btn-primary") }}
+                            <a href="{{ url_for('auth.change_password') }}" class="btn btn-outline-secondary ms-2">
+                                <i class="bi bi-key me-1"></i>Change Password
+                            </a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

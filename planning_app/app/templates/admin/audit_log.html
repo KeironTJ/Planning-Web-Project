@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% from 'components/pagination.html' import render_pagination %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Resource</th>
+                        <th>IP Address</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs.items %}
+                    <tr>
+                        <td class="small text-muted text-nowrap">{{ log.timestamp.strftime('%d %b %Y %H:%M:%S') }}</td>
+                        <td>{{ log.user.username if log.user else '—' }}</td>
+                        <td><span class="badge bg-secondary">{{ log.action }}</span></td>
+                        <td class="small text-muted">{{ log.resource or '—' }}</td>
+                        <td class="small text-muted">{{ log.ip_address or '—' }}</td>
+                        <td class="small text-muted">{{ log.details or '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer border-0 bg-transparent py-3">
+        {{ render_pagination(logs) }}
+    </div>
+</div>
+{% endblock %}

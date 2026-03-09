@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% from 'components/pagination.html' import render_pagination %}
+
+{% block page_actions %}
+    {% if current_user.has_permission('create_work_order') %}
+    <a href="{{ url_for('capacity.work_order_new') }}" class="btn btn-sm btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>New Work Order
+    </a>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+
+<!-- Status filter tabs -->
+<ul class="nav nav-tabs mb-3">
+    {% for label, value in [('All', ''), ('Draft', 'draft'), ('Released', 'released'), ('In Progress', 'in_progress'), ('Completed', 'completed')] %}
+    <li class="nav-item">
+        <a class="nav-link {% if current_status == value or (not current_status and not value) %}active{% endif %}"
+           href="{{ url_for('capacity.work_order_list', status=value if value else None) }}">
+            {{ label }}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Order No.</th>
+                        <th>Product</th>
+                        <th class="text-end">Qty</th>
+                        <th>Status</th>
+                        <th>Priority</th>
+                        <th>Planned Start</th>
+                        <th>Planned End</th>
+                        <th>Progress</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for wo in pagination.items %}
+                    <tr class="{% if wo.is_overdue %}table-danger{% endif %}">
+                        <td>
+                            <a href="{{ url_for('capacity.work_order_detail', wo_id=wo.id) }}" class="fw-semibold text-decoration-none">
+                                {{ wo.order_number }}
+                            </a>
+                            {% if wo.is_overdue %}
+                            <span class="badge bg-danger ms-1">Overdue</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="fw-medium">{{ wo.product_code }}</span>
+                            {% if wo.product_description %}
+                            <span class="text-muted small d-block">{{ wo.product_description }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">{{ wo.quantity | int }}</td>
+                        <td>
+                            <span class="badge rounded-pill
+                                {% if wo.status == 'completed' %}bg-success
+                                {% elif wo.status == 'released' %}bg-primary
+                                {% elif wo.status == 'in_progress' %}bg-info text-dark
+                                {% elif wo.status == 'cancelled' %}bg-secondary
+                                {% else %}bg-light text-dark border{% endif %}">
+                                {{ wo.status | replace('_', ' ') | title }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge {% if wo.priority <= 20 %}bg-danger{% elif wo.priority <= 50 %}bg-warning text-dark{% else %}bg-light text-dark border{% endif %}">
+                                {{ wo.priority }}
+                            </span>
+                        </td>
+                        <td>{{ wo.planned_start.strftime('%d %b %Y') if wo.planned_start else '—' }}</td>
+                        <td>{{ wo.planned_end.strftime('%d %b %Y') if wo.planned_end else '—' }}</td>
+                        <td style="min-width: 100px;">
+                            <div class="progress" style="height: 6px;">
+                                <div class="progress-bar bg-success" style="width: {{ wo.completion_pct }}%"></div>
+                            </div>
+                            <small class="text-muted">{{ wo.completion_pct | round(0) | int }}%</small>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('capacity.work_order_detail', wo_id=wo.id) }}" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                            No work orders found.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% if pagination.pages > 1 %}
+    <div class="card-footer border-0 bg-transparent py-3">
+        {{ render_pagination(pagination) }}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

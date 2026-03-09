@@ -1,0 +1,125 @@
+/*
+ * Planning Hub — Custom Theme
+ *
+ * Layered on top of Bootstrap 5 data-bs-theme system.
+ * Dark/light switching is handled via data-bs-theme on <html>.
+ *
+ * Design decisions:
+ * - CSS custom properties for colours so the theme toggle updates everything.
+ * - Sidebar uses Bootstrap's bg-body-secondary so it adapts automatically.
+ * - Sticky sidebar for large screens via position-sticky.
+ */
+
+/* ---- Layout ---- */
+
+body {
+    font-size: 0.9rem;
+}
+
+/* Push main content below fixed navbar */
+.sidebar {
+    min-height: calc(100vh - 56px);
+    padding-top: 0.5rem;
+}
+
+.sidebar-sticky {
+    height: calc(100vh - 72px);
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.sidebar .nav-link {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--bs-body-color);
+    border-radius: 0.375rem;
+    padding: 0.45rem 0.85rem;
+    margin: 1px 0.5rem;
+}
+
+.sidebar .nav-link:hover {
+    background-color: var(--bs-tertiary-bg);
+}
+
+.sidebar .nav-link.active {
+    color: var(--bs-primary);
+    background-color: var(--bs-primary-bg-subtle);
+    font-weight: 600;
+}
+
+.sidebar .nav-link i {
+    width: 1.2rem;
+    text-align: center;
+}
+
+.sidebar-heading {
+    font-size: .65rem;
+    letter-spacing: .08rem;
+    padding: 0.5rem 1rem 0.25rem;
+}
+
+/* ---- Cards ---- */
+
+.card {
+    border-radius: 0.75rem;
+}
+
+/* ---- Tables ---- */
+
+.table th {
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04rem;
+}
+
+/* ---- Navbar ---- */
+
+.navbar-brand {
+    font-size: 1.05rem;
+    letter-spacing: -0.02rem;
+}
+
+/* ---- Badges ---- */
+
+.badge {
+    font-weight: 500;
+}
+
+/* ---- Monospace (for codes, order numbers etc.) ---- */
+
+.fw-mono {
+    font-family: var(--bs-font-monospace);
+    font-size: 0.85em;
+}
+
+/* ---- Status colour overrides for dark mode ---- */
+
+[data-bs-theme="dark"] .table-danger {
+    --bs-table-bg: rgba(220, 53, 69, 0.15);
+}
+
+[data-bs-theme="dark"] .table-warning {
+    --bs-table-bg: rgba(255, 193, 7, 0.1);
+}
+
+/* ---- Auth page centre card ---- */
+
+.card.auth-card {
+    border-radius: 1rem;
+}
+
+/* ---- Print ---- */
+
+@media print {
+    .sidebar,
+    .navbar,
+    .btn-toolbar,
+    .no-print {
+        display: none !important;
+    }
+    main {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+}
