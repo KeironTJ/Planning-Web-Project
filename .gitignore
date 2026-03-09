@@ -1,2 +1,131 @@
-/.claude
-/venv
+# =============================================================================
+# Planning Hub — Flask Application .gitignore
+# =============================================================================
+
+# ── Secrets & environment ────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+# Keep .env.example — it is a safe template with no real secrets
+
+# ── Python bytecode & caches ─────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.Python
+
+# ── Virtual environments ─────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+venv.bak/
+
+# ── Distribution / packaging ──────────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+sdist/
+MANIFEST
+
+# ── Database files ────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Flask / Werkzeug ──────────────────────────────────────────────────────────
+instance/
+.webassets-cache
+flask_session/
+
+# ── Alembic ───────────────────────────────────────────────────────────────────
+# Keep migrations/ folder — it is version controlled
+# Ignore only auto-generated temp files
+*.pyc
+
+# ── Testing & coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+nosetests.xml
+test-results/
+.tox/
+.nox/
+
+# ── Type checking ─────────────────────────────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+
+# ── Linting ───────────────────────────────────────────────────────────────────
+.ruff_cache/
+
+# ── Static file build output (if using a bundler later) ──────────────────────
+planning_app/app/static/dist/
+planning_app/app/static/.webassets-cache
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+log/
+
+# ── Uploads / user-generated content ─────────────────────────────────────────
+planning_app/app/static/uploads/
+uploads/
+
+# ── IDE & editors ─────────────────────────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json   # keep shared extension recommendations if desired
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# ── OS generated ──────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ── Claude Code ───────────────────────────────────────────────────────────────
+.claude/
+
+# ── Node (if frontend tooling is added) ──────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp
+.pnp.js
+package-lock.json
+
+# ── Gunicorn / production server ──────────────────────────────────────────────
+gunicorn.pid
+*.pid
+
+# ── Celery (if background tasks are added later) ──────────────────────────────
+celerybeat-schedule
+celerybeat.pid
+
+# ── Docker (if containerised later) ──────────────────────────────────────────
+.dockerignore
+docker-compose.override.yml
