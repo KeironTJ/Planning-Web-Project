@@ -31,9 +31,9 @@ def wip_tracker():
     order_by      = request.args.get("sort", "due_date")
     page          = request.args.get("page", 1, type=int)
 
-    lines = services.get_wip_page(
+    pagination, orders = services.get_wip_grouped(
         page=page,
-        per_page=50,
+        per_page=25,
         dept_filter=dept_filter or None,
         status_filter=status_filter or None,
         search=search or None,
@@ -47,10 +47,12 @@ def wip_tracker():
     return render_template(
         "orders/wip_tracker.html",
         title="WIP Tracker",
-        lines=lines,
+        pagination=pagination,
+        orders=orders,
         summary=summary,
         departments=departments,
         status_meta=status_meta,
+        line_status_meta=SalesOrderLine.LINE_STATUS_META,
         dept_filter=dept_filter,
         status_filter=status_filter,
         search=search,
@@ -203,6 +205,42 @@ def bulk_update_operations():
 
 
 # ---------------------------------------------------------------------------
+# Advance all ops for an SO + department to the next status (AJAX)
+# ---------------------------------------------------------------------------
+
+@orders_bp.route("/operations/advance-so-dept", methods=["POST"])
+@login_required
+@permission_required("update_order_status")
+def advance_so_dept():
+    """AJAX — advance every open op for a given SO + work centre to next status."""
+    so_number        = request.form.get("so_number", "").strip()
+    work_centre_name = request.form.get("work_centre_name", "").strip()
+
+    if not so_number or not work_centre_name:
+        return jsonify({"ok": False, "error": "Missing parameters"}), 400
+
+    result = services.advance_so_dept_status(so_number, work_centre_name)
+    result["ok"] = True
+    return jsonify(result)
+
+
+@orders_bp.route("/operations/reverse-so-dept", methods=["POST"])
+@login_required
+@permission_required("update_order_status")
+def reverse_so_dept():
+    """AJAX — step every op for a given SO + work centre back one status."""
+    so_number        = request.form.get("so_number", "").strip()
+    work_centre_name = request.form.get("work_centre_name", "").strip()
+
+    if not so_number or not work_centre_name:
+        return jsonify({"ok": False, "error": "Missing parameters"}), 400
+
+    result = services.reverse_so_dept_status(so_number, work_centre_name)
+    result["ok"] = True
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
 # Date Planning
 # ---------------------------------------------------------------------------
 
@@ -238,6 +276,7 @@ def planning():
         today=date.today(),
         valid_statuses=WorksOrderOperation.VALID_STATUSES,
         STATUS_META=WorksOrderOperation.STATUS_META,
+        LINE_STATUS_META=SalesOrderLine.LINE_STATUS_META,
     )
 
 

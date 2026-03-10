@@ -3,7 +3,7 @@
 {% block content %}
 <!-- Summary banner -->
 <div class="row g-2 mb-3">
-    {% set status_order = ['not_started', 'planned', 'firmed', 'released', 'in_progress', 'completed'] %}
+    {% set status_order = ['not_started', 'started', 'wip', 'completed'] %}
     <div class="col-6 col-md-2">
         <div class="card border-0 shadow-sm text-center py-2 px-1">
             <div class="fw-bold fs-4">{{ summary.total }}</div>
@@ -23,7 +23,7 @@
     {% for s in status_order %}
         {% set count = summary.by_status.get(s, 0) %}
         {% if count %}
-        {% set label, colour = status_meta[s] %}
+        {% set label, colour = status_meta.get(s, ('Unknown', 'secondary')) %}
         <div class="col-6 col-md-2">
             <a href="{{ url_for('orders.wip_tracker', status=s) }}" class="text-decoration-none">
                 <div class="card border-0 shadow-sm text-center py-2 px-1">
@@ -48,7 +48,7 @@
                 <select name="status" class="form-select form-select-sm">
                     <option value="">All Statuses</option>
                     {% for s in valid_statuses %}
-                    {% set label, colour = status_meta[s] %}
+                    {% set label, colour = status_meta.get(s, ('Unknown', 'secondary')) %}
                     <option value="{{ s }}" {{ 'selected' if status_filter == s }}>{{ label }}</option>
                     {% endfor %}
                 </select>
@@ -86,8 +86,8 @@
 <!-- Results count + actions -->
 <div class="d-flex justify-content-between align-items-center mb-2">
     <small class="text-muted">
-        {{ lines.total }} order line{{ 's' if lines.total != 1 }} found
-        (page {{ lines.page }} of {{ lines.pages }})
+        {{ pagination.total }} order{{ 's' if pagination.total != 1 }} found
+        (page {{ pagination.page }} of {{ pagination.pages }})
     </small>
     <div class="d-flex gap-2">
         <a href="{{ url_for('orders.firming_queue') }}" class="btn btn-outline-primary btn-sm">
@@ -96,66 +96,129 @@
     </div>
 </div>
 
+<!-- Key: order-level buttons advance ALL lines; line-level buttons open detail modal -->
+<p class="text-muted small mb-2">
+    <i class="bi bi-arrow-right-circle me-1"></i>
+    Dept buttons on <strong>order rows</strong> advance all lines to next status.
+    Expand <i class="bi bi-chevron-right"></i> to update individual lines.
+</p>
+
 <!-- WIP Grid -->
-{% if lines.items %}
+{% if orders %}
 <div class="table-responsive">
-    <table class="table table-sm table-hover align-middle mb-0" style="font-size: .82rem;">
-        <thead class="table-light sticky-top">
+    <table class="table table-sm align-middle mb-0" style="font-size: .82rem;" id="wipTable">
+        <thead class="table-light">
             <tr>
-                <th style="min-width:90px;">SO / Line</th>
+                <th style="width:24px;"></th>
+                <th style="min-width:90px;">SO</th>
                 <th style="min-width:120px;">Customer</th>
-                <th style="min-width:120px;">Product</th>
-                <th class="text-end" style="min-width:50px;">Qty</th>
-                <th class="text-center" style="min-width:85px;">Due</th>
-                <th style="min-width:100px;">Order Status</th>
+                <th style="min-width:80px;">Lines / Qty</th>
+                <th class="text-center" style="min-width:70px;">Due</th>
+                <th style="min-width:100px;">Status</th>
                 {% for dept in departments %}
-                <th class="text-center" style="min-width:70px; max-width:90px; white-space:normal; line-height:1.1;">
+                <th class="text-center" style="min-width:66px; max-width:86px; white-space:normal; line-height:1.1;">
                     {{ dept.name }}
                 </th>
                 {% endfor %}
             </tr>
         </thead>
         <tbody>
-            {% for sol in lines.items %}
-            {% set agg_status = sol.aggregate_status %}
-            {% set agg_label, agg_colour = status_meta.get(agg_status, ('Unknown', 'secondary')) %}
+        {% for order in orders %}
 
-            {# Build a dict of dept_name → operation for this line #}
-            {% set ops_by_dept = {} %}
-            {% for op in sol.operations %}
-                {% if ops_by_dept.update({op.work_centre_name: op}) %}{% endif %}
-            {% endfor %}
-
-            <tr>
-                <td>
-                    <span class="fw-semibold">{{ sol.so_number }}</span>
-                    <span class="text-muted">/{{ sol.line_number }}</span>
+            {# ── Order-level header row ───────────────────────────────── #}
+            {% set agg_label, agg_colour = line_status_meta.get(order.agg_status, ('Unknown', 'secondary')) %}
+            <tr class="table-light order-row" id="order-row-{{ loop.index }}">
+                {# Expand toggle #}
+                <td class="text-center p-1">
+                    <button class="btn btn-link btn-sm p-0 text-secondary toggle-order-btn"
+                            data-target="order-{{ loop.index }}"
+                            title="Expand / collapse lines">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
                 </td>
-                <td class="text-truncate" style="max-width:130px;" title="{{ sol.customer_name }}">
-                    {{ sol.customer_name or '—' }}
+                <td class="fw-semibold">{{ order.so_number }}</td>
+                <td class="text-truncate fw-semibold" style="max-width:130px;" title="{{ order.customer_name }}">
+                    {{ order.customer_name }}
                 </td>
-                <td class="text-truncate" style="max-width:130px;" title="{{ sol.product_description }}">
-                    <span class="text-muted small">{{ sol.product_code }}</span>
-                    {{ sol.product_description or '' }}
+                <td class="text-muted" style="font-size:.78rem;">
+                    {{ order.line_count }} line{{ 's' if order.line_count != 1 }}
+                    &nbsp;/&nbsp;{{ order.total_qty | int }} units
                 </td>
-                <td class="text-end">{{ sol.qty_ordered | int if sol.qty_ordered else '—' }}</td>
-                <td class="text-center {{ 'text-danger fw-semibold' if sol.due_date and sol.due_date < today else '' }}">
-                    {{ sol.due_date.strftime('%d %b') if sol.due_date else '—' }}
+                <td class="text-center {{ 'text-danger fw-semibold' if order.due_date and order.due_date < today else '' }}">
+                    {{ order.due_date.strftime('%d %b') if order.due_date else '—' }}
                 </td>
                 <td>
                     <span class="badge bg-{{ agg_colour }}">{{ agg_label }}</span>
                 </td>
 
+                {# Order-level dept cells — advance-all / step-back buttons #}
+                {% for dept in departments %}
+                <td class="text-center p-1">
+                    {% set ds = order.dept_status.get(dept.name) %}
+                    {% if ds %}
+                        {% set op_label, op_colour = status_meta.get(ds, ('?', 'secondary')) %}
+                        {% if ds == 'completed' or ds == 'closed' %}
+                            <span class="badge bg-{{ op_colour }}"
+                                  style="font-size:.68rem; min-width:58px; display:inline-block;"
+                                  title="{{ op_label }} — right-click to step back">
+                                {{ op_label[:6] }}
+                            </span>
+                        {% else %}
+                            <button type="button"
+                                    class="btn btn-{{ op_colour }} btn-sm py-0 px-1 advance-so-dept-btn"
+                                    style="font-size:.68rem; min-width:58px;"
+                                    data-so="{{ order.so_number }}"
+                                    data-dept="{{ dept.name }}"
+                                    data-current-status="{{ ds }}"
+                                    title="Left-click: advance · Right-click: step back">
+                                <i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> {{ op_label[:5] }}
+                            </button>
+                        {% endif %}
+                    {% else %}
+                        <span class="text-muted">·</span>
+                    {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+
+            {# ── Per-line detail rows (collapsed by default) ──────────── #}
+            {% set order_group = "order-" ~ loop.index %}
+            {% for sol in order.lines %}
+            {% set line_agg = sol.aggregate_status %}
+            {% set line_label, line_colour = line_status_meta.get(line_agg, ('Unknown', 'secondary')) %}
+
+            {# Build ops_by_dept lookup for this line #}
+            {% set ops_by_dept = {} %}
+            {% for op in sol.operations %}
+                {% if ops_by_dept.update({op.work_centre_name: op}) %}{% endif %}
+            {% endfor %}
+
+            <tr class="order-detail-row" data-group="{{ order_group }}" style="display:none; background:#fafafa;">
+                <td></td>
+                <td class="text-muted ps-3" style="font-size:.78rem;">Line {{ sol.line_number }}</td>
+                <td colspan="2" class="text-truncate" style="max-width:200px;" title="{{ sol.product_description }}">
+                    <span class="text-muted small">{{ sol.product_code }}</span>
+                    {{ sol.product_description or '' }}
+                    <span class="text-muted small ms-1">× {{ sol.qty_ordered | int if sol.qty_ordered else '?' }}</span>
+                </td>
+                <td class="text-center {{ 'text-danger' if sol.due_date and sol.due_date < today else '' }}"
+                    style="font-size:.78rem;">
+                    {{ sol.due_date.strftime('%d %b') if sol.due_date else '—' }}
+                </td>
+                <td>
+                    <span class="badge bg-{{ line_colour }}" style="font-size:.68rem;">{{ line_label }}</span>
+                </td>
+
+                {# Line-level dept cells — single op modal #}
                 {% for dept in departments %}
                 {% set op = ops_by_dept.get(dept.name) %}
-                <td class="text-center p-1">
+                <td class="text-center p-1" data-dept="{{ dept.name }}">
                     {% if op %}
                         {% set op_label, op_colour = status_meta.get(op.status, ('?', 'secondary')) %}
                         <button type="button"
                                 class="btn btn-{{ op_colour }} btn-sm py-0 px-1 op-status-btn"
-                                style="font-size:.7rem; min-width:62px;"
+                                style="font-size:.68rem; min-width:58px;"
                                 data-op-id="{{ op.id }}"
-                                data-current-status="{{ op.status }}"
                                 data-bs-toggle="modal"
                                 data-bs-target="#opModal"
                                 data-so="{{ sol.so_number }}/{{ sol.line_number }}"
@@ -164,9 +227,13 @@
                                 data-planned="{{ op.planned_date.isoformat() if op.planned_date else '' }}"
                                 data-notes="{{ op.notes or '' }}"
                                 title="{{ op_label }}{% if op.planned_date %} — {{ op.planned_date.strftime('%d %b') }}{% endif %}{% if op.is_overdue %} ⚠ Overdue{% endif %}">
-                            {% if op.is_overdue %}<i class="bi bi-exclamation-triangle me-1"></i>{% endif %}
-                            {{ op_label[:6] }}
+                            {% if op.is_overdue %}<i class="bi bi-exclamation-triangle" style="font-size:.65rem;"></i> {% endif %}{{ op_label[:6] }}
                         </button>
+                        {% if op.planned_date %}
+                        <div class="text-muted" style="font-size:.65rem; line-height:1.1; margin-top:1px;">
+                            {{ op.planned_date.strftime('%d %b') }}
+                        </div>
+                        {% endif %}
                     {% else %}
                         <span class="text-muted">·</span>
                     {% endif %}
@@ -174,17 +241,19 @@
                 {% endfor %}
             </tr>
             {% endfor %}
+
+        {% endfor %}
         </tbody>
     </table>
 </div>
 
 <!-- Pagination -->
-{% if lines.pages > 1 %}
+{% if pagination.pages > 1 %}
 <nav class="mt-3">
     <ul class="pagination pagination-sm justify-content-center">
-        {% for p in lines.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
             {% if p %}
-                <li class="page-item {{ 'active' if p == lines.page else '' }}">
+                <li class="page-item {{ 'active' if p == pagination.page else '' }}">
                     <a class="page-link" href="{{ url_for('orders.wip_tracker', page=p, q=search, status=status_filter, dept=dept_filter, sort=order_by, overdue=1 if overdue_only else '') }}">{{ p }}</a>
                 </li>
             {% else %}
@@ -202,7 +271,7 @@
 </div>
 {% endif %}
 
-<!-- Operation update modal -->
+<!-- Operation update modal (line-level individual ops) -->
 <div class="modal fade" id="opModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
@@ -218,7 +287,7 @@
                         <label class="form-label form-label-sm fw-semibold">Status</label>
                         <select name="status" id="modalStatus" class="form-select form-select-sm">
                             {% for s in valid_statuses %}
-                            {% set label, colour = status_meta[s] %}
+                            {% set label, colour = status_meta.get(s, ('Unknown', 'secondary')) %}
                             <option value="{{ s }}">{{ label }}</option>
                             {% endfor %}
                         </select>
@@ -245,12 +314,196 @@
 {% block extra_js %}
 <script>
 (function () {
+    const csrfToken = '{{ csrf_token() }}';
+
+    // ── Expand / collapse order detail rows ───────────────────────────── //
+    document.querySelectorAll('.toggle-order-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const group  = btn.dataset.target;
+            const icon   = btn.querySelector('i');
+            // detail rows share data-group matching the order's loop.index
+            // We set data-group on each detail row to "order-N" where N = outer loop.index
+            // But inner loop uses loop.index0 for data-group — need to match order-row id
+            // Actually we match by the toggle btn's data-target which equals "order-N"
+            const rows = document.querySelectorAll(
+                '.order-detail-row[data-group="' + group + '"]'
+            );
+            const hidden = rows.length > 0 && rows[0].style.display === 'none';
+            rows.forEach(function (r) { r.style.display = hidden ? '' : 'none'; });
+            icon.classList.toggle('bi-chevron-right', !hidden);
+            icon.classList.toggle('bi-chevron-down', hidden);
+        });
+    });
+
+    // ── Status metadata (mirrors Python STATUS_META) ─────────────────── //
+    const STATUS_META = {
+        'not_started': { label: 'Not Started', colour: 'secondary' },
+        'started':     { label: 'Started',     colour: 'primary'   },
+        'wip':         { label: 'WIP',         colour: 'warning'   },
+        'completed':   { label: 'Complete',    colour: 'success'   },
+        'closed':      { label: 'Closed',      colour: 'dark'      },
+    };
+    const NEXT_STATUS = {
+        'not_started': 'started',
+        'started':     'wip',
+        'wip':         'completed',
+        'completed':   'completed',
+    };
+    const PREV_STATUS = {
+        'started':   'not_started',
+        'wip':       'started',
+        'completed': 'wip',
+    };
+
+    // ── Shared: call advance or reverse for an SO + dept ─────────────── //
+    function callSoDeptEndpoint(url, soNumber, deptName, btn, orderGroup, statusMapFn) {
+        btn.disabled = true;
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span>';
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: 'so_number='         + encodeURIComponent(soNumber)
+                + '&work_centre_name=' + encodeURIComponent(deptName)
+                + '&csrf_token='       + encodeURIComponent(csrfToken),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (!data.ok) {
+                btn.disabled = false;
+                btn.innerHTML = originalHTML;
+                return;
+            }
+
+            const newStatus = data.status;
+            const newColour = data.colour;
+            const newLabel  = data.label;
+
+            // Restore button or replace with badge if completed
+            if (newStatus === 'completed' || newStatus === 'closed') {
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-' + newColour;
+                badge.style.cssText = 'font-size:.68rem; min-width:58px; display:inline-block;';
+                badge.setAttribute('title', newLabel + ' — right-click to step back');
+                badge.textContent = newLabel.substring(0, 6);
+                btn.replaceWith(badge);
+            } else {
+                btn.disabled = false;
+                btn.dataset.currentStatus = newStatus;
+                btn.className = 'btn btn-' + newColour + ' btn-sm py-0 px-1 advance-so-dept-btn';
+                btn.innerHTML = '<i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> '
+                              + newLabel.substring(0, 5);
+            }
+
+            // Mirror change on all line-level op buttons for this dept
+            if (!orderGroup) return;
+            document.querySelectorAll('.order-detail-row[data-group="' + orderGroup + '"]')
+                .forEach(function (row) {
+                    const td = row.querySelector('td[data-dept="' + deptName + '"]');
+                    if (!td) return;
+                    const opBtn = td.querySelector('.op-status-btn');
+                    if (!opBtn) return;
+
+                    const oldStatus  = opBtn.dataset.status;
+                    const nextStatus = statusMapFn(oldStatus);
+                    if (!nextStatus || nextStatus === oldStatus) return;
+
+                    const meta = STATUS_META[nextStatus] || { label: nextStatus, colour: 'secondary' };
+                    opBtn.dataset.status = nextStatus;
+                    opBtn.className = opBtn.className.replace(/btn-\w+/, 'btn-' + meta.colour);
+                    opBtn.textContent = meta.label.substring(0, 6);
+                });
+        })
+        .catch(function () {
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+        });
+    }
+
+    // ── Helper: step back a single line-level op via AJAX ────────────── //
+    function stepBackOp(opBtn) {
+        const currStatus = opBtn.dataset.status;
+        const prevStatus = PREV_STATUS[currStatus];
+        if (!prevStatus) return; // already at not_started
+
+        const opId       = opBtn.dataset.opId;
+        const origHTML   = opBtn.innerHTML;
+        opBtn.disabled   = true;
+        opBtn.innerHTML  = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span>';
+
+        fetch('/orders/operations/' + opId + '/update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: 'status=' + encodeURIComponent(prevStatus)
+                + '&csrf_token=' + encodeURIComponent(csrfToken),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            opBtn.disabled = false;
+            if (!data.ok) { opBtn.innerHTML = origHTML; return; }
+            const meta = STATUS_META[data.status] || { label: data.status, colour: 'secondary' };
+            opBtn.dataset.status = data.status;
+            opBtn.className = opBtn.className.replace(/btn-\w+/, 'btn-' + meta.colour);
+            opBtn.textContent = meta.label.substring(0, 6);
+        })
+        .catch(function () { opBtn.disabled = false; opBtn.innerHTML = origHTML; });
+    }
+
+    // ── Order-level click (advance) and contextmenu (step back) ──────── //
+    const wipTable = document.getElementById('wipTable');
+    if (wipTable) {
+        // Left-click → advance (order-level only)
+        wipTable.addEventListener('click', function (e) {
+            const btn = e.target.closest('.advance-so-dept-btn');
+            if (!btn) return;
+            e.preventDefault();
+            const orderRow   = btn.closest('tr.order-row');
+            const orderGroup = orderRow ? orderRow.id.replace('order-row-', 'order-') : null;
+            callSoDeptEndpoint(
+                '{{ url_for("orders.advance_so_dept") }}',
+                btn.dataset.so, btn.dataset.dept, btn, orderGroup,
+                function (s) { return NEXT_STATUS[s] || s; }
+            );
+        });
+
+        // Right-click → step back (order-level OR line-level)
+        wipTable.addEventListener('contextmenu', function (e) {
+            // Order-level button
+            const advBtn = e.target.closest('.advance-so-dept-btn');
+            if (advBtn) {
+                e.preventDefault();
+                const orderRow   = advBtn.closest('tr.order-row');
+                const orderGroup = orderRow ? orderRow.id.replace('order-row-', 'order-') : null;
+                callSoDeptEndpoint(
+                    '{{ url_for("orders.reverse_so_dept") }}',
+                    advBtn.dataset.so, advBtn.dataset.dept, advBtn, orderGroup,
+                    function (s) { return PREV_STATUS[s] || s; }
+                );
+                return;
+            }
+            // Line-level op button
+            const opBtn = e.target.closest('.op-status-btn');
+            if (opBtn) {
+                e.preventDefault();
+                stepBackOp(opBtn);
+            }
+        });
+    }
+
+    // ── Line-level modal (left-click) ────────────────────────────────── //
     const modal = document.getElementById('opModal');
     const form  = document.getElementById('opForm');
     modal.addEventListener('show.bs.modal', function (e) {
-        const btn = e.relatedTarget;
+        const btn  = e.relatedTarget;
         const opId = btn.dataset.opId;
-        form.action = `/orders/operations/${opId}/update`;
+        form.action = '/orders/operations/' + opId + '/update';
         document.getElementById('opModalLabel').textContent = btn.dataset.so + ' — ' + btn.dataset.dept;
         document.getElementById('opModalSub').textContent   = '';
         document.getElementById('modalStatus').value  = btn.dataset.status;

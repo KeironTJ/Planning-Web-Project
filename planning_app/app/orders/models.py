@@ -67,6 +67,19 @@ class SalesOrderLine(db.Model):
         db.UniqueConstraint("so_number", "line_number", name="uq_sol_so_line"),
     )
 
+    # ── Line-level aggregate status constants ─────────────────────────── #
+    LINE_STATUS_NEW          = "new_order"
+    LINE_STATUS_FIRM_PLANNED = "firm_planned"
+    LINE_STATUS_WIP          = "wip"
+    LINE_STATUS_COMPLETE     = "complete"
+
+    LINE_STATUS_META = {
+        "new_order":    ("New Order",    "secondary"),
+        "firm_planned": ("Firm Planned", "info"),
+        "wip":          ("WIP",          "warning"),
+        "complete":     ("Complete",     "success"),
+    }
+
     id = db.Column(db.Integer, primary_key=True)
 
     # ERP fields (updated on every import)
@@ -98,31 +111,45 @@ class SalesOrderLine(db.Model):
     @property
     def aggregate_status(self) -> str:
         """
-        Derive an order-level status from its operations.
+        Derive a line-level status from the collection of operations.
 
-        Rules (in priority order):
-          - If any operation is in_progress  → in_progress
-          - If all operations are completed  → completed
-          - If all operations are closed     → closed
-          - If any operation is released     → released
-          - If any operation is firmed       → firmed
-          - If any operation is planned      → planned
-          - Otherwise                        → not_started
+        Priority (highest wins):
+          complete     — all operations are completed or closed
+          wip          — any operation is started, wip, or completed
+                         (production has begun on at least one department)
+          firm_planned — any open operation has a planned_date set
+          new_order    — no planned dates, all operations not_started
         """
-        statuses = {op.status for op in self.operations if op.status != WorksOrderOperation.STATUS_CLOSED}
-        if not statuses:
-            return WorksOrderOperation.STATUS_CLOSED
-        if WorksOrderOperation.STATUS_IN_PROGRESS in statuses:
-            return WorksOrderOperation.STATUS_IN_PROGRESS
-        if statuses == {WorksOrderOperation.STATUS_COMPLETED}:
-            return WorksOrderOperation.STATUS_COMPLETED
-        if WorksOrderOperation.STATUS_RELEASED in statuses:
-            return WorksOrderOperation.STATUS_RELEASED
-        if WorksOrderOperation.STATUS_FIRMED in statuses:
-            return WorksOrderOperation.STATUS_FIRMED
-        if WorksOrderOperation.STATUS_PLANNED in statuses:
-            return WorksOrderOperation.STATUS_PLANNED
-        return WorksOrderOperation.STATUS_NOT_STARTED
+        ops = self.operations
+        if not ops:
+            return self.LINE_STATUS_NEW
+
+        open_ops = [op for op in ops if op.status != WorksOrderOperation.STATUS_CLOSED]
+
+        # All closed (shipped / cancelled in ERP)
+        if not open_ops:
+            return self.LINE_STATUS_COMPLETE
+
+        open_statuses = {op.status for op in open_ops}
+
+        # All remaining open operations are completed
+        if open_statuses == {WorksOrderOperation.STATUS_COMPLETED}:
+            return self.LINE_STATUS_COMPLETE
+
+        # Any production activity → WIP
+        production_statuses = {
+            WorksOrderOperation.STATUS_STARTED,
+            WorksOrderOperation.STATUS_WIP,
+            WorksOrderOperation.STATUS_COMPLETED,
+        }
+        if open_statuses & production_statuses:
+            return self.LINE_STATUS_WIP
+
+        # Has planned dates set → Firm Planned
+        if any(op.planned_date is not None for op in open_ops):
+            return self.LINE_STATUS_FIRM_PLANNED
+
+        return self.LINE_STATUS_NEW
 
     def __repr__(self) -> str:
         return f"<SalesOrderLine {self.so_number}/{self.line_number}>"
@@ -153,21 +180,17 @@ class WorksOrderOperation(db.Model):
         ),
     )
 
-    # Status constants — full lifecycle
+    # Status constants
     STATUS_NOT_STARTED = "not_started"
-    STATUS_PLANNED = "planned"
-    STATUS_FIRMED = "firmed"
-    STATUS_RELEASED = "released"
-    STATUS_IN_PROGRESS = "in_progress"
-    STATUS_COMPLETED = "completed"
-    STATUS_CLOSED = "closed"
+    STATUS_STARTED    = "started"
+    STATUS_WIP        = "wip"
+    STATUS_COMPLETED  = "completed"
+    STATUS_CLOSED     = "closed"
 
     VALID_STATUSES = [
         STATUS_NOT_STARTED,
-        STATUS_PLANNED,
-        STATUS_FIRMED,
-        STATUS_RELEASED,
-        STATUS_IN_PROGRESS,
+        STATUS_STARTED,
+        STATUS_WIP,
         STATUS_COMPLETED,
         STATUS_CLOSED,
     ]
@@ -175,11 +198,9 @@ class WorksOrderOperation(db.Model):
     # Status display labels and Bootstrap badge colours
     STATUS_META = {
         STATUS_NOT_STARTED: ("Not Started", "secondary"),
-        STATUS_PLANNED:     ("Planned",     "info"),
-        STATUS_FIRMED:      ("Firmed",      "primary"),
-        STATUS_RELEASED:    ("Released",    "warning"),
-        STATUS_IN_PROGRESS: ("In Progress", "warning"),
-        STATUS_COMPLETED:   ("Completed",   "success"),
+        STATUS_STARTED:     ("Started",     "primary"),
+        STATUS_WIP:         ("WIP",         "warning"),
+        STATUS_COMPLETED:   ("Complete",    "success"),
         STATUS_CLOSED:      ("Closed",      "dark"),
     }
 

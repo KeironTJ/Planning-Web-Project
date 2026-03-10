@@ -5,6 +5,7 @@ Contains all query and business logic for the WIP tracker and related views.
 Routes should call these functions rather than querying models directly.
 """
 
+import math
 from datetime import date, timedelta
 from typing import Optional
 
@@ -13,6 +14,64 @@ from sqlalchemy import func, case, and_
 from app.extensions import db
 from app.core.exceptions import NotFoundError, ValidationError
 from .models import Department, SalesOrderLine, WorksOrderOperation
+
+
+# Operation status priority (lowest = least complete = worst)
+_STATUS_PRIORITY = {
+    WorksOrderOperation.STATUS_NOT_STARTED: 0,
+    WorksOrderOperation.STATUS_STARTED:     1,
+    WorksOrderOperation.STATUS_WIP:         2,
+    WorksOrderOperation.STATUS_COMPLETED:   3,
+    WorksOrderOperation.STATUS_CLOSED:      4,
+}
+
+_NEXT_STATUS = {
+    WorksOrderOperation.STATUS_NOT_STARTED: WorksOrderOperation.STATUS_STARTED,
+    WorksOrderOperation.STATUS_STARTED:     WorksOrderOperation.STATUS_WIP,
+    WorksOrderOperation.STATUS_WIP:         WorksOrderOperation.STATUS_COMPLETED,
+    WorksOrderOperation.STATUS_COMPLETED:   WorksOrderOperation.STATUS_COMPLETED,
+}
+
+_PREV_STATUS = {
+    WorksOrderOperation.STATUS_STARTED:   WorksOrderOperation.STATUS_NOT_STARTED,
+    WorksOrderOperation.STATUS_WIP:       WorksOrderOperation.STATUS_STARTED,
+    WorksOrderOperation.STATUS_COMPLETED: WorksOrderOperation.STATUS_WIP,
+}
+
+
+class SimplePagination:
+    """Minimal pagination proxy for in-Python grouped queries."""
+
+    def __init__(self, items: list, total: int, page: int, per_page: int):
+        self.items    = items
+        self.total    = total
+        self.page     = page
+        self.per_page = per_page
+
+    @property
+    def pages(self) -> int:
+        return math.ceil(self.total / self.per_page) if self.per_page else 0
+
+    @property
+    def has_prev(self) -> bool:
+        return self.page > 1
+
+    @property
+    def has_next(self) -> bool:
+        return self.page < self.pages
+
+    def iter_pages(self, left_edge=1, right_edge=1, left_current=2, right_current=2):
+        last = 0
+        for num in range(1, self.pages + 1):
+            if (
+                num <= left_edge
+                or (self.page - left_current) <= num <= (self.page + right_current)
+                or num > self.pages - right_edge
+            ):
+                if last + 1 != num:
+                    yield None
+                yield num
+                last = num
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +159,241 @@ def get_wip_page(
         q = q.order_by(SalesOrderLine.due_date.asc().nullslast(), SalesOrderLine.so_number)
 
     return q.paginate(page=page, per_page=per_page, error_out=False)
+
+
+def get_wip_grouped(
+    *,
+    page: int = 1,
+    per_page: int = 25,
+    dept_filter: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    search: Optional[str] = None,
+    overdue_only: bool = False,
+    order_by: str = "due_date",
+) -> tuple["SimplePagination", list]:
+    """
+    Return WIP data grouped by SO number.
+
+    Each item in the returned list is a dict:
+        so_number      str
+        customer_name  str
+        due_date       date | None   — earliest due date across lines
+        total_qty      Decimal       — sum of qty_ordered across lines
+        line_count     int
+        agg_status     str           — worst line-level status across lines
+        dept_status    dict[str, str] — dept_name → min op status (worst first)
+        lines          list[SalesOrderLine]
+    """
+    from sqlalchemy.orm import joinedload
+
+    today = date.today()
+
+    q = SalesOrderLine.query.options(
+        joinedload(SalesOrderLine.operations).joinedload(WorksOrderOperation.department)
+    )
+
+    # Exclude fully-closed lines
+    q = q.filter(
+        SalesOrderLine.operations.any(
+            WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED
+        )
+    )
+
+    if search:
+        term = f"%{search.strip()}%"
+        q = q.filter(db.or_(
+            SalesOrderLine.so_number.ilike(term),
+            SalesOrderLine.customer_name.ilike(term),
+            SalesOrderLine.product_code.ilike(term),
+            SalesOrderLine.product_description.ilike(term),
+            SalesOrderLine.customer_order_ref.ilike(term),
+        ))
+
+    if status_filter:
+        q = q.filter(
+            SalesOrderLine.operations.any(
+                WorksOrderOperation.status == status_filter
+            )
+        )
+
+    if dept_filter:
+        q = q.filter(
+            SalesOrderLine.operations.any(
+                WorksOrderOperation.work_centre_name == dept_filter
+            )
+        )
+
+    if overdue_only:
+        q = q.filter(
+            SalesOrderLine.due_date < today,
+            SalesOrderLine.operations.any(
+                and_(
+                    WorksOrderOperation.status.notin_([
+                        WorksOrderOperation.STATUS_COMPLETED,
+                        WorksOrderOperation.STATUS_CLOSED,
+                    ]),
+                    WorksOrderOperation.due_date < today,
+                )
+            ),
+        )
+
+    # Order lines so grouping is stable
+    if order_by == "so_number":
+        q = q.order_by(SalesOrderLine.so_number, SalesOrderLine.line_number)
+    elif order_by == "customer":
+        q = q.order_by(
+            SalesOrderLine.customer_name,
+            SalesOrderLine.due_date.asc().nullslast(),
+            SalesOrderLine.so_number,
+            SalesOrderLine.line_number,
+        )
+    else:  # due_date (default)
+        q = q.order_by(
+            SalesOrderLine.due_date.asc().nullslast(),
+            SalesOrderLine.so_number,
+            SalesOrderLine.line_number,
+        )
+
+    all_lines = q.all()
+
+    # Group by so_number maintaining query order
+    seen: dict[str, dict] = {}
+    order_list: list[dict] = []
+    for sol in all_lines:
+        if sol.so_number not in seen:
+            entry = {
+                "so_number":     sol.so_number,
+                "customer_name": sol.customer_name or "",
+                "lines":         [],
+            }
+            seen[sol.so_number] = entry
+            order_list.append(entry)
+        seen[sol.so_number]["lines"].append(sol)
+
+    # Compute aggregates for each order group
+    _line_status_priority = {
+        SalesOrderLine.LINE_STATUS_NEW:          0,
+        SalesOrderLine.LINE_STATUS_FIRM_PLANNED: 1,
+        SalesOrderLine.LINE_STATUS_WIP:          2,
+        SalesOrderLine.LINE_STATUS_COMPLETE:     3,
+    }
+
+    for entry in order_list:
+        lines = entry["lines"]
+
+        # Earliest due date
+        due_dates = [s.due_date for s in lines if s.due_date]
+        entry["due_date"] = min(due_dates) if due_dates else None
+
+        # Total qty
+        entry["total_qty"] = sum(
+            (s.qty_ordered or 0) for s in lines
+        )
+        entry["line_count"] = len(lines)
+
+        # Aggregate line status (worst = lowest priority)
+        line_statuses = [s.aggregate_status for s in lines]
+        entry["agg_status"] = min(
+            line_statuses,
+            key=lambda s: _line_status_priority.get(s, 99),
+        )
+
+        # Dept status: dept_name → min op status across all lines for this SO
+        dept_ops: dict[str, list] = {}
+        for sol in lines:
+            for op in sol.operations:
+                if op.status != WorksOrderOperation.STATUS_CLOSED:
+                    dept_ops.setdefault(op.work_centre_name, []).append(op)
+
+        entry["dept_status"] = {
+            dept_name: min(ops, key=lambda o: _STATUS_PRIORITY.get(o.status, 99)).status
+            for dept_name, ops in dept_ops.items()
+        }
+
+    # Manual pagination
+    total = len(order_list)
+    start = (page - 1) * per_page
+    page_items = order_list[start: start + per_page]
+
+    return SimplePagination(page_items, total, page, per_page), page_items
+
+
+def advance_so_dept_status(so_number: str, work_centre_name: str) -> dict:
+    """
+    Advance every open operation for a given SO + work centre to its next status.
+    Returns the new aggregate status for that SO + dept cell.
+    """
+    ops = (
+        WorksOrderOperation.query
+        .filter_by(so_number=so_number, work_centre_name=work_centre_name)
+        .filter(WorksOrderOperation.status.notin_([
+            WorksOrderOperation.STATUS_COMPLETED,
+            WorksOrderOperation.STATUS_CLOSED,
+        ]))
+        .all()
+    )
+
+    for op in ops:
+        next_s = _NEXT_STATUS.get(op.status, op.status)
+        op.status = next_s
+        if next_s == WorksOrderOperation.STATUS_COMPLETED and op.completed_date is None:
+            op.completed_date = date.today()
+
+    db.session.commit()
+
+    # Recompute aggregate for the cell (min status across all non-closed ops)
+    remaining = (
+        WorksOrderOperation.query
+        .filter_by(so_number=so_number, work_centre_name=work_centre_name)
+        .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
+        .all()
+    )
+    if not remaining:
+        agg = WorksOrderOperation.STATUS_COMPLETED
+    else:
+        agg = min(remaining, key=lambda o: _STATUS_PRIORITY.get(o.status, 99)).status
+
+    label, colour = WorksOrderOperation.STATUS_META.get(agg, ("Unknown", "secondary"))
+    return {"status": agg, "label": label, "colour": colour}
+
+
+def reverse_so_dept_status(so_number: str, work_centre_name: str) -> dict:
+    """
+    Step every open operation for a given SO + work centre back one status.
+    not_started is the floor — operations there are left unchanged.
+    Returns the new aggregate status for that SO + dept cell.
+    """
+    ops = (
+        WorksOrderOperation.query
+        .filter_by(so_number=so_number, work_centre_name=work_centre_name)
+        .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
+        .all()
+    )
+
+    for op in ops:
+        prev_s = _PREV_STATUS.get(op.status)
+        if prev_s is None:
+            continue  # already at not_started, leave it
+        op.status = prev_s
+        if prev_s != WorksOrderOperation.STATUS_COMPLETED:
+            op.completed_date = None  # clear completed_date if stepping back
+
+    db.session.commit()
+
+    # Recompute aggregate
+    remaining = (
+        WorksOrderOperation.query
+        .filter_by(so_number=so_number, work_centre_name=work_centre_name)
+        .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
+        .all()
+    )
+    if not remaining:
+        agg = WorksOrderOperation.STATUS_COMPLETED
+    else:
+        agg = min(remaining, key=lambda o: _STATUS_PRIORITY.get(o.status, 99)).status
+
+    label, colour = WorksOrderOperation.STATUS_META.get(agg, ("Unknown", "secondary"))
+    return {"status": agg, "label": label, "colour": colour}
 
 
 def get_dept_operations(

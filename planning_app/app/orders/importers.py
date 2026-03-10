@@ -187,10 +187,8 @@ class OobImporter:
             # Find all operations that are NOT completed/closed and NOT in today's CSV
             closeable_statuses = [
                 WorksOrderOperation.STATUS_NOT_STARTED,
-                WorksOrderOperation.STATUS_PLANNED,
-                WorksOrderOperation.STATUS_FIRMED,
-                WorksOrderOperation.STATUS_RELEASED,
-                WorksOrderOperation.STATUS_IN_PROGRESS,
+                WorksOrderOperation.STATUS_STARTED,
+                WorksOrderOperation.STATUS_WIP,
             ]
             open_ops = WorksOrderOperation.query.filter(
                 WorksOrderOperation.status.in_(closeable_statuses)

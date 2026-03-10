@@ -229,7 +229,7 @@
             {# Status #}
             <td class="text-center">
                 {% set agg = sol.aggregate_status %}
-                {% set lbl, col = STATUS_META.get(agg, ('Unknown','secondary')) %}
+                {% set lbl, col = LINE_STATUS_META.get(agg, ('Unknown','secondary')) %}
                 <span class="badge bg-{{ col }}">{{ lbl }}</span>
             </td>
 
