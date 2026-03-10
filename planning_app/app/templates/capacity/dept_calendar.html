@@ -1,0 +1,156 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<!-- Dept selector + controls -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label form-label-sm fw-semibold mb-1">Weeks</label>
+                <select name="weeks" class="form-select form-select-sm" style="width:auto;">
+                    {% for w in [4, 8, 12, 16] %}
+                    <option value="{{ w }}" {{ 'selected' if num_weeks == w }}>{{ w }} weeks</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Dept quick links -->
+<div class="mb-3 d-flex flex-wrap gap-1">
+    {% for d in departments %}
+    <a href="{{ url_for('capacity.dept_calendar', dept_id=d.id) }}"
+       class="btn btn-sm {{ 'btn-primary' if d.id == cal.dept.id else 'btn-outline-secondary' }}">
+        {{ d.name }}
+    </a>
+    {% endfor %}
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <small class="text-muted">
+        {{ cal.from_date.strftime('%d %b %Y') }} – {{ cal.to_date.strftime('%d %b %Y') }}
+    </small>
+    <a href="{{ url_for('capacity.dashboard', dept=cal.dept.id) }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-bar-chart-fill me-1"></i>Chart View
+    </a>
+</div>
+
+{% if cal.weeks %}
+<div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0 align-middle" style="font-size:.82rem;">
+        <thead class="table-light">
+            <tr>
+                <th style="min-width:70px;">Week</th>
+                <th class="text-center">Mon</th>
+                <th class="text-center">Tue</th>
+                <th class="text-center">Wed</th>
+                <th class="text-center">Thu</th>
+                <th class="text-center">Fri</th>
+                <th class="text-center text-muted">Sat</th>
+                <th class="text-center text-muted">Sun</th>
+                <th class="text-end">Week Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for week in cal.weeks %}
+            {% set week_total = namespace(val=0.0) %}
+            {% for day in week.days %}
+                {% if day.bucket and day.bucket.is_workday and day.bucket.available_hours %}
+                    {% set week_total.val = week_total.val + day.bucket.available_hours | float %}
+                {% endif %}
+            {% endfor %}
+            <tr>
+                <td class="fw-semibold text-muted">{{ week.label[5:] }}</td>
+                {% for day in week.days %}
+                {% set b = day.bucket %}
+                {% set is_weekend = loop.index > 5 %}
+                <td class="text-center p-1
+                    {{ 'bg-body-secondary text-muted' if is_weekend else '' }}
+                    {{ 'table-success' if b and b.day_complete else '' }}
+                    {{ 'table-light text-muted' if b and not b.is_workday and not is_weekend else '' }}">
+                    {% if b %}
+                        {% if b.is_workday %}
+                            <div class="fw-semibold {{ 'text-muted' if is_weekend else '' }}">
+                                {{ b.available_hours if b.available_hours else '—' }}
+                            </div>
+                            <div class="text-muted" style="font-size:.7rem;">{{ day.date.strftime('%d') }}</div>
+                            {% if b.manually_overridden %}
+                            <i class="bi bi-pencil-fill text-warning" style="font-size:.6rem;" title="Manually overridden"></i>
+                            {% endif %}
+                            {% if b.day_complete %}
+                            <i class="bi bi-check-circle-fill text-success" style="font-size:.7rem;" title="Day complete"></i>
+                            {% endif %}
+                            <!-- Quick override form -->
+                            <form method="POST"
+                                  action="{{ url_for('capacity.override_bucket', bucket_id=b.id) }}"
+                                  class="mt-1 override-form"
+                                  style="display:none;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="number" name="hours" step="0.25" min="0" max="24"
+                                       class="form-control form-control-sm text-center p-0"
+                                       style="width:50px; font-size:.7rem;"
+                                       value="{{ b.available_hours if b.available_hours else 0 }}"
+                                       onblur="this.form.submit()">
+                            </form>
+                            <button class="btn btn-link btn-sm p-0 edit-btn"
+                                    style="font-size:.65rem;"
+                                    onclick="toggleEdit(this)"
+                                    title="Edit hours">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                        {% else %}
+                            <span class="text-muted small">Non-work</span>
+                            <div class="text-muted" style="font-size:.7rem;">{{ day.date.strftime('%d') }}</div>
+                        {% endif %}
+                    {% else %}
+                        <span class="text-muted" style="font-size:.7rem;">{{ day.date.strftime('%d') }}</span>
+                    {% endif %}
+                </td>
+                {% endfor %}
+                <td class="text-end fw-semibold">
+                    {{ week_total.val if week_total.val else '—' }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="mt-2 d-flex gap-3 small text-muted">
+    <span><i class="bi bi-check-circle-fill text-success me-1"></i>Day complete</span>
+    <span><i class="bi bi-pencil-fill text-warning me-1"></i>Manually overridden</span>
+    <span class="bg-body-secondary px-1 rounded">Weekend / non-working</span>
+</div>
+
+{% else %}
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-calendar3 fs-1 d-block mb-2"></i>
+    No Labour Plan data for this period.
+    <a href="{{ url_for('admin.import_upload') }}">Import LabourPlan_HIDE.csv</a> to populate.
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleEdit(btn) {
+    const cell = btn.closest('td');
+    const form = cell.querySelector('.override-form');
+    const editBtn = cell.querySelector('.edit-btn');
+    if (form.style.display === 'none') {
+        form.style.display = '';
+        editBtn.style.display = 'none';
+        form.querySelector('input[name=hours]').focus();
+    } else {
+        form.style.display = 'none';
+        editBtn.style.display = '';
+    }
+}
+</script>
+{% endblock %}

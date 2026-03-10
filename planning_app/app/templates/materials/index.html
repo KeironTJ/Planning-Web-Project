@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<!-- KPI cards -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3 h-100">
+            <div class="fs-2 fw-bold text-primary">{{ summary.stock_lines }}</div>
+            <div class="text-muted small">Stock Lines</div>
+            {% if summary.zero_stock %}
+            <div class="text-warning small">{{ summary.zero_stock }} at zero</div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3 h-100">
+            <div class="fs-2 fw-bold text-success">{{ summary.po_lines }}</div>
+            <div class="text-muted small">Open PO Lines</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3 h-100">
+            <div class="fs-2 fw-bold text-info">{{ summary.main_reqs + summary.as_reqs }}</div>
+            <div class="text-muted small">Material Requirements</div>
+            <div class="small text-muted">{{ summary.main_reqs }} main · {{ summary.as_reqs }} AS</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3 h-100">
+            <div class="fs-2 fw-bold {{ 'text-danger' if summary.shortage_est else 'text-success' }}">
+                {{ summary.shortage_est }}
+            </div>
+            <div class="text-muted small">Lines with Potential Shortage</div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick links -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <a href="{{ url_for('materials.shortage') }}" class="card border-0 shadow-sm text-decoration-none h-100 {{ 'border-danger border' if summary.shortage_est else '' }}">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="fs-2 {{ 'text-danger' if summary.shortage_est else 'text-secondary' }}">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                </div>
+                <div>
+                    <div class="fw-semibold">Shortage Report</div>
+                    <div class="text-muted small">Requirements vs stock vs open POs</div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-4">
+        <a href="{{ url_for('materials.stock_list') }}" class="card border-0 shadow-sm text-decoration-none h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="fs-2 text-primary"><i class="bi bi-box-seam"></i></div>
+                <div>
+                    <div class="fw-semibold">Stock On Hand</div>
+                    <div class="text-muted small">{{ summary.stock_lines }} products</div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-4">
+        <a href="{{ url_for('materials.po_list') }}" class="card border-0 shadow-sm text-decoration-none h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="fs-2 text-success"><i class="bi bi-truck"></i></div>
+                <div>
+                    <div class="fw-semibold">Open Purchase Orders</div>
+                    <div class="text-muted small">{{ summary.po_lines }} lines</div>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+
+<!-- Data freshness notice -->
+{% if summary.last_stock_import %}
+<div class="alert alert-light border small">
+    <i class="bi bi-info-circle me-1"></i>
+    Stock last imported: <strong>{{ summary.last_stock_import.uploaded_at.strftime('%d %b %Y %H:%M') }}</strong>.
+    Data is refreshed by daily ERP export — import all CSVs each morning for accurate shortage figures.
+    <a href="{{ url_for('admin.import_upload') }}" class="alert-link ms-2">Upload now</a>
+</div>
+{% else %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    No stock data imported yet.
+    <a href="{{ url_for('admin.import_upload') }}" class="alert-link">Upload StockOnHand_HIDE.csv</a> to get started.
+</div>
+{% endif %}
+{% endblock %}

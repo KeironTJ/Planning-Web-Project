@@ -11,6 +11,7 @@ from . import orders_bp
 from .forms import OperationStatusForm
 from .models import WorksOrderOperation
 from . import services
+from app.core.decorators import permission_required
 from app.core.exceptions import NotFoundError, ValidationError
 
 
@@ -21,6 +22,7 @@ from app.core.exceptions import NotFoundError, ValidationError
 @orders_bp.route("/")
 @orders_bp.route("/wip")
 @login_required
+@permission_required("view_orders")
 def wip_tracker():
     dept_filter   = request.args.get("dept", "")
     status_filter = request.args.get("status", "")
@@ -65,6 +67,7 @@ def wip_tracker():
 
 @orders_bp.route("/dept/<int:dept_id>")
 @login_required
+@permission_required("view_orders")
 def dept_orders(dept_id: int):
     status_filter = request.args.get("status", "")
     search        = request.args.get("q", "")
@@ -106,6 +109,7 @@ def dept_orders(dept_id: int):
 
 @orders_bp.route("/firming")
 @login_required
+@permission_required("view_orders")
 def firming_queue():
     page  = request.args.get("page", 1, type=int)
     lines = services.get_firming_queue(page=page)
@@ -128,6 +132,7 @@ def firming_queue():
 
 @orders_bp.route("/operations/<int:op_id>/update", methods=["POST"])
 @login_required
+@permission_required("update_order_status")
 def update_operation(op_id: int):
     """Update status / planned_date / notes on a single operation."""
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
@@ -171,6 +176,7 @@ def update_operation(op_id: int):
 
 @orders_bp.route("/operations/bulk-update", methods=["POST"])
 @login_required
+@permission_required("update_order_status")
 def bulk_update_operations():
     """Bulk status update from a department or WIP view."""
     ids_raw  = request.form.get("operation_ids", "")

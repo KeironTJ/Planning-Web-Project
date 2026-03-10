@@ -1,0 +1,169 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<!-- Filters -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-sm-3 col-md-2">
+                <label class="form-label form-label-sm fw-semibold mb-1">Source</label>
+                <select name="source" class="form-select form-select-sm">
+                    <option value="all"       {{ 'selected' if source == 'all' }}>All</option>
+                    <option value="main"      {{ 'selected' if source == 'main' }}>Main Line</option>
+                    <option value="aftersales"{{ 'selected' if source == 'aftersales' }}>After Sales</option>
+                </select>
+            </div>
+            <div class="col-sm-3 col-md-2">
+                <label class="form-label form-label-sm fw-semibold mb-1">Department</label>
+                <select name="dept" class="form-select form-select-sm">
+                    <option value="">All Depts</option>
+                    {% for d in departments %}
+                    <option value="{{ d.name }}" {{ 'selected' if dept_filter == d.name }}>{{ d.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-3 col-md-2">
+                <label class="form-label form-label-sm fw-semibold mb-1">Due before</label>
+                <input type="date" name="due_before" class="form-control form-control-sm" value="{{ due_before }}">
+            </div>
+            <div class="col-sm-4 col-md-3">
+                <label class="form-label form-label-sm fw-semibold mb-1">Search</label>
+                <input type="search" name="q" class="form-control form-control-sm"
+                       placeholder="Material, works order…" value="{{ search }}">
+            </div>
+            <div class="col-auto">
+                <div class="form-check mb-0">
+                    <input class="form-check-input" type="checkbox" name="shortages_only"
+                           value="1" id="shortagesOnlyChk" {{ 'checked' if shortages_only }}>
+                    <label class="form-check-label small" for="shortagesOnlyChk">Shortages only</label>
+                </div>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+                <a href="{{ url_for('materials.shortage') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Summary banner -->
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <div>
+        {% if data.shortage_count %}
+        <span class="badge bg-danger fs-6 me-2">{{ data.shortage_count }} shortage{{ 's' if data.shortage_count != 1 }}</span>
+        {% else %}
+        <span class="badge bg-success fs-6 me-2">No shortages</span>
+        {% endif %}
+        <small class="text-muted">{{ data.total_rows }} requirement{{ 's' if data.total_rows != 1 }} shown</small>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('materials.stock_list') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-box-seam me-1"></i>Stock
+        </a>
+        <a href="{{ url_for('materials.po_list') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-truck me-1"></i>Open POs
+        </a>
+    </div>
+</div>
+
+{% if not data.stock_imported %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    No stock data — shortage figures will be overstated.
+    <a href="{{ url_for('admin.import_upload') }}" class="alert-link">Import StockOnHand_HIDE.csv</a>
+</div>
+{% endif %}
+
+{% if data.rows %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.82rem;">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th>Source</th>
+                        <th>Material / Product</th>
+                        <th>Department</th>
+                        <th>Ref</th>
+                        <th class="text-center">Due</th>
+                        <th class="text-end">Required</th>
+                        <th class="text-end">Issued</th>
+                        <th class="text-end">Net Req</th>
+                        <th class="text-end">Stock</th>
+                        <th class="text-end">Open PO</th>
+                        <th class="text-end fw-semibold">Shortage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in data.rows %}
+                    <tr class="{{ 'table-danger' if row.shortage > 0 else '' }}">
+                        <td>
+                            <span class="badge {{ 'bg-primary' if row.source == 'main' else 'bg-secondary' }}">
+                                {{ 'Main' if row.source == 'main' else 'AS' }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="fw-semibold">{{ row.material_code }}</span>
+                            {% if row.description %}
+                            <div class="text-muted small text-truncate" style="max-width:180px;" title="{{ row.description }}">
+                                {{ row.description }}
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted small">{{ row.department or '—' }}</td>
+                        <td class="text-muted small">
+                            {{ row.works_order or row.order_number or '—' }}
+                            {% if row.customer_id or row.customer %}
+                            <div class="text-muted" style="font-size:.7rem;">{{ row.customer_id or row.customer }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="text-center {{ 'text-danger fw-semibold' if row.due_date and row.due_date < today else '' }}">
+                            {{ row.due_date.strftime('%d %b %y') if row.due_date else '—' }}
+                        </td>
+                        <td class="text-end">{{ row.qty_required | round(2) }}</td>
+                        <td class="text-end text-muted">
+                            {{ row.qty_issued | round(2) if row.qty_issued else '—' }}
+                        </td>
+                        <td class="text-end">{{ row.net_required | round(2) }}</td>
+                        <td class="text-end {{ 'text-danger' if row.stock_on_hand <= 0 else 'text-success' }}">
+                            {{ row.stock_on_hand | round(2) }}
+                        </td>
+                        <td class="text-end {{ 'text-success' if row.po_coverage > 0 else 'text-muted' }}">
+                            {{ row.po_coverage | round(2) if row.po_coverage else '—' }}
+                        </td>
+                        <td class="text-end fw-bold {{ 'text-danger' if row.shortage > 0 else 'text-success' }}">
+                            {{ row.shortage | round(2) if row.shortage > 0 else '✓' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<div class="mt-2 small text-muted">
+    <i class="bi bi-info-circle me-1"></i>
+    Shortage = Net Required − Stock On Hand − Open PO qty (due on or before requirement date).
+    Completed requirements (COMPLETE = Y) are excluded.
+</div>
+
+{% else %}
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-check2-all fs-1 d-block mb-2 text-success"></i>
+    {% if data.reqs_imported %}
+    No shortages found with current filters.
+    {% else %}
+    No material requirements imported yet.
+    <a href="{{ url_for('admin.import_upload') }}">Import MainMaterialReq_HIDE.csv</a> to get started.
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Make today available for due-date colouring
+const today = new Date().toISOString().split('T')[0];
+</script>
+{% endblock %}

@@ -1,179 +1,331 @@
 {% extends 'base.html' %}
 
-{% block page_actions %}
-    {% if current_user.has_permission('create_work_order') %}
-    <a href="{{ url_for('capacity.work_order_new') }}" class="btn btn-sm btn-primary">
-        <i class="bi bi-plus-lg me-1"></i>New Work Order
-    </a>
-    {% endif %}
-    {% if current_user.has_permission('create_capacity') %}
-    <a href="{{ url_for('capacity.generate_buckets') }}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-calendar3 me-1"></i>Generate Buckets
-    </a>
-    {% endif %}
-{% endblock %}
-
 {% block content %}
 
-<!-- KPI cards -->
-<div class="row g-3 mb-4">
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-2 text-primary"><i class="bi bi-clipboard2-check"></i></div>
-                    <div>
-                        <div class="fs-4 fw-bold">{{ wo_summary.total_open }}</div>
-                        <div class="text-muted small">Open Orders</div>
-                    </div>
-                </div>
+<!-- Controls bar -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-sm-3 col-md-2">
+                <label class="form-label form-label-sm fw-semibold mb-1">Department</label>
+                <select name="dept" class="form-select form-select-sm">
+                    <option value="">All Departments</option>
+                    {% for d in departments %}
+                    <option value="{{ d.id }}" {{ 'selected' if dept_id == d.id }}>{{ d.name }}</option>
+                    {% endfor %}
+                </select>
             </div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-2 text-warning"><i class="bi bi-exclamation-triangle"></i></div>
-                    <div>
-                        <div class="fs-4 fw-bold text-warning">{{ wo_summary.overdue }}</div>
-                        <div class="text-muted small">Overdue</div>
-                    </div>
-                </div>
+            <div class="col-sm-3 col-md-2">
+                <label class="form-label form-label-sm fw-semibold mb-1">Weeks ahead</label>
+                <select name="weeks" class="form-select form-select-sm">
+                    {% for w in [4, 8, 13, 26] %}
+                    <option value="{{ w }}" {{ 'selected' if num_weeks == w }}>{{ w }} weeks</option>
+                    {% endfor %}
+                </select>
             </div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-2 text-success"><i class="bi bi-play-circle"></i></div>
-                    <div>
-                        <div class="fs-4 fw-bold text-success">{{ wo_summary.in_progress }}</div>
-                        <div class="text-muted small">In Progress</div>
-                    </div>
-                </div>
+            <div class="col-sm-3 col-md-2">
+                <label class="form-label form-label-sm fw-semibold mb-1">View</label>
+                <select name="view" class="form-select form-select-sm">
+                    <option value="chart" {{ 'selected' if view_mode == 'chart' }}>Chart</option>
+                    <option value="table" {{ 'selected' if view_mode == 'table' }}>Table</option>
+                </select>
             </div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-2 text-info"><i class="bi bi-send"></i></div>
-                    <div>
-                        <div class="fs-4 fw-bold text-info">{{ wo_summary.released }}</div>
-                        <div class="text-muted small">Released</div>
-                    </div>
-                </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+                <a href="{{ url_for('capacity.dashboard') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
             </div>
-        </div>
+            <div class="col-auto ms-auto">
+                <a href="{{ url_for('admin.import_upload') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-upload me-1"></i>Import Labour Plan
+                </a>
+            </div>
+        </form>
     </div>
 </div>
 
-<!-- Utilisation chart -->
-<div class="row g-3">
-    <div class="col-lg-8">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
-                <span class="fw-semibold">Capacity Utilisation — Next 13 Weeks</span>
-                <small class="text-muted">{{ from_date.strftime('%d %b') }} – {{ to_date.strftime('%d %b %Y') }}</small>
-            </div>
-            <div class="card-body">
-                <canvas id="utilisationChart" height="300" aria-label="Capacity utilisation chart"></canvas>
-            </div>
+{% if not data.has_buckets %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i>
+    No Labour Plan data imported yet.
+    <a href="{{ url_for('admin.import_upload') }}" class="alert-link">Upload LabourPlan_HIDE.csv</a> to populate capacity buckets.
+</div>
+{% endif %}
+
+{% if not data.has_smv %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    No SMV data — load hours cannot be calculated.
+    <a href="{{ url_for('admin.import_upload') }}" class="alert-link">Upload SMVTable_HIDE.csv</a> to enable load vs capacity comparison.
+</div>
+{% endif %}
+
+<!-- Period header -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <small class="text-muted">
+        {{ data.from_date.strftime('%d %b %Y') }} – {{ data.to_date.strftime('%d %b %Y') }}
+        ({{ num_weeks }} weeks){% if selected_dept %} — {{ selected_dept.name }}{% endif %}
+    </small>
+    {% if selected_dept %}
+    <a href="{{ url_for('capacity.dept_calendar', dept_id=selected_dept.id) }}" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-calendar3 me-1"></i>Labour Plan Calendar
+    </a>
+    {% endif %}
+</div>
+
+{% if view_mode == 'chart' and data.departments %}
+    {% if selected_dept %}
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-transparent fw-semibold">{{ data.departments[0].dept.name }} — Load vs Available (hrs/week)</div>
+        <div class="card-body">
+            <canvas id="deptChart" style="height:280px;" aria-label="Dept capacity chart"></canvas>
         </div>
     </div>
+    {% else %}
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-transparent fw-semibold">All Departments — Load vs Available ({{ num_weeks }}-week totals)</div>
+        <div class="card-body">
+            <canvas id="allDeptsChart" style="height:300px;" aria-label="All depts capacity chart"></canvas>
+        </div>
+    </div>
+    {% endif %}
+{% endif %}
 
-    <div class="col-lg-4">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-transparent fw-semibold">Work Centre Summary</div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Work Centre</th>
-                                <th class="text-end">Utilisation</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for row in utilisation %}
-                            <tr>
-                                <td>
-                                    <span class="fw-medium">{{ row.work_centre_code }}</span>
-                                    <span class="text-muted small d-block">{{ row.work_centre_name }}</span>
-                                </td>
-                                <td class="text-end">
-                                    <div class="progress" style="height: 6px; min-width: 60px;">
-                                        <div class="progress-bar {% if row.utilisation_pct > 95 %}bg-danger{% elif row.utilisation_pct > 80 %}bg-warning{% else %}bg-success{% endif %}"
-                                             role="progressbar"
-                                             style="width: {{ [row.utilisation_pct, 100] | min }}%"
-                                             aria-valuenow="{{ row.utilisation_pct | round(1) }}"
-                                             aria-valuemin="0" aria-valuemax="100">
-                                        </div>
+<!-- Summary table -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-transparent fw-semibold">
+        Department Summary
+        <small class="text-muted fw-normal ms-2">{{ data.from_date.strftime('%d %b') }} – {{ data.to_date.strftime('%d %b %Y') }}</small>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Department</th>
+                        <th class="text-end">Available Hrs</th>
+                        <th class="text-end">Load Hrs</th>
+                        <th class="text-end">Headroom</th>
+                        <th style="min-width:160px;">Utilisation</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in data.summary %}
+                    <tr>
+                        <td class="fw-semibold">{{ row.dept.name }}</td>
+                        <td class="text-end">{{ row.avail_total if row.avail_total else '—' }}</td>
+                        <td class="text-end">{{ row.load_total if row.load_total else '—' }}</td>
+                        <td class="text-end {{ 'text-danger fw-semibold' if row.headroom < 0 else '' }}">
+                            {{ row.headroom if row.avail_total else '—' }}
+                        </td>
+                        <td>
+                            {% if row.avail_total %}
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="progress flex-grow-1" style="height:8px;">
+                                    <div class="progress-bar
+                                        {% if row.util_pct > 100 %}bg-danger
+                                        {% elif row.util_pct > 85 %}bg-warning
+                                        {% else %}bg-success{% endif %}"
+                                        style="width:{{ [row.util_pct, 100] | min }}%">
                                     </div>
-                                    <small class="{% if row.utilisation_pct > 95 %}text-danger{% elif row.utilisation_pct > 80 %}text-warning{% else %}text-success{% endif %}">
-                                        {{ row.utilisation_pct | round(1) }}%
-                                    </small>
-                                </td>
-                            </tr>
+                                </div>
+                                <small class="{% if row.util_pct > 100 %}text-danger fw-semibold
+                                             {% elif row.util_pct > 85 %}text-warning
+                                             {% else %}text-success{% endif %}"
+                                       style="min-width:42px;">
+                                    {{ row.util_pct }}%
+                                </small>
+                            </div>
                             {% else %}
-                            <tr><td colspan="2" class="text-center text-muted py-3">No capacity data — generate buckets first.</td></tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                            <span class="text-muted small">No data</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('capacity.dept_calendar', dept_id=row.dept.id) }}"
+                               class="btn btn-sm btn-outline-secondary py-0"
+                               title="Labour Plan Calendar">
+                                <i class="bi bi-calendar3"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">
+                            No active departments.
+                            <a href="{{ url_for('admin.dept_list') }}">Configure departments</a>.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
+
+{% if view_mode == 'table' and data.departments %}
+<div class="mt-3">
+    {% for d in data.departments %}
+    {% set has_any = namespace(val=false) %}
+    {% for row in d.rows %}{% if row.avail > 0 %}{% set has_any.val = true %}{% endif %}{% endfor %}
+    {% if has_any.val %}
+    <div class="card border-0 shadow-sm mb-2">
+        <div class="card-header bg-transparent py-2 d-flex justify-content-between align-items-center">
+            <span class="fw-semibold small">{{ d.dept.name }}</span>
+            <a href="{{ url_for('capacity.dept_calendar', dept_id=d.dept.id) }}"
+               class="btn btn-sm btn-outline-secondary py-0">Calendar</a>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0" style="font-size:.8rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="min-width:80px;"></th>
+                            {% for row in d.rows %}
+                            <th class="text-center">{{ row.week[5:] }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="text-muted">Available</td>
+                            {% for row in d.rows %}
+                            <td class="text-center">{{ row.avail or '—' }}</td>
+                            {% endfor %}
+                        </tr>
+                        <tr>
+                            <td class="text-muted">Load</td>
+                            {% for row in d.rows %}
+                            <td class="text-center">{{ row.load or '—' }}</td>
+                            {% endfor %}
+                        </tr>
+                        <tr>
+                            <td class="text-muted">Util %</td>
+                            {% for row in d.rows %}
+                            <td class="text-center
+                                {% if row.avail and row.util > 100 %}text-danger fw-bold
+                                {% elif row.avail and row.util > 85 %}text-warning
+                                {% elif row.avail %}text-success{% endif %}">
+                                {{ row.util if row.avail else '—' }}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-    const utilisationData = {{ utilisation | tojson }};
-    if (!utilisationData.length) return;
+document.addEventListener('DOMContentLoaded', function () {
+    const chartData = {{ chart_data | tojson }};
+    const weeks     = {{ data.weeks | tojson }};
 
-    const ctx = document.getElementById('utilisationChart').getContext('2d');
-    new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: utilisationData.map(d => d.work_centre_code),
-            datasets: [
-                {
-                    label: 'Allocated Hours',
-                    data: utilisationData.map(d => d.total_allocated),
-                    backgroundColor: 'rgba(13, 110, 253, 0.7)',
-                },
-                {
-                    label: 'Remaining Hours',
-                    data: utilisationData.map(d => d.remaining_hours),
-                    backgroundColor: 'rgba(200, 200, 200, 0.4)',
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                x: { stacked: true },
-                y: { stacked: true, title: { display: true, text: 'Hours' } }
+    function utilColour(util) {
+        if (util > 100) return 'rgba(220,53,69,0.8)';
+        if (util > 85)  return 'rgba(255,193,7,0.8)';
+        return 'rgba(25,135,84,0.6)';
+    }
+
+    {% if selected_dept and data.departments %}
+    const d   = chartData[0];
+    const ctx = document.getElementById('deptChart');
+    if (ctx) {
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: weeks,
+                datasets: [
+                    {
+                        label: 'Available Hrs',
+                        data: d.rows.map(r => r.avail),
+                        backgroundColor: 'rgba(200,200,200,0.5)',
+                        borderColor: 'rgba(150,150,150,0.8)',
+                        borderWidth: 1,
+                        order: 2,
+                    },
+                    {
+                        label: 'Load Hrs',
+                        data: d.rows.map(r => r.load),
+                        backgroundColor: d.rows.map(r => utilColour(r.util)),
+                        borderWidth: 0,
+                        order: 1,
+                    },
+                ]
             },
-            plugins: {
-                legend: { position: 'top' },
-                tooltip: {
-                    callbacks: {
-                        footer: (items) => {
-                            const row = utilisationData[items[0].dataIndex];
-                            return `Utilisation: ${row.utilisation_pct.toFixed(1)}%`;
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            footer: (items) => {
+                                const r = d.rows[items[0].dataIndex];
+                                return `Util: ${r.util}%  |  Headroom: ${(r.avail - r.load).toFixed(1)} hrs`;
+                            }
                         }
                     }
+                },
+                scales: { y: { title: { display: true, text: 'Hours' }, beginAtZero: true } }
+            }
+        });
+    }
+    {% else %}
+    const ctx2 = document.getElementById('allDeptsChart');
+    if (ctx2 && chartData.length) {
+        const labels = chartData.map(d => d.dept.name.substring(0, 14));
+        const avails = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.avail, 0).toFixed(1)));
+        const loads  = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.load, 0).toFixed(1)));
+        const utils  = avails.map((a, i) => a > 0 ? loads[i] / a * 100 : 0);
+
+        new Chart(ctx2, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Available Hrs',
+                        data: avails,
+                        backgroundColor: 'rgba(200,200,200,0.5)',
+                        borderColor: 'rgba(150,150,150,0.8)',
+                        borderWidth: 1,
+                        order: 2,
+                    },
+                    {
+                        label: 'Load Hrs',
+                        data: loads,
+                        backgroundColor: utils.map(u => utilColour(u)),
+                        borderWidth: 0,
+                        order: 1,
+                    },
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            footer: (items) => `Util: ${utils[items[0].dataIndex].toFixed(1)}%`
+                        }
+                    }
+                },
+                scales: {
+                    x: { ticks: { maxRotation: 45 } },
+                    y: { title: { display: true, text: 'Hours (period total)' }, beginAtZero: true }
                 }
             }
-        }
-    });
+        });
+    }
+    {% endif %}
 });
 </script>
 {% endblock %}
