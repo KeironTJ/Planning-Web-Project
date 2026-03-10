@@ -9,7 +9,7 @@ from flask_login import login_required
 
 from . import orders_bp
 from .forms import OperationStatusForm
-from .models import WorksOrderOperation
+from .models import SalesOrderLine, WorksOrderOperation
 from . import services
 from app.core.decorators import permission_required
 from app.core.exceptions import NotFoundError, ValidationError
@@ -197,6 +197,173 @@ def bulk_update_operations():
         count = services.bulk_update_status(op_ids, new_status)
         flash(f"{count} operation(s) updated to '{new_status}'.", "success")
     except ValidationError as exc:
+        flash(str(exc), "danger")
+
+    return redirect(back_url)
+
+
+# ---------------------------------------------------------------------------
+# Date Planning
+# ---------------------------------------------------------------------------
+
+@orders_bp.route("/planning/")
+@login_required
+@permission_required("manage_orders")
+def planning():
+    filter_mode = request.args.get("filter", "all")
+    search      = request.args.get("q", "")
+    dept_id     = request.args.get("dept", None, type=int)
+    page        = request.args.get("page", 1, type=int)
+
+    pagination, rows = services.get_planning_list(
+        page=page,
+        per_page=50,
+        filter_mode=filter_mode,
+        search=search or None,
+        dept_id=dept_id,
+    )
+    counts      = services.count_planning_filters()
+    departments = services.get_active_departments()
+
+    return render_template(
+        "orders/planning.html",
+        title="Date Planning",
+        rows=rows,
+        pagination=pagination,
+        filter_mode=filter_mode,
+        counts=counts,
+        search=search,
+        dept_id=dept_id or "",
+        departments=departments,
+        today=date.today(),
+        valid_statuses=WorksOrderOperation.VALID_STATUSES,
+        STATUS_META=WorksOrderOperation.STATUS_META,
+    )
+
+
+@orders_bp.route("/planning/reschedule", methods=["POST"])
+@login_required
+@permission_required("manage_orders")
+def planning_reschedule():
+    """Bulk reschedule selected SO lines using the backward scheduler."""
+    from app.capacity.scheduler import schedule_orders
+
+    raw_ids     = request.form.get("sol_ids", "")
+    today_floor = request.form.get("today_floor") == "1"
+    template_id = request.form.get("template_id", None, type=int)
+    back_url    = request.form.get("back_url") or url_for("orders.planning")
+
+    try:
+        sol_ids = [int(x) for x in raw_ids.split(",") if x.strip()]
+    except ValueError:
+        flash("Invalid order selection.", "danger")
+        return redirect(back_url)
+
+    if not sol_ids:
+        flash("No orders selected.", "warning")
+        return redirect(back_url)
+
+    try:
+        result = schedule_orders(
+            overwrite_manual=True,
+            template_id=template_id,
+            sol_ids=sol_ids,
+            floor_date=date.today() if today_floor else None,
+        )
+        msg = f"{result['scheduled']} operations rescheduled"
+        if result["skipped"]:
+            msg += f" ({result['skipped']} skipped)"
+        if result["no_due_date"]:
+            msg += f"; {result['no_due_date']} orders skipped (no ERP due date)"
+        flash(msg + ".", "success")
+    except ValueError as exc:
+        flash(str(exc), "danger")
+
+    return redirect(back_url)
+
+
+@orders_bp.route("/planning/clear", methods=["POST"])
+@login_required
+@permission_required("manage_orders")
+def planning_clear_dates():
+    """Clear planned_date from all open operations on selected SO lines."""
+    raw_ids  = request.form.get("sol_ids", "")
+    back_url = request.form.get("back_url") or url_for("orders.planning")
+
+    try:
+        sol_ids = [int(x) for x in raw_ids.split(",") if x.strip()]
+    except ValueError:
+        flash("Invalid order selection.", "danger")
+        return redirect(back_url)
+
+    if not sol_ids:
+        flash("No orders selected.", "warning")
+        return redirect(back_url)
+
+    sols = SalesOrderLine.query.filter(SalesOrderLine.id.in_(sol_ids)).all()
+    count = 0
+    for sol in sols:
+        for op in sol.operations:
+            if op.planned_date is not None and op.status not in (
+                WorksOrderOperation.STATUS_COMPLETED,
+                WorksOrderOperation.STATUS_CLOSED,
+            ):
+                op.planned_date = None
+                count += 1
+    from app.extensions import db
+    db.session.commit()
+    flash(f"Cleared planned dates from {count} operation(s).", "success")
+    return redirect(back_url)
+
+
+@orders_bp.route("/planning/schedule-from-date", methods=["POST"])
+@login_required
+@permission_required("manage_orders")
+def planning_schedule_from_date():
+    """
+    Schedule selected SO lines from a specific start date.
+    Runs the backward scheduler floored to the given date — no operation
+    will be planned earlier than floor_date.
+    """
+    from app.capacity.scheduler import schedule_orders
+
+    raw_ids     = request.form.get("sol_ids", "")
+    floor_str   = request.form.get("floor_date", "")
+    template_id = request.form.get("template_id", None, type=int)
+    back_url    = request.form.get("back_url") or url_for("orders.planning")
+
+    try:
+        sol_ids = [int(x) for x in raw_ids.split(",") if x.strip()]
+    except ValueError:
+        flash("Invalid order selection.", "danger")
+        return redirect(back_url)
+
+    if not sol_ids:
+        flash("No orders selected.", "warning")
+        return redirect(back_url)
+
+    floor_date = None
+    if floor_str:
+        try:
+            floor_date = date.fromisoformat(floor_str)
+        except ValueError:
+            flash("Invalid date.", "danger")
+            return redirect(back_url)
+
+    try:
+        result = schedule_orders(
+            overwrite_manual=True,
+            template_id=template_id,
+            sol_ids=sol_ids,
+            floor_date=floor_date,
+        )
+        msg = f"{result['scheduled']} operation(s) scheduled"
+        if result["skipped"]:
+            msg += f" ({result['skipped']} skipped)"
+        if result["no_due_date"]:
+            msg += f"; {result['no_due_date']} order(s) skipped (no ERP due date)"
+        flash(msg + ".", "success")
+    except ValueError as exc:
         flash(str(exc), "danger")
 
     return redirect(back_url)

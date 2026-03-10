@@ -1,17 +1,14 @@
 """
-Backward scheduling service.
+Scheduling service — backward and forward modes.
 
-Algorithm:
-1. Load the routing template (default or specified).
-2. Build a map of {dept_id: (sequence_order, lead_time_days)}.
-3. For each open SO line that has a due_date:
-   a. Collect its open WorksOrderOperations.
-   b. Map each operation's department to a sequence_order.
-   c. Group operations by sequence_order (parallel groups).
-   d. Walk backwards from due_date, stage by stage (latest first).
-      - Each stage's planned_date = stage_end_date − max(LT in stage) working days.
-      - The next stage's end = this stage's planned_date.
-   e. Write planned_date to each operation (respecting skip-manual flag).
+Backward scheduling (default):
+  Walks backwards from the ERP due_date through routing stages.
+  Used when due_date is in the future relative to the floor_date.
+
+Forward scheduling (overdue orders):
+  Walks forward from floor_date through routing stages.
+  Used when floor_date >= due_date (order is overdue or being replanned
+  to a date beyond the original ERP due date).
 
 Working day calendar:
   Sourced from CapacityBucket.is_workday (populated by LabourPlan import).
@@ -65,26 +62,46 @@ def subtract_working_days(
 ) -> date:
     """
     Return the date that is `days` working days before `from_date`.
-
-    Uses the sorted `working_days` list for accuracy.  If the list doesn't
-    extend far enough backwards, falls back to the 4-day-week rule.
+    Falls back to 4-day-week rule if the calendar doesn't extend far enough.
     """
     if days <= 0:
         return from_date
 
-    # Find the position at or before from_date in the sorted list
     pos = bisect.bisect_right(working_days, from_date) - 1
 
     if pos >= days:
-        # Enough working days in the list
         return working_days[pos - days]
 
-    # Not enough data — walk backwards from the earliest known working day
-    # using the 4-day-week fallback
-    remaining = days - (pos + 1)  # days we still need to count back
+    remaining = days - (pos + 1)
     cursor = working_days[0] if working_days else from_date
     while remaining > 0:
         cursor -= timedelta(days=1)
+        if _is_working_day_fallback(cursor):
+            remaining -= 1
+    return cursor
+
+
+def add_working_days(
+    from_date: date,
+    days: int,
+    working_days: list[date],
+) -> date:
+    """
+    Return the date that is `days` working days after `from_date`.
+    Falls back to 4-day-week rule if the calendar doesn't extend far enough.
+    """
+    if days <= 0:
+        return from_date
+
+    pos = bisect.bisect_right(working_days, from_date)
+
+    if pos + days <= len(working_days):
+        return working_days[pos + days - 1]
+
+    remaining = days - (len(working_days) - pos)
+    cursor = working_days[-1] if working_days else from_date
+    while remaining > 0:
+        cursor += timedelta(days=1)
         if _is_working_day_fallback(cursor):
             remaining -= 1
     return cursor
@@ -97,14 +114,25 @@ def subtract_working_days(
 def schedule_orders(
     overwrite_manual: bool = False,
     template_id: Optional[int] = None,
+    sol_ids: Optional[list] = None,
+    floor_date: Optional[date] = None,
 ) -> dict:
     """
-    Run backward scheduling for all open SO lines.
+    Schedule open SO lines using the routing template.
+
+    When floor_date is provided:
+      - If the order's due_date is AFTER floor_date: backward schedule from
+        due_date, clamping any result that falls before floor_date up to
+        floor_date.
+      - If the order's due_date is ON or BEFORE floor_date (overdue /
+        replanning past the due date): forward schedule from floor_date,
+        walking through stages in order (first stage → last stage).
 
     Args:
-        overwrite_manual: If False, skip operations that already have a
-                          manually-set planned_date.
-        template_id: ID of the RoutingTemplate to use.  None → default template.
+        overwrite_manual: If False, skip operations that already have a planned_date.
+        template_id: ID of the RoutingTemplate to use. None → default template.
+        sol_ids: If provided, only schedule these SalesOrderLine IDs.
+        floor_date: Earliest date any operation may be planned on.
 
     Returns:
         dict with keys: scheduled, skipped, no_due_date, no_dept, template_name
@@ -131,8 +159,8 @@ def schedule_orders(
     # ------------------------------------------------------------------ #
     # 2. Build department → (sequence_order, lead_time_days) maps
     # ------------------------------------------------------------------ #
-    dept_seq_map: dict[int, int] = {}   # dept_id → sequence_order
-    dept_lt_map: dict[int, int] = {}    # dept_id → lead_time_days
+    dept_seq_map: dict[int, int] = {}
+    dept_lt_map: dict[int, int] = {}
 
     for stage in template.stages:
         for entry in stage.entries:
@@ -140,20 +168,20 @@ def schedule_orders(
             dept_lt_map[entry.department_id] = entry.effective_lead_time
 
     # ------------------------------------------------------------------ #
-    # 3. Load working-day calendar (±1 year around today)
+    # 3. Load working-day calendar (±1 year around today, +2 years ahead)
     # ------------------------------------------------------------------ #
     today = date.today()
+    anchor = floor_date or today
     working_days = _load_working_days(
-        today - timedelta(days=365),
-        today + timedelta(days=730),
+        min(today, anchor) - timedelta(days=30),
+        max(today, anchor) + timedelta(days=730),
     )
 
     # ------------------------------------------------------------------ #
-    # 4. Collect SO lines that have open operations
+    # 4. Collect SO lines with open operations
     # ------------------------------------------------------------------ #
-    open_sol_ids = [
-        r[0]
-        for r in db.session.query(WorksOrderOperation.sales_order_line_id)
+    q = (
+        db.session.query(WorksOrderOperation.sales_order_line_id)
         .filter(
             WorksOrderOperation.status.notin_([
                 WorksOrderOperation.STATUS_COMPLETED,
@@ -161,8 +189,10 @@ def schedule_orders(
             ])
         )
         .distinct()
-        .all()
-    ]
+    )
+    if sol_ids:
+        q = q.filter(WorksOrderOperation.sales_order_line_id.in_(sol_ids))
+    open_sol_ids = [r[0] for r in q.all()]
 
     scheduled = 0
     skipped = 0
@@ -189,8 +219,7 @@ def schedule_orders(
             continue
 
         # Map each operation to (sequence_order, lead_time)
-        # Departments not in the routing template go to sequence 9999
-        # (after everything else) using the department's own default LT.
+        # Departments not in the routing template go to sequence 9999.
         op_tuples: list[tuple[WorksOrderOperation, int, int]] = []
         for op in open_ops:
             if not op.department_id:
@@ -206,27 +235,56 @@ def schedule_orders(
         if not op_tuples:
             continue
 
-        # Sort descending by sequence (last stage first → closest to due_date)
-        op_tuples.sort(key=lambda x: x[1], reverse=True)
+        # ── Choose scheduling direction ──────────────────────────────── #
+        # Forward when floor_date is at or beyond the due date (overdue /
+        # replanning past ERP due date).  Backward otherwise.
+        use_forward = floor_date is not None and sol.due_date <= floor_date
 
-        # Group by sequence_order
-        stage_end = sol.due_date
-        for seq, group_iter in groupby(op_tuples, key=lambda x: x[1]):
-            group = list(group_iter)
-            max_lt = max(lt for _, _, lt in group)
+        if use_forward:
+            # ── Forward scheduling from floor_date ───────────────────── #
+            # Sort ascending: first stage (lowest seq) gets the earliest date.
+            op_tuples.sort(key=lambda x: x[1])
+            stage_start = floor_date
 
-            planned = subtract_working_days(stage_end, max_lt, working_days)
+            for seq, group_iter in groupby(op_tuples, key=lambda x: x[1]):
+                group = list(group_iter)
+                max_lt = max(lt for _, _, lt in group)
 
-            for op, _, _ in group:
-                if not overwrite_manual and op.planned_date is not None:
-                    skipped += 1
-                    continue
-                op.planned_date = planned
-                scheduled += 1
+                for op, _, _ in group:
+                    if not overwrite_manual and op.planned_date is not None:
+                        skipped += 1
+                        continue
+                    op.planned_date = stage_start
+                    scheduled += 1
 
-            # This stage's planned_date becomes the end point for the next
-            # (earlier) stage
-            stage_end = planned
+                # Advance start for the next stage
+                stage_start = add_working_days(stage_start, max_lt, working_days)
+
+        else:
+            # ── Backward scheduling from due_date ────────────────────── #
+            # Sort descending: last stage (highest seq) first.
+            op_tuples.sort(key=lambda x: x[1], reverse=True)
+            stage_end = sol.due_date
+
+            for seq, group_iter in groupby(op_tuples, key=lambda x: x[1]):
+                group = list(group_iter)
+                max_lt = max(lt for _, _, lt in group)
+
+                planned = subtract_working_days(stage_end, max_lt, working_days)
+
+                effective_planned = planned
+                if floor_date and effective_planned < floor_date:
+                    effective_planned = floor_date
+
+                for op, _, _ in group:
+                    if not overwrite_manual and op.planned_date is not None:
+                        skipped += 1
+                        continue
+                    op.planned_date = effective_planned
+                    scheduled += 1
+
+                # This stage's unmodified date becomes the next stage's end
+                stage_end = planned
 
     db.session.commit()
 

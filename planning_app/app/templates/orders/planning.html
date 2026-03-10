@@ -1,0 +1,415 @@
+{% extends 'base.html' %}
+
+{% block extra_css %}
+<style>
+.planning-detail > td { padding: 0 !important; }
+.days-chip { font-size: .75rem; font-weight: 600; padding: 2px 7px; border-radius: 99px; white-space: nowrap; }
+.days-overdue  { background:#f8d7da; color:#842029; }
+.days-urgent   { background:#fff3cd; color:#664d03; }
+.days-ok       { background:#d1e7dd; color:#0a3622; }
+.days-none     { background:#e9ecef; color:#6c757d; }
+.bulk-bar { position: sticky; top: 56px; z-index: 100; background: #fff3cd; border-bottom: 1px solid #ffc107; display: none; }
+.bulk-bar.active { display: block; }
+.plan-date-input { width: 130px; font-size: .82rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── Filter / Search bar ─────────────────────────────────────────────── #}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+
+    {# Filter tabs #}
+    <div class="btn-group btn-group-sm" role="group">
+        {% for mode, label in [('all','All'), ('overdue','Overdue'), ('this_week','Due This Week'), ('no_dates','No Dates Set')] %}
+        <a href="{{ url_for('orders.planning', filter=mode, q=search, dept=dept_id) }}"
+           class="btn btn-outline-secondary {% if filter_mode == mode %}active{% endif %}">
+            {{ label }}
+            <span class="badge {% if filter_mode == mode %}bg-light text-dark{% else %}bg-secondary{% endif %} ms-1">
+                {{ counts[mode] }}
+            </span>
+        </a>
+        {% endfor %}
+    </div>
+
+    {# Department filter #}
+    <select class="form-select form-select-sm" style="width:auto"
+            onchange="window.location = '{{ url_for('orders.planning', filter=filter_mode, q=search) }}&dept=' + this.value">
+        <option value="">All departments</option>
+        {% for dept in departments %}
+        <option value="{{ dept.id }}" {% if dept_id == dept.id %}selected{% endif %}>{{ dept.name }}</option>
+        {% endfor %}
+    </select>
+
+    {# Search #}
+    <form class="d-flex gap-1" method="GET" action="{{ url_for('orders.planning') }}">
+        <input type="hidden" name="filter" value="{{ filter_mode }}">
+        <input type="hidden" name="dept" value="{{ dept_id }}">
+        <input type="search" name="q" class="form-control form-control-sm" placeholder="SO#, customer, product…"
+               value="{{ search }}" style="width:200px">
+        <button class="btn btn-sm btn-outline-secondary">Search</button>
+    </form>
+
+    <div class="ms-auto text-muted small">{{ pagination.total }} order line(s)</div>
+</div>
+
+{# ── Bulk action bar (shown when rows selected) ──────────────────────── #}
+<div class="bulk-bar px-3 py-2" id="bulkBar">
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+        <span class="fw-semibold small" id="bulkCount">0 selected</span>
+
+        {# Reschedule from due date #}
+        <form method="POST" action="{{ url_for('orders.planning_reschedule') }}" id="rescheduleForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="sol_ids" id="reschedule_ids">
+            <input type="hidden" name="today_floor" value="0">
+            <input type="hidden" name="back_url" value="{{ request.url }}">
+            <button type="submit" class="btn btn-sm btn-primary"
+                    onclick="syncIds('reschedule_ids')">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Reschedule from Due Date
+            </button>
+        </form>
+
+        {# Plan from today (overdue floor) #}
+        <form method="POST" action="{{ url_for('orders.planning_reschedule') }}" id="todayForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="sol_ids" id="today_ids">
+            <input type="hidden" name="today_floor" value="1">
+            <input type="hidden" name="back_url" value="{{ request.url }}">
+            <button type="submit" class="btn btn-sm btn-warning"
+                    onclick="syncIds('today_ids')"
+                    title="Schedules backward from due date but floors all planned dates to today — good for overdue orders">
+                <i class="bi bi-calendar-day me-1"></i>Plan from Today
+            </button>
+        </form>
+
+        {# Plan from specific date #}
+        <form method="POST" action="{{ url_for('orders.planning_schedule_from_date') }}" id="fromDateForm"
+              class="d-flex align-items-center gap-1">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="sol_ids" id="fromdate_ids">
+            <input type="hidden" name="back_url" value="{{ request.url }}">
+            <input type="date" name="floor_date" id="bulkStartDate"
+                   class="form-control form-control-sm" style="width:145px"
+                   title="Plan selected orders no earlier than this date">
+            <button type="submit" class="btn btn-sm btn-outline-success"
+                    onclick="syncIds('fromdate_ids')"
+                    title="Schedule selected orders from this start date">
+                <i class="bi bi-calendar-plus me-1"></i>Plan from Date
+            </button>
+        </form>
+
+        {# Clear dates #}
+        <form method="POST" action="{{ url_for('orders.planning_clear_dates') }}" id="clearForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="sol_ids" id="clear_ids">
+            <input type="hidden" name="back_url" value="{{ request.url }}">
+            <button type="submit" class="btn btn-sm btn-outline-danger"
+                    onclick="syncIds('clear_ids')"
+                    onsubmit="return confirm('Clear planned dates from selected orders?')">
+                <i class="bi bi-x-circle me-1"></i>Clear Dates
+            </button>
+        </form>
+
+        <button class="btn btn-sm btn-link text-muted" onclick="deselectAll()">Deselect all</button>
+    </div>
+</div>
+
+{# ── Main table ──────────────────────────────────────────────────────── #}
+{% if not rows %}
+<div class="alert alert-info mt-3">No orders match the current filter.</div>
+{% else %}
+<div class="table-responsive">
+    <table class="table table-hover table-sm align-middle mb-0">
+        <thead class="table-light">
+            <tr>
+                <th style="width:36px">
+                    <input type="checkbox" id="selectAll" class="form-check-input" onchange="toggleAll(this)">
+                </th>
+                <th>SO / Line</th>
+                <th>Customer</th>
+                <th>Product</th>
+                <th class="text-center">ERP Due</th>
+                <th class="text-center">±Days</th>
+                <th class="text-center">Plan Start / Set Date</th>
+                <th class="text-center">Plan End</th>
+                <th class="text-center">Headroom</th>
+                <th class="text-center">Status</th>
+                <th class="text-center" style="width:36px"></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+        {% set sol = row.sol %}
+        {% set is_overdue = row.days_delta is not none and row.days_delta < 0 %}
+        {% set is_urgent  = row.days_delta is not none and row.days_delta >= 0 and row.days_delta <= 7 %}
+
+        {# Main row #}
+        <tr class="{{ 'table-danger bg-opacity-25' if is_overdue else '' }}" id="row-{{ sol.id }}">
+            <td>
+                <input type="checkbox" class="form-check-input row-check"
+                       value="{{ sol.id }}" onchange="onRowCheck()">
+            </td>
+            <td class="fw-semibold text-nowrap">
+                {{ sol.so_number }}<span class="text-muted">/{{ sol.line_number }}</span>
+            </td>
+            <td class="small">{{ sol.customer_name or '—' }}</td>
+            <td class="small">{{ sol.product_description or sol.product_code or '—' }}</td>
+
+            {# ERP Due Date #}
+            <td class="text-center text-nowrap">
+                {% if sol.due_date %}
+                    <span class="{{ 'text-danger fw-semibold' if is_overdue else ('text-warning fw-semibold' if is_urgent else '') }}">
+                        {{ sol.due_date.strftime('%d %b %Y') }}
+                    </span>
+                {% else %}
+                    <span class="text-muted">—</span>
+                {% endif %}
+            </td>
+
+            {# ± Days #}
+            <td class="text-center">
+                {% if row.days_delta is not none %}
+                    {% if row.days_delta < 0 %}
+                        <span class="days-chip days-overdue">{{ row.days_delta }}d</span>
+                    {% elif row.days_delta <= 7 %}
+                        <span class="days-chip days-urgent">{{ row.days_delta }}d</span>
+                    {% else %}
+                        <span class="days-chip days-ok">+{{ row.days_delta }}d</span>
+                    {% endif %}
+                {% else %}
+                    <span class="days-chip days-none">—</span>
+                {% endif %}
+            </td>
+
+            {# Plan Start — inline quick-plan form #}
+            <td class="text-center text-nowrap">
+                <form method="POST" action="{{ url_for('orders.planning_schedule_from_date') }}"
+                      class="d-flex align-items-center justify-content-center gap-1">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="sol_ids" value="{{ sol.id }}">
+                    <input type="hidden" name="back_url" value="{{ request.url }}">
+                    <input type="date" name="floor_date"
+                           class="form-control form-control-sm plan-date-input"
+                           value="{{ row.plan_start.isoformat() if row.plan_start else '' }}"
+                           title="Set start date — schedules this order using the routing template from this date forward">
+                    <button class="btn btn-sm btn-outline-primary py-0 px-1"
+                            title="Schedule from this date">
+                        <i class="bi bi-check" style="font-size:.8rem"></i>
+                    </button>
+                </form>
+            </td>
+
+            {# Plan End #}
+            <td class="text-center text-nowrap small">
+                {% if row.plan_end %}
+                    <span class="{{ 'text-danger' if row.headroom is not none and row.headroom < 0 else '' }}">
+                        {{ row.plan_end.strftime('%d %b') }}
+                    </span>
+                {% else %}
+                    <span class="text-muted">—</span>
+                {% endif %}
+            </td>
+
+            {# Headroom #}
+            <td class="text-center">
+                {% if row.headroom is not none %}
+                    {% if row.headroom < 0 %}
+                        <span class="days-chip days-overdue">{{ row.headroom }}d</span>
+                    {% elif row.headroom <= 3 %}
+                        <span class="days-chip days-urgent">{{ row.headroom }}d</span>
+                    {% else %}
+                        <span class="days-chip days-ok">+{{ row.headroom }}d</span>
+                    {% endif %}
+                {% else %}
+                    <span class="days-chip days-none">—</span>
+                {% endif %}
+            </td>
+
+            {# Status #}
+            <td class="text-center">
+                {% set agg = sol.aggregate_status %}
+                {% set lbl, col = STATUS_META.get(agg, ('Unknown','secondary')) %}
+                <span class="badge bg-{{ col }}">{{ lbl }}</span>
+            </td>
+
+            {# Expand toggle #}
+            <td class="text-center">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1"
+                        onclick="toggleDetail({{ sol.id }}, this)"
+                        title="Show / hide operations">
+                    <i class="bi bi-chevron-down" style="font-size:.7rem"></i>
+                </button>
+            </td>
+        </tr>
+
+        {# ── Expanded detail row ── #}
+        <tr class="planning-detail" id="detail-{{ sol.id }}" style="display:none">
+            <td colspan="11" class="p-0">
+                <div class="py-2 px-3" style="background:#f8f9fa">
+                    {% if row.open_ops %}
+                    <table class="table table-sm mb-0" style="font-size:.82rem">
+                        <thead>
+                            <tr class="text-muted">
+                                <th style="width:200px">Department</th>
+                                <th class="text-center" style="width:120px">ERP Due</th>
+                                <th class="text-center" style="width:190px">Planned Date</th>
+                                <th class="text-center" style="width:110px">Status</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for op in row.open_ops %}
+                        <tr id="oprow-{{ op.id }}">
+                            <td>{{ op.department.name if op.department else op.work_centre_name }}</td>
+                            <td class="text-center text-muted">
+                                {{ op.due_date.strftime('%d %b %Y') if op.due_date else '—' }}
+                            </td>
+                            <td class="text-center">
+                                <form method="POST"
+                                      action="{{ url_for('orders.update_operation', op_id=op.id) }}"
+                                      class="d-flex align-items-center justify-content-center gap-1">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="status" value="{{ op.status }}">
+                                    <input type="date" name="planned_date"
+                                           class="form-control form-control-sm plan-date-input"
+                                           value="{{ op.planned_date.isoformat() if op.planned_date else '' }}">
+                                    <button class="btn btn-sm btn-outline-primary py-0 px-2">
+                                        <i class="bi bi-check"></i>
+                                    </button>
+                                    {% if op.planned_date %}
+                                    <a href="#" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                                       title="Clear date"
+                                       onclick="clearDate(event, {{ op.id }}, '{{ url_for('orders.update_operation', op_id=op.id) }}', '{{ csrf_token() }}')">
+                                        <i class="bi bi-x" style="font-size:.8rem"></i>
+                                    </a>
+                                    {% endif %}
+                                </form>
+                            </td>
+                            <td class="text-center">
+                                {% set lbl, col = STATUS_META.get(op.status, ('?','secondary')) %}
+                                <span class="badge bg-{{ col }}">{{ lbl }}</span>
+                            </td>
+                            <td class="text-muted" style="font-size:.75rem">
+                                {% if op.planned_date and sol.due_date %}
+                                    {% set diff = (sol.due_date - op.planned_date).days %}
+                                    {% if diff < 0 %}
+                                        <span class="text-danger">{{ diff }}d after due</span>
+                                    {% else %}
+                                        <span class="text-muted">{{ diff }}d before due</span>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-muted small mb-0">No open operations.</p>
+                    {% endif %}
+                </div>
+            </td>
+        </tr>
+
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{# ── Pagination ── #}
+{% if pagination.pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination pagination-sm justify-content-center">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('orders.planning', filter=filter_mode, q=search, dept=dept_id, page=pagination.prev_num) }}">‹</a>
+        </li>
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+            {% if p %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                <a class="page-link" href="{{ url_for('orders.planning', filter=filter_mode, q=search, dept=dept_id, page=p) }}">{{ p }}</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('orders.planning', filter=filter_mode, q=search, dept=dept_id, page=pagination.next_num) }}">›</a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+
+{% endif %} {# end if rows #}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const bulkBar   = document.getElementById('bulkBar');
+const bulkCount = document.getElementById('bulkCount');
+
+function getChecked() {
+    return [...document.querySelectorAll('.row-check:checked')].map(el => el.value);
+}
+
+function syncIds(fieldId) {
+    document.getElementById(fieldId).value = getChecked().join(',');
+}
+
+function onRowCheck() {
+    const ids = getChecked();
+    bulkCount.textContent = ids.length + ' selected';
+    bulkBar.classList.toggle('active', ids.length > 0);
+    document.getElementById('selectAll').indeterminate =
+        ids.length > 0 && ids.length < document.querySelectorAll('.row-check').length;
+}
+
+function toggleAll(master) {
+    document.querySelectorAll('.row-check').forEach(cb => cb.checked = master.checked);
+    onRowCheck();
+}
+
+function deselectAll() {
+    document.querySelectorAll('.row-check').forEach(cb => cb.checked = false);
+    document.getElementById('selectAll').checked = false;
+    onRowCheck();
+}
+
+function toggleDetail(solId, btn) {
+    const row = document.getElementById('detail-' + solId);
+    const icon = btn.querySelector('i');
+    if (row.style.display === 'none') {
+        row.style.display = '';
+        icon.classList.replace('bi-chevron-down', 'bi-chevron-up');
+    } else {
+        row.style.display = 'none';
+        icon.classList.replace('bi-chevron-up', 'bi-chevron-down');
+    }
+}
+
+function clearDate(e, opId, url, csrf) {
+    e.preventDefault();
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = url;
+    form.innerHTML = `
+        <input name="csrf_token" value="${csrf}">
+        <input name="status" value="">
+        <input name="planned_date" value="">
+    `;
+    // We need current status — fetch from badge in same row
+    const row = e.target.closest('tr');
+    const badge = row.querySelector('.badge');
+    const statusMap = {{ STATUS_META | tojson }};
+    // Find matching status key
+    for (const [k, v] of Object.entries(statusMap)) {
+        if (v[0] === badge.textContent.trim()) {
+            form.querySelector('[name=status]').value = k;
+            break;
+        }
+    }
+    document.body.appendChild(form);
+    form.submit();
+}
+</script>
+{% endblock %}
