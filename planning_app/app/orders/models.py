@@ -33,6 +33,7 @@ class Department(db.Model):
     code = db.Column(db.String(50), unique=True, nullable=False, index=True)
     name = db.Column(db.String(100), nullable=False, index=True)
     target_hours_per_day = db.Column(db.Numeric(5, 2), nullable=True)
+    default_lead_time_days = db.Column(db.Integer, default=2, nullable=False, server_default="2")
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
     capacity_buckets = db.relationship("CapacityBucket", back_populates="department", cascade="all, delete-orphan")

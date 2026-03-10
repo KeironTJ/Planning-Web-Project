@@ -1,0 +1,207 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">{{ tmpl.name }}
+        {% if tmpl.is_default %}<span class="badge bg-success ms-2 fs-6">Default</span>{% endif %}
+    </h4>
+    <a href="{{ url_for('capacity.routing_list') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>All Templates
+    </a>
+</div>
+
+<div class="row g-4">
+
+    <!-- Left: Template settings + stages -->
+    <div class="col-lg-8">
+
+        <!-- Template settings -->
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-header bg-transparent fw-semibold">Template Settings</div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="update_template">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Name</label>
+                            <input type="text" name="name" class="form-control" value="{{ tmpl.name }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Description</label>
+                            <input type="text" name="description" class="form-control"
+                                   value="{{ tmpl.description or '' }}" placeholder="Optional">
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input type="checkbox" name="is_default" id="is_default" value="1"
+                                       class="form-check-input" {% if tmpl.is_default %}checked{% endif %}>
+                                <label class="form-check-label" for="is_default">Set as default template</label>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-sm btn-primary">Save Settings</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Stages -->
+        {% if tmpl.stages %}
+        <h5 class="mb-3">Production Stages
+            <small class="text-muted fw-normal fs-6">— lower sequence = earlier in production</small>
+        </h5>
+        {% for stage in tmpl.stages | sort(attribute='sequence_order') %}
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center py-2">
+                <div class="d-flex align-items-center gap-3">
+                    <span class="badge bg-secondary fs-6">Stage {{ stage.sequence_order }}</span>
+                    <span class="fw-semibold">{{ stage.name or 'Unnamed stage' }}</span>
+                    {% if stage.entries | length > 1 %}
+                        <span class="badge bg-info text-dark">parallel</span>
+                    {% endif %}
+                </div>
+                <div class="d-flex gap-2">
+                    <!-- Rename stage -->
+                    <form method="POST" action="{{ url_for('capacity.routing_stage_rename', stage_id=stage.id) }}"
+                          class="d-flex gap-1">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="text" name="stage_name" class="form-control form-control-sm"
+                               style="width:140px" placeholder="Stage name"
+                               value="{{ stage.name or '' }}">
+                        <button class="btn btn-sm btn-outline-secondary">Rename</button>
+                    </form>
+                    <!-- Delete stage -->
+                    <form method="POST" action="{{ url_for('capacity.routing_stage_delete', stage_id=stage.id) }}"
+                          onsubmit="return confirm('Remove stage {{ stage.sequence_order }} and all its departments?')">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Department</th>
+                            <th class="text-center" style="width:160px">Lead Time (working days)</th>
+                            <th style="width:60px"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in stage.entries %}
+                        <tr>
+                            <td class="align-middle">{{ entry.department.name if entry.department else '—' }}</td>
+                            <td class="text-center align-middle">
+                                <form method="POST" action="{{ url_for('capacity.routing_entry_lt', entry_id=entry.id) }}"
+                                      class="d-flex align-items-center justify-content-center gap-1">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="number" name="lt_days" class="form-control form-control-sm text-center"
+                                           style="width:65px"
+                                           min="0" max="30"
+                                           value="{{ entry.lead_time_override_days if entry.lead_time_override_days is not none else '' }}"
+                                           placeholder="{{ entry.department.default_lead_time_days if entry.department else 2 }}">
+                                    <button class="btn btn-sm btn-outline-secondary py-0">
+                                        <i class="bi bi-check"></i>
+                                    </button>
+                                </form>
+                                {% if entry.lead_time_override_days is none %}
+                                    <small class="text-muted d-block text-center">dept default: {{ entry.department.default_lead_time_days if entry.department else 2 }}d</small>
+                                {% else %}
+                                    <small class="text-success d-block text-center">overridden</small>
+                                {% endif %}
+                            </td>
+                            <td class="align-middle text-center">
+                                <form method="POST" action="{{ url_for('capacity.routing_entry_delete', entry_id=entry.id) }}"
+                                      onsubmit="return confirm('Remove {{ entry.department.name if entry.department else '' }} from this stage?')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button class="btn btn-sm btn-outline-danger py-0">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <!-- Add dept to existing stage -->
+                <div class="px-3 py-2 bg-light border-top">
+                    <form method="POST" class="d-flex align-items-center gap-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="add_dept_to_stage">
+                        <input type="hidden" name="stage_id" value="{{ stage.id }}">
+                        <select name="department_id" class="form-select form-select-sm" style="max-width:220px" required>
+                            <option value="">Add department to this stage…</option>
+                            {% for dept in departments %}
+                            <option value="{{ dept.id }}">{{ dept.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-plus-lg me-1"></i>Add
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="alert alert-info">No stages yet. Use the form on the right to add the first stage.</div>
+        {% endif %}
+    </div>
+
+    <!-- Right: Add stage panel -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm sticky-top" style="top:80px">
+            <div class="card-header bg-transparent fw-semibold">Add a Stage</div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="add_stage">
+                    <div class="mb-3">
+                        <label class="form-label">Sequence Order <span class="text-danger">*</span></label>
+                        <input type="number" name="sequence_order" class="form-control" min="1" max="99"
+                               placeholder="e.g. 1, 2, 3…" required>
+                        <div class="form-text">
+                            Departments with the <strong>same number</strong> run in parallel.
+                            Lower numbers = earlier in production.
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Department <span class="text-danger">*</span></label>
+                        <select name="department_id" class="form-select" required>
+                            <option value="">Select department…</option>
+                            {% for dept in departments %}
+                            <option value="{{ dept.id }}">{{ dept.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Stage Name <small class="text-muted">(optional)</small></label>
+                        <input type="text" name="stage_name" class="form-control"
+                               placeholder="e.g. Timber Prep, Fabric Cutting">
+                        <div class="form-text">Label shown on the stage card.</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-plus-lg me-1"></i>Add to Routing
+                    </button>
+                </form>
+
+                <hr>
+                <div class="small text-muted">
+                    <strong>How it works:</strong><br>
+                    Each stage represents a group of departments that can work simultaneously.
+                    The scheduler starts from the order's due date and subtracts lead times
+                    stage by stage, working backwards.
+                    <br><br>
+                    For parallel departments (same sequence), the scheduler waits for the
+                    <strong>longest</strong> lead time before moving to the previous stage.
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

@@ -78,13 +78,22 @@ class LabourPlanImporter:
                 is_workday = parse_bool_truefalse(row.get("WorkDay?"), default=False)
                 day_complete = parse_bool_yn(row.get("Day Complete"), default=False)
 
+                # Hours column = working hours in the day (e.g. 7.5 or 8.0)
+                day_hours = parse_decimal(row.get("Hours", "")) or None
+
                 for col in dept_cols:
                     dept = dept_lookup.get(col.lower())
                     if dept is None:
                         continue  # unknown department column — skip
 
                     raw_val = row.get(col, "").strip()
-                    available_hours = parse_decimal(raw_val) if raw_val else None
+                    fte = parse_decimal(raw_val) if raw_val else None
+
+                    # available_hours = FTE × hours in the working day
+                    if fte is not None and day_hours is not None:
+                        available_hours = fte * day_hours
+                    else:
+                        available_hours = None
 
                     bucket = CapacityBucket(
                         department_id=dept.id,

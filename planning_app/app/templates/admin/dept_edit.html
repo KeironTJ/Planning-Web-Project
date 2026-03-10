@@ -23,6 +23,15 @@
                             Used as the default capacity when no Labour Plan has been imported.
                         </div>
                     </div>
+                    <div class="mb-3">
+                        {{ form.default_lead_time_days.label(class="form-label") }}
+                        {{ form.default_lead_time_days(class="form-control", placeholder="e.g. 2") }}
+                        <div class="form-text">
+                            Minimum working days this department needs to complete its work.
+                            Used by the backward scheduler when no stage override is set.
+                            Despatch is typically 1; most departments 2.
+                        </div>
+                    </div>
                     <button type="submit" class="btn btn-primary">Save</button>
                 </form>
             </div>

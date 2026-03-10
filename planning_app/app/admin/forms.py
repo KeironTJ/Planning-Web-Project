@@ -2,8 +2,8 @@
 
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired, FileAllowed
-from wtforms import SelectField, HiddenField, DecimalField
-from wtforms.validators import Optional
+from wtforms import SelectField, HiddenField, DecimalField, IntegerField
+from wtforms.validators import Optional, NumberRange
 
 
 class ImportUploadForm(FlaskForm):
@@ -34,4 +34,9 @@ class DeptHoursForm(FlaskForm):
         "Target Hours / Day",
         places=2,
         validators=[Optional()],
+    )
+    default_lead_time_days = IntegerField(
+        "Default Lead Time (working days)",
+        default=2,
+        validators=[Optional(), NumberRange(min=0, max=30)],
     )

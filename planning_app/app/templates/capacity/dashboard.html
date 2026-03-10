@@ -6,6 +6,7 @@
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
         <form method="GET" class="row g-2 align-items-end">
+            <input type="hidden" name="from" value="{{ from_date.isoformat() }}">
             <div class="col-sm-3 col-md-2">
                 <label class="form-label form-label-sm fw-semibold mb-1">Department</label>
                 <select name="dept" class="form-select form-select-sm">
@@ -16,9 +17,9 @@
                 </select>
             </div>
             <div class="col-sm-3 col-md-2">
-                <label class="form-label form-label-sm fw-semibold mb-1">Weeks ahead</label>
+                <label class="form-label form-label-sm fw-semibold mb-1">Weeks</label>
                 <select name="weeks" class="form-select form-select-sm">
-                    {% for w in [4, 8, 13, 26] %}
+                    {% for w in [1, 2, 4, 8, 13, 26] %}
                     <option value="{{ w }}" {{ 'selected' if num_weeks == w }}>{{ w }} weeks</option>
                     {% endfor %}
                 </select>
@@ -32,11 +33,23 @@
             </div>
             <div class="col-auto">
                 <button type="submit" class="btn btn-primary btn-sm">Apply</button>
-                <a href="{{ url_for('capacity.dashboard') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
+                <a href="{{ url_for('capacity.dashboard') }}" class="btn btn-outline-secondary btn-sm">Today</a>
             </div>
-            <div class="col-auto ms-auto">
-                <a href="{{ url_for('admin.import_upload') }}" class="btn btn-outline-secondary btn-sm">
-                    <i class="bi bi-upload me-1"></i>Import Labour Plan
+            <div class="col-auto ms-auto d-flex gap-2 align-items-center">
+                <!-- Period navigation -->
+                <a href="{{ url_for('capacity.dashboard', **{'from': prev_from, 'weeks': num_weeks, 'dept': dept_id, 'view': view_mode}) }}"
+                   class="btn btn-outline-secondary btn-sm" title="Previous period">
+                    <i class="bi bi-chevron-left"></i>
+                </a>
+                <span class="small text-muted text-nowrap">
+                    {{ data.from_date.strftime('%d %b') }} – {{ data.to_date.strftime('%d %b %Y') }}
+                </span>
+                <a href="{{ url_for('capacity.dashboard', **{'from': next_from, 'weeks': num_weeks, 'dept': dept_id, 'view': view_mode}) }}"
+                   class="btn btn-outline-secondary btn-sm" title="Next period">
+                    <i class="bi bi-chevron-right"></i>
+                </a>
+                <a href="{{ url_for('admin.import_upload') }}" class="btn btn-outline-secondary btn-sm ms-2">
+                    <i class="bi bi-upload me-1"></i>Import
                 </a>
             </div>
         </form>
@@ -59,18 +72,13 @@
 </div>
 {% endif %}
 
-<!-- Period header -->
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <small class="text-muted">
-        {{ data.from_date.strftime('%d %b %Y') }} – {{ data.to_date.strftime('%d %b %Y') }}
-        ({{ num_weeks }} weeks){% if selected_dept %} — {{ selected_dept.name }}{% endif %}
-    </small>
-    {% if selected_dept %}
+{% if selected_dept %}
+<div class="d-flex justify-content-end mb-3">
     <a href="{{ url_for('capacity.dept_calendar', dept_id=selected_dept.id) }}" class="btn btn-sm btn-outline-primary">
         <i class="bi bi-calendar3 me-1"></i>Labour Plan Calendar
     </a>
-    {% endif %}
 </div>
+{% endif %}
 
 {% if view_mode == 'chart' and data.departments %}
     {% if selected_dept %}
@@ -103,9 +111,10 @@
                     <tr>
                         <th>Department</th>
                         <th class="text-end">Available Hrs</th>
-                        <th class="text-end">Load Hrs</th>
+                        <th class="text-end">Planned Load</th>
+                        <th class="text-end">Due Load</th>
                         <th class="text-end">Headroom</th>
-                        <th style="min-width:160px;">Utilisation</th>
+                        <th style="min-width:160px;">Utilisation <small class="text-muted">(planned)</small></th>
                         <th></th>
                     </tr>
                 </thead>
@@ -115,27 +124,40 @@
                         <td class="fw-semibold">{{ row.dept.name }}</td>
                         <td class="text-end">{{ row.avail_total if row.avail_total else '—' }}</td>
                         <td class="text-end">{{ row.load_total if row.load_total else '—' }}</td>
+                        <td class="text-end text-muted">{{ row.demand_total if row.demand_total else '—' }}</td>
                         <td class="text-end {{ 'text-danger fw-semibold' if row.headroom < 0 else '' }}">
                             {{ row.headroom if row.avail_total else '—' }}
                         </td>
                         <td>
                             {% if row.avail_total %}
-                            <div class="d-flex align-items-center gap-2">
+                            <div class="d-flex align-items-center gap-1 mb-1" title="Due load utilisation">
                                 <div class="progress flex-grow-1" style="height:8px;">
                                     <div class="progress-bar
-                                        {% if row.util_pct > 100 %}bg-danger
-                                        {% elif row.util_pct > 85 %}bg-warning
+                                        {% if row.demand_util_pct > 100 %}bg-danger
+                                        {% elif row.demand_util_pct > 85 %}bg-warning
                                         {% else %}bg-success{% endif %}"
+                                        style="width:{{ [row.demand_util_pct, 100] | min }}%">
+                                    </div>
+                                </div>
+                                <small class="{% if row.demand_util_pct > 100 %}text-danger fw-semibold
+                                             {% elif row.demand_util_pct > 85 %}text-warning
+                                             {% else %}text-success{% endif %}"
+                                       style="min-width:52px;">
+                                    {{ row.demand_util_pct }}% <span class="text-muted">(due)</span>
+                                </small>
+                            </div>
+                            {% if row.util_pct %}
+                            <div class="d-flex align-items-center gap-1" title="Planned load utilisation">
+                                <div class="progress flex-grow-1" style="height:4px;">
+                                    <div class="progress-bar bg-primary"
                                         style="width:{{ [row.util_pct, 100] | min }}%">
                                     </div>
                                 </div>
-                                <small class="{% if row.util_pct > 100 %}text-danger fw-semibold
-                                             {% elif row.util_pct > 85 %}text-warning
-                                             {% else %}text-success{% endif %}"
-                                       style="min-width:42px;">
-                                    {{ row.util_pct }}%
+                                <small class="text-primary" style="min-width:52px;">
+                                    {{ row.util_pct }}% <span class="text-muted">(plan)</span>
                                 </small>
                             </div>
+                            {% endif %}
                             {% else %}
                             <span class="text-muted small">No data</span>
                             {% endif %}
@@ -163,59 +185,80 @@
 </div>
 
 {% if view_mode == 'table' and data.departments %}
-<div class="mt-3">
-    {% for d in data.departments %}
-    {% set has_any = namespace(val=false) %}
-    {% for row in d.rows %}{% if row.avail > 0 %}{% set has_any.val = true %}{% endif %}{% endfor %}
-    {% if has_any.val %}
-    <div class="card border-0 shadow-sm mb-2">
-        <div class="card-header bg-transparent py-2 d-flex justify-content-between align-items-center">
-            <span class="fw-semibold small">{{ d.dept.name }}</span>
-            <a href="{{ url_for('capacity.dept_calendar', dept_id=d.dept.id) }}"
-               class="btn btn-sm btn-outline-secondary py-0">Calendar</a>
-        </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-sm mb-0" style="font-size:.8rem;">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="min-width:80px;"></th>
-                            {% for row in d.rows %}
-                            <th class="text-center">{{ row.week[5:] }}</th>
-                            {% endfor %}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class="text-muted">Available</td>
-                            {% for row in d.rows %}
-                            <td class="text-center">{{ row.avail or '—' }}</td>
-                            {% endfor %}
-                        </tr>
-                        <tr>
-                            <td class="text-muted">Load</td>
-                            {% for row in d.rows %}
-                            <td class="text-center">{{ row.load or '—' }}</td>
-                            {% endfor %}
-                        </tr>
-                        <tr>
-                            <td class="text-muted">Util %</td>
-                            {% for row in d.rows %}
-                            <td class="text-center
-                                {% if row.avail and row.util > 100 %}text-danger fw-bold
-                                {% elif row.avail and row.util > 85 %}text-warning
-                                {% elif row.avail %}text-success{% endif %}">
-                                {{ row.util if row.avail else '—' }}
-                            </td>
-                            {% endfor %}
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+<div class="card border-0 shadow-sm mt-3">
+    <div class="card-header bg-transparent fw-semibold py-2 d-flex justify-content-between align-items-center">
+        <span>Weekly Capacity Buckets</span>
+        <small class="text-muted fw-normal">Available / Load / Util %</small>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0 align-middle" style="font-size:.78rem; min-width:600px;">
+                <thead class="table-dark">
+                    <tr>
+                        <th class="text-nowrap" style="min-width:150px; width:150px;">Department</th>
+                        <th style="min-width:90px; width:90px;">Metric</th>
+                        {% for w in data.weeks %}
+                        <th class="text-center text-nowrap">{{ w[5:] }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in data.departments %}
+                    {% set has_any = namespace(val=false) %}
+                    {% for row in d.rows %}{% if row.avail > 0 or row.demand > 0 %}{% set has_any.val = true %}{% endif %}{% endfor %}
+                    {% if has_any.val %}
+                    <tr class="table-light">
+                        <td class="fw-semibold" rowspan="5" style="vertical-align:middle; border-right:2px solid #dee2e6; width: 150px; max-width:150px; overflow:hidden; word-break:break-word;">
+                            {{ d.dept.name }}
+                            <br>
+                            <a href="{{ url_for('capacity.dept_calendar', dept_id=d.dept.id) }}"
+                               class="text-muted small text-decoration-none">
+                                <i class="bi bi-calendar3"></i> calendar
+                            </a>
+                        </td>
+                        <td class="text-muted text-nowrap">Avail hrs</td>
+                        {% for row in d.rows %}
+                        <td class="text-center">{{ row.avail if row.avail else '—' }}</td>
+                        {% endfor %}
+                    </tr>
+                    <tr>
+                        <td class="text-nowrap" style="color:#0d6efd;" title="Hours for operations with a planned date set">Planned load</td>
+                        {% for row in d.rows %}
+                        <td class="text-center">{{ row.load if row.load else '—' }}</td>
+                        {% endfor %}
+                    </tr>
+                    <tr>
+                        <td class="text-nowrap text-warning-emphasis" title="Hours for all open operations by ERP due date">Due load</td>
+                        {% for row in d.rows %}
+                        <td class="text-center text-muted">{{ row.demand if row.demand else '—' }}</td>
+                        {% endfor %}
+                    </tr>
+                    <tr>
+                        <td class="text-nowrap small text-muted">Util % <span class="text-primary">(planned)</span></td>
+                        {% for row in d.rows %}
+                        <td class="text-center small">
+                            {{ row.util ~ '%' if row.avail and row.util else '—' }}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    <tr style="border-bottom:2px solid #dee2e6;">
+                        <td class="text-nowrap small text-muted">Util % <span class="text-warning-emphasis">(due)</span></td>
+                        {% for row in d.rows %}
+                        <td class="text-center fw-semibold
+                            {% if row.avail and row.demand_util > 100 %}bg-danger text-white
+                            {% elif row.avail and row.demand_util > 85 %}bg-warning
+                            {% elif row.avail and row.demand_util > 0 %}bg-success bg-opacity-25
+                            {% endif %}">
+                            {{ row.demand_util ~ '%' if row.avail and row.demand_util else '—' }}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
-    {% endif %}
-    {% endfor %}
 </div>
 {% endif %}
 
@@ -245,15 +288,22 @@ document.addEventListener('DOMContentLoaded', function () {
                     {
                         label: 'Available Hrs',
                         data: d.rows.map(r => r.avail),
-                        backgroundColor: 'rgba(200,200,200,0.5)',
+                        backgroundColor: 'rgba(200,200,200,0.4)',
                         borderColor: 'rgba(150,150,150,0.8)',
                         borderWidth: 1,
+                        order: 3,
+                    },
+                    {
+                        label: 'Due Load',
+                        data: d.rows.map(r => r.demand),
+                        backgroundColor: d.rows.map(r => utilColour(r.demand_util)),
+                        borderWidth: 0,
                         order: 2,
                     },
                     {
-                        label: 'Load Hrs',
+                        label: 'Planned Load',
                         data: d.rows.map(r => r.load),
-                        backgroundColor: d.rows.map(r => utilColour(r.util)),
+                        backgroundColor: 'rgba(13,110,253,0.7)',
                         borderWidth: 0,
                         order: 1,
                     },
@@ -268,7 +318,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         callbacks: {
                             footer: (items) => {
                                 const r = d.rows[items[0].dataIndex];
-                                return `Util: ${r.util}%  |  Headroom: ${(r.avail - r.load).toFixed(1)} hrs`;
+                                return `Due util: ${r.demand_util}%  |  Planned util: ${r.util}%`;
                             }
                         }
                     }
@@ -280,10 +330,11 @@ document.addEventListener('DOMContentLoaded', function () {
     {% else %}
     const ctx2 = document.getElementById('allDeptsChart');
     if (ctx2 && chartData.length) {
-        const labels = chartData.map(d => d.dept.name.substring(0, 14));
-        const avails = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.avail, 0).toFixed(1)));
-        const loads  = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.load, 0).toFixed(1)));
-        const utils  = avails.map((a, i) => a > 0 ? loads[i] / a * 100 : 0);
+        const labels  = chartData.map(d => d.dept.name.substring(0, 14));
+        const avails  = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.avail, 0).toFixed(1)));
+        const demands = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.demand, 0).toFixed(1)));
+        const loads   = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.load, 0).toFixed(1)));
+        const utils   = avails.map((a, i) => a > 0 ? demands[i] / a * 100 : 0);
 
         new Chart(ctx2, {
             type: 'bar',
@@ -293,15 +344,22 @@ document.addEventListener('DOMContentLoaded', function () {
                     {
                         label: 'Available Hrs',
                         data: avails,
-                        backgroundColor: 'rgba(200,200,200,0.5)',
+                        backgroundColor: 'rgba(200,200,200,0.4)',
                         borderColor: 'rgba(150,150,150,0.8)',
                         borderWidth: 1,
+                        order: 3,
+                    },
+                    {
+                        label: 'Due Load',
+                        data: demands,
+                        backgroundColor: utils.map(u => utilColour(u)),
+                        borderWidth: 0,
                         order: 2,
                     },
                     {
-                        label: 'Load Hrs',
+                        label: 'Planned Load',
                         data: loads,
-                        backgroundColor: utils.map(u => utilColour(u)),
+                        backgroundColor: 'rgba(13,110,253,0.7)',
                         borderWidth: 0,
                         order: 1,
                     },

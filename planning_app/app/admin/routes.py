@@ -161,8 +161,10 @@ def dept_edit(dept_id: int):
             flash(f"Department '{dept.name}' {status}.", "success")
         else:
             dept.target_hours_per_day = form.target_hours_per_day.data
+            if form.default_lead_time_days.data is not None:
+                dept.default_lead_time_days = form.default_lead_time_days.data
             db.session.commit()
-            flash(f"Target hours updated for {dept.name}.", "success")
+            flash(f"Settings updated for {dept.name}.", "success")
         return redirect(url_for("admin.dept_list"))
 
     return render_template(
