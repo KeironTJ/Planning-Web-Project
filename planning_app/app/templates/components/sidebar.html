@@ -3,12 +3,9 @@
         <ul class="nav flex-column">
 
             {% set nav_items = [
-                ('capacity.dashboard',   'bi-bar-chart-fill',     'Capacity',    'view_capacity'),
-                ('capacity.work_order_list', 'bi-clipboard2-check', 'Work Orders', 'view_work_orders'),
-                ('materials.dashboard',  'bi-box-seam',           'Materials',   'view_materials'),
-                ('forecasting.dashboard','bi-graph-up-arrow',     'Forecasting', 'view_forecast'),
-                ('workload.dashboard',   'bi-people-fill',         'Workload',    'view_capacity'),
-                ('scenarios.dashboard',  'bi-layers-fill',         'Scenarios',   'view_scenarios'),
+                ('orders.wip_tracker',  'bi-grid-3x3-gap',    'WIP Tracker',  'view_orders'),
+                ('capacity.dashboard',  'bi-bar-chart-fill',  'Capacity',     'view_capacity'),
+                ('materials.index',     'bi-box-seam',        'Materials',    'view_materials'),
             ] %}
 
             {% for endpoint, icon, label, perm in nav_items %}

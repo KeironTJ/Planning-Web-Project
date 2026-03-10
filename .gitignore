@@ -129,3 +129,6 @@ celerybeat.pid
 # ── Docker (if containerised later) ──────────────────────────────────────────
 .dockerignore
 docker-compose.override.yml
+
+# ── Miscellaneous ─────────────────────────────────────────────────────────────
+*_HIDE*

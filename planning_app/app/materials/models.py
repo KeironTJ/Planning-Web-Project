@@ -1,73 +1,98 @@
 """
-Material availability models.
+Materials availability models.
 
-Tracks stock levels, supplier lead times, and purchase orders so the
-planner can see whether materials are available to support work orders.
+All tables are full-replace on each daily CSV import (truncate + reload).
+Date fields from ERP CSVs are Excel serial numbers - converted on import.
 """
 
-from datetime import datetime, timezone
-from decimal import Decimal
 from app.extensions import db
 
 
-class Material(db.Model):
-    """A purchased or manufactured material/component."""
+class Stock(db.Model):
+    """Current stock on hand per product. Imported from StockOnHand_HIDE.csv (full replace daily)."""
 
-    __tablename__ = "materials"
+    __tablename__ = "stock"
 
     id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(50), unique=True, nullable=False, index=True)
-    description = db.Column(db.String(200), nullable=False)
-    unit_of_measure = db.Column(db.String(10), default="EA")
-    stock_on_hand = db.Column(db.Numeric(12, 3), default=Decimal("0.000"))
-    safety_stock = db.Column(db.Numeric(12, 3), default=Decimal("0.000"))
-    reorder_point = db.Column(db.Numeric(12, 3), default=Decimal("0.000"))
-    lead_time_days = db.Column(db.Integer, default=0)
-    unit_cost = db.Column(db.Numeric(10, 4), default=Decimal("0.0000"))
-    supplier_code = db.Column(db.String(50), index=True)
-    is_active = db.Column(db.Boolean, default=True, index=True)
-    last_updated = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    product_code = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    description = db.Column(db.String(200), nullable=True)
+    qty_on_hand = db.Column(db.Numeric(12, 3), nullable=False, default=0)
+    imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
-    purchase_orders = db.relationship("PurchaseOrder", back_populates="material", cascade="all, delete-orphan")
-
-    @property
-    def is_below_safety_stock(self) -> bool:
-        return Decimal(str(self.stock_on_hand)) < Decimal(str(self.safety_stock))
-
-    @property
-    def is_below_reorder_point(self) -> bool:
-        return Decimal(str(self.stock_on_hand)) < Decimal(str(self.reorder_point))
-
-    def __repr__(self) -> str:
-        return f"<Material {self.code}>"
+    def __repr__(self):
+        return f"<Stock {self.product_code}>"
 
 
 class PurchaseOrder(db.Model):
-    """An inbound purchase order for a material."""
+    """
+    Open inbound purchase order line.
+    Imported from OpenPO_HIDE.csv (full replace daily).
+    Note: OUSTANDINGQTY is a typo in the ERP export - matched exactly.
+    """
 
     __tablename__ = "purchase_orders"
-
-    STATUS_OPEN = "open"
-    STATUS_RECEIVED = "received"
-    STATUS_CANCELLED = "cancelled"
+    __table_args__ = (
+        db.UniqueConstraint("po_number", "line_number", name="uq_po_line"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    po_number = db.Column(db.String(30), unique=True, nullable=False, index=True)
-    material_id = db.Column(db.Integer, db.ForeignKey("materials.id", ondelete="CASCADE"), nullable=False)
-    quantity_ordered = db.Column(db.Numeric(12, 3), nullable=False)
-    quantity_received = db.Column(db.Numeric(12, 3), default=Decimal("0.000"))
-    expected_date = db.Column(db.Date, index=True)
-    received_date = db.Column(db.Date)
-    status = db.Column(db.String(20), default=STATUS_OPEN, nullable=False, index=True)
-    supplier_code = db.Column(db.String(50))
-    notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    po_number = db.Column(db.String(30), nullable=False, index=True)
+    line_number = db.Column(db.Integer, nullable=False)
+    product_code = db.Column(db.String(50), nullable=True, index=True)
+    description = db.Column(db.String(200), nullable=True)
+    outstanding_qty = db.Column(db.Numeric(12, 3), nullable=True)
+    due_date = db.Column(db.Date, nullable=True, index=True)
+    supplier_code = db.Column(db.String(30), nullable=True)
+    supplier_name = db.Column(db.String(100), nullable=True)
+    po_type = db.Column(db.String(20), nullable=True)
+    imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
-    material = db.relationship("Material", back_populates="purchase_orders")
+    def __repr__(self):
+        return f"<PurchaseOrder {self.po_number}/{self.line_number}>"
 
-    @property
-    def quantity_outstanding(self) -> Decimal:
-        return Decimal(str(self.quantity_ordered)) - Decimal(str(self.quantity_received))
 
-    def __repr__(self) -> str:
-        return f"<PurchaseOrder {self.po_number}>"
+class MaterialRequirementMain(db.Model):
+    """MRP material requirements for main line orders. Imported from MainMaterialReq_HIDE.csv."""
+
+    __tablename__ = "material_requirements_main"
+
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.String(30), nullable=True, index=True)
+    batch_id = db.Column(db.String(30), nullable=True)
+    works_order = db.Column(db.String(30), nullable=True, index=True)
+    load_date = db.Column(db.Date, nullable=True)
+    due_date = db.Column(db.Date, nullable=True, index=True)
+    department = db.Column(db.String(100), nullable=True, index=True)
+    material_code = db.Column(db.String(50), nullable=True, index=True)
+    material_description = db.Column(db.String(200), nullable=True)
+    qty_required_per_set = db.Column(db.Numeric(12, 3), nullable=True)
+    qty_for_order = db.Column(db.Numeric(12, 3), nullable=True)
+    qty_issued = db.Column(db.Numeric(12, 3), nullable=True, default=0)
+    product_group = db.Column(db.String(30), nullable=True)
+    product_group_desc = db.Column(db.String(100), nullable=True)
+    complete = db.Column(db.String(1), nullable=True)
+    imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    def __repr__(self):
+        return f"<MaterialRequirementMain {self.works_order} {self.material_code}>"
+
+
+class MaterialRequirementAfterSales(db.Model):
+    """MRP material requirements for after sales orders. Imported from ASMaterialReq_HIDE.csv."""
+
+    __tablename__ = "material_requirements_aftersales"
+
+    id = db.Column(db.Integer, primary_key=True)
+    customer = db.Column(db.String(100), nullable=True)
+    customer_product_ref = db.Column(db.String(50), nullable=True)
+    order_number = db.Column(db.String(30), nullable=True, index=True)
+    load_date = db.Column(db.Date, nullable=True)
+    due_date = db.Column(db.Date, nullable=True, index=True)
+    department = db.Column(db.String(100), nullable=True, index=True)
+    product_code = db.Column(db.String(50), nullable=True, index=True)
+    description = db.Column(db.String(200), nullable=True)
+    qty_required = db.Column(db.Numeric(12, 3), nullable=True)
+    imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    def __repr__(self):
+        return f"<MaterialRequirementAfterSales {self.order_number} {self.product_code}>"

@@ -56,22 +56,23 @@ def _init_extensions(app: Flask) -> None:
 
 def _register_blueprints(app: Flask) -> None:
     """Register all feature blueprints."""
+    # Import all model modules so Flask-Migrate can detect them
+    from .orders import models as _orders_models  # noqa: F401
+    from .capacity import models as _capacity_models  # noqa: F401
+    from .materials import models as _materials_models  # noqa: F401
+
     from .auth import auth_bp
     from .admin import admin_bp
+    from .orders import orders_bp
     from .capacity import capacity_bp
     from .materials import materials_bp
-    from .forecasting import forecasting_bp
-    from .workload import workload_bp
-    from .scenarios import scenarios_bp
     from .api.v1 import api_v1_bp
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(admin_bp, url_prefix="/admin")
+    app.register_blueprint(orders_bp, url_prefix="/orders")
     app.register_blueprint(capacity_bp, url_prefix="/capacity")
     app.register_blueprint(materials_bp, url_prefix="/materials")
-    app.register_blueprint(forecasting_bp, url_prefix="/forecasting")
-    app.register_blueprint(workload_bp, url_prefix="/workload")
-    app.register_blueprint(scenarios_bp, url_prefix="/scenarios")
     app.register_blueprint(api_v1_bp, url_prefix="/api/v1")
 
     # Root redirect
@@ -79,7 +80,7 @@ def _register_blueprints(app: Flask) -> None:
 
     @app.route("/")
     def index():
-        return redirect(url_for("capacity.dashboard"))
+        return redirect(url_for("orders.wip_tracker"))
 
 
 def _register_error_handlers(app: Flask) -> None:

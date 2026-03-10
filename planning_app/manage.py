@@ -71,5 +71,48 @@ def create_tables():
         click.echo("All tables created.")
 
 
+
+
+@app.cli.command("seed-departments")
+def seed_departments():
+    """Seed the 18 confirmed production departments if they do not already exist."""
+    from app.orders.models import Department
+    depts = [
+        "WOODMILL",
+        "FURNITURE TIMBER",
+        "CUTTING",
+        "MACHINING",
+        "FILLING",
+        "UPHOLSTERY",
+        "MATTRESS",
+        "TACKING",
+        "CURTAINS",
+        "CURTAIN POLES",
+        "BEDDING",
+        "BLINDS (CTN SECTION)",
+        "DESPATCH",
+        "AFTER SALES",
+        "BELFIELD TEXTILES",
+        "TEK SEATING (CAB SEATS)",
+        "DIVAN",
+        "ENCAPSULATED SPRINGS",
+        "GENERAL",
+    ]
+    with app.app_context():
+        created = 0
+        for name in depts:
+            code = (
+                name.upper()
+                .replace(" ", "_")
+                .replace("(", "")
+                .replace(")", "")
+            )
+            if not Department.query.filter_by(name=name).first():
+                dept = Department(code=code, name=name, is_active=True)
+                db.session.add(dept)
+                created += 1
+        db.session.commit()
+        click.echo(f"{created} department(s) created ({len(depts) - created} already existed).")
+
 if __name__ == "__main__":
     app.cli()

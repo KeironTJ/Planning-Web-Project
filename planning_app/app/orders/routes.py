@@ -1,7 +1,9 @@
-"""Capacity blueprint routes - Phase 5 implementation pending."""
+"""Orders blueprint routes — placeholder for Phase 4 implementation."""
+
 from flask import render_template_string
 from flask_login import login_required
-from . import capacity_bp
+
+from . import orders_bp
 
 _PLACEHOLDER = """
 {% extends 'base.html' %}
@@ -13,8 +15,10 @@ _PLACEHOLDER = """
 {% endblock %}
 """
 
-@capacity_bp.route("/")
-@capacity_bp.route("/dashboard")
+
+@orders_bp.route("/")
+@orders_bp.route("/wip")
 @login_required
-def dashboard():
-    return render_template_string(_PLACEHOLDER, title="Capacity Dashboard")
+def wip_tracker():
+    """WIP Tracker — Phase 4."""
+    return render_template_string(_PLACEHOLDER, title="WIP Tracker")

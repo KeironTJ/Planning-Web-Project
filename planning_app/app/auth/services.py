@@ -177,26 +177,18 @@ class RoleService:
         Called by the ``seed-db`` CLI command after the first migration.
         """
         permissions_data = [
+            # Orders / WIP
+            ("view_orders", "View WIP tracker and order lists", "orders"),
+            ("update_order_status", "Update works order operation status", "orders"),
+            ("manage_orders", "Edit planned dates and notes on operations", "orders"),
             # Capacity
-            ("view_capacity", "View capacity plans and utilisation", "capacity"),
-            ("create_capacity", "Create capacity buckets and plans", "capacity"),
-            ("edit_capacity", "Modify existing capacity plans", "capacity"),
-            ("delete_capacity", "Delete capacity records", "capacity"),
-            # Work Orders
-            ("view_work_orders", "View work orders", "capacity"),
-            ("create_work_order", "Create new work orders", "capacity"),
-            ("edit_work_order", "Modify work orders", "capacity"),
-            ("close_work_order", "Close/complete work orders", "capacity"),
+            ("view_capacity", "View capacity dashboard and labour plan", "capacity"),
+            ("override_capacity", "Override capacity bucket available hours", "capacity"),
             # Materials
-            ("view_materials", "View material availability", "materials"),
-            ("edit_materials", "Update material stock and lead times", "materials"),
-            # Forecasting
-            ("view_forecast", "View demand forecasts", "forecasting"),
-            ("create_forecast", "Create and run forecasts", "forecasting"),
-            # Scenarios
-            ("view_scenarios", "View planning scenarios", "scenarios"),
-            ("create_scenario", "Create what-if scenarios", "scenarios"),
+            ("view_materials", "View stock, purchase orders, and shortage report", "materials"),
             # Admin
+            ("manage_imports", "Upload and manage CSV data imports", "admin"),
+            ("manage_departments", "Configure department settings", "admin"),
             ("manage_users", "Create, edit, and deactivate users", "admin"),
             ("manage_roles", "Assign roles and permissions", "admin"),
         ]
@@ -218,26 +210,16 @@ class RoleService:
             "planner": {
                 "description": "Read/write access to all planning modules",
                 "permissions": [
-                    "view_capacity", "create_capacity", "edit_capacity",
-                    "view_work_orders", "create_work_order", "edit_work_order", "close_work_order",
-                    "view_materials", "edit_materials",
-                    "view_forecast", "create_forecast",
-                    "view_scenarios", "create_scenario",
-                ],
-            },
-            "analyst": {
-                "description": "Read/write access to forecasting and scenarios",
-                "permissions": [
-                    "view_capacity", "view_work_orders", "view_materials",
-                    "view_forecast", "create_forecast",
-                    "view_scenarios", "create_scenario",
+                    "view_orders", "update_order_status", "manage_orders",
+                    "view_capacity", "override_capacity",
+                    "view_materials",
+                    "manage_imports",
                 ],
             },
             "viewer": {
-                "description": "Read-only access to all planning modules",
+                "description": "Read-only access",
                 "permissions": [
-                    "view_capacity", "view_work_orders", "view_materials",
-                    "view_forecast", "view_scenarios",
+                    "view_orders", "view_capacity", "view_materials",
                 ],
             },
         }
