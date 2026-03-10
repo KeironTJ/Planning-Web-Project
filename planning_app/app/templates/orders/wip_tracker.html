@@ -39,10 +39,16 @@
 <!-- Filters -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
-        <form method="GET" class="row g-2 align-items-end">
-            <div class="col-sm-4 col-md-3">
+        <form method="GET" class="row g-2 align-items-end" id="filterForm">
+            {# Row 1: search + CPR + status + dept + sort + per-page + overdue #}
+            <div class="col-sm-3 col-md-2">
                 <input type="search" name="q" class="form-control form-control-sm"
                        placeholder="SO, customer, product…" value="{{ search }}">
+            </div>
+            <div class="col-sm-3 col-md-2">
+                <input type="search" name="cpr" class="form-control form-control-sm"
+                       placeholder="Cust. Prod. Ref…" value="{{ cust_prod_ref }}"
+                       title="Filter by Customer Product Reference (CUSPRODREF)">
             </div>
             <div class="col-sm-3 col-md-2">
                 <select name="status" class="form-select form-select-sm">
@@ -64,8 +70,16 @@
             <div class="col-sm-3 col-md-2">
                 <select name="sort" class="form-select form-select-sm">
                     <option value="due_date"  {{ 'selected' if order_by == 'due_date' }}>Sort: Due Date</option>
+                    <option value="plan_date" {{ 'selected' if order_by == 'plan_date' }}>Sort: Plan Date</option>
                     <option value="so_number" {{ 'selected' if order_by == 'so_number' }}>Sort: SO No</option>
                     <option value="customer"  {{ 'selected' if order_by == 'customer' }}>Sort: Customer</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <select name="per_page" class="form-select form-select-sm" style="width:auto;">
+                    {% for n in [25, 50, 100] %}
+                    <option value="{{ n }}" {{ 'selected' if per_page == n }}>{{ n }}/page</option>
+                    {% endfor %}
                 </select>
             </div>
             <div class="col-auto">
@@ -75,7 +89,43 @@
                     <label class="form-check-label small" for="overdueChk">Overdue only</label>
                 </div>
             </div>
-            <div class="col-auto">
+
+            {# Row 2: date range filters (collapsed unless active) #}
+            {% set date_filters_active = due_date_from or due_date_to or planned_date_from or planned_date_to %}
+            <div class="col-12 mt-1">
+                <a class="small text-muted text-decoration-none" data-bs-toggle="collapse"
+                   href="#dateFilters" role="button"
+                   aria-expanded="{{ 'true' if date_filters_active else 'false' }}">
+                    <i class="bi bi-calendar-range me-1"></i>Date filters
+                    {% if date_filters_active %}<span class="badge bg-primary ms-1">active</span>{% endif %}
+                </a>
+            </div>
+            <div class="col-12 collapse {{ 'show' if date_filters_active else '' }}" id="dateFilters">
+                <div class="row g-2 align-items-end">
+                    <div class="col-auto">
+                        <label class="form-label form-label-sm text-muted mb-0">Due from</label>
+                        <input type="date" name="due_from" class="form-control form-control-sm"
+                               value="{{ due_date_from.isoformat() if due_date_from else '' }}">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label form-label-sm text-muted mb-0">Due to</label>
+                        <input type="date" name="due_to" class="form-control form-control-sm"
+                               value="{{ due_date_to.isoformat() if due_date_to else '' }}">
+                    </div>
+                    <div class="col-auto ms-3">
+                        <label class="form-label form-label-sm text-muted mb-0">Plan from</label>
+                        <input type="date" name="plan_from" class="form-control form-control-sm"
+                               value="{{ planned_date_from.isoformat() if planned_date_from else '' }}">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label form-label-sm text-muted mb-0">Plan to</label>
+                        <input type="date" name="plan_to" class="form-control form-control-sm"
+                               value="{{ planned_date_to.isoformat() if planned_date_to else '' }}">
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-auto mt-1">
                 <button type="submit" class="btn btn-primary btn-sm">Filter</button>
                 <a href="{{ url_for('orders.wip_tracker') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
             </div>
@@ -86,21 +136,27 @@
 <!-- Results count + actions -->
 <div class="d-flex justify-content-between align-items-center mb-2">
     <small class="text-muted">
-        {{ pagination.total }} order{{ 's' if pagination.total != 1 }} found
-        (page {{ pagination.page }} of {{ pagination.pages }})
+        <strong>{{ pagination.total }}</strong> order{{ 's' if pagination.total != 1 }} found
+        {% if pagination.pages > 1 %}&nbsp;·&nbsp; page {{ pagination.page }}/{{ pagination.pages }}{% endif %}
     </small>
-    <div class="d-flex gap-2">
-        <a href="{{ url_for('orders.firming_queue') }}" class="btn btn-outline-primary btn-sm">
-            <i class="bi bi-check2-circle me-1"></i>Firming Queue
-        </a>
-    </div>
+    <a href="{{ url_for('orders.firming_queue') }}" class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-check2-circle me-1"></i>Firming Queue
+    </a>
 </div>
 
 <!-- Key: order-level buttons advance ALL lines; line-level buttons open detail modal -->
 <p class="text-muted small mb-2">
     <i class="bi bi-arrow-right-circle me-1"></i>
-    Dept buttons on <strong>order rows</strong> advance all lines to next status.
+    <strong>Left-click</strong> a dept button to advance status &nbsp;·&nbsp;
+    <strong>Right-click</strong> to step back &nbsp;·&nbsp;
     Expand <i class="bi bi-chevron-right"></i> to update individual lines.
+    Dates shown below buttons are planned dates.
+    &nbsp;·&nbsp;
+    <strong>Materials:</strong>
+    <span class="badge bg-success fw-normal" style="font-size:.7rem;">Mat. OK</span> stock covers all
+    <span class="badge bg-info fw-normal ms-1" style="font-size:.7rem;">Low Risk</span> covered by call-off (CO)
+    <span class="badge bg-warning fw-normal ms-1" style="font-size:.7rem;">Med Risk</span> covered by PO
+    <span class="badge bg-danger fw-normal ms-1" style="font-size:.7rem;">Shortage</span> uncovered &nbsp;·&nbsp; Click badge to view details.
 </p>
 
 <!-- WIP Grid -->
@@ -113,8 +169,20 @@
                 <th style="min-width:90px;">SO</th>
                 <th style="min-width:120px;">Customer</th>
                 <th style="min-width:80px;">Lines / Qty</th>
-                <th class="text-center" style="min-width:70px;">Due</th>
+                <th class="text-center" style="min-width:70px;">
+                    <a href="?{{ request.query_string.decode()|replace('sort=due_date','') }}&sort=due_date"
+                       class="text-decoration-none text-dark">
+                        Due {% if order_by == 'due_date' %}<i class="bi bi-sort-down"></i>{% endif %}
+                    </a>
+                </th>
+                <th class="text-center" style="min-width:70px;">
+                    <a href="?{{ request.query_string.decode()|replace('sort=plan_date','') }}&sort=plan_date"
+                       class="text-decoration-none text-dark">
+                        Plan {% if order_by == 'plan_date' %}<i class="bi bi-sort-down"></i>{% endif %}
+                    </a>
+                </th>
                 <th style="min-width:100px;">Status</th>
+                <th style="min-width:90px;">Materials</th>
                 {% for dept in departments %}
                 <th class="text-center" style="min-width:66px; max-width:86px; white-space:normal; line-height:1.1;">
                     {{ dept.name }}
@@ -137,8 +205,18 @@
                     </button>
                 </td>
                 <td class="fw-semibold">{{ order.so_number }}</td>
-                <td class="text-truncate fw-semibold" style="max-width:130px;" title="{{ order.customer_name }}">
-                    {{ order.customer_name }}
+                <td style="max-width:140px;" title="{{ order.customer_name }}">
+                    <div class="fw-semibold text-truncate">{{ order.customer_name }}</div>
+                    {% if order.cpr_list %}
+                    <div style="margin-top:2px;">
+                        {% for cpr in order.cpr_list[:3] %}
+                        <span class="badge bg-primary-subtle text-primary fw-normal" style="font-size:.68rem;">{{ cpr }}</span>
+                        {% endfor %}
+                        {% if order.cpr_list | length > 3 %}
+                        <span class="text-muted" style="font-size:.68rem;">+{{ order.cpr_list | length - 3 }} more</span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                 </td>
                 <td class="text-muted" style="font-size:.78rem;">
                     {{ order.line_count }} line{{ 's' if order.line_count != 1 }}
@@ -147,22 +225,46 @@
                 <td class="text-center {{ 'text-danger fw-semibold' if order.due_date and order.due_date < today else '' }}">
                     {{ order.due_date.strftime('%d %b') if order.due_date else '—' }}
                 </td>
+                <td class="text-center {{ 'text-warning fw-semibold' if order.plan_date and order.plan_date > (order.due_date or order.plan_date) else '' }}">
+                    {{ order.plan_date.strftime('%d %b') if order.plan_date else '—' }}
+                </td>
                 <td>
                     <span class="badge bg-{{ agg_colour }}">{{ agg_label }}</span>
                 </td>
 
+                {# Material availability status #}
+                {% set mat_label, mat_colour = mat_status_meta.get(order.mat_status, ('—', 'secondary')) %}
+                <td>
+                    {% if order.mat_status == 'no_data' %}
+                        <span class="text-muted" style="font-size:.78rem;">—</span>
+                    {% else %}
+                        <a href="{{ url_for('materials.shortage') }}?q={{ order.so_number }}"
+                           class="badge bg-{{ mat_colour }} text-decoration-none"
+                           title="Click to view material requirements for {{ order.so_number }}"
+                           target="_blank">
+                            {{ mat_label }}
+                        </a>
+                    {% endif %}
+                </td>
+
                 {# Order-level dept cells — advance-all / step-back buttons #}
                 {% for dept in departments %}
-                <td class="text-center p-1">
+                <td class="text-center p-1" data-dept="{{ dept.name }}">
                     {% set ds = order.dept_status.get(dept.name) %}
                     {% if ds %}
                         {% set op_label, op_colour = status_meta.get(ds, ('?', 'secondary')) %}
+                        {% set dp = order.dept_planned.get(dept.name) %}
                         {% if ds == 'completed' or ds == 'closed' %}
-                            <span class="badge bg-{{ op_colour }}"
-                                  style="font-size:.68rem; min-width:58px; display:inline-block;"
-                                  title="{{ op_label }} — right-click to step back">
-                                {{ op_label[:6] }}
-                            </span>
+                            {# Still a button so right-click step-back works #}
+                            <button type="button"
+                                    class="btn btn-{{ op_colour }} btn-sm py-0 px-1 advance-so-dept-btn"
+                                    style="font-size:.68rem; min-width:58px;"
+                                    data-so="{{ order.so_number }}"
+                                    data-dept="{{ dept.name }}"
+                                    data-current-status="{{ ds }}"
+                                    title="{{ op_label }} — right-click to step back">
+                                <i class="bi bi-check-circle" style="font-size:.65rem;"></i> {{ op_label[:5] }}
+                            </button>
                         {% else %}
                             <button type="button"
                                     class="btn btn-{{ op_colour }} btn-sm py-0 px-1 advance-so-dept-btn"
@@ -173,6 +275,11 @@
                                     title="Left-click: advance · Right-click: step back">
                                 <i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> {{ op_label[:5] }}
                             </button>
+                        {% endif %}
+                        {% if dp %}
+                        <div class="text-muted" style="font-size:.62rem; line-height:1.1; margin-top:1px;">
+                            {{ dp.strftime('%d %b') }}
+                        </div>
                         {% endif %}
                     {% else %}
                         <span class="text-muted">·</span>
@@ -195,7 +302,12 @@
 
             <tr class="order-detail-row" data-group="{{ order_group }}" style="display:none; background:#fafafa;">
                 <td></td>
-                <td class="text-muted ps-3" style="font-size:.78rem;">Line {{ sol.line_number }}</td>
+                <td class="text-muted ps-3" style="font-size:.78rem;">
+                    Line {{ sol.line_number }}
+                    {% if sol.customer_product_ref %}
+                    <div class="text-primary fw-semibold" style="font-size:.72rem;">{{ sol.customer_product_ref }}</div>
+                    {% endif %}
+                </td>
                 <td colspan="2" class="text-truncate" style="max-width:200px;" title="{{ sol.product_description }}">
                     <span class="text-muted small">{{ sol.product_code }}</span>
                     {{ sol.product_description or '' }}
@@ -205,9 +317,15 @@
                     style="font-size:.78rem;">
                     {{ sol.due_date.strftime('%d %b') if sol.due_date else '—' }}
                 </td>
+                {% set fpd = sol.final_planned_date %}
+                <td class="text-center {{ 'text-warning' if fpd and sol.due_date and fpd > sol.due_date else '' }}"
+                    style="font-size:.78rem;">
+                    {{ fpd.strftime('%d %b') if fpd else '—' }}
+                </td>
                 <td>
                     <span class="badge bg-{{ line_colour }}" style="font-size:.68rem;">{{ line_label }}</span>
                 </td>
+                <td></td>{# Materials column — order-level only #}
 
                 {# Line-level dept cells — single op modal #}
                 {% for dept in departments %}
@@ -248,20 +366,77 @@
 </div>
 
 <!-- Pagination -->
-{% if pagination.pages > 1 %}
-<nav class="mt-3">
-    <ul class="pagination pagination-sm justify-content-center">
-        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
-            {% if p %}
-                <li class="page-item {{ 'active' if p == pagination.page else '' }}">
-                    <a class="page-link" href="{{ url_for('orders.wip_tracker', page=p, q=search, status=status_filter, dept=dept_filter, sort=order_by, overdue=1 if overdue_only else '') }}">{{ p }}</a>
-                </li>
-            {% else %}
-                <li class="page-item disabled"><span class="page-link">…</span></li>
-            {% endif %}
-        {% endfor %}
-    </ul>
-</nav>
+{% if pagination.pages >= 1 %}
+{% set _start = (pagination.page - 1) * pagination.per_page + 1 %}
+{% set _end   = [pagination.page * pagination.per_page, pagination.total] | min %}
+{# Build stable base params (all except page) for pagination links #}
+{% macro page_url(p) %}{{ url_for('orders.wip_tracker',
+    page=p, q=search, cpr=cust_prod_ref or None,
+    status=status_filter, dept=dept_filter,
+    sort=order_by, per_page=per_page,
+    overdue=1 if overdue_only else None,
+    due_from=due_date_from.isoformat() if due_date_from else None,
+    due_to=due_date_to.isoformat() if due_date_to else None,
+    plan_from=planned_date_from.isoformat() if planned_date_from else None,
+    plan_to=planned_date_to.isoformat() if planned_date_to else None
+) }}{% endmacro %}
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3">
+    {# Left: showing X–Y of Z #}
+    <small class="text-muted">
+        Showing {{ _start }}–{{ _end }} of {{ pagination.total }} order{{ 's' if pagination.total != 1 }}
+    </small>
+
+    {# Centre: page controls #}
+    {% if pagination.pages > 1 %}
+    <nav aria-label="Page navigation">
+        <ul class="pagination pagination-sm mb-0">
+            {# First #}
+            <li class="page-item {{ 'disabled' if pagination.page == 1 }}">
+                <a class="page-link" href="{{ page_url(1) }}" title="First">&laquo;</a>
+            </li>
+            {# Prev #}
+            <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+                <a class="page-link" href="{{ page_url(pagination.page - 1) if pagination.has_prev else '#' }}">
+                    <i class="bi bi-chevron-left"></i>
+                </a>
+            </li>
+            {# Page numbers #}
+            {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                {% if p %}
+                    <li class="page-item {{ 'active' if p == pagination.page else '' }}">
+                        <a class="page-link" href="{{ page_url(p) }}">{{ p }}</a>
+                    </li>
+                {% else %}
+                    <li class="page-item disabled"><span class="page-link">…</span></li>
+                {% endif %}
+            {% endfor %}
+            {# Next #}
+            <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+                <a class="page-link" href="{{ page_url(pagination.page + 1) if pagination.has_next else '#' }}">
+                    <i class="bi bi-chevron-right"></i>
+                </a>
+            </li>
+            {# Last #}
+            <li class="page-item {{ 'disabled' if pagination.page == pagination.pages }}">
+                <a class="page-link" href="{{ page_url(pagination.pages) }}" title="Last">&raquo;</a>
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
+
+    {# Right: jump to page #}
+    {% if pagination.pages > 1 %}
+    <form class="d-flex align-items-center gap-1" id="jumpForm">
+        <label class="form-label form-label-sm text-muted mb-0 me-1">Go to</label>
+        <input type="number" id="jumpPage" class="form-control form-control-sm text-center"
+               style="width:60px;" min="1" max="{{ pagination.pages }}"
+               value="{{ pagination.page }}">
+        <span class="text-muted small">/ {{ pagination.pages }}</span>
+        <button type="submit" class="btn btn-outline-secondary btn-sm">Go</button>
+    </form>
+    {% endif %}
+</div>
 {% endif %}
 
 {% else %}
@@ -501,7 +676,9 @@
     const modal = document.getElementById('opModal');
     const form  = document.getElementById('opForm');
     modal.addEventListener('show.bs.modal', function (e) {
-        const btn  = e.relatedTarget;
+        // relatedTarget may be a child element (e.g. the <i> icon) — walk up to the button
+        const btn  = e.relatedTarget && e.relatedTarget.closest('[data-op-id]');
+        if (!btn) return;
         const opId = btn.dataset.opId;
         form.action = '/orders/operations/' + opId + '/update';
         document.getElementById('opModalLabel').textContent = btn.dataset.so + ' — ' + btn.dataset.dept;
@@ -510,6 +687,21 @@
         document.getElementById('modalPlanned').value = btn.dataset.planned;
         document.getElementById('modalNotes').value   = btn.dataset.notes;
     });
+
+    // ── Jump-to-page form ─────────────────────────────────────────────── //
+    const jumpForm = document.getElementById('jumpForm');
+    if (jumpForm) {
+        jumpForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            const p   = parseInt(document.getElementById('jumpPage').value, 10);
+            const max = parseInt(document.getElementById('jumpPage').max, 10);
+            if (!p || p < 1 || p > max) return;
+            // Build URL by replacing (or appending) page= in current location
+            const url = new URL(window.location.href);
+            url.searchParams.set('page', p);
+            window.location.href = url.toString();
+        });
+    }
 })();
 </script>
 {% endblock %}

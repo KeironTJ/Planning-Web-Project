@@ -151,6 +151,15 @@ class SalesOrderLine(db.Model):
 
         return self.LINE_STATUS_NEW
 
+    @property
+    def final_planned_date(self):
+        """Latest planned_date across open operations — represents expected completion."""
+        dates = [
+            op.planned_date for op in self.operations
+            if op.planned_date and op.status != WorksOrderOperation.STATUS_CLOSED
+        ]
+        return max(dates) if dates else None
+
     def __repr__(self) -> str:
         return f"<SalesOrderLine {self.so_number}/{self.line_number}>"
 

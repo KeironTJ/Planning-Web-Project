@@ -34,6 +34,7 @@
             </div>
             <div class="col-auto">
                 <div class="form-check mb-0">
+                    <input type="hidden" name="shortages_only" value="0">
                     <input class="form-check-input" type="checkbox" name="shortages_only"
                            value="1" id="shortagesOnlyChk" {{ 'checked' if shortages_only }}>
                     <label class="form-check-label small" for="shortagesOnlyChk">Shortages only</label>
@@ -86,7 +87,8 @@
                         <th>Material / Product</th>
                         <th>Department</th>
                         <th>Ref</th>
-                        <th class="text-center">Due</th>
+                        <th class="text-center">ERP Due</th>
+                        <th class="text-center">Plan Start</th>
                         <th class="text-end">Required</th>
                         <th class="text-end">Issued</th>
                         <th class="text-end">Net Req</th>
@@ -121,6 +123,12 @@
                         <td class="text-center {{ 'text-danger fw-semibold' if row.due_date and row.due_date < today else '' }}">
                             {{ row.due_date.strftime('%d %b %y') if row.due_date else '—' }}
                         </td>
+                        {% set _so = so_from_wo(row.works_order or row.order_number) %}
+                        {% set _ps = plan_start_map.get(_so) if _so else none %}
+                        <td class="text-center {{ 'text-warning fw-semibold' if _ps and row.due_date and _ps < row.due_date else '' }}"
+                            title="{{ 'Plan start is earlier than ERP due date' if _ps and row.due_date and _ps < row.due_date else '' }}">
+                            {{ _ps.strftime('%d %b %y') if _ps else '—' }}
+                        </td>
                         <td class="text-end">{{ row.qty_required | round(2) }}</td>
                         <td class="text-end text-muted">
                             {{ row.qty_issued | round(2) if row.qty_issued else '—' }}
@@ -144,8 +152,11 @@
 </div>
 <div class="mt-2 small text-muted">
     <i class="bi bi-info-circle me-1"></i>
-    Shortage = Net Required − Stock On Hand − Open PO qty (due on or before requirement date).
-    Completed requirements (COMPLETE = Y) are excluded.
+    Shortage = Net Required − Stock On Hand − Open PO qty (actual POs due on or before requirement date) − Call-Off qty (CO orders, always available).
+    "Open PO" column shows combined PO + CO coverage. Completed requirements (COMPLETE = Y) are excluded.
+    <span class="text-warning fw-semibold ms-2">Plan Start</span> is our scheduled start date from the planning system.
+    Amber = plan start is earlier than ERP due date — materials may be needed sooner than the ERP expects.
+    <span class="text-muted ms-1">(—) = not yet planned.</span>
 </div>
 
 {% else %}

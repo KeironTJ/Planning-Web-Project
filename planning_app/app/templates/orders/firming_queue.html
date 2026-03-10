@@ -1,112 +1,314 @@
 {% extends 'base.html' %}
 
+{% block extra_css %}
+<style>
+.days-chip { font-size:.75rem; font-weight:600; padding:2px 7px; border-radius:99px; white-space:nowrap; }
+.days-overdue { background:#f8d7da; color:#842029; }
+.days-urgent  { background:#fff3cd; color:#664d03; }
+.days-ok      { background:#d1e7dd; color:#0a3622; }
+.days-none    { background:#e9ecef; color:#6c757d; }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+
+{# ── Page header ──────────────────────────────────────────────────────── #}
+<div class="d-flex justify-content-between align-items-start mb-3">
     <div>
         <h4 class="mb-0">Firming Queue</h4>
-        <small class="text-muted">Orders with all operations at 'Not Started' — candidates for planning/firming</small>
+        <small class="text-muted">
+            Orders not yet in production.
+            <span class="badge bg-secondary ms-1">New Order</span> — no dates set yet, plan them first.
+            <span class="badge bg-info ms-1">Firm Planned</span> — dates set, ready to release to production.
+        </small>
     </div>
-    <a href="{{ url_for('orders.wip_tracker') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-arrow-left me-1"></i>WIP Tracker
-    </a>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('orders.planning') }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-calendar-week me-1"></i>Date Planning
+        </a>
+        <a href="{{ url_for('orders.wip_tracker') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-grid-3x3-gap me-1"></i>WIP Tracker
+        </a>
+    </div>
 </div>
 
-{% if lines.items %}
+{# ── Search + controls ────────────────────────────────────────────────── #}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <form class="d-flex gap-1" method="GET">
+        <input type="hidden" name="per_page" value="{{ per_page }}">
+        <input type="search" name="q" class="form-control form-control-sm"
+               placeholder="SO#, customer, product…" value="{{ search }}" style="width:180px">
+        <input type="search" name="cpr" class="form-control form-control-sm"
+               placeholder="Cust. Prod. Ref…" value="{{ cust_prod_ref }}" style="width:150px"
+               title="Filter by Customer Product Reference (CUSPRODREF)">
+        <button class="btn btn-sm btn-outline-secondary">Search</button>
+        {% if search or cust_prod_ref %}
+        <a href="{{ url_for('orders.firming_queue') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
+        {% endif %}
+    </form>
+
+    <select class="form-select form-select-sm ms-auto" style="width:auto"
+            onchange="window.location='{{ url_for('orders.firming_queue', q=search) }}&per_page='+this.value">
+        {% for n in [25, 50, 100] %}
+        <option value="{{ n }}" {{ 'selected' if per_page == n }}>{{ n }}/page</option>
+        {% endfor %}
+    </select>
+
+    <small class="text-muted">{{ pagination.total }} order{{ 's' if pagination.total != 1 }}</small>
+</div>
+
+{# ── Table ────────────────────────────────────────────────────────────── #}
+{% if order_groups %}
 <div class="table-responsive">
-    <table class="table table-sm table-hover align-middle mb-0">
+    <table class="table table-sm align-middle mb-0" style="font-size:.83rem;" id="firmTable">
         <thead class="table-light">
             <tr>
-                <th>SO / Line</th>
-                <th>Customer</th>
-                <th>Product</th>
-                <th class="text-end">Qty</th>
-                <th class="text-end">Value</th>
-                <th class="text-center">Due</th>
-                <th>Operations</th>
-                <th></th>
+                <th style="width:28px;"></th>{# expand #}
+                <th style="min-width:90px;">SO</th>
+                <th style="min-width:130px;">Customer</th>
+                <th style="min-width:70px;">Lines / Qty</th>
+                <th class="text-end" style="min-width:80px;">Value</th>
+                <th class="text-center" style="min-width:80px;">ERP Due</th>
+                <th class="text-center" style="min-width:55px;">±Days</th>
+                <th class="text-center" style="min-width:70px;">Plan Start</th>
+                <th class="text-center" style="min-width:70px;">Plan End</th>
+                <th style="min-width:100px;">Status</th>
+                <th style="min-width:160px;">Action</th>
             </tr>
         </thead>
         <tbody>
-            {% for sol in lines.items %}
-            {% set active_ops = sol.operations | selectattr('status', '!=', 'closed') | list %}
-            <tr class="{{ 'table-warning' if sol.due_date and sol.due_date < today else '' }}">
-                <td class="fw-semibold">
-                    {{ sol.so_number }}<span class="text-muted">/{{ sol.line_number }}</span>
-                </td>
-                <td class="text-truncate" style="max-width:130px;" title="{{ sol.customer_name }}">
-                    {{ sol.customer_name or '—' }}
-                </td>
-                <td class="text-truncate" style="max-width:140px;" title="{{ sol.product_description }}">
-                    <span class="text-muted small">{{ sol.product_code }}</span>
-                    {{ sol.product_description or '' }}
-                </td>
-                <td class="text-end">{{ sol.qty_ordered | int if sol.qty_ordered else '—' }}</td>
-                <td class="text-end text-muted small">
-                    {{ '£{:,.0f}'.format(sol.total_value) if sol.total_value else '—' }}
-                </td>
-                <td class="text-center {{ 'text-danger fw-semibold' if sol.due_date and sol.due_date < today else '' }}">
-                    {{ sol.due_date.strftime('%d %b %Y') if sol.due_date else '—' }}
-                </td>
-                <td>
-                    <div class="d-flex flex-wrap gap-1">
-                        {% for op in active_ops %}
-                        <span class="badge bg-secondary" title="{{ op.work_centre_name }}">
-                            {{ op.work_centre_name[:8] }}
-                        </span>
-                        {% endfor %}
-                    </div>
-                </td>
-                <td>
-                    <!-- Quick: firm all operations on this line -->
-                    <form method="POST" action="{{ url_for('orders.bulk_update_operations') }}" class="d-inline">
+        {% for group in order_groups %}
+        {% set gi = loop.index %}
+        {% set is_overdue = group.days_delta is not none and group.days_delta < 0 %}
+        {% set is_urgent  = group.days_delta is not none and group.days_delta >= 0 and group.days_delta <= 7 %}
+        {% set plan_late  = group.plan_end and group.due_date and group.plan_end > group.due_date %}
+        {% set agg_label, agg_colour = line_status_meta.get(group.agg_status, ('Unknown','secondary')) %}
+        {% set is_new_order = group.agg_status == 'new_order' %}
+
+        {# ── Order header row ───────────────────────────────────── #}
+        <tr class="table-light fw-semibold order-firm-row" id="firm-order-{{ gi }}">
+            <td class="text-center p-1">
+                <button class="btn btn-link btn-sm p-0 text-secondary toggle-firm-btn"
+                        data-gi="{{ gi }}" title="Expand / collapse lines">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </td>
+            <td>{{ group.so_number }}</td>
+            <td style="max-width:150px;" title="{{ group.customer_name }}">
+                <div class="text-truncate">{{ group.customer_name }}</div>
+                {% if group.cpr_list %}
+                <div style="margin-top:2px;">
+                    {% for cpr in group.cpr_list[:3] %}
+                    <span class="badge bg-primary-subtle text-primary fw-normal" style="font-size:.68rem;">{{ cpr }}</span>
+                    {% endfor %}
+                    {% if group.cpr_list | length > 3 %}
+                    <span class="text-muted" style="font-size:.68rem;">+{{ group.cpr_list | length - 3 }} more</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </td>
+            <td class="text-muted fw-normal" style="font-size:.78rem;">
+                {{ group.line_count }} line{{ 's' if group.line_count != 1 }}
+                &nbsp;/&nbsp;{{ group.total_qty | int }} units
+            </td>
+            <td class="text-end fw-normal text-muted" style="font-size:.78rem;">
+                {{ '£{:,.0f}'.format(group.total_value) if group.total_value else '—' }}
+            </td>
+            <td class="text-center text-nowrap {{ 'text-danger' if is_overdue else ('text-warning' if is_urgent else '') }}">
+                {{ group.due_date.strftime('%d %b %Y') if group.due_date else '—' }}
+            </td>
+            <td class="text-center">
+                {% if group.days_delta is not none %}
+                    {% if group.days_delta < 0 %}
+                        <span class="days-chip days-overdue">{{ group.days_delta }}d</span>
+                    {% elif group.days_delta <= 7 %}
+                        <span class="days-chip days-urgent">{{ group.days_delta }}d</span>
+                    {% else %}
+                        <span class="days-chip days-ok">+{{ group.days_delta }}d</span>
+                    {% endif %}
+                {% else %}
+                    <span class="days-chip days-none">—</span>
+                {% endif %}
+            </td>
+            <td class="text-center fw-normal small {{ 'text-muted' if not group.plan_start else '' }}">
+                {{ group.plan_start.strftime('%d %b') if group.plan_start else '—' }}
+            </td>
+            <td class="text-center fw-normal small {{ 'text-danger fw-semibold' if plan_late else '' }}">
+                {{ group.plan_end.strftime('%d %b') if group.plan_end else '—' }}
+            </td>
+            <td>
+                <span class="badge bg-{{ agg_colour }}">{{ agg_label }}</span>
+            </td>
+            <td>
+                {% if is_new_order %}
+                    {# No dates set — send to planning #}
+                    <a href="{{ url_for('orders.planning', q=group.so_number) }}"
+                       class="btn btn-sm btn-outline-primary"
+                       title="Set planned dates for this order">
+                        <i class="bi bi-calendar-plus me-1"></i>Set Dates
+                    </a>
+                {% else %}
+                    {# Firm Planned — ready to start production #}
+                    <form method="POST" action="{{ url_for('orders.bulk_update_operations') }}"
+                          class="d-inline"
+                          onsubmit="return confirm('Start production for {{ group.so_number }}? This will mark all operations as Started.')">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="operation_ids"
-                               value="{{ active_ops | map(attribute='id') | join(',') }}">
-                        <input type="hidden" name="status" value="planned">
+                               value="{{ group.not_started_op_ids | join(',') }}">
+                        <input type="hidden" name="status" value="started">
                         <input type="hidden" name="back_url" value="{{ url_for('orders.firming_queue') }}">
-                        <button type="submit" class="btn btn-sm btn-outline-info"
-                                onclick="return confirm('Mark all operations for {{ sol.so_number }}/{{ sol.line_number }} as Planned?')">
-                            Plan
+                        <button type="submit" class="btn btn-sm btn-success">
+                            <i class="bi bi-play-circle me-1"></i>Start Production
                         </button>
                     </form>
-                    <form method="POST" action="{{ url_for('orders.bulk_update_operations') }}" class="d-inline ms-1">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="operation_ids"
-                               value="{{ active_ops | map(attribute='id') | join(',') }}">
-                        <input type="hidden" name="status" value="firmed">
-                        <input type="hidden" name="back_url" value="{{ url_for('orders.firming_queue') }}">
-                        <button type="submit" class="btn btn-sm btn-primary"
-                                onclick="return confirm('Firm all operations for {{ sol.so_number }}/{{ sol.line_number }}?')">
-                            Firm
-                        </button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
+                    <a href="{{ url_for('orders.planning', q=group.so_number) }}"
+                       class="btn btn-sm btn-outline-secondary ms-1"
+                       title="Adjust planned dates">
+                        <i class="bi bi-pencil"></i>
+                    </a>
+                {% endif %}
+            </td>
+        </tr>
+
+        {# ── Line detail rows (collapsed by default) ──────────── #}
+        {% for sol in group.lines %}
+        {% set active_ops = sol.operations | selectattr('status', '!=', 'closed') | list %}
+        {% set l_label, l_colour = line_status_meta.get(sol.aggregate_status, ('Unknown','secondary')) %}
+        {% set l_overdue = sol.due_date and sol.due_date < today %}
+
+        <tr class="firm-line-row" data-gi="{{ gi }}" style="display:none; background:#f8f9fa; font-size:.8rem;">
+            <td></td>
+            <td class="ps-3 text-muted">
+                Line {{ sol.line_number }}
+                {% if sol.customer_product_ref %}
+                <div class="text-primary fw-semibold" style="font-size:.72rem;">{{ sol.customer_product_ref }}</div>
+                {% endif %}
+            </td>
+            <td colspan="2" class="text-truncate" style="max-width:220px;" title="{{ sol.product_description }}">
+                <span class="text-muted small">{{ sol.product_code }}</span>
+                {{ sol.product_description or '' }}
+                <span class="text-muted ms-1">× {{ sol.qty_ordered | int if sol.qty_ordered else '?' }}</span>
+            </td>
+            <td class="text-end text-muted">
+                {{ '£{:,.0f}'.format(sol.total_value) if sol.total_value else '—' }}
+            </td>
+            <td class="text-center {{ 'text-danger fw-semibold' if l_overdue else '' }}">
+                {{ sol.due_date.strftime('%d %b %Y') if sol.due_date else '—' }}
+            </td>
+            <td></td>
+            <td colspan="2" class="text-center">
+                {# Show operation dept badges with planned dates #}
+                <div class="d-flex flex-wrap gap-1 justify-content-center">
+                    {% for op in active_ops %}
+                    {% set has_date = op.planned_date is not none %}
+                    <span class="badge {{ 'bg-info' if has_date else 'bg-secondary' }}"
+                          title="{{ op.work_centre_name }}{% if has_date %} — {{ op.planned_date.strftime('%d %b') }}{% endif %}">
+                        {{ op.work_centre_name[:8] }}
+                        {% if has_date %}<i class="bi bi-calendar-check ms-1"></i>{% endif %}
+                    </span>
+                    {% endfor %}
+                </div>
+            </td>
+            <td>
+                <span class="badge bg-{{ l_colour }}" style="font-size:.67rem;">{{ l_label }}</span>
+            </td>
+            <td></td>
+        </tr>
+        {% endfor %}
+
+        {% endfor %}
         </tbody>
     </table>
 </div>
 
-{% if lines.pages > 1 %}
-<nav class="mt-3">
-    <ul class="pagination pagination-sm justify-content-center">
-        {% for p in lines.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
-            {% if p %}
-                <li class="page-item {{ 'active' if p == lines.page else '' }}">
-                    <a class="page-link" href="{{ url_for('orders.firming_queue', page=p) }}">{{ p }}</a>
+{# ── Pagination ── #}
+{% set _start = (pagination.page - 1) * pagination.per_page + 1 %}
+{% set _end   = [pagination.page * pagination.per_page, pagination.total] | min %}
+{% macro page_url(p) %}{{ url_for('orders.firming_queue', q=search, per_page=per_page, page=p) }}{% endmacro %}
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3">
+    <small class="text-muted">
+        Showing {{ _start }}–{{ _end }} of {{ pagination.total }} order{{ 's' if pagination.total != 1 }}
+    </small>
+    {% if pagination.pages > 1 %}
+    <nav>
+        <ul class="pagination pagination-sm mb-0">
+            <li class="page-item {{ 'disabled' if pagination.page == 1 }}">
+                <a class="page-link" href="{{ page_url(1) }}">&laquo;</a>
+            </li>
+            <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+                <a class="page-link" href="{{ page_url(pagination.page - 1) if pagination.has_prev else '#' }}">
+                    <i class="bi bi-chevron-left"></i>
+                </a>
+            </li>
+            {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                {% if p %}
+                <li class="page-item {{ 'active' if p == pagination.page else '' }}">
+                    <a class="page-link" href="{{ page_url(p) }}">{{ p }}</a>
                 </li>
-            {% else %}
+                {% else %}
                 <li class="page-item disabled"><span class="page-link">…</span></li>
-            {% endif %}
-        {% endfor %}
-    </ul>
-</nav>
-{% endif %}
+                {% endif %}
+            {% endfor %}
+            <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+                <a class="page-link" href="{{ page_url(pagination.page + 1) if pagination.has_next else '#' }}">
+                    <i class="bi bi-chevron-right"></i>
+                </a>
+            </li>
+            <li class="page-item {{ 'disabled' if pagination.page == pagination.pages }}">
+                <a class="page-link" href="{{ page_url(pagination.pages) }}">&raquo;</a>
+            </li>
+        </ul>
+    </nav>
+    <form class="d-flex align-items-center gap-1" id="jumpForm">
+        <label class="form-label form-label-sm text-muted mb-0 me-1">Go to</label>
+        <input type="number" id="jumpPage" class="form-control form-control-sm text-center"
+               style="width:60px;" min="1" max="{{ pagination.pages }}" value="{{ pagination.page }}">
+        <span class="text-muted small">/ {{ pagination.pages }}</span>
+        <button type="submit" class="btn btn-outline-secondary btn-sm">Go</button>
+    </form>
+    {% endif %}
+</div>
 
 {% else %}
 <div class="text-center py-5 text-muted">
     <i class="bi bi-check2-all fs-1 d-block mb-2 text-success"></i>
-    No orders awaiting firming.
+    No orders awaiting planning or release.
+    <div class="mt-2">
+        <a href="{{ url_for('orders.wip_tracker') }}" class="btn btn-sm btn-outline-secondary">
+            View WIP Tracker
+        </a>
+    </div>
 </div>
 {% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.toggle-firm-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        const gi   = btn.dataset.gi;
+        const icon = btn.querySelector('i');
+        const rows = document.querySelectorAll('.firm-line-row[data-gi="' + gi + '"]');
+        const expanding = icon.classList.contains('bi-chevron-right');
+        rows.forEach(function (row) { row.style.display = expanding ? '' : 'none'; });
+        icon.classList.toggle('bi-chevron-right', !expanding);
+        icon.classList.toggle('bi-chevron-down', expanding);
+    });
+});
+
+const jumpForm = document.getElementById('jumpForm');
+if (jumpForm) {
+    jumpForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        const p   = parseInt(document.getElementById('jumpPage').value, 10);
+        const max = parseInt(document.getElementById('jumpPage').max, 10);
+        if (!p || p < 1 || p > max) return;
+        const url = new URL(window.location.href);
+        url.searchParams.set('page', p);
+        window.location.href = url.toString();
+    });
+}
+</script>
 {% endblock %}

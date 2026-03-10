@@ -109,6 +109,7 @@ def get_wip_page(
                 SalesOrderLine.product_code.ilike(term),
                 SalesOrderLine.product_description.ilike(term),
                 SalesOrderLine.customer_order_ref.ilike(term),
+                SalesOrderLine.customer_product_ref.ilike(term),
             )
         )
 
@@ -168,8 +169,13 @@ def get_wip_grouped(
     dept_filter: Optional[str] = None,
     status_filter: Optional[str] = None,
     search: Optional[str] = None,
+    cust_prod_ref: Optional[str] = None,
     overdue_only: bool = False,
     order_by: str = "due_date",
+    due_date_from: Optional[date] = None,
+    due_date_to: Optional[date] = None,
+    planned_date_from: Optional[date] = None,
+    planned_date_to: Optional[date] = None,
 ) -> tuple["SimplePagination", list]:
     """
     Return WIP data grouped by SO number.
@@ -207,7 +213,11 @@ def get_wip_grouped(
             SalesOrderLine.product_code.ilike(term),
             SalesOrderLine.product_description.ilike(term),
             SalesOrderLine.customer_order_ref.ilike(term),
+            SalesOrderLine.customer_product_ref.ilike(term),
         ))
+
+    if cust_prod_ref:
+        q = q.filter(SalesOrderLine.customer_product_ref.ilike(f"%{cust_prod_ref.strip()}%"))
 
     if status_filter:
         q = q.filter(
@@ -237,7 +247,25 @@ def get_wip_grouped(
             ),
         )
 
+    if due_date_from:
+        q = q.filter(SalesOrderLine.due_date >= due_date_from)
+    if due_date_to:
+        q = q.filter(SalesOrderLine.due_date <= due_date_to)
+    if planned_date_from:
+        q = q.filter(
+            SalesOrderLine.operations.any(
+                WorksOrderOperation.planned_date >= planned_date_from
+            )
+        )
+    if planned_date_to:
+        q = q.filter(
+            SalesOrderLine.operations.any(
+                WorksOrderOperation.planned_date <= planned_date_to
+            )
+        )
+
     # Order lines so grouping is stable
+    # plan_date sort is applied after grouping; use due_date as DB default for it
     if order_by == "so_number":
         q = q.order_by(SalesOrderLine.so_number, SalesOrderLine.line_number)
     elif order_by == "customer":
@@ -309,6 +337,35 @@ def get_wip_grouped(
             dept_name: min(ops, key=lambda o: _STATUS_PRIORITY.get(o.status, 99)).status
             for dept_name, ops in dept_ops.items()
         }
+
+        # Dept planned: dept_name → earliest planned_date across all lines for this SO
+        entry["dept_planned"] = {
+            dept_name: min(
+                (op.planned_date for op in ops if op.planned_date),
+                default=None,
+            )
+            for dept_name, ops in dept_ops.items()
+        }
+
+        # Latest planned date across all open ops — represents expected completion
+        all_planned = [
+            op.planned_date
+            for sol in lines
+            for op in sol.operations
+            if op.planned_date and op.status != WorksOrderOperation.STATUS_CLOSED
+        ]
+        entry["plan_date"]  = max(all_planned) if all_planned else None
+        entry["plan_start"] = min(all_planned) if all_planned else None
+
+        # Unique CPRs across all lines (preserving order, excluding nulls)
+        entry["cpr_list"] = list(dict.fromkeys(
+            sol.customer_product_ref for sol in lines
+            if sol.customer_product_ref
+        ))
+
+    # Apply plan_date sort after aggregation (can't do this at DB level)
+    if order_by == "plan_date":
+        order_list.sort(key=lambda e: e["plan_date"] or date.max)
 
     # Manual pagination
     total = len(order_list)
@@ -437,11 +494,36 @@ def get_dept_operations(
     return dept, q.paginate(page=page, per_page=per_page, error_out=False)
 
 
-def get_firming_queue(page: int = 1, per_page: int = 50):
+def get_firming_queue(page: int = 1, per_page: int = 25, search: Optional[str] = None, cust_prod_ref: Optional[str] = None):
     """
-    Return orders ready for firming: status = not_started, ordered by due date.
+    Return orders not yet in production (New Order or Firm Planned), grouped by SO.
+
+    Excludes any SO that already has a started / wip / completed operation.
+
+    Each item is a dict:
+        so_number           str
+        customer_name       str
+        due_date            date | None
+        days_delta          int | None
+        plan_start          date | None
+        plan_end            date | None
+        total_qty           Decimal
+        total_value         Decimal
+        line_count          int
+        agg_status          str
+        not_started_op_ids  list[int]   IDs of not_started ops (for Start Production)
+        lines               list[SalesOrderLine]
     """
     from sqlalchemy.orm import joinedload
+
+    today = date.today()
+
+    production_statuses = [
+        WorksOrderOperation.STATUS_STARTED,
+        WorksOrderOperation.STATUS_WIP,
+        WorksOrderOperation.STATUS_COMPLETED,
+    ]
+
     q = (
         SalesOrderLine.query
         .filter(
@@ -449,10 +531,94 @@ def get_firming_queue(page: int = 1, per_page: int = 50):
                 WorksOrderOperation.status == WorksOrderOperation.STATUS_NOT_STARTED
             )
         )
-        .options(joinedload(SalesOrderLine.operations))
-        .order_by(SalesOrderLine.due_date.asc().nullslast(), SalesOrderLine.so_number)
+        .filter(
+            ~SalesOrderLine.operations.any(
+                WorksOrderOperation.status.in_(production_statuses)
+            )
+        )
+        .options(joinedload(SalesOrderLine.operations).joinedload(WorksOrderOperation.department))
+        .order_by(
+            SalesOrderLine.due_date.asc().nullslast(),
+            SalesOrderLine.so_number,
+            SalesOrderLine.line_number,
+        )
     )
-    return q.paginate(page=page, per_page=per_page, error_out=False)
+
+    if search:
+        term = f"%{search.strip()}%"
+        q = q.filter(db.or_(
+            SalesOrderLine.so_number.ilike(term),
+            SalesOrderLine.customer_name.ilike(term),
+            SalesOrderLine.product_description.ilike(term),
+            SalesOrderLine.customer_product_ref.ilike(term),
+        ))
+
+    if cust_prod_ref:
+        q = q.filter(SalesOrderLine.customer_product_ref.ilike(f"%{cust_prod_ref.strip()}%"))
+
+    all_lines = q.all()
+
+    _line_status_priority = {
+        SalesOrderLine.LINE_STATUS_NEW:          0,
+        SalesOrderLine.LINE_STATUS_FIRM_PLANNED: 1,
+        SalesOrderLine.LINE_STATUS_WIP:          2,
+        SalesOrderLine.LINE_STATUS_COMPLETE:     3,
+    }
+
+    seen: dict[str, dict] = {}
+    order_list: list[dict] = []
+
+    for sol in all_lines:
+        if sol.so_number not in seen:
+            entry: dict = {
+                "so_number":     sol.so_number,
+                "customer_name": sol.customer_name or "",
+                "lines":         [],
+            }
+            seen[sol.so_number] = entry
+            order_list.append(entry)
+        seen[sol.so_number]["lines"].append(sol)
+
+    for entry in order_list:
+        lines = entry["lines"]
+        due_dates = [s.due_date for s in lines if s.due_date]
+        entry["due_date"]    = min(due_dates) if due_dates else None
+        entry["total_qty"]   = sum((s.qty_ordered or 0) for s in lines)
+        entry["total_value"] = sum((s.total_value or 0) for s in lines)
+        entry["line_count"]  = len(lines)
+        entry["days_delta"]  = (entry["due_date"] - today).days if entry["due_date"] else None
+
+        line_statuses = [s.aggregate_status for s in lines]
+        entry["agg_status"] = min(
+            line_statuses, key=lambda s: _line_status_priority.get(s, 99)
+        )
+
+        # Unique CPRs across all lines (preserving order, excluding nulls)
+        entry["cpr_list"] = list(dict.fromkeys(
+            sol.customer_product_ref for sol in lines
+            if sol.customer_product_ref
+        ))
+
+        all_planned = [
+            op.planned_date
+            for sol in lines
+            for op in sol.operations
+            if op.planned_date and op.status != WorksOrderOperation.STATUS_CLOSED
+        ]
+        entry["plan_start"] = min(all_planned) if all_planned else None
+        entry["plan_end"]   = max(all_planned) if all_planned else None
+
+        entry["not_started_op_ids"] = [
+            op.id
+            for sol in lines
+            for op in sol.operations
+            if op.status == WorksOrderOperation.STATUS_NOT_STARTED
+        ]
+
+    total = len(order_list)
+    start = (page - 1) * per_page
+    page_items = order_list[start: start + per_page]
+    return SimplePagination(page_items, total, page, per_page), page_items
 
 
 # ---------------------------------------------------------------------------
@@ -637,6 +803,7 @@ def get_planning_list(
             SalesOrderLine.customer_name.ilike(term),
             SalesOrderLine.product_description.ilike(term),
             SalesOrderLine.customer_order_ref.ilike(term),
+            SalesOrderLine.customer_product_ref.ilike(term),
         ))
 
     if dept_id:
@@ -677,6 +844,173 @@ def get_planning_list(
         })
 
     return pagination, enriched
+
+
+def get_planning_grouped(
+    *,
+    page: int = 1,
+    per_page: int = 25,
+    filter_mode: str = "all",
+    search: Optional[str] = None,
+    cust_prod_ref: Optional[str] = None,
+    dept_id: Optional[int] = None,
+):
+    """
+    Return planning data grouped by SO number.
+
+    Each item is a dict:
+        so_number      str
+        customer_name  str
+        due_date       date | None   — earliest across lines
+        plan_start     date | None   — earliest planned_date across all open ops
+        plan_end       date | None   — latest planned_date across all open ops
+        days_delta     int | None
+        headroom       int | None
+        agg_status     str
+        line_count     int
+        rows           list[dict]   — same structure as get_planning_list rows
+    """
+    from sqlalchemy.orm import joinedload
+
+    today = date.today()
+    week_end = today + timedelta(days=7)
+
+    q = SalesOrderLine.query.options(
+        joinedload(SalesOrderLine.operations).joinedload(WorksOrderOperation.department)
+    )
+
+    q = q.filter(
+        SalesOrderLine.operations.any(
+            WorksOrderOperation.status.notin_([
+                WorksOrderOperation.STATUS_COMPLETED,
+                WorksOrderOperation.STATUS_CLOSED,
+            ])
+        )
+    )
+
+    if filter_mode == "overdue":
+        q = q.filter(SalesOrderLine.due_date < today)
+    elif filter_mode == "this_week":
+        q = q.filter(
+            SalesOrderLine.due_date >= today,
+            SalesOrderLine.due_date <= week_end,
+        )
+    elif filter_mode == "no_dates":
+        q = q.filter(
+            ~SalesOrderLine.operations.any(
+                and_(
+                    WorksOrderOperation.planned_date.isnot(None),
+                    WorksOrderOperation.status.notin_([
+                        WorksOrderOperation.STATUS_COMPLETED,
+                        WorksOrderOperation.STATUS_CLOSED,
+                    ]),
+                )
+            )
+        )
+
+    if search:
+        term = f"%{search.strip()}%"
+        q = q.filter(db.or_(
+            SalesOrderLine.so_number.ilike(term),
+            SalesOrderLine.customer_name.ilike(term),
+            SalesOrderLine.product_description.ilike(term),
+            SalesOrderLine.customer_order_ref.ilike(term),
+            SalesOrderLine.customer_product_ref.ilike(term),
+        ))
+
+    if cust_prod_ref:
+        q = q.filter(SalesOrderLine.customer_product_ref.ilike(f"%{cust_prod_ref.strip()}%"))
+
+    if dept_id:
+        q = q.filter(
+            SalesOrderLine.operations.any(
+                WorksOrderOperation.department_id == dept_id
+            )
+        )
+
+    q = q.order_by(
+        SalesOrderLine.due_date.asc().nullslast(),
+        SalesOrderLine.so_number,
+        SalesOrderLine.line_number,
+    )
+    all_lines = q.all()
+
+    _line_status_priority = {
+        SalesOrderLine.LINE_STATUS_NEW:          0,
+        SalesOrderLine.LINE_STATUS_FIRM_PLANNED: 1,
+        SalesOrderLine.LINE_STATUS_WIP:          2,
+        SalesOrderLine.LINE_STATUS_COMPLETE:     3,
+    }
+
+    # Group by so_number
+    seen: dict[str, dict] = {}
+    order_list: list[dict] = []
+
+    for sol in all_lines:
+        if sol.so_number not in seen:
+            entry: dict = {
+                "so_number":     sol.so_number,
+                "customer_name": sol.customer_name or "",
+                "rows":          [],
+            }
+            seen[sol.so_number] = entry
+            order_list.append(entry)
+
+        open_ops = [
+            op for op in sol.operations
+            if op.status not in (
+                WorksOrderOperation.STATUS_COMPLETED,
+                WorksOrderOperation.STATUS_CLOSED,
+            )
+        ]
+        open_ops.sort(key=lambda op: (op.department.name if op.department else ""))
+
+        planned_dates = [op.planned_date for op in open_ops if op.planned_date]
+        plan_start = min(planned_dates) if planned_dates else None
+        plan_end   = max(planned_dates) if planned_dates else None
+        days_delta = (sol.due_date - today).days if sol.due_date else None
+        headroom   = (sol.due_date - plan_end).days if (sol.due_date and plan_end) else None
+
+        seen[sol.so_number]["rows"].append({
+            "sol":        sol,
+            "open_ops":   open_ops,
+            "plan_start": plan_start,
+            "plan_end":   plan_end,
+            "days_delta": days_delta,
+            "headroom":   headroom,
+        })
+
+    # Order-level aggregates
+    for entry in order_list:
+        rows = entry["rows"]
+        due_dates      = [r["sol"].due_date for r in rows if r["sol"].due_date]
+        all_starts     = [r["plan_start"] for r in rows if r["plan_start"]]
+        all_ends       = [r["plan_end"]   for r in rows if r["plan_end"]]
+        line_statuses  = [r["sol"].aggregate_status for r in rows]
+
+        entry["due_date"]   = min(due_dates) if due_dates else None
+        entry["plan_start"] = min(all_starts) if all_starts else None
+        entry["plan_end"]   = max(all_ends)   if all_ends   else None
+        entry["line_count"] = len(rows)
+        entry["days_delta"] = (entry["due_date"] - today).days if entry["due_date"] else None
+        entry["headroom"]   = (
+            (entry["due_date"] - entry["plan_end"]).days
+            if entry["due_date"] and entry["plan_end"] else None
+        )
+        entry["agg_status"] = min(
+            line_statuses,
+            key=lambda s: _line_status_priority.get(s, 99),
+        )
+
+        # Unique CPRs across all lines (preserving order, excluding nulls)
+        entry["cpr_list"] = list(dict.fromkeys(
+            r["sol"].customer_product_ref for r in rows
+            if r["sol"].customer_product_ref
+        ))
+
+    total = len(order_list)
+    start = (page - 1) * per_page
+    return SimplePagination(order_list[start: start + per_page], total, page, per_page), order_list[start: start + per_page]
 
 
 def count_planning_filters() -> dict:
