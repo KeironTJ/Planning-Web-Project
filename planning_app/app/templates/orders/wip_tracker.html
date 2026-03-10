@@ -1,0 +1,262 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<!-- Summary banner -->
+<div class="row g-2 mb-3">
+    {% set status_order = ['not_started', 'planned', 'firmed', 'released', 'in_progress', 'completed'] %}
+    <div class="col-6 col-md-2">
+        <div class="card border-0 shadow-sm text-center py-2 px-1">
+            <div class="fw-bold fs-4">{{ summary.total }}</div>
+            <div class="text-muted small">Active Ops</div>
+        </div>
+    </div>
+    {% if summary.overdue %}
+    <div class="col-6 col-md-2">
+        <a href="{{ url_for('orders.wip_tracker', overdue=1) }}" class="text-decoration-none">
+            <div class="card border-danger shadow-sm text-center py-2 px-1">
+                <div class="fw-bold fs-4 text-danger">{{ summary.overdue }}</div>
+                <div class="text-muted small">Overdue</div>
+            </div>
+        </a>
+    </div>
+    {% endif %}
+    {% for s in status_order %}
+        {% set count = summary.by_status.get(s, 0) %}
+        {% if count %}
+        {% set label, colour = status_meta[s] %}
+        <div class="col-6 col-md-2">
+            <a href="{{ url_for('orders.wip_tracker', status=s) }}" class="text-decoration-none">
+                <div class="card border-0 shadow-sm text-center py-2 px-1">
+                    <div class="fw-bold fs-4">{{ count }}</div>
+                    <div class="small"><span class="badge bg-{{ colour }}">{{ label }}</span></div>
+                </div>
+            </a>
+        </div>
+        {% endif %}
+    {% endfor %}
+</div>
+
+<!-- Filters -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-sm-4 col-md-3">
+                <input type="search" name="q" class="form-control form-control-sm"
+                       placeholder="SO, customer, product…" value="{{ search }}">
+            </div>
+            <div class="col-sm-3 col-md-2">
+                <select name="status" class="form-select form-select-sm">
+                    <option value="">All Statuses</option>
+                    {% for s in valid_statuses %}
+                    {% set label, colour = status_meta[s] %}
+                    <option value="{{ s }}" {{ 'selected' if status_filter == s }}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-3 col-md-2">
+                <select name="dept" class="form-select form-select-sm">
+                    <option value="">All Depts</option>
+                    {% for d in departments %}
+                    <option value="{{ d.name }}" {{ 'selected' if dept_filter == d.name }}>{{ d.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-3 col-md-2">
+                <select name="sort" class="form-select form-select-sm">
+                    <option value="due_date"  {{ 'selected' if order_by == 'due_date' }}>Sort: Due Date</option>
+                    <option value="so_number" {{ 'selected' if order_by == 'so_number' }}>Sort: SO No</option>
+                    <option value="customer"  {{ 'selected' if order_by == 'customer' }}>Sort: Customer</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input" type="checkbox" name="overdue" value="1" id="overdueChk"
+                           {{ 'checked' if overdue_only }}>
+                    <label class="form-check-label small" for="overdueChk">Overdue only</label>
+                </div>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+                <a href="{{ url_for('orders.wip_tracker') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Results count + actions -->
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <small class="text-muted">
+        {{ lines.total }} order line{{ 's' if lines.total != 1 }} found
+        (page {{ lines.page }} of {{ lines.pages }})
+    </small>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('orders.firming_queue') }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-check2-circle me-1"></i>Firming Queue
+        </a>
+    </div>
+</div>
+
+<!-- WIP Grid -->
+{% if lines.items %}
+<div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0" style="font-size: .82rem;">
+        <thead class="table-light sticky-top">
+            <tr>
+                <th style="min-width:90px;">SO / Line</th>
+                <th style="min-width:120px;">Customer</th>
+                <th style="min-width:120px;">Product</th>
+                <th class="text-end" style="min-width:50px;">Qty</th>
+                <th class="text-center" style="min-width:85px;">Due</th>
+                <th style="min-width:100px;">Order Status</th>
+                {% for dept in departments %}
+                <th class="text-center" style="min-width:70px; max-width:90px; white-space:normal; line-height:1.1;">
+                    {{ dept.name }}
+                </th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for sol in lines.items %}
+            {% set agg_status = sol.aggregate_status %}
+            {% set agg_label, agg_colour = status_meta.get(agg_status, ('Unknown', 'secondary')) %}
+
+            {# Build a dict of dept_name → operation for this line #}
+            {% set ops_by_dept = {} %}
+            {% for op in sol.operations %}
+                {% if ops_by_dept.update({op.work_centre_name: op}) %}{% endif %}
+            {% endfor %}
+
+            <tr>
+                <td>
+                    <span class="fw-semibold">{{ sol.so_number }}</span>
+                    <span class="text-muted">/{{ sol.line_number }}</span>
+                </td>
+                <td class="text-truncate" style="max-width:130px;" title="{{ sol.customer_name }}">
+                    {{ sol.customer_name or '—' }}
+                </td>
+                <td class="text-truncate" style="max-width:130px;" title="{{ sol.product_description }}">
+                    <span class="text-muted small">{{ sol.product_code }}</span>
+                    {{ sol.product_description or '' }}
+                </td>
+                <td class="text-end">{{ sol.qty_ordered | int if sol.qty_ordered else '—' }}</td>
+                <td class="text-center {{ 'text-danger fw-semibold' if sol.due_date and sol.due_date < today else '' }}">
+                    {{ sol.due_date.strftime('%d %b') if sol.due_date else '—' }}
+                </td>
+                <td>
+                    <span class="badge bg-{{ agg_colour }}">{{ agg_label }}</span>
+                </td>
+
+                {% for dept in departments %}
+                {% set op = ops_by_dept.get(dept.name) %}
+                <td class="text-center p-1">
+                    {% if op %}
+                        {% set op_label, op_colour = status_meta.get(op.status, ('?', 'secondary')) %}
+                        <button type="button"
+                                class="btn btn-{{ op_colour }} btn-sm py-0 px-1 op-status-btn"
+                                style="font-size:.7rem; min-width:62px;"
+                                data-op-id="{{ op.id }}"
+                                data-current-status="{{ op.status }}"
+                                data-bs-toggle="modal"
+                                data-bs-target="#opModal"
+                                data-so="{{ sol.so_number }}/{{ sol.line_number }}"
+                                data-dept="{{ dept.name }}"
+                                data-status="{{ op.status }}"
+                                data-planned="{{ op.planned_date.isoformat() if op.planned_date else '' }}"
+                                data-notes="{{ op.notes or '' }}"
+                                title="{{ op_label }}{% if op.planned_date %} — {{ op.planned_date.strftime('%d %b') }}{% endif %}{% if op.is_overdue %} ⚠ Overdue{% endif %}">
+                            {% if op.is_overdue %}<i class="bi bi-exclamation-triangle me-1"></i>{% endif %}
+                            {{ op_label[:6] }}
+                        </button>
+                    {% else %}
+                        <span class="text-muted">·</span>
+                    {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Pagination -->
+{% if lines.pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination pagination-sm justify-content-center">
+        {% for p in lines.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+            {% if p %}
+                <li class="page-item {{ 'active' if p == lines.page else '' }}">
+                    <a class="page-link" href="{{ url_for('orders.wip_tracker', page=p, q=search, status=status_filter, dept=dept_filter, sort=order_by, overdue=1 if overdue_only else '') }}">{{ p }}</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+        {% endfor %}
+    </ul>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+    No orders match the current filters.
+</div>
+{% endif %}
+
+<!-- Operation update modal -->
+<div class="modal fade" id="opModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <form method="POST" id="opForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title mb-0" id="opModalLabel">Update Operation</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2 small text-muted" id="opModalSub"></div>
+                    <div class="mb-2">
+                        <label class="form-label form-label-sm fw-semibold">Status</label>
+                        <select name="status" id="modalStatus" class="form-select form-select-sm">
+                            {% for s in valid_statuses %}
+                            {% set label, colour = status_meta[s] %}
+                            <option value="{{ s }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label form-label-sm fw-semibold">Planned Date</label>
+                        <input type="date" name="planned_date" id="modalPlanned" class="form-control form-control-sm">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label form-label-sm fw-semibold">Notes</label>
+                        <textarea name="notes" id="modalNotes" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer py-1">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const modal = document.getElementById('opModal');
+    const form  = document.getElementById('opForm');
+    modal.addEventListener('show.bs.modal', function (e) {
+        const btn = e.relatedTarget;
+        const opId = btn.dataset.opId;
+        form.action = `/orders/operations/${opId}/update`;
+        document.getElementById('opModalLabel').textContent = btn.dataset.so + ' — ' + btn.dataset.dept;
+        document.getElementById('opModalSub').textContent   = '';
+        document.getElementById('modalStatus').value  = btn.dataset.status;
+        document.getElementById('modalPlanned').value = btn.dataset.planned;
+        document.getElementById('modalNotes').value   = btn.dataset.notes;
+    });
+})();
+</script>
+{% endblock %}

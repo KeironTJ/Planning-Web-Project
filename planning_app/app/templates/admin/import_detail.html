@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Import #{{ batch.id }}</h4>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('admin.import_upload') }}" class="btn btn-primary btn-sm">
+            <i class="bi bi-upload me-1"></i>New Upload
+        </a>
+        <a href="{{ url_for('admin.import_list') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>History
+        </a>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent fw-semibold">Details</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Type</dt>
+                    <dd class="col-sm-8"><span class="badge bg-secondary">{{ batch.import_type }}</span></dd>
+
+                    <dt class="col-sm-4">File</dt>
+                    <dd class="col-sm-8 text-muted small">{{ batch.filename or '—' }}</dd>
+
+                    <dt class="col-sm-4">Uploaded</dt>
+                    <dd class="col-sm-8">{{ batch.uploaded_at.strftime('%d %b %Y %H:%M:%S') }}</dd>
+
+                    <dt class="col-sm-4">By</dt>
+                    <dd class="col-sm-8">{{ batch.uploaded_by.username if batch.uploaded_by else 'CLI / System' }}</dd>
+
+                    <dt class="col-sm-4">Status</dt>
+                    <dd class="col-sm-8">
+                        {% if batch.status == 'success' %}
+                            <span class="badge bg-success fs-6">Success</span>
+                        {% elif batch.status == 'failed' %}
+                            <span class="badge bg-danger fs-6">Failed</span>
+                        {% elif batch.status == 'partial' %}
+                            <span class="badge bg-warning text-dark fs-6">Partial</span>
+                        {% else %}
+                            <span class="badge bg-secondary fs-6">{{ batch.status }}</span>
+                        {% endif %}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent fw-semibold">Row Counts</div>
+            <div class="card-body">
+                <div class="row g-2 text-center">
+                    <div class="col-6 col-md-3">
+                        <div class="fs-3 fw-bold text-primary">{{ batch.row_count or 0 }}</div>
+                        <div class="text-muted small">Total Rows</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="fs-3 fw-bold text-success">{{ batch.rows_inserted or 0 }}</div>
+                        <div class="text-muted small">Inserted</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="fs-3 fw-bold text-info">{{ batch.rows_updated or 0 }}</div>
+                        <div class="text-muted small">Updated</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="fs-3 fw-bold text-warning">{{ batch.rows_closed or 0 }}</div>
+                        <div class="text-muted small">Closed</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if batch.error_message %}
+    <div class="col-12">
+        <div class="alert alert-danger">
+            <strong>Error:</strong><br>
+            <pre class="mb-0 small">{{ batch.error_message }}</pre>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if batch.notes %}
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent fw-semibold">Notes</div>
+            <div class="card-body">
+                <pre class="mb-0 small">{{ batch.notes }}</pre>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

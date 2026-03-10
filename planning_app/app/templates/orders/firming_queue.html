@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h4 class="mb-0">Firming Queue</h4>
+        <small class="text-muted">Orders with all operations at 'Not Started' — candidates for planning/firming</small>
+    </div>
+    <a href="{{ url_for('orders.wip_tracker') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i>WIP Tracker
+    </a>
+</div>
+
+{% if lines.items %}
+<div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-light">
+            <tr>
+                <th>SO / Line</th>
+                <th>Customer</th>
+                <th>Product</th>
+                <th class="text-end">Qty</th>
+                <th class="text-end">Value</th>
+                <th class="text-center">Due</th>
+                <th>Operations</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sol in lines.items %}
+            {% set active_ops = sol.operations | selectattr('status', '!=', 'closed') | list %}
+            <tr class="{{ 'table-warning' if sol.due_date and sol.due_date < today else '' }}">
+                <td class="fw-semibold">
+                    {{ sol.so_number }}<span class="text-muted">/{{ sol.line_number }}</span>
+                </td>
+                <td class="text-truncate" style="max-width:130px;" title="{{ sol.customer_name }}">
+                    {{ sol.customer_name or '—' }}
+                </td>
+                <td class="text-truncate" style="max-width:140px;" title="{{ sol.product_description }}">
+                    <span class="text-muted small">{{ sol.product_code }}</span>
+                    {{ sol.product_description or '' }}
+                </td>
+                <td class="text-end">{{ sol.qty_ordered | int if sol.qty_ordered else '—' }}</td>
+                <td class="text-end text-muted small">
+                    {{ '£{:,.0f}'.format(sol.total_value) if sol.total_value else '—' }}
+                </td>
+                <td class="text-center {{ 'text-danger fw-semibold' if sol.due_date and sol.due_date < today else '' }}">
+                    {{ sol.due_date.strftime('%d %b %Y') if sol.due_date else '—' }}
+                </td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        {% for op in active_ops %}
+                        <span class="badge bg-secondary" title="{{ op.work_centre_name }}">
+                            {{ op.work_centre_name[:8] }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                </td>
+                <td>
+                    <!-- Quick: firm all operations on this line -->
+                    <form method="POST" action="{{ url_for('orders.bulk_update_operations') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="operation_ids"
+                               value="{{ active_ops | map(attribute='id') | join(',') }}">
+                        <input type="hidden" name="status" value="planned">
+                        <input type="hidden" name="back_url" value="{{ url_for('orders.firming_queue') }}">
+                        <button type="submit" class="btn btn-sm btn-outline-info"
+                                onclick="return confirm('Mark all operations for {{ sol.so_number }}/{{ sol.line_number }} as Planned?')">
+                            Plan
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ url_for('orders.bulk_update_operations') }}" class="d-inline ms-1">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="operation_ids"
+                               value="{{ active_ops | map(attribute='id') | join(',') }}">
+                        <input type="hidden" name="status" value="firmed">
+                        <input type="hidden" name="back_url" value="{{ url_for('orders.firming_queue') }}">
+                        <button type="submit" class="btn btn-sm btn-primary"
+                                onclick="return confirm('Firm all operations for {{ sol.so_number }}/{{ sol.line_number }}?')">
+                            Firm
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if lines.pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination pagination-sm justify-content-center">
+        {% for p in lines.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+            {% if p %}
+                <li class="page-item {{ 'active' if p == lines.page else '' }}">
+                    <a class="page-link" href="{{ url_for('orders.firming_queue', page=p) }}">{{ p }}</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+        {% endfor %}
+    </ul>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-check2-all fs-1 d-block mb-2 text-success"></i>
+    No orders awaiting firming.
+</div>
+{% endif %}
+{% endblock %}

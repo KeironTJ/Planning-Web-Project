@@ -106,8 +106,23 @@ def _register_template_globals(app: Flask) -> None:
 
     @app.context_processor
     def inject_globals():
+        from flask_login import current_user
+
+        active_departments = []
+        if current_user.is_authenticated:
+            try:
+                from .orders.models import Department
+                active_departments = (
+                    Department.query.filter_by(is_active=True)
+                    .order_by(Department.name)
+                    .all()
+                )
+            except Exception:
+                pass
+
         return {
             "app_name": app.config.get("APP_NAME", "Planning Hub"),
             "company_name": app.config.get("COMPANY_NAME", ""),
             "current_year": datetime.datetime.utcnow().year,
+            "active_departments": active_departments,
         }

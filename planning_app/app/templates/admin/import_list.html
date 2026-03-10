@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Import History</h4>
+    <a href="{{ url_for('admin.import_upload') }}" class="btn btn-primary btn-sm">
+        <i class="bi bi-upload me-1"></i>New Upload
+    </a>
+</div>
+
+<!-- Type filter -->
+<div class="mb-3">
+    {% set type_filters = [
+        ('', 'All'), ('oob', 'OOB'), ('stock', 'Stock'), ('open_po', 'Open PO'),
+        ('main_material', 'Main Material'), ('as_material', 'AS Material'),
+        ('labour_plan', 'Labour Plan'), ('smv', 'SMV'), ('production_flow', 'Prod Flow'),
+    ] %}
+    <div class="btn-group btn-group-sm flex-wrap">
+        {% for t, l in type_filters %}
+        <a href="{{ url_for('admin.import_list', type=t) }}"
+           class="btn btn-outline-secondary {{ 'active' if import_type == t else '' }}">
+            {{ l }}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>#</th>
+                        <th>Type</th>
+                        <th>File</th>
+                        <th>Uploaded</th>
+                        <th>By</th>
+                        <th class="text-end">Rows</th>
+                        <th class="text-end">Inserted</th>
+                        <th class="text-end">Updated</th>
+                        <th class="text-center">Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in batches.items %}
+                    <tr>
+                        <td class="text-muted small">{{ b.id }}</td>
+                        <td><span class="badge bg-secondary">{{ b.import_type }}</span></td>
+                        <td class="text-muted small text-truncate" style="max-width:180px;">{{ b.filename or '—' }}</td>
+                        <td class="text-muted small">{{ b.uploaded_at.strftime('%d %b %Y %H:%M') }}</td>
+                        <td class="small">{{ b.uploaded_by.username if b.uploaded_by else 'CLI' }}</td>
+                        <td class="text-end small">{{ b.row_count or '—' }}</td>
+                        <td class="text-end small">{{ b.rows_inserted or '—' }}</td>
+                        <td class="text-end small">{{ b.rows_updated or '—' }}</td>
+                        <td class="text-center">
+                            {% if b.status == 'success' %}
+                                <span class="badge bg-success">OK</span>
+                            {% elif b.status == 'failed' %}
+                                <span class="badge bg-danger" title="{{ b.error_message }}">Failed</span>
+                            {% elif b.status == 'partial' %}
+                                <span class="badge bg-warning text-dark">Partial</span>
+                            {% else %}
+                                <span class="badge bg-secondary">{{ b.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('admin.import_detail', batch_id=b.id) }}"
+                               class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="10" class="text-center py-4 text-muted">No imports found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if batches.pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination pagination-sm justify-content-center">
+        {% for p in batches.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+            {% if p %}
+                <li class="page-item {{ 'active' if p == batches.page else '' }}">
+                    <a class="page-link" href="{{ url_for('admin.import_list', page=p, type=import_type) }}">{{ p }}</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+        {% endfor %}
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}

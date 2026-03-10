@@ -3,21 +3,40 @@
         <ul class="nav flex-column">
 
             {% set nav_items = [
-                ('orders.wip_tracker',  'bi-grid-3x3-gap',    'WIP Tracker',  'view_orders'),
-                ('capacity.dashboard',  'bi-bar-chart-fill',  'Capacity',     'view_capacity'),
-                ('materials.index',     'bi-box-seam',        'Materials',    'view_materials'),
+                ('orders.wip_tracker',  'bi-grid-3x3-gap',    'WIP Tracker',    'view_orders'),
+                ('orders.firming_queue','bi-check2-circle',   'Firming Queue',  'view_orders'),
+                ('capacity.dashboard',  'bi-bar-chart-fill',  'Capacity',       'view_capacity'),
+                ('materials.index',     'bi-box-seam',        'Materials',      'view_materials'),
             ] %}
 
             {% for endpoint, icon, label, perm in nav_items %}
                 {% if current_user.has_permission(perm) %}
                 <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint and request.endpoint.startswith(endpoint.split('.')[0]) %}active{% endif %}"
+                    <a class="nav-link {% if request.endpoint == endpoint %}active{% endif %}"
                        href="{{ url_for(endpoint) }}">
                         <i class="bi {{ icon }} me-2"></i>{{ label }}
                     </a>
                 </li>
                 {% endif %}
             {% endfor %}
+
+            <!-- Department quick links -->
+            {% if current_user.has_permission('view_orders') %}
+            <li class="mt-2">
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-1 mb-1 text-body-secondary text-uppercase small">
+                    <span>Departments</span>
+                </h6>
+            </li>
+            {% for dept in active_departments %}
+            <li class="nav-item">
+                <a class="nav-link py-1 {% if request.endpoint == 'orders.dept_orders' and request.view_args.get('dept_id') == dept.id %}active{% endif %}"
+                   href="{{ url_for('orders.dept_orders', dept_id=dept.id) }}"
+                   style="font-size:.82rem; padding-left:1.5rem;">
+                    {{ dept.name }}
+                </a>
+            </li>
+            {% endfor %}
+            {% endif %}
 
             {% if current_user.is_admin %}
             <li class="mt-3">

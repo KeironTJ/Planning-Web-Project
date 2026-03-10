@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Departments</h4>
+    <a href="{{ url_for('admin.seed') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-database-add me-1"></i>Seed Defaults
+    </a>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Code</th>
+                        <th>Name</th>
+                        <th class="text-end">Target Hrs/Day</th>
+                        <th class="text-center">Status</th>
+                        <th class="text-end">Operations</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dept in departments %}
+                    <tr class="{{ '' if dept.is_active else 'table-secondary text-muted' }}">
+                        <td><code>{{ dept.code }}</code></td>
+                        <td class="fw-semibold">{{ dept.name }}</td>
+                        <td class="text-end">
+                            {% if dept.target_hours_per_day %}
+                                {{ dept.target_hours_per_day }}
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if dept.is_active %}
+                                <span class="badge bg-success">Active</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Inactive</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end text-muted small">
+                            {{ dept.works_order_operations | length }}
+                        </td>
+                        <td class="text-end">
+                            <a href="{{ url_for('admin.dept_edit', dept_id=dept.id) }}"
+                               class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">
+                            No departments found.
+                            <a href="{{ url_for('admin.seed') }}">Seed defaults</a> to get started.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
