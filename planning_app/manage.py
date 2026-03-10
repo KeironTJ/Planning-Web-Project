@@ -114,5 +114,61 @@ def seed_departments():
         db.session.commit()
         click.echo(f"{created} department(s) created ({len(depts) - created} already existed).")
 
+
+# ---------------------------------------------------------------------------
+# CSV Import commands
+# ---------------------------------------------------------------------------
+
+@app.cli.command("import-oob")
+@click.option("--file", "filepath", required=True, help="Path to OpenOrderBook_HIDE.csv")
+def import_oob(filepath):
+    """Import Open Order Book CSV (UPSERT — preserves planner fields)."""
+    from app.orders.importers import OobImporter
+    with app.app_context():
+        click.echo(f"Importing OOB from {filepath} ...")
+        batch = OobImporter.import_file(filepath, filename=filepath.split("/")[-1].split("\\")[-1])
+        click.echo(
+            f"Done: {batch.rows_inserted} inserted, {batch.rows_updated} updated, "
+            f"{batch.rows_closed} closed. Status: {batch.status}"
+        )
+        if batch.error_message:
+            click.echo(f"Error: {batch.error_message}", err=True)
+
+
+@app.cli.command("import-csv")
+@click.option("--type", "import_type", required=True,
+              type=click.Choice(["stock", "open_po", "main_material", "as_material",
+                                 "labour_plan", "smv", "production_flow"]),
+              help="Type of CSV to import")
+@click.option("--file", "filepath", required=True, help="Path to the CSV file")
+def import_csv(import_type, filepath):
+    """Import a full-replace CSV file (stock, POs, materials, labour plan, SMV, flows)."""
+    from app.materials.importers import StockImporter, OpenPoImporter, MainMaterialImporter, AsMaterialImporter
+    from app.capacity.importers import LabourPlanImporter
+    from app.orders.importers import SmvImporter, ProductionFlowImporter
+
+    importers = {
+        "stock": StockImporter,
+        "open_po": OpenPoImporter,
+        "main_material": MainMaterialImporter,
+        "as_material": AsMaterialImporter,
+        "labour_plan": LabourPlanImporter,
+        "smv": SmvImporter,
+        "production_flow": ProductionFlowImporter,
+    }
+
+    with app.app_context():
+        importer = importers[import_type]
+        filename = filepath.split("/")[-1].split("\\")[-1]
+        click.echo(f"Importing {import_type} from {filepath} ...")
+        batch = importer.import_file(filepath, filename=filename)
+        click.echo(
+            f"Done: {batch.rows_inserted} inserted, {batch.rows_updated} updated. "
+            f"Status: {batch.status}"
+        )
+        if batch.error_message:
+            click.echo(f"Error: {batch.error_message}", err=True)
+
+
 if __name__ == "__main__":
     app.cli()
