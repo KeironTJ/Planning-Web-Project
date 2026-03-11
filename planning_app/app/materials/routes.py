@@ -127,3 +127,22 @@ def po_list():
         search=search,
         today=today,
     )
+
+
+@materials_bp.route("/mrp")
+@login_required
+@permission_required("view_materials")
+def mrp():
+    search    = request.args.get("q", "").strip()
+    so_number = request.args.get("so", "").strip()
+    data = services.get_mrp_pegging(
+        search=search or None,
+        so_number=so_number or None,
+    )
+    return render_template(
+        "materials/mrp.html",
+        title="MRP Pegging",
+        data=data,
+        search=search,
+        so_number=so_number,
+    )

@@ -92,7 +92,7 @@
                         <th class="text-end">Required</th>
                         <th class="text-end">Issued</th>
                         <th class="text-end">Net Req</th>
-                        <th class="text-end">Stock</th>
+                        <th class="text-end">Avail. Stock</th>
                         <th class="text-end">Open PO</th>
                         <th class="text-end fw-semibold">Shortage</th>
                     </tr>
@@ -152,10 +152,11 @@
 </div>
 <div class="mt-2 small text-muted">
     <i class="bi bi-info-circle me-1"></i>
-    Shortage = Net Required − Stock On Hand − Open PO qty (actual POs due on or before requirement date) − Call-Off qty (CO orders, always available).
-    "Open PO" column shows combined PO + CO coverage. Completed requirements (COMPLETE = Y) are excluded.
-    <span class="text-warning fw-semibold ms-2">Plan Start</span> is our scheduled start date from the planning system.
-    Amber = plan start is earlier than ERP due date — materials may be needed sooner than the ERP expects.
+    Figures use <strong>cumulative MRP netting</strong>: requirements are sorted by date per material — earlier requirements consume stock, CO and PO first,
+    so later rows show only what remains. <strong>Avail. Stock</strong> = stock remaining before this requirement is satisfied.
+    <strong>Open PO</strong> = combined CO call-off + actual PO coverage available by due date, minus what earlier requirements consumed.
+    Completed requirements (COMPLETE = Y) are excluded.
+    <span class="text-warning fw-semibold ms-2">Plan Start</span> is our scheduled start date; amber = earlier than ERP due date — materials needed sooner than ERP expects.
     <span class="text-muted ms-1">(—) = not yet planned.</span>
 </div>
 

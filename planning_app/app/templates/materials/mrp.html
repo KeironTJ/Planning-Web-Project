@@ -1,0 +1,156 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<!-- Search form -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-sm-5 col-md-4">
+                <label class="form-label form-label-sm fw-semibold mb-1">Material Code / Description</label>
+                <input type="search" name="q" class="form-control form-control-sm"
+                       placeholder="e.g. FABRIC-001 or Blue Chenille" value="{{ search }}">
+            </div>
+            <div class="col-auto d-flex align-items-center">
+                <span class="text-muted small px-2">or</span>
+            </div>
+            <div class="col-sm-4 col-md-3">
+                <label class="form-label form-label-sm fw-semibold mb-1">Sales Order Number</label>
+                <input type="search" name="so" class="form-control form-control-sm"
+                       placeholder="e.g. 530548" value="{{ so_number }}">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">Search</button>
+                <a href="{{ url_for('materials.mrp') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+            </div>
+            <div class="col-auto ms-auto">
+                <a href="{{ url_for('materials.shortage') }}{% if so_number %}?q={{ so_number }}{% elif search %}?q={{ search }}{% endif %}"
+                   class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-exclamation-triangle me-1"></i>Shortage Report
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if not data.stock_imported %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    No stock data — balances will be understated.
+    <a href="{{ url_for('admin.import_upload') }}" class="alert-link">Import StockOnHand_HIDE.csv</a>
+</div>
+{% endif %}
+
+{% if so_number and data.material_count == 0 %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i>
+    No material requirements found for SO <strong>{{ so_number }}</strong>.
+    The order may not have MRP data loaded, or all lines are marked complete.
+</div>
+{% elif search and data.material_count == 0 %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i>
+    No materials found matching <strong>{{ search }}</strong>.
+</div>
+{% elif not search and not so_number %}
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-graph-up fs-1 d-block mb-2"></i>
+    Search by material code / description, or enter a Sales Order number to see all its materials.
+</div>
+{% endif %}
+
+{% if data.material_count %}
+<div class="mb-2 d-flex align-items-center gap-2">
+    <span class="text-muted small">{{ data.material_count }} material{{ 's' if data.material_count != 1 }}</span>
+    {% set shortage_count = data.materials | selectattr('has_shortage') | list | length %}
+    {% if shortage_count %}
+    <span class="badge bg-danger">{{ shortage_count }} with shortage</span>
+    {% else %}
+    <span class="badge bg-success">All covered</span>
+    {% endif %}
+    {% if so_number %}
+    <span class="badge bg-secondary">SO {{ so_number }}</span>
+    {% endif %}
+</div>
+{% endif %}
+
+{% for mat in data.materials %}
+<div class="card border-0 shadow-sm mb-3 {{ 'border-danger border' if mat.has_shortage else '' }}">
+    <div class="card-header py-2 d-flex align-items-center gap-2 {{ 'bg-danger bg-opacity-10' if mat.has_shortage else 'bg-light' }}">
+        <span class="fw-bold">{{ mat.material_code }}</span>
+        {% if mat.description %}
+        <span class="text-muted small">{{ mat.description }}</span>
+        {% endif %}
+        <span class="ms-auto d-flex gap-2 align-items-center">
+            {% if mat.has_shortage %}
+            <span class="badge bg-danger">Shortage</span>
+            {% else %}
+            <span class="badge bg-success">Covered</span>
+            {% endif %}
+            <span class="text-muted small">Opening: {{ mat.opening_stock | round(2) }}</span>
+        </span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm mb-0 align-middle" style="font-size:.82rem;">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width:90px">Date</th>
+                        <th>Type</th>
+                        <th>Reference</th>
+                        <th>Dept / Supplier</th>
+                        <th class="text-end">Demand</th>
+                        <th class="text-end">Receipt</th>
+                        <th class="text-end fw-semibold">Balance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ev in mat.events %}
+                    <tr class="{{ 'table-danger fw-semibold' if ev.is_short else ('table-light' if ev.row_type == 'opening') }}">
+                        <td class="text-muted">
+                            {{ ev.event_date.strftime('%d %b %y') if ev.event_date else '' }}
+                        </td>
+                        <td>
+                            {% if ev.row_type == 'opening' %}
+                            <span class="badge bg-secondary">Opening</span>
+                            {% elif ev.row_type == 'co' %}
+                            <span class="badge bg-info text-dark">Call-Off</span>
+                            {% elif ev.row_type == 'po' %}
+                            <span class="badge bg-success">PO Receipt</span>
+                            {% elif ev.row_type == 'requirement' %}
+                            <span class="badge {{ 'bg-primary' if ev.source == 'main' else 'bg-secondary' }}">
+                                {{ 'Req (Main)' if ev.source == 'main' else 'Req (AS)' }}
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted">{{ ev.reference }}</td>
+                        <td class="text-muted small">{{ ev.department }}</td>
+                        <td class="text-end {{ 'text-danger' if ev.demand else '' }}">
+                            {{ ev.demand | round(2) if ev.demand else '—' }}
+                        </td>
+                        <td class="text-end {{ 'text-success' if ev.receipt else '' }}">
+                            {{ ev.receipt | round(2) if ev.receipt else '—' }}
+                        </td>
+                        <td class="text-end fw-semibold {{ 'text-danger' if ev.is_short else 'text-success' }}">
+                            {{ ev.balance | round(2) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+{% if data.material_count %}
+<div class="small text-muted mt-1">
+    <i class="bi bi-info-circle me-1"></i>
+    Balance = Opening Stock + Call-Off (CO) orders + PO receipts − requirements, in date order.
+    <span class="text-danger fw-semibold">Red rows</span> indicate the balance has gone negative at that point.
+    PO receipts on the same date are applied before requirements.
+    Completed requirements (COMPLETE = Y) are excluded.
+</div>
+{% endif %}
+
+{% endblock %}

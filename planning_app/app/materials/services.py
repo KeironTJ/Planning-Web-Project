@@ -1,12 +1,19 @@
 """
 Materials service layer.
 
-Shortage calculation:
-  shortage = net_requirement - stock_on_hand - sum(open PO qty due <= requirement due_date)
+Shortage calculation (cumulative MRP netting):
+  Requirements are sorted by due_date per material. Stock, CO and PO are treated
+  as shared pools that are consumed progressively by earlier requirements before
+  later ones are assessed. This gives a true picture of material availability
+  rather than showing the same total stock on every row for the same material.
+
+  Consumption order per requirement: stock → CO (call-off) → actual PO
 
 Where:
-  net_requirement (main)       = qty_for_order - qty_issued
+  net_requirement (main)        = qty_for_order - qty_issued
   net_requirement (after sales) = qty_required
+  CO orders                     = outstanding_qty on POs with po_type == "CO"
+                                  (finite pool, consumed in date order like stock)
 """
 
 from __future__ import annotations
@@ -51,6 +58,28 @@ class ShortageRow:
     customer_id: Optional[str] = None
     customer: Optional[str] = None
     complete: Optional[str] = None
+
+
+@dataclass
+class MrpEvent:
+    event_date: Optional[date]
+    row_type: str          # "opening" | "co" | "po" | "requirement"
+    reference: str
+    source: str            # "main" | "aftersales" | "po" | "co" | ""
+    department: str
+    demand: Optional[Decimal]
+    receipt: Optional[Decimal]
+    balance: Decimal
+    is_short: bool = False
+
+
+@dataclass
+class MrpMaterial:
+    material_code: str
+    description: str
+    opening_stock: Decimal
+    has_shortage: bool
+    events: list
 
 
 # ---------------------------------------------------------------------------
@@ -112,21 +141,6 @@ def _load_co_qty() -> dict[str, Decimal]:
     return dict(co_qty)
 
 
-def _po_coverage_for(
-    po_map: dict[str, list[tuple[date, Decimal]]],
-    product_code: str,
-    req_due_date: Optional[date],
-) -> Decimal:
-    """Sum actual PO outstanding_qty where po.due_date <= req_due_date (excludes CO)."""
-    if req_due_date is None:
-        return Decimal(0)
-    lines = po_map.get(product_code, [])
-    return sum(
-        (qty for d, qty in lines if d <= req_due_date),
-        Decimal(0),
-    )
-
-
 # ---------------------------------------------------------------------------
 # Shortage calculation
 # ---------------------------------------------------------------------------
@@ -139,128 +153,179 @@ def get_shortage_report(
     due_before: Optional[date] = None,
 ) -> dict:
     """
-    Compute material shortages and return structured data for the template.
+    Compute material shortages using cumulative MRP netting.
+
+    Netting logic:
+      1. Collect ALL requirements for the given source (no display filters yet).
+      2. Group by material_code, sort each group by due_date.
+         Process cumulatively: stock, CO and PO are shared pools consumed in
+         date order, so later requirements only see what earlier ones left behind.
+      3. Apply display filters (dept, search, due_before, shortages_only) to
+         the already-netted rows before returning them.
 
     Returns:
         {
             "rows": [ShortageRow, ...],
             "total_rows": int,
             "shortage_count": int,
-            "summary": {source: {"count": int, "rows": int}},
             "stock_imported": bool,
             "reqs_imported": bool,
         }
     """
     stock_map  = _load_stock()
-    po_map     = _load_po_coverage()
-    co_qty_map = _load_co_qty()
+    po_map     = _load_po_coverage()   # actual POs, date-constrained
+    co_qty_map = _load_co_qty()        # CO call-offs, treated as finite pool
+
+    # ---- Phase 1: collect ALL raw requirements (source filter only) ----
+    raw: list[dict] = []
+
+    if source in ("all", "main"):
+        for req in (
+            MaterialRequirementMain.query
+            .filter(MaterialRequirementMain.complete != "Y")
+            .order_by(MaterialRequirementMain.due_date)
+            .all()
+        ):
+            mc = req.material_code or ""
+            qty_req    = req.qty_for_order or Decimal(0)
+            qty_issued = req.qty_issued    or Decimal(0)
+            net_req    = max(Decimal(0), qty_req - qty_issued)
+            raw.append({
+                "source":       "main",
+                "material_code": mc,
+                "description":  req.material_description or "",
+                "department":   req.department or "",
+                "due_date":     req.due_date,
+                "qty_required": qty_req,
+                "qty_issued":   qty_issued,
+                "net_required": net_req,
+                "works_order":  req.works_order,
+                "order_number": None,
+                "customer_id":  req.customer_id,
+                "customer":     None,
+                "complete":     req.complete,
+                "_search_text": f"{mc} {req.material_description or ''} {req.works_order or ''}".lower(),
+            })
+
+    if source in ("all", "aftersales"):
+        for req in (
+            MaterialRequirementAfterSales.query
+            .order_by(MaterialRequirementAfterSales.due_date)
+            .all()
+        ):
+            pc      = req.product_code or ""
+            net_req = req.qty_required or Decimal(0)
+            raw.append({
+                "source":       "aftersales",
+                "material_code": pc,
+                "description":  req.description or "",
+                "department":   req.department or "",
+                "due_date":     req.due_date,
+                "qty_required": net_req,
+                "qty_issued":   Decimal(0),
+                "net_required": net_req,
+                "works_order":  None,
+                "order_number": req.order_number,
+                "customer_id":  None,
+                "customer":     req.customer,
+                "complete":     None,
+                "_search_text": f"{pc} {req.description or ''} {req.order_number or ''}".lower(),
+            })
+
+    # ---- Phase 2: cumulative netting per material ----
+    by_material: dict[str, list[dict]] = defaultdict(list)
+    for r in raw:
+        by_material[r["material_code"]].append(r)
+
+    all_netted: list[dict] = []
+
+    for mc, reqs in by_material.items():
+        # Sort by due_date (None → treated as very far future)
+        reqs.sort(key=lambda r: (r["due_date"] or date.max))
+
+        remaining_stock = stock_map.get(mc, Decimal(0))
+        remaining_co    = co_qty_map.get(mc, Decimal(0))
+        po_lines        = sorted(po_map.get(mc, []), key=lambda x: x[0])  # (date, qty)
+        po_consumed     = Decimal(0)
+
+        for req in reqs:
+            net_req = req["net_required"]
+            req_due = req["due_date"]
+
+            # PO quantity available up to this requirement's due date,
+            # minus what earlier requirements in this material group already consumed
+            po_gross = sum(
+                (qty for d, qty in po_lines if req_due is None or d <= req_due),
+                Decimal(0),
+            )
+            po_avail = max(Decimal(0), po_gross - po_consumed)
+
+            # Record what was available *before* this req consumes anything
+            stock_before = remaining_stock
+            co_before    = remaining_co
+
+            # Compute shortage: what's left after stock + CO + PO
+            shortage = max(Decimal(0), net_req - remaining_stock - remaining_co - po_avail)
+
+            # Consume pools in order: stock → CO → PO
+            to_cover   = min(net_req, remaining_stock + remaining_co + po_avail)
+            stock_used = min(remaining_stock, to_cover)
+            co_used    = min(remaining_co, to_cover - stock_used)
+            po_used    = min(po_avail,     to_cover - stock_used - co_used)
+
+            remaining_stock  = max(Decimal(0), remaining_stock - stock_used)
+            remaining_co     = max(Decimal(0), remaining_co    - co_used)
+            po_consumed     += po_used
+
+            req["_stock_on_hand"] = stock_before
+            req["_po_coverage"]   = po_avail + co_before   # CO + PO available at this point
+            req["_shortage"]      = shortage
+            all_netted.append(req)
+
+    # ---- Phase 3: apply display filters and build ShortageRows ----
+    search_term = search.strip().lower() if search else None
 
     rows: list[ShortageRow] = []
+    for r in all_netted:
+        if dept_filter and r["department"] != dept_filter:
+            continue
+        if due_before and r["due_date"] and r["due_date"] > due_before:
+            continue
+        if search_term and search_term not in r["_search_text"]:
+            continue
+        if shortages_only and r["_shortage"] == 0:
+            continue
 
-    # ---- Main line requirements ----
-    if source in ("all", "main"):
-        q = MaterialRequirementMain.query.filter(
-            MaterialRequirementMain.complete != "Y"
-        )
-        if dept_filter:
-            q = q.filter(MaterialRequirementMain.department == dept_filter)
-        if due_before:
-            q = q.filter(MaterialRequirementMain.due_date <= due_before)
-        if search:
-            term = f"%{search.strip()}%"
-            q = q.filter(
-                db.or_(
-                    MaterialRequirementMain.material_code.ilike(term),
-                    MaterialRequirementMain.material_description.ilike(term),
-                    MaterialRequirementMain.works_order.ilike(term),
-                )
-            )
+        rows.append(ShortageRow(
+            source=r["source"],
+            material_code=r["material_code"],
+            description=r["description"],
+            department=r["department"],
+            due_date=r["due_date"],
+            qty_required=r["qty_required"],
+            qty_issued=r["qty_issued"],
+            net_required=r["net_required"],
+            stock_on_hand=r["_stock_on_hand"],
+            po_coverage=r["_po_coverage"],
+            shortage=r["_shortage"],
+            works_order=r["works_order"],
+            order_number=r["order_number"],
+            customer_id=r["customer_id"],
+            customer=r["customer"],
+            complete=r["complete"],
+        ))
 
-        for req in q.order_by(MaterialRequirementMain.due_date).all():
-            mc          = req.material_code or ""
-            qty_req     = req.qty_for_order or Decimal(0)
-            qty_issued  = req.qty_issued or Decimal(0)
-            net_req     = max(Decimal(0), qty_req - qty_issued)
-            stock       = stock_map.get(mc, Decimal(0))
-            po_cov      = _po_coverage_for(po_map, mc, req.due_date)
-            co_cov      = co_qty_map.get(mc, Decimal(0))
-            shortage    = max(Decimal(0), net_req - stock - po_cov - co_cov)
-
-            if shortages_only and shortage == 0:
-                continue
-
-            rows.append(ShortageRow(
-                source="main",
-                material_code=mc,
-                description=req.material_description or "",
-                department=req.department or "",
-                due_date=req.due_date,
-                qty_required=qty_req,
-                qty_issued=qty_issued,
-                net_required=net_req,
-                stock_on_hand=stock,
-                po_coverage=po_cov + co_cov,
-                shortage=shortage,
-                works_order=req.works_order,
-                customer_id=req.customer_id,
-                complete=req.complete,
-            ))
-
-    # ---- After sales requirements ----
-    if source in ("all", "aftersales"):
-        q = MaterialRequirementAfterSales.query
-        if dept_filter:
-            q = q.filter(MaterialRequirementAfterSales.department == dept_filter)
-        if due_before:
-            q = q.filter(MaterialRequirementAfterSales.due_date <= due_before)
-        if search:
-            term = f"%{search.strip()}%"
-            q = q.filter(
-                db.or_(
-                    MaterialRequirementAfterSales.product_code.ilike(term),
-                    MaterialRequirementAfterSales.description.ilike(term),
-                    MaterialRequirementAfterSales.order_number.ilike(term),
-                )
-            )
-
-        for req in q.order_by(MaterialRequirementAfterSales.due_date).all():
-            pc       = req.product_code or ""
-            net_req  = req.qty_required or Decimal(0)
-            stock    = stock_map.get(pc, Decimal(0))
-            po_cov   = _po_coverage_for(po_map, pc, req.due_date)
-            co_cov   = co_qty_map.get(pc, Decimal(0))
-            shortage = max(Decimal(0), net_req - stock - po_cov - co_cov)
-
-            if shortages_only and shortage == 0:
-                continue
-
-            rows.append(ShortageRow(
-                source="aftersales",
-                material_code=pc,
-                description=req.description or "",
-                department=req.department or "",
-                due_date=req.due_date,
-                qty_required=net_req,
-                qty_issued=Decimal(0),
-                net_required=net_req,
-                stock_on_hand=stock,
-                po_coverage=po_cov + co_cov,
-                shortage=shortage,
-                order_number=req.order_number,
-                customer=req.customer,
-            ))
-
-    # Sort all rows by due_date then shortage desc
+    # Sort by due_date, then worst shortage first
     rows.sort(key=lambda r: (r.due_date or date.max, -r.shortage))
 
     shortage_count = sum(1 for r in rows if r.shortage > 0)
 
     return {
-        "rows":          rows,
-        "total_rows":    len(rows),
+        "rows":           rows,
+        "total_rows":     len(rows),
         "shortage_count": shortage_count,
         "stock_imported": bool(stock_map),
-        "reqs_imported":  bool(rows) or _has_reqs(source),
+        "reqs_imported":  bool(raw) or _has_reqs(source),
     }
 
 
@@ -480,6 +545,248 @@ def get_so_material_status(
     )
 
     return result
+
+
+def get_mrp_pegging(
+    search: Optional[str] = None,
+    so_number: Optional[str] = None,
+) -> dict:
+    """
+    Build MRP time-phased pegging view for materials matching a search or SO number.
+
+    For each matching material shows: opening stock, CO receipts, PO receipts and
+    requirements in date order with a running projected balance. Balance goes
+    negative (is_short=True) when demand exceeds cumulative supply.
+
+    Filters:
+      so_number — show materials required by this SO (strips 2-char works order suffix)
+      search    — ilike search on material code / description
+
+    Returns {materials: [MrpMaterial], material_count: int, stock_imported: bool}
+    """
+    stock_map = _load_stock()
+
+    if not search and not so_number:
+        return {"materials": [], "material_count": 0, "stock_imported": bool(stock_map)}
+
+    # ---- Determine which material codes to show ----
+    material_codes: set[str] = set()
+
+    if so_number:
+        so_col_main = func.substr(
+            MaterialRequirementMain.works_order, 1,
+            func.length(MaterialRequirementMain.works_order) - 2,
+        )
+        rows = (
+            db.session.query(MaterialRequirementMain.material_code)
+            .filter(
+                MaterialRequirementMain.complete != "Y",
+                MaterialRequirementMain.works_order.isnot(None),
+                so_col_main == so_number,
+            )
+            .distinct().all()
+        )
+        material_codes.update(r.material_code for r in rows if r.material_code)
+
+        so_col_as = func.substr(
+            MaterialRequirementAfterSales.order_number, 1,
+            func.length(MaterialRequirementAfterSales.order_number) - 2,
+        )
+        rows = (
+            db.session.query(MaterialRequirementAfterSales.product_code)
+            .filter(
+                MaterialRequirementAfterSales.order_number.isnot(None),
+                so_col_as == so_number,
+            )
+            .distinct().all()
+        )
+        material_codes.update(r.product_code for r in rows if r.product_code)
+
+    if search:
+        term = f"%{search.strip()}%"
+        rows = (
+            db.session.query(MaterialRequirementMain.material_code)
+            .filter(db.or_(
+                MaterialRequirementMain.material_code.ilike(term),
+                MaterialRequirementMain.material_description.ilike(term),
+            ))
+            .distinct().all()
+        )
+        material_codes.update(r.material_code for r in rows if r.material_code)
+
+        rows = (
+            db.session.query(MaterialRequirementAfterSales.product_code)
+            .filter(db.or_(
+                MaterialRequirementAfterSales.product_code.ilike(term),
+                MaterialRequirementAfterSales.description.ilike(term),
+            ))
+            .distinct().all()
+        )
+        material_codes.update(r.product_code for r in rows if r.product_code)
+
+        rows = (
+            db.session.query(Stock.product_code)
+            .filter(db.or_(
+                Stock.product_code.ilike(term),
+                Stock.description.ilike(term),
+            ))
+            .all()
+        )
+        material_codes.update(r.product_code for r in rows if r.product_code)
+
+    if not material_codes:
+        return {"materials": [], "material_count": 0, "stock_imported": bool(stock_map)}
+
+    mc_list = sorted(material_codes)
+
+    # ---- Load all requirements for these materials ----
+    main_reqs = (
+        MaterialRequirementMain.query
+        .filter(
+            MaterialRequirementMain.complete != "Y",
+            MaterialRequirementMain.material_code.in_(mc_list),
+        )
+        .order_by(MaterialRequirementMain.due_date)
+        .all()
+    )
+    as_reqs = (
+        MaterialRequirementAfterSales.query
+        .filter(MaterialRequirementAfterSales.product_code.in_(mc_list))
+        .order_by(MaterialRequirementAfterSales.due_date)
+        .all()
+    )
+    po_rows = (
+        PurchaseOrder.query
+        .filter(
+            PurchaseOrder.product_code.in_(mc_list),
+            PurchaseOrder.outstanding_qty > 0,
+        )
+        .order_by(PurchaseOrder.due_date)
+        .all()
+    )
+
+    # ---- Collect raw events per material ----
+    raw_events: dict[str, list[dict]] = defaultdict(list)
+    descriptions: dict[str, str] = {}
+
+    for req in main_reqs:
+        mc = req.material_code or ""
+        descriptions[mc] = req.material_description or ""
+        net_req = max(Decimal(0), (req.qty_for_order or Decimal(0)) - (req.qty_issued or Decimal(0)))
+        if net_req > 0:
+            raw_events[mc].append({
+                "event_date": req.due_date,
+                "row_type": "requirement",
+                "reference": req.works_order or "",
+                "source": "main",
+                "department": req.department or "",
+                "demand": net_req,
+                "receipt": None,
+                "_sort": (2, req.due_date or date.max, 1),
+            })
+
+    for req in as_reqs:
+        pc = req.product_code or ""
+        if not descriptions.get(pc):
+            descriptions[pc] = req.description or ""
+        net_req = req.qty_required or Decimal(0)
+        if net_req > 0:
+            raw_events[pc].append({
+                "event_date": req.due_date,
+                "row_type": "requirement",
+                "reference": req.order_number or "",
+                "source": "aftersales",
+                "department": req.department or "",
+                "demand": net_req,
+                "receipt": None,
+                "_sort": (2, req.due_date or date.max, 1),
+            })
+
+    co_totals: dict[str, Decimal] = defaultdict(Decimal)
+    for po in po_rows:
+        mc = po.product_code or ""
+        qty = po.outstanding_qty or Decimal(0)
+        if po.po_type == "CO":
+            co_totals[mc] += qty
+        else:
+            raw_events[mc].append({
+                "event_date": po.due_date,
+                "row_type": "po",
+                "reference": po.po_number or "",
+                "source": "po",
+                "department": po.supplier_name or "",
+                "demand": None,
+                "receipt": qty,
+                "_sort": (2, po.due_date or date.max, 0),
+            })
+
+    # ---- Build MrpMaterial objects ----
+    materials: list[MrpMaterial] = []
+
+    for mc in mc_list:
+        opening_stock = stock_map.get(mc, Decimal(0))
+        desc = descriptions.get(mc, "")
+        if not desc:
+            s = Stock.query.filter_by(product_code=mc).first()
+            desc = s.description if s else ""
+
+        co_total = co_totals.get(mc, Decimal(0))
+        events_raw = sorted(raw_events.get(mc, []), key=lambda e: e["_sort"])
+
+        events: list[MrpEvent] = []
+        running = opening_stock
+
+        # Opening stock row
+        events.append(MrpEvent(
+            event_date=None, row_type="opening", reference="Opening Stock",
+            source="", department="", demand=None, receipt=opening_stock,
+            balance=running, is_short=running < 0,
+        ))
+
+        # CO block (always-available, shown after opening)
+        if co_total > 0:
+            running += co_total
+            events.append(MrpEvent(
+                event_date=None, row_type="co", reference="Call-Off Orders",
+                source="co", department="", demand=None, receipt=co_total,
+                balance=running, is_short=running < 0,
+            ))
+
+        # Dated events: PO receipts then requirements (same-date POs land first)
+        for e in events_raw:
+            if e["row_type"] == "po":
+                running += e["receipt"]
+            else:
+                running -= e["demand"]
+            events.append(MrpEvent(
+                event_date=e["event_date"],
+                row_type=e["row_type"],
+                reference=e["reference"],
+                source=e["source"],
+                department=e["department"],
+                demand=e["demand"],
+                receipt=e["receipt"],
+                balance=running,
+                is_short=running < 0,
+            ))
+
+        has_shortage = any(ev.is_short for ev in events)
+        materials.append(MrpMaterial(
+            material_code=mc,
+            description=desc,
+            opening_stock=opening_stock,
+            has_shortage=has_shortage,
+            events=events,
+        ))
+
+    # Shortages first, then alphabetical
+    materials.sort(key=lambda m: (0 if m.has_shortage else 1, m.material_code))
+
+    return {
+        "materials": materials,
+        "material_count": len(materials),
+        "stock_imported": bool(stock_map),
+    }
 
 
 def _has_reqs(source: str) -> bool:

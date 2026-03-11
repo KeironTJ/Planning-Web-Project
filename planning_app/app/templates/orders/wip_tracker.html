@@ -238,7 +238,7 @@
                     {% if order.mat_status == 'no_data' %}
                         <span class="text-muted" style="font-size:.78rem;">—</span>
                     {% else %}
-                        <a href="{{ url_for('materials.shortage') }}?q={{ order.so_number }}"
+                        <a href="{{ url_for('materials.mrp') }}?so={{ order.so_number }}"
                            class="badge bg-{{ mat_colour }} text-decoration-none"
                            title="Click to view material requirements for {{ order.so_number }}"
                            target="_blank">
