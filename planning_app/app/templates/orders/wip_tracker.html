@@ -120,39 +120,26 @@
                 </div>
             </div>
 
-            {# Row 2: date range filters (collapsed unless active) #}
-            {% set date_filters_active = due_date_from or due_date_to or planned_date_from or planned_date_to %}
-            <div class="col-12 mt-1">
-                <a class="small text-muted text-decoration-none" data-bs-toggle="collapse"
-                   href="#dateFilters" role="button"
-                   aria-expanded="{{ 'true' if date_filters_active else 'false' }}">
-                    <i class="bi bi-calendar-range me-1"></i>Date filters
-                    {% if date_filters_active %}<span class="badge bg-primary ms-1">active</span>{% endif %}
-                </a>
+            {# Row 2: date range filters #}
+            <div class="col-auto">
+                <label class="form-label form-label-sm text-muted mb-0">Due from</label>
+                <input type="date" name="due_from" class="form-control form-control-sm"
+                       value="{{ due_date_from.isoformat() if due_date_from else '' }}">
             </div>
-            <div class="col-12 collapse {{ 'show' if date_filters_active else '' }}" id="dateFilters">
-                <div class="row g-2 align-items-end">
-                    <div class="col-auto">
-                        <label class="form-label form-label-sm text-muted mb-0">Due from</label>
-                        <input type="date" name="due_from" class="form-control form-control-sm"
-                               value="{{ due_date_from.isoformat() if due_date_from else '' }}">
-                    </div>
-                    <div class="col-auto">
-                        <label class="form-label form-label-sm text-muted mb-0">Due to</label>
-                        <input type="date" name="due_to" class="form-control form-control-sm"
-                               value="{{ due_date_to.isoformat() if due_date_to else '' }}">
-                    </div>
-                    <div class="col-auto ms-3">
-                        <label class="form-label form-label-sm text-muted mb-0">Plan from</label>
-                        <input type="date" name="plan_from" class="form-control form-control-sm"
-                               value="{{ planned_date_from.isoformat() if planned_date_from else '' }}">
-                    </div>
-                    <div class="col-auto">
-                        <label class="form-label form-label-sm text-muted mb-0">Plan to</label>
-                        <input type="date" name="plan_to" class="form-control form-control-sm"
-                               value="{{ planned_date_to.isoformat() if planned_date_to else '' }}">
-                    </div>
-                </div>
+            <div class="col-auto">
+                <label class="form-label form-label-sm text-muted mb-0">Due to</label>
+                <input type="date" name="due_to" class="form-control form-control-sm"
+                       value="{{ due_date_to.isoformat() if due_date_to else '' }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label form-label-sm text-muted mb-0">Plan from</label>
+                <input type="date" name="plan_from" class="form-control form-control-sm"
+                       value="{{ planned_date_from.isoformat() if planned_date_from else '' }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label form-label-sm text-muted mb-0">Plan to</label>
+                <input type="date" name="plan_to" class="form-control form-control-sm"
+                       value="{{ planned_date_to.isoformat() if planned_date_to else '' }}">
             </div>
 
             <div class="col-auto mt-1">
