@@ -34,6 +34,7 @@ class Department(db.Model):
     name = db.Column(db.String(100), nullable=False, index=True)
     target_hours_per_day = db.Column(db.Numeric(5, 2), nullable=True)
     default_lead_time_days = db.Column(db.Integer, default=2, nullable=False, server_default="2")
+    flow_order = db.Column(db.Integer, nullable=True)   # Position in production flow (1 = first); NULL = unset
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
     capacity_buckets = db.relationship("CapacityBucket", back_populates="department", cascade="all, delete-orphan")
@@ -190,15 +191,19 @@ class WorksOrderOperation(db.Model):
     )
 
     # Status constants
-    STATUS_NOT_STARTED = "not_started"
-    STATUS_STARTED    = "started"
-    STATUS_WIP        = "wip"
-    STATUS_COMPLETED  = "completed"
-    STATUS_CLOSED     = "closed"
+    STATUS_FIRMED    = "firmed"
+    STATUS_RELEASED  = "released"
+    STATUS_WIP       = "wip"
+    STATUS_COMPLETED = "completed"
+    STATUS_CLOSED    = "closed"
+
+    # Legacy aliases — keep so any stale DB rows still resolve correctly
+    STATUS_NOT_STARTED = STATUS_FIRMED
+    STATUS_STARTED     = STATUS_RELEASED
 
     VALID_STATUSES = [
-        STATUS_NOT_STARTED,
-        STATUS_STARTED,
+        STATUS_FIRMED,
+        STATUS_RELEASED,
         STATUS_WIP,
         STATUS_COMPLETED,
         STATUS_CLOSED,
@@ -206,11 +211,11 @@ class WorksOrderOperation(db.Model):
 
     # Status display labels and Bootstrap badge colours
     STATUS_META = {
-        STATUS_NOT_STARTED: ("Not Started", "secondary"),
-        STATUS_STARTED:     ("Started",     "primary"),
-        STATUS_WIP:         ("WIP",         "warning"),
-        STATUS_COMPLETED:   ("Complete",    "success"),
-        STATUS_CLOSED:      ("Closed",      "dark"),
+        STATUS_FIRMED:    ("Firmed",   "secondary"),
+        STATUS_RELEASED:  ("Released", "primary"),
+        STATUS_WIP:       ("WIP",      "warning"),
+        STATUS_COMPLETED: ("Complete", "success"),
+        STATUS_CLOSED:    ("Closed",   "dark"),
     }
 
     id = db.Column(db.Integer, primary_key=True)
@@ -239,7 +244,7 @@ class WorksOrderOperation(db.Model):
     imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     # Planner fields (NEVER overwritten by importer)
-    status = db.Column(db.String(20), default=STATUS_NOT_STARTED, nullable=False, index=True)
+    status = db.Column(db.String(20), default=STATUS_FIRMED, nullable=False, index=True)
     planned_date = db.Column(db.Date, nullable=True, index=True)
     completed_date = db.Column(db.Date, nullable=True)
     notes = db.Column(db.Text, nullable=True)

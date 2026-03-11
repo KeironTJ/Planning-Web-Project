@@ -40,3 +40,7 @@ class DeptHoursForm(FlaskForm):
         default=2,
         validators=[Optional(), NumberRange(min=0, max=30)],
     )
+    flow_order = IntegerField(
+        "Flow Order",
+        validators=[Optional(), NumberRange(min=1, max=999)],
+    )

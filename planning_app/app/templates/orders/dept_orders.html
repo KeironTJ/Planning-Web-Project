@@ -14,12 +14,12 @@
 <!-- Filters -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
-        <form method="GET" class="row g-2 align-items-end">
-            <div class="col-sm-4">
+        <form method="GET" class="row g-2 align-items-end" id="filterForm">
+            <div class="col-sm-3 col-md-2">
                 <input type="search" name="q" class="form-control form-control-sm"
-                       placeholder="SO number…" value="{{ search }}">
+                       placeholder="SO, customer, product…" value="{{ search }}">
             </div>
-            <div class="col-sm-3">
+            <div class="col-sm-3 col-md-2">
                 <select name="status" class="form-select form-select-sm">
                     <option value="">All Statuses</option>
                     {% for s in valid_statuses if s != 'closed' %}
@@ -28,131 +28,298 @@
                     {% endfor %}
                 </select>
             </div>
+            <div class="col-sm-3 col-md-2">
+                <select name="sort" class="form-select form-select-sm">
+                    <option value="due_date"  {{ 'selected' if order_by == 'due_date' }}>Sort: Due Date</option>
+                    <option value="plan_date" {{ 'selected' if order_by == 'plan_date' }}>Sort: Plan Date</option>
+                    <option value="so_number" {{ 'selected' if order_by == 'so_number' }}>Sort: SO No</option>
+                    <option value="customer"  {{ 'selected' if order_by == 'customer' }}>Sort: Customer</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <select name="per_page" class="form-select form-select-sm" style="width:auto;">
+                    {% for n in [25, 50, 100] %}
+                    <option value="{{ n }}" {{ 'selected' if per_page == n }}>{{ n }}/page</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input" type="checkbox" name="overdue" value="1"
+                           id="overdueChk" {{ 'checked' if overdue_only }}>
+                    <label class="form-check-label small" for="overdueChk">Overdue only</label>
+                </div>
+            </div>
             <div class="col-auto">
                 <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-                <a href="{{ url_for('orders.dept_orders', dept_id=dept.id) }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+                <a href="{{ url_for('orders.dept_orders', dept_id=dept.id) }}"
+                   class="btn btn-outline-secondary btn-sm">Clear</a>
+            </div>
+
+            {# Date range (collapsible) #}
+            {% set date_active = due_date_from or due_date_to %}
+            <div class="col-12 mt-1">
+                <a class="small text-muted text-decoration-none" data-bs-toggle="collapse"
+                   href="#dateFilters" role="button"
+                   aria-expanded="{{ 'true' if date_active else 'false' }}">
+                    <i class="bi bi-calendar-range me-1"></i>Date filters
+                    {% if date_active %}<span class="badge bg-primary ms-1">active</span>{% endif %}
+                </a>
+            </div>
+            <div class="col-12 collapse {{ 'show' if date_active }}" id="dateFilters">
+                <div class="row g-2 align-items-end">
+                    <div class="col-auto">
+                        <label class="form-label form-label-sm text-muted mb-0">Due from</label>
+                        <input type="date" name="due_from" class="form-control form-control-sm"
+                               value="{{ due_date_from.isoformat() if due_date_from else '' }}">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label form-label-sm text-muted mb-0">Due to</label>
+                        <input type="date" name="due_to" class="form-control form-control-sm"
+                               value="{{ due_date_to.isoformat() if due_date_to else '' }}">
+                    </div>
+                </div>
             </div>
         </form>
     </div>
 </div>
 
-<!-- Bulk action bar -->
-<form method="POST" action="{{ url_for('orders.bulk_update_operations') }}" id="bulkForm">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="back_url" value="{{ url_for('orders.dept_orders', dept_id=dept.id) }}">
-    <input type="hidden" name="operation_ids" id="selectedIds" value="">
-
-    <div class="d-flex justify-content-between align-items-center mb-2">
-        <small class="text-muted">
-            {{ operations.total }} operation{{ 's' if operations.total != 1 }}
-        </small>
-        <div class="d-flex gap-2 align-items-center">
-            <span class="text-muted small" id="selCount" style="display:none;"></span>
-            <select name="status" class="form-select form-select-sm" style="width:auto;">
-                {% for s in valid_statuses %}
+<!-- Summary -->
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <small class="text-muted">
+        {{ pagination.total }} order{{ 's' if pagination.total != 1 }}
+        &nbsp;·&nbsp;
+        page {{ pagination.page }} of {{ pagination.pages or 1 }}
+    </small>
+    <!-- Bulk action -->
+    <div class="d-flex gap-2 align-items-center">
+        <span class="text-muted small" id="selCount" style="display:none;"></span>
+        <form method="POST" action="{{ url_for('orders.bulk_update_operations') }}" id="bulkForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="back_url" value="{{ request.url }}">
+            <input type="hidden" name="operation_ids" id="selectedIds" value="">
+            <select name="status" class="form-select form-select-sm d-inline-block" style="width:auto;">
+                {% for s in valid_statuses if s != 'closed' %}
                 {% set label, colour = status_meta[s] %}
                 <option value="{{ s }}">{{ label }}</option>
                 {% endfor %}
             </select>
-            <button type="button" class="btn btn-outline-primary btn-sm" id="bulkBtn"
-                    onclick="submitBulk()">
+            <button type="button" class="btn btn-outline-primary btn-sm" onclick="submitBulk()">
                 Update Selected
             </button>
-        </div>
+        </form>
     </div>
+</div>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-sm table-hover mb-0 align-middle">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="width:30px;">
-                                <input type="checkbox" class="form-check-input" id="selectAll"
-                                       onclick="toggleAll(this)">
-                            </th>
-                            <th>SO / Line</th>
-                            <th>Customer</th>
-                            <th>Product</th>
-                            <th class="text-end">Qty</th>
-                            <th class="text-center">Due</th>
-                            <th>Status</th>
-                            <th class="text-center">Planned</th>
-                            <th>Notes</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for op in operations.items %}
-                        {% set sol = op.sales_order_line %}
-                        {% set label, colour = status_meta.get(op.status, ('?', 'secondary')) %}
-                        <tr class="{{ 'table-danger' if op.is_overdue else '' }}">
-                            <td>
-                                <input type="checkbox" class="form-check-input op-check"
-                                       value="{{ op.id }}" onchange="updateSelCount()">
-                            </td>
-                            <td class="fw-semibold">
-                                {{ op.so_number }}<span class="text-muted">/{{ op.line_number }}</span>
-                            </td>
-                            <td class="text-truncate" style="max-width:120px;" title="{{ sol.customer_name }}">
-                                {{ sol.customer_name or '—' }}
-                            </td>
-                            <td class="text-truncate" style="max-width:130px;" title="{{ sol.product_description }}">
-                                <span class="text-muted small">{{ sol.product_code }}</span>
-                            </td>
-                            <td class="text-end">{{ op.qty | int if op.qty else '—' }}</td>
-                            <td class="text-center {{ 'text-danger fw-semibold' if op.is_overdue else '' }}">
-                                {{ op.due_date.strftime('%d %b') if op.due_date else '—' }}
-                            </td>
-                            <td>
-                                <span class="badge bg-{{ colour }}">{{ label }}</span>
-                            </td>
-                            <td class="text-center text-muted small">
-                                {{ op.planned_date.strftime('%d %b') if op.planned_date else '—' }}
-                            </td>
-                            <td class="text-muted small text-truncate" style="max-width:100px;" title="{{ op.notes or '' }}">
-                                {{ op.notes or '' }}
-                            </td>
-                            <td>
-                                <button type="button"
-                                        class="btn btn-sm btn-outline-secondary py-0 op-status-btn"
-                                        data-op-id="{{ op.id }}"
-                                        data-bs-toggle="modal"
-                                        data-bs-target="#opModal"
-                                        data-so="{{ op.so_number }}/{{ op.line_number }}"
-                                        data-dept="{{ dept.name }}"
-                                        data-status="{{ op.status }}"
-                                        data-planned="{{ op.planned_date.isoformat() if op.planned_date else '' }}"
-                                        data-notes="{{ op.notes or '' }}">
-                                    <i class="bi bi-pencil"></i>
-                                </button>
-                            </td>
-                        </tr>
+{% if not order_groups %}
+<div class="alert alert-info">No orders match the current filter.</div>
+{% else %}
+
+<div class="table-responsive">
+    <table class="table table-sm align-middle mb-0" style="font-size:.83rem;" id="deptTable">
+        <thead class="table-light">
+            <tr>
+                <th style="width:28px;"></th>{# expand #}
+                <th style="min-width:90px;">SO</th>
+                <th style="min-width:130px;">Customer</th>
+                <th style="min-width:70px;">Lines / Qty</th>
+                <th class="text-center" style="min-width:80px;">ERP Due</th>
+                <th class="text-center" style="min-width:55px;">±Days</th>
+                <th class="text-center" style="min-width:80px;">Planned</th>
+                <th style="min-width:100px;">Status</th>
+                <th style="min-width:80px;">Materials</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for group in order_groups %}
+        {% set gi = loop.index %}
+        {% set is_overdue = group.days_delta is not none and group.days_delta < 0 %}
+        {% set is_urgent  = group.days_delta is not none and group.days_delta >= 0 and group.days_delta <= 7 %}
+        {% set plan_late  = group.dept_planned and group.due_date and group.dept_planned > group.due_date %}
+        {% set label, colour = status_meta.get(group.dept_status, ('Unknown', 'secondary')) %}
+
+        {# ── Order header row ───────────────────────────────── #}
+        <tr class="table-light fw-semibold order-row" id="dept-order-{{ gi }}">
+            <td class="text-center p-1">
+                <button class="btn btn-link btn-sm p-0 text-secondary toggle-row-btn"
+                        data-target="dept-lines-{{ gi }}"
+                        title="Expand / collapse lines">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </td>
+            <td>
+                {{ group.so_number }}
+                {% if group.order_type %}
+                <br><span class="badge fw-normal"
+                      style="font-size:.65rem;background-color:{{ '#0d6efd' if group.order_type == 'MAINLINE' else '#6c757d' }};">
+                    {{ group.order_type }}
+                </span>
+                {% endif %}
+            </td>
+            <td style="max-width:150px;" title="{{ group.customer_name }}">
+                <div class="fw-semibold text-truncate">{{ group.customer_name }}</div>
+                {% if group.cpr_list %}
+                <div style="margin-top:2px;">
+                    {% for cpr in group.cpr_list[:3] %}
+                    <span class="badge bg-primary-subtle text-primary fw-normal" style="font-size:.68rem;">{{ cpr }}</span>
+                    {% endfor %}
+                    {% if group.cpr_list | length > 3 %}
+                    <span class="text-muted" style="font-size:.68rem;">+{{ group.cpr_list | length - 3 }} more</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </td>
+            <td class="text-muted fw-normal" style="font-size:.78rem;">
+                {{ group.line_count }} line{{ 's' if group.line_count != 1 }}
+                &nbsp;/&nbsp;{{ group.total_qty | int }} units
+            </td>
+            <td class="text-center text-nowrap {{ 'text-danger' if is_overdue else ('text-warning' if is_urgent else '') }}">
+                {{ group.due_date.strftime('%d %b %Y') if group.due_date else '—' }}
+            </td>
+            <td class="text-center">
+                {% if group.days_delta is not none %}
+                    {% if group.days_delta < 0 %}
+                        <span class="badge bg-danger">{{ group.days_delta }}d</span>
+                    {% elif group.days_delta <= 7 %}
+                        <span class="badge bg-warning text-dark">{{ group.days_delta }}d</span>
+                    {% else %}
+                        <span class="badge bg-success">+{{ group.days_delta }}d</span>
+                    {% endif %}
+                {% else %}
+                    <span class="text-muted">—</span>
+                {% endif %}
+            </td>
+            <td class="text-center fw-normal small {{ 'text-danger fw-semibold' if plan_late else '' }}">
+                {{ group.dept_planned.strftime('%d %b') if group.dept_planned else '—' }}
+            </td>
+            <td>
+                {% if group.dept_status == 'completed' or group.dept_status == 'closed' %}
+                <button type="button"
+                        class="btn btn-{{ colour }} btn-sm py-0 px-1 advance-so-dept-btn"
+                        style="font-size:.75rem;"
+                        data-so="{{ group.so_number }}"
+                        data-dept="{{ dept.name }}"
+                        data-current-status="{{ group.dept_status }}"
+                        title="{{ label }} — right-click to step back">
+                    <i class="bi bi-check-circle" style="font-size:.65rem;"></i> {{ label[:6] }}
+                </button>
+                {% else %}
+                <button type="button"
+                        class="btn btn-{{ colour }} btn-sm py-0 px-1 advance-so-dept-btn"
+                        style="font-size:.75rem;"
+                        data-so="{{ group.so_number }}"
+                        data-dept="{{ dept.name }}"
+                        data-current-status="{{ group.dept_status }}"
+                        title="Click to advance · Right-click to step back">
+                    <i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> {{ label[:6] }}
+                </button>
+                {% endif %}
+            </td>
+            {# Material status #}
+            {% set mat_label, mat_colour = mat_status_meta.get(group.mat_status, ('—', 'secondary')) %}
+            <td>
+                {% if group.mat_status == 'no_data' %}
+                    <span class="badge bg-success" style="font-size:.72rem;">Mat. OK</span>
+                {% else %}
+                    <a href="{{ url_for('materials.mrp') }}?so={{ group.so_number }}"
+                       class="badge bg-{{ mat_colour }} text-decoration-none"
+                       style="font-size:.72rem;"
+                       title="View material requirements for {{ group.so_number }}"
+                       target="_blank">{{ mat_label }}</a>
+                {% endif %}
+            </td>
+        </tr>
+
+        {# ── Line rows (collapsed) ──────────────────────────── #}
+        {% for op in group.dept_ops %}
+        {% set sol = op.sales_order_line %}
+        {% set op_label, op_colour = status_meta.get(op.status, ('?', 'secondary')) %}
+        <tr class="dept-line-row" id="dept-lines-{{ gi }}" style="display:none;">
+            <td></td>
+            <td class="text-muted small ps-3">
+                /{{ op.line_number }}
+            </td>
+            <td colspan="2" class="small">
+                <span class="text-muted">{{ sol.product_code }}</span>
+                {% if sol.product_description %}
+                <span class="text-muted"> — {{ sol.product_description | truncate(40) }}</span>
+                {% endif %}
+            </td>
+            <td class="text-center text-muted small">
+                {{ op.due_date.strftime('%d %b') if op.due_date else '—' }}
+            </td>
+            <td></td>
+            <td class="text-center text-muted small">
+                {{ op.planned_date.strftime('%d %b') if op.planned_date else '—' }}
+            </td>
+            <td>
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button"
+                            class="btn btn-{{ op_colour }} btn-sm py-0 px-1 op-advance-btn"
+                            style="font-size:.72rem;"
+                            data-op-id="{{ op.id }}"
+                            data-status="{{ op.status }}"
+                            title="Click to advance · Right-click to step back">
+                        {% if op.status == 'completed' or op.status == 'closed' %}
+                        <i class="bi bi-check-circle" style="font-size:.65rem;"></i>
                         {% else %}
-                        <tr>
-                            <td colspan="10" class="text-center py-4 text-muted">No operations found.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</form>
+                        <i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i>
+                        {% endif %}
+                        {{ op_label[:6] }}
+                    </button>
+                    <div class="form-check mb-0">
+                        <input type="checkbox" class="form-check-input op-check"
+                               value="{{ op.id }}" onchange="updateSelCount()">
+                    </div>
+                    <button type="button"
+                            class="btn btn-sm btn-outline-secondary py-0 op-status-btn"
+                            data-op-id="{{ op.id }}"
+                            data-bs-toggle="modal"
+                            data-bs-target="#opModal"
+                            data-so="{{ op.so_number }}/{{ op.line_number }}"
+                            data-dept="{{ dept.name }}"
+                            data-status="{{ op.status }}"
+                            data-planned="{{ op.planned_date.isoformat() if op.planned_date else '' }}"
+                            data-notes="{{ op.notes or '' }}">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    {% if op.notes %}
+                    <span class="text-muted small text-truncate" style="max-width:120px;" title="{{ op.notes }}">
+                        {{ op.notes }}
+                    </span>
+                    {% endif %}
+                </div>
+            </td>
+            <td></td>{# Materials — order-level only #}
+        </tr>
+        {% endfor %}
+
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% endif %}
 
 <!-- Pagination -->
-{% if operations.pages > 1 %}
+{% if pagination.pages > 1 %}
 <nav class="mt-3">
     <ul class="pagination pagination-sm justify-content-center">
-        {% for p in operations.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
-            {% if p %}
-                <li class="page-item {{ 'active' if p == operations.page else '' }}">
-                    <a class="page-link" href="{{ url_for('orders.dept_orders', dept_id=dept.id, page=p, q=search, status=status_filter) }}">{{ p }}</a>
-                </li>
-            {% else %}
-                <li class="page-item disabled"><span class="page-link">…</span></li>
-            {% endif %}
+        {% if pagination.has_prev %}
+        <li class="page-item">
+            <a class="page-link" href="{{ url_for('orders.dept_orders', dept_id=dept.id, page=pagination.page-1, q=search, status=status_filter, sort=order_by, per_page=per_page, overdue='1' if overdue_only else '') }}">«</a>
+        </li>
+        {% endif %}
+        {% for p in range(1, pagination.pages + 1) %}
+        <li class="page-item {{ 'active' if p == pagination.page }}">
+            <a class="page-link" href="{{ url_for('orders.dept_orders', dept_id=dept.id, page=p, q=search, status=status_filter, sort=order_by, per_page=per_page, overdue='1' if overdue_only else '') }}">{{ p }}</a>
+        </li>
         {% endfor %}
+        {% if pagination.has_next %}
+        <li class="page-item">
+            <a class="page-link" href="{{ url_for('orders.dept_orders', dept_id=dept.id, page=pagination.page+1, q=search, status=status_filter, sort=order_by, per_page=per_page, overdue='1' if overdue_only else '') }}">»</a>
+        </li>
+        {% endif %}
     </ul>
 </nav>
 {% endif %}
@@ -194,41 +361,198 @@
         </div>
     </div>
 </div>
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
-function toggleAll(cb) {
-    document.querySelectorAll('.op-check').forEach(c => c.checked = cb.checked);
-    updateSelCount();
-}
-function updateSelCount() {
-    const sel = document.querySelectorAll('.op-check:checked');
-    const el = document.getElementById('selCount');
-    if (sel.length > 0) {
-        el.textContent = sel.length + ' selected';
-        el.style.display = '';
-    } else {
-        el.style.display = 'none';
-    }
-}
-function submitBulk() {
-    const ids = [...document.querySelectorAll('.op-check:checked')].map(c => c.value);
-    if (!ids.length) { alert('Select at least one operation.'); return; }
-    document.getElementById('selectedIds').value = ids.join(',');
-    document.getElementById('bulkForm').submit();
-}
+(function () {
+    const csrfToken = '{{ csrf_token() }}';
 
-// Modal population
-const modal = document.getElementById('opModal');
-const form  = document.getElementById('opForm');
-modal.addEventListener('show.bs.modal', function (e) {
-    const btn = e.relatedTarget;
-    form.action = `/orders/operations/${btn.dataset.opId}/update`;
-    document.getElementById('opModalLabel').textContent = btn.dataset.so + ' — ' + btn.dataset.dept;
-    document.getElementById('modalStatus').value  = btn.dataset.status;
-    document.getElementById('modalPlanned').value = btn.dataset.planned;
-    document.getElementById('modalNotes').value   = btn.dataset.notes;
-});
+    // ── Expand / collapse order rows ───────────────────────────────────── //
+    document.querySelectorAll('.toggle-row-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const target = btn.dataset.target;
+            const rows = document.querySelectorAll('tr[id="' + target + '"]');
+            const icon = btn.querySelector('i');
+            const isHidden = rows.length > 0 && rows[0].style.display === 'none';
+            rows.forEach(function (r) { r.style.display = isHidden ? '' : 'none'; });
+            icon.classList.toggle('bi-chevron-right', !isHidden);
+            icon.classList.toggle('bi-chevron-down', isHidden);
+        });
+    });
+
+    // ── Status metadata ────────────────────────────────────────────────── //
+    const STATUS_META = {
+        'firmed':    { label: 'Firmed',   colour: 'secondary' },
+        'released':  { label: 'Released', colour: 'primary'   },
+        'wip':       { label: 'WIP',      colour: 'warning'   },
+        'completed': { label: 'Complete', colour: 'success'   },
+        'closed':    { label: 'Closed',   colour: 'dark'      },
+    };
+    const NEXT_STATUS = {
+        'firmed':    'released',
+        'released':  'wip',
+        'wip':       'completed',
+        'completed': 'completed',
+    };
+    const PREV_STATUS = {
+        'released':  'firmed',
+        'wip':       'released',
+        'completed': 'wip',
+    };
+
+    // ── AJAX call to advance or reverse an SO+dept ─────────────────────── //
+    function callSoDeptEndpoint(url, soNumber, deptName, btn) {
+        btn.disabled = true;
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span>';
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: 'so_number='         + encodeURIComponent(soNumber)
+                + '&work_centre_name=' + encodeURIComponent(deptName)
+                + '&csrf_token='       + encodeURIComponent(csrfToken),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (!data.ok) {
+                btn.disabled = false;
+                btn.innerHTML = originalHTML;
+                return;
+            }
+            const newStatus = data.status;
+            const newColour = data.colour;
+            const newLabel  = data.label;
+            btn.disabled = false;
+            btn.dataset.currentStatus = newStatus;
+            btn.className = 'btn btn-' + newColour + ' btn-sm py-0 px-1 advance-so-dept-btn';
+            if (newStatus === 'completed' || newStatus === 'closed') {
+                btn.title = newLabel + ' — right-click to step back';
+                btn.innerHTML = '<i class="bi bi-check-circle" style="font-size:.65rem;"></i> ' + newLabel.substring(0, 6);
+            } else {
+                btn.title = 'Click to advance · Right-click to step back';
+                btn.innerHTML = '<i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> ' + newLabel.substring(0, 6);
+            }
+        })
+        .catch(function () {
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+        });
+    }
+
+    // ── Wire click (advance) and contextmenu (step back) on deptTable ─── //
+    const deptTable = document.getElementById('deptTable');
+    if (deptTable) {
+        deptTable.addEventListener('click', function (e) {
+            const btn = e.target.closest('.advance-so-dept-btn');
+            if (!btn) return;
+            e.preventDefault();
+            callSoDeptEndpoint(
+                '{{ url_for("orders.advance_so_dept") }}',
+                btn.dataset.so, btn.dataset.dept, btn
+            );
+        });
+
+        deptTable.addEventListener('contextmenu', function (e) {
+            const btn = e.target.closest('.advance-so-dept-btn');
+            if (!btn) return;
+            e.preventDefault();
+            callSoDeptEndpoint(
+                '{{ url_for("orders.reverse_so_dept") }}',
+                btn.dataset.so, btn.dataset.dept, btn
+            );
+        });
+    }
+
+    // ── Operation-level advance/step-back ─────────────────────────────── //
+    function callOpEndpoint(opId, newStatus, btn) {
+        btn.disabled = true;
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span>';
+
+        fetch('/orders/operations/' + opId + '/update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: 'status=' + encodeURIComponent(newStatus)
+                + '&csrf_token=' + encodeURIComponent(csrfToken),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            btn.disabled = false;
+            if (!data.ok) { btn.innerHTML = originalHTML; return; }
+            const meta = STATUS_META[data.status] || { label: data.status, colour: 'secondary' };
+            btn.dataset.status = data.status;
+            btn.className = 'btn btn-' + meta.colour + ' btn-sm py-0 px-1 op-advance-btn';
+            const icon = (data.status === 'completed' || data.status === 'closed')
+                ? 'bi-check-circle' : 'bi-arrow-right-circle';
+            btn.innerHTML = '<i class="bi ' + icon + '" style="font-size:.65rem;"></i> '
+                          + meta.label.substring(0, 6);
+        })
+        .catch(function () { btn.disabled = false; btn.innerHTML = originalHTML; });
+    }
+
+    if (deptTable) {
+        deptTable.addEventListener('click', function (e) {
+            const btn = e.target.closest('.op-advance-btn');
+            if (!btn) return;
+            e.preventDefault();
+            const curr = btn.dataset.status;
+            const next = NEXT_STATUS[curr];
+            if (!next || next === curr) return;
+            callOpEndpoint(btn.dataset.opId, next, btn);
+        });
+
+        deptTable.addEventListener('contextmenu', function (e) {
+            const btn = e.target.closest('.op-advance-btn');
+            if (!btn) return;
+            e.preventDefault();
+            const curr = btn.dataset.status;
+            const prev = PREV_STATUS[curr];
+            if (!prev) return;
+            callOpEndpoint(btn.dataset.opId, prev, btn);
+        });
+    }
+
+    // ── Bulk select helpers ────────────────────────────────────────────── //
+    function updateSelCount() {
+        const sel = document.querySelectorAll('.op-check:checked');
+        const el = document.getElementById('selCount');
+        if (sel.length > 0) {
+            el.textContent = sel.length + ' selected';
+            el.style.display = '';
+        } else {
+            el.style.display = 'none';
+        }
+    }
+    window.updateSelCount = updateSelCount;
+
+    window.submitBulk = function () {
+        const ids = Array.from(document.querySelectorAll('.op-check:checked')).map(function (c) { return c.value; });
+        if (!ids.length) { alert('Select at least one operation.'); return; }
+        document.getElementById('selectedIds').value = ids.join(',');
+        document.getElementById('bulkForm').submit();
+    };
+
+    // ── Modal population ───────────────────────────────────────────────── //
+    const modal = document.getElementById('opModal');
+    const opForm = document.getElementById('opForm');
+    modal.addEventListener('show.bs.modal', function (e) {
+        const btn = e.relatedTarget && e.relatedTarget.closest('[data-op-id]');
+        if (!btn) return;
+        opForm.action = '/orders/operations/' + btn.dataset.opId + '/update';
+        document.getElementById('opModalLabel').textContent = btn.dataset.so + ' — ' + btn.dataset.dept;
+        document.getElementById('modalStatus').value  = btn.dataset.status;
+        document.getElementById('modalPlanned').value = btn.dataset.planned;
+        document.getElementById('modalNotes').value   = btn.dataset.notes;
+    });
+})();
 </script>
 {% endblock %}

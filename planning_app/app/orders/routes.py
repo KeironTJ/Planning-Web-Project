@@ -49,7 +49,8 @@ def wip_tracker():
     due_date_to      = _parse_date(request.args.get("due_to", ""))
     planned_date_from = _parse_date(request.args.get("plan_from", ""))
     planned_date_to   = _parse_date(request.args.get("plan_to", ""))
-    cust_prod_ref    = request.args.get("cpr", "")
+    cust_prod_ref      = request.args.get("cpr", "")
+    order_type_filter  = request.args.get("order_type", "")
 
     pagination, orders = services.get_wip_grouped(
         page=page,
@@ -64,9 +65,11 @@ def wip_tracker():
         due_date_to=due_date_to,
         planned_date_from=planned_date_from,
         planned_date_to=planned_date_to,
+        order_type_filter=order_type_filter or None,
     )
     summary      = services.get_wip_summary()
     departments  = services.get_active_departments()
+    order_types  = services.get_order_types()
     status_meta  = WorksOrderOperation.STATUS_META
 
     # Attach material status to each order on the current page.
@@ -98,6 +101,8 @@ def wip_tracker():
         status_filter=status_filter,
         search=search,
         cust_prod_ref=cust_prod_ref,
+        order_type_filter=order_type_filter,
+        order_types=order_types,
         overdue_only=overdue_only,
         order_by=order_by,
         per_page=per_page,
@@ -118,37 +123,61 @@ def wip_tracker():
 @login_required
 @permission_required("view_orders")
 def dept_orders(dept_id: int):
-    status_filter = request.args.get("status", "")
-    search        = request.args.get("q", "")
-    page          = request.args.get("page", 1, type=int)
+    status_filter  = request.args.get("status", "")
+    search         = request.args.get("q", "")
+    order_by       = request.args.get("sort", "due_date")
+    page           = request.args.get("page", 1, type=int)
+    per_page       = request.args.get("per_page", 25, type=int)
+    overdue_only   = request.args.get("overdue", "") == "1"
+    due_date_from  = _parse_date(request.args.get("due_from", ""))
+    due_date_to    = _parse_date(request.args.get("due_to", ""))
+    if per_page not in (25, 50, 100):
+        per_page = 25
 
     try:
-        dept, operations = services.get_dept_operations(
+        dept, pagination, order_groups = services.get_dept_orders_grouped(
             dept_id,
             page=page,
-            per_page=50,
+            per_page=per_page,
             status_filter=status_filter or None,
             search=search or None,
+            overdue_only=overdue_only,
+            order_by=order_by,
+            due_date_from=due_date_from,
+            due_date_to=due_date_to,
         )
     except NotFoundError:
         flash("Department not found.", "warning")
         return redirect(url_for("orders.wip_tracker"))
 
-    status_meta  = WorksOrderOperation.STATUS_META
-    form         = OperationStatusForm()
-    all_depts    = services.get_active_departments()
+    status_meta = WorksOrderOperation.STATUS_META
+    form        = OperationStatusForm()
+    all_depts   = services.get_active_departments()
+
+    plan_start_map = {g["so_number"]: g["dept_planned"] for g in order_groups if g.get("dept_planned")}
+    mat_status_map = get_so_material_status([g["so_number"] for g in order_groups], plan_start_map=plan_start_map)
+    for g in order_groups:
+        g["mat_status"] = mat_status_map.get(g["so_number"], "no_data")
 
     return render_template(
         "orders/dept_orders.html",
         title=f"{dept.name} — Orders",
         dept=dept,
-        operations=operations,
+        order_groups=order_groups,
+        pagination=pagination,
         status_meta=status_meta,
+        mat_status_meta=MAT_STATUS_META,
         status_filter=status_filter,
         search=search,
+        order_by=order_by,
+        per_page=per_page,
+        overdue_only=overdue_only,
+        due_date_from=due_date_from,
+        due_date_to=due_date_to,
         form=form,
         all_depts=all_depts,
         valid_statuses=WorksOrderOperation.VALID_STATUSES,
+        today=date.today(),
     )
 
 
@@ -173,6 +202,11 @@ def firming_queue():
         cust_prod_ref=cust_prod_ref or None,
     )
 
+    plan_start_map = {g["so_number"]: g["plan_start"] for g in order_groups if g.get("plan_start")}
+    mat_status_map = get_so_material_status([g["so_number"] for g in order_groups], plan_start_map=plan_start_map)
+    for g in order_groups:
+        g["mat_status"] = mat_status_map.get(g["so_number"], "no_data")
+
     return render_template(
         "orders/firming_queue.html",
         title="Firming Queue",
@@ -182,6 +216,7 @@ def firming_queue():
         cust_prod_ref=cust_prod_ref,
         per_page=per_page,
         line_status_meta=SalesOrderLine.LINE_STATUS_META,
+        mat_status_meta=MAT_STATUS_META,
         today=date.today(),
     )
 
@@ -327,6 +362,11 @@ def planning():
     counts      = services.count_planning_filters()
     departments = services.get_active_departments()
 
+    plan_start_map = {g["so_number"]: g["plan_start"] for g in order_groups if g.get("plan_start")}
+    mat_status_map = get_so_material_status([g["so_number"] for g in order_groups], plan_start_map=plan_start_map)
+    for g in order_groups:
+        g["mat_status"] = mat_status_map.get(g["so_number"], "no_data")
+
     return render_template(
         "orders/planning.html",
         title="Date Planning",
@@ -343,6 +383,7 @@ def planning():
         valid_statuses=WorksOrderOperation.VALID_STATUSES,
         STATUS_META=WorksOrderOperation.STATUS_META,
         LINE_STATUS_META=SalesOrderLine.LINE_STATUS_META,
+        mat_status_meta=MAT_STATUS_META,
     )
 
 

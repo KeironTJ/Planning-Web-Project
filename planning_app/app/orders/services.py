@@ -176,6 +176,7 @@ def get_wip_grouped(
     due_date_to: Optional[date] = None,
     planned_date_from: Optional[date] = None,
     planned_date_to: Optional[date] = None,
+    order_type_filter: Optional[str] = None,
 ) -> tuple["SimplePagination", list]:
     """
     Return WIP data grouped by SO number.
@@ -232,6 +233,9 @@ def get_wip_grouped(
                 WorksOrderOperation.work_centre_name == dept_filter
             )
         )
+
+    if order_type_filter:
+        q = q.filter(SalesOrderLine.order_type == order_type_filter)
 
     if overdue_only:
         q = q.filter(
@@ -363,6 +367,9 @@ def get_wip_grouped(
             if sol.customer_product_ref
         ))
 
+        # Order type — take first line's value (consistent across all lines in an SO)
+        entry["order_type"] = lines[0].order_type or "" if lines else ""
+
     # Apply plan_date sort after aggregation (can't do this at DB level)
     if order_by == "plan_date":
         order_list.sort(key=lambda e: e["plan_date"] or date.max)
@@ -451,6 +458,172 @@ def reverse_so_dept_status(so_number: str, work_centre_name: str) -> dict:
 
     label, colour = WorksOrderOperation.STATUS_META.get(agg, ("Unknown", "secondary"))
     return {"status": agg, "label": label, "colour": colour}
+
+
+def get_dept_orders_grouped(
+    dept_id: int,
+    *,
+    page: int = 1,
+    per_page: int = 25,
+    status_filter: Optional[str] = None,
+    search: Optional[str] = None,
+    overdue_only: bool = False,
+    order_by: str = "due_date",
+    due_date_from: Optional[date] = None,
+    due_date_to: Optional[date] = None,
+):
+    """
+    Return (dept, SimplePagination, order_list) for a single department,
+    grouped by SO number — same pattern as get_wip_grouped but dept-scoped.
+
+    Each item in order_list:
+        so_number    str
+        customer_name str
+        due_date     date | None   — earliest across lines
+        days_delta   int | None
+        total_qty    Decimal
+        line_count   int
+        dept_status  str           — worst op status in this dept
+        dept_planned date | None   — earliest planned_date in this dept
+        cpr_list     list[str]
+        order_type   str
+        lines        list[SalesOrderLine]
+        dept_ops     list[WorksOrderOperation]  — non-closed ops in this dept
+    """
+    from sqlalchemy.orm import joinedload
+
+    today = date.today()
+
+    dept = Department.query.get(dept_id)
+    if dept is None:
+        raise NotFoundError(f"Department {dept_id} not found")
+
+    q = SalesOrderLine.query.options(
+        joinedload(SalesOrderLine.operations).joinedload(WorksOrderOperation.department)
+    )
+
+    # Must have at least one non-closed op in this dept
+    q = q.filter(
+        SalesOrderLine.operations.any(
+            and_(
+                WorksOrderOperation.department_id == dept_id,
+                WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED,
+            )
+        )
+    )
+
+    if search:
+        term = f"%{search.strip()}%"
+        q = q.filter(db.or_(
+            SalesOrderLine.so_number.ilike(term),
+            SalesOrderLine.customer_name.ilike(term),
+            SalesOrderLine.product_code.ilike(term),
+            SalesOrderLine.customer_product_ref.ilike(term),
+        ))
+
+    if status_filter:
+        q = q.filter(
+            SalesOrderLine.operations.any(
+                and_(
+                    WorksOrderOperation.department_id == dept_id,
+                    WorksOrderOperation.status == status_filter,
+                )
+            )
+        )
+
+    if overdue_only:
+        q = q.filter(
+            SalesOrderLine.due_date < today,
+            SalesOrderLine.operations.any(
+                and_(
+                    WorksOrderOperation.department_id == dept_id,
+                    WorksOrderOperation.status.notin_([
+                        WorksOrderOperation.STATUS_COMPLETED,
+                        WorksOrderOperation.STATUS_CLOSED,
+                    ]),
+                    WorksOrderOperation.due_date < today,
+                )
+            ),
+        )
+
+    if due_date_from:
+        q = q.filter(SalesOrderLine.due_date >= due_date_from)
+    if due_date_to:
+        q = q.filter(SalesOrderLine.due_date <= due_date_to)
+
+    if order_by == "so_number":
+        q = q.order_by(SalesOrderLine.so_number, SalesOrderLine.line_number)
+    elif order_by == "customer":
+        q = q.order_by(
+            SalesOrderLine.customer_name,
+            SalesOrderLine.due_date.asc().nullslast(),
+            SalesOrderLine.so_number,
+        )
+    else:  # due_date (default)
+        q = q.order_by(
+            SalesOrderLine.due_date.asc().nullslast(),
+            SalesOrderLine.so_number,
+            SalesOrderLine.line_number,
+        )
+
+    all_lines = q.all()
+
+    # Group by so_number
+    seen: dict[str, dict] = {}
+    order_list: list[dict] = []
+    for sol in all_lines:
+        if sol.so_number not in seen:
+            entry = {
+                "so_number":     sol.so_number,
+                "customer_name": sol.customer_name or "",
+                "lines":         [],
+            }
+            seen[sol.so_number] = entry
+            order_list.append(entry)
+        seen[sol.so_number]["lines"].append(sol)
+
+    for entry in order_list:
+        lines = entry["lines"]
+
+        due_dates = [s.due_date for s in lines if s.due_date]
+        entry["due_date"]   = min(due_dates) if due_dates else None
+        entry["days_delta"] = (entry["due_date"] - today).days if entry["due_date"] else None
+        entry["total_qty"]  = sum((s.qty_ordered or 0) for s in lines)
+        entry["line_count"] = len(lines)
+
+        # Operations for this dept only (non-closed)
+        dept_ops = [
+            op
+            for sol in lines
+            for op in sol.operations
+            if op.department_id == dept_id
+            and op.status != WorksOrderOperation.STATUS_CLOSED
+        ]
+        entry["dept_ops"] = dept_ops
+
+        planned = [op.planned_date for op in dept_ops if op.planned_date]
+        entry["dept_planned"] = min(planned) if planned else None
+
+        if dept_ops:
+            entry["dept_status"] = min(
+                dept_ops, key=lambda o: _STATUS_PRIORITY.get(o.status, 99)
+            ).status
+        else:
+            entry["dept_status"] = WorksOrderOperation.STATUS_COMPLETED
+
+        entry["cpr_list"] = list(dict.fromkeys(
+            sol.customer_product_ref for sol in lines if sol.customer_product_ref
+        ))
+        entry["order_type"] = lines[0].order_type or "" if lines else ""
+
+    if order_by == "plan_date":
+        order_list.sort(key=lambda e: e["dept_planned"] or date.max)
+
+    total = len(order_list)
+    start = (page - 1) * per_page
+    page_items = order_list[start: start + per_page]
+
+    return dept, SimplePagination(page_items, total, page, per_page), page_items
 
 
 def get_dept_operations(
@@ -722,8 +895,21 @@ def get_wip_summary() -> dict:
 
 
 def get_active_departments() -> list[Department]:
-    """Return all active departments, ordered by name."""
-    return Department.query.filter_by(is_active=True).order_by(Department.name).all()
+    """Return all active departments, ordered by flow_order (nulls last) then name."""
+    return Department.query.filter_by(is_active=True).order_by(
+        Department.flow_order.asc().nullslast(), Department.name.asc()
+    ).all()
+
+
+def get_order_types() -> list[str]:
+    """Return sorted list of distinct non-null order types from sales order lines."""
+    rows = (
+        db.session.query(SalesOrderLine.order_type)
+        .filter(SalesOrderLine.order_type.isnot(None))
+        .distinct()
+        .all()
+    )
+    return sorted(r.order_type for r in rows if r.order_type)
 
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@
             <table class="table table-hover mb-0 align-middle">
                 <thead class="table-light">
                     <tr>
+                        <th class="text-center" style="width:60px;">Order</th>
                         <th>Code</th>
                         <th>Name</th>
                         <th class="text-end">Target Hrs/Day</th>
@@ -26,6 +27,9 @@
                 <tbody>
                     {% for dept in departments %}
                     <tr class="{{ '' if dept.is_active else 'table-secondary text-muted' }}">
+                        <td class="text-center text-muted small">
+                            {{ dept.flow_order if dept.flow_order else '—' }}
+                        </td>
                         <td><code>{{ dept.code }}</code></td>
                         <td class="fw-semibold">{{ dept.name }}</td>
                         <td class="text-end">
@@ -57,7 +61,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center py-4 text-muted">
+                        <td colspan="8" class="text-center py-4 text-muted">
                             No departments found.
                             <a href="{{ url_for('admin.seed') }}">Seed defaults</a> to get started.
                         </td>

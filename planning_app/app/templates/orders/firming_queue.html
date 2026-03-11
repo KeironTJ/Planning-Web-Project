@@ -73,6 +73,7 @@
                 <th class="text-center" style="min-width:70px;">Plan Start</th>
                 <th class="text-center" style="min-width:70px;">Plan End</th>
                 <th style="min-width:100px;">Status</th>
+                <th style="min-width:80px;">Materials</th>
                 <th style="min-width:160px;">Action</th>
             </tr>
         </thead>
@@ -138,6 +139,18 @@
             </td>
             <td>
                 <span class="badge bg-{{ agg_colour }}">{{ agg_label }}</span>
+            </td>
+            <td>
+                {% set mat_label, mat_colour = mat_status_meta.get(group.mat_status, ('—', 'secondary')) %}
+                {% if group.mat_status == 'no_data' %}
+                    <span class="badge bg-success" style="font-size:.72rem;">Mat. OK</span>
+                {% else %}
+                    <a href="{{ url_for('materials.mrp') }}?so={{ group.so_number }}"
+                       class="badge bg-{{ mat_colour }} text-decoration-none"
+                       style="font-size:.72rem;"
+                       title="Click to view material requirements for {{ group.so_number }}"
+                       target="_blank">{{ mat_label }}</a>
+                {% endif %}
             </td>
             <td>
                 {% if is_new_order %}

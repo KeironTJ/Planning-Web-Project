@@ -141,7 +141,9 @@ def audit_log():
 @login_required
 @admin_required
 def dept_list():
-    departments = Department.query.order_by(Department.name).all()
+    departments = Department.query.order_by(
+        Department.flow_order.asc().nullslast(), Department.name.asc()
+    ).all()
     return render_template("admin/dept_list.html", title="Departments", departments=departments)
 
 
@@ -163,6 +165,7 @@ def dept_edit(dept_id: int):
             dept.target_hours_per_day = form.target_hours_per_day.data
             if form.default_lead_time_days.data is not None:
                 dept.default_lead_time_days = form.default_lead_time_days.data
+            dept.flow_order = form.flow_order.data  # None clears it
             db.session.commit()
             flash(f"Settings updated for {dept.name}.", "success")
         return redirect(url_for("admin.dept_list"))

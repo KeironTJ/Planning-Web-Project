@@ -114,7 +114,7 @@ def _register_template_globals(app: Flask) -> None:
                 from .orders.models import Department
                 active_departments = (
                     Department.query.filter_by(is_active=True)
-                    .order_by(Department.name)
+                    .order_by(Department.flow_order.asc().nullslast(), Department.name.asc())
                     .all()
                 )
             except Exception:

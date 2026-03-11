@@ -2,33 +2,55 @@
 
 {% block content %}
 <!-- Summary banner -->
+{% set all_active = not status_filter and not overdue_only %}
 <div class="row g-2 mb-3">
-    {% set status_order = ['not_started', 'started', 'wip', 'completed'] %}
+    {% set status_order = ['firmed', 'released', 'wip', 'completed'] %}
+
+    {# All / no filter #}
     <div class="col-6 col-md-2">
-        <div class="card border-0 shadow-sm text-center py-2 px-1">
-            <div class="fw-bold fs-4">{{ summary.total }}</div>
-            <div class="text-muted small">Active Ops</div>
-        </div>
+        <a href="{{ url_for('orders.wip_tracker') }}" class="text-decoration-none">
+            <div class="card shadow-sm text-center py-2 px-1
+                        {{ 'border-2 border-primary bg-primary bg-opacity-10' if all_active else 'border-0' }}">
+                <div class="fw-bold fs-4 {{ 'text-primary' if all_active else '' }}">{{ summary.total }}</div>
+                <div class="small {{ 'text-primary fw-semibold' if all_active else 'text-muted' }}">
+                    All Active
+                    {% if all_active %}<i class="bi bi-check-lg ms-1"></i>{% endif %}
+                </div>
+            </div>
+        </a>
     </div>
+
+    {# Overdue #}
     {% if summary.overdue %}
     <div class="col-6 col-md-2">
         <a href="{{ url_for('orders.wip_tracker', overdue=1) }}" class="text-decoration-none">
-            <div class="card border-danger shadow-sm text-center py-2 px-1">
+            <div class="card shadow-sm text-center py-2 px-1
+                        {{ 'border-2 border-danger bg-danger bg-opacity-10' if overdue_only else 'border-danger' }}">
                 <div class="fw-bold fs-4 text-danger">{{ summary.overdue }}</div>
-                <div class="text-muted small">Overdue</div>
+                <div class="small {{ 'text-danger fw-semibold' if overdue_only else 'text-muted' }}">
+                    Overdue
+                    {% if overdue_only %}<i class="bi bi-check-lg ms-1"></i>{% endif %}
+                </div>
             </div>
         </a>
     </div>
     {% endif %}
+
+    {# Status breakdown #}
     {% for s in status_order %}
         {% set count = summary.by_status.get(s, 0) %}
         {% if count %}
         {% set label, colour = status_meta.get(s, ('Unknown', 'secondary')) %}
+        {% set is_active = status_filter == s and not overdue_only %}
         <div class="col-6 col-md-2">
             <a href="{{ url_for('orders.wip_tracker', status=s) }}" class="text-decoration-none">
-                <div class="card border-0 shadow-sm text-center py-2 px-1">
-                    <div class="fw-bold fs-4">{{ count }}</div>
-                    <div class="small"><span class="badge bg-{{ colour }}">{{ label }}</span></div>
+                <div class="card shadow-sm text-center py-2 px-1
+                            {{ 'border-2 border-' + colour + ' bg-' + colour + ' bg-opacity-10' if is_active else 'border-0' }}">
+                    <div class="fw-bold fs-4 {{ 'text-' + colour if is_active else '' }}">{{ count }}</div>
+                    <div class="small">
+                        <span class="badge bg-{{ colour }} {{ 'opacity-100' if is_active else 'opacity-75' }}">{{ label }}</span>
+                        {% if is_active %}<i class="bi bi-check-lg ms-1 text-{{ colour }}"></i>{% endif %}
+                    </div>
                 </div>
             </a>
         </div>
@@ -64,6 +86,14 @@
                     <option value="">All Depts</option>
                     {% for d in departments %}
                     <option value="{{ d.name }}" {{ 'selected' if dept_filter == d.name }}>{{ d.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <select name="order_type" class="form-select form-select-sm">
+                    <option value="">All Types</option>
+                    {% for ot in order_types %}
+                    <option value="{{ ot }}" {{ 'selected' if order_type_filter == ot }}>{{ ot }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -161,7 +191,28 @@
 
 <!-- WIP Grid -->
 {% if orders %}
-<div class="table-responsive">
+<style>
+/* ── Sticky left columns ─────────────────────────────────────────── */
+#wipWrapper { cursor: grab; user-select: none; }
+#wipWrapper.dragging { cursor: grabbing; }
+#wipTable th:nth-child(1), #wipTable td:nth-child(1) {
+    position: sticky; left: 0; z-index: 1; background: inherit;
+}
+#wipTable th:nth-child(2), #wipTable td:nth-child(2) {
+    position: sticky; left: 24px; z-index: 1; background: inherit;
+}
+#wipTable th:nth-child(3), #wipTable td:nth-child(3) {
+    position: sticky; left: 114px; z-index: 1; background: inherit;
+    /* shadow to separate sticky from scrolling content */
+    box-shadow: 2px 0 4px -2px rgba(0,0,0,.15);
+}
+#wipTable thead th { z-index: 2; background: #f8f9fa; }
+/* default tbody row bg so sticky cells don't go transparent */
+#wipTable tbody tr { background-color: #fff; }
+#wipTable tbody tr.table-light { background-color: #f8f9fa; }
+#wipTable tbody tr.order-detail-row { background-color: #fafafa; }
+</style>
+<div class="table-responsive" id="wipWrapper">
     <table class="table table-sm align-middle mb-0" style="font-size: .82rem;" id="wipTable">
         <thead class="table-light">
             <tr>
@@ -204,7 +255,15 @@
                         <i class="bi bi-chevron-right"></i>
                     </button>
                 </td>
-                <td class="fw-semibold">{{ order.so_number }}</td>
+                <td class="fw-semibold">
+                    {{ order.so_number }}
+                    {% if order.order_type %}
+                    <br><span class="badge fw-normal"
+                          style="font-size:.65rem;background-color:{{ '#0d6efd' if order.order_type == 'MAINLINE' else '#6c757d' }};">
+                        {{ order.order_type }}
+                    </span>
+                    {% endif %}
+                </td>
                 <td style="max-width:140px;" title="{{ order.customer_name }}">
                     <div class="fw-semibold text-truncate">{{ order.customer_name }}</div>
                     {% if order.cpr_list %}
@@ -236,14 +295,13 @@
                 {% set mat_label, mat_colour = mat_status_meta.get(order.mat_status, ('—', 'secondary')) %}
                 <td>
                     {% if order.mat_status == 'no_data' %}
-                        <span class="text-muted" style="font-size:.78rem;">—</span>
+                        <span class="badge bg-success" style="font-size:.72rem;">Mat. OK</span>
                     {% else %}
                         <a href="{{ url_for('materials.mrp') }}?so={{ order.so_number }}"
                            class="badge bg-{{ mat_colour }} text-decoration-none"
+                           style="font-size:.72rem;"
                            title="Click to view material requirements for {{ order.so_number }}"
-                           target="_blank">
-                            {{ mat_label }}
-                        </a>
+                           target="_blank">{{ mat_label }}</a>
                     {% endif %}
                 </td>
 
@@ -512,21 +570,21 @@
 
     // ── Status metadata (mirrors Python STATUS_META) ─────────────────── //
     const STATUS_META = {
-        'not_started': { label: 'Not Started', colour: 'secondary' },
-        'started':     { label: 'Started',     colour: 'primary'   },
-        'wip':         { label: 'WIP',         colour: 'warning'   },
-        'completed':   { label: 'Complete',    colour: 'success'   },
-        'closed':      { label: 'Closed',      colour: 'dark'      },
+        'firmed':    { label: 'Firmed',   colour: 'secondary' },
+        'released':  { label: 'Released', colour: 'primary'   },
+        'wip':       { label: 'WIP',      colour: 'warning'   },
+        'completed': { label: 'Complete', colour: 'success'   },
+        'closed':    { label: 'Closed',   colour: 'dark'      },
     };
     const NEXT_STATUS = {
-        'not_started': 'started',
-        'started':     'wip',
-        'wip':         'completed',
-        'completed':   'completed',
+        'firmed':    'released',
+        'released':  'wip',
+        'wip':       'completed',
+        'completed': 'completed',
     };
     const PREV_STATUS = {
-        'started':   'not_started',
-        'wip':       'started',
+        'released':  'firmed',
+        'wip':       'released',
         'completed': 'wip',
     };
 
@@ -701,6 +759,42 @@
             url.searchParams.set('page', p);
             window.location.href = url.toString();
         });
+    }
+
+    // ── Drag-to-scroll on the WIP table wrapper ───────────────────────── //
+    const wipWrapper = document.getElementById('wipWrapper');
+    if (wipWrapper) {
+        let isDragging = false, startX = 0, scrollStart = 0, moved = false;
+
+        wipWrapper.addEventListener('mousedown', function (e) {
+            // Only drag on empty table areas — not buttons, links, inputs
+            if (e.target.closest('button, a, input, select, label')) return;
+            isDragging  = true;
+            moved       = false;
+            startX      = e.pageX - wipWrapper.getBoundingClientRect().left;
+            scrollStart = wipWrapper.scrollLeft;
+            wipWrapper.classList.add('dragging');
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', function (e) {
+            if (!isDragging) return;
+            const x    = e.pageX - wipWrapper.getBoundingClientRect().left;
+            const walk = x - startX;
+            if (Math.abs(walk) > 3) moved = true;
+            wipWrapper.scrollLeft = scrollStart - walk;
+        });
+
+        document.addEventListener('mouseup', function () {
+            if (!isDragging) return;
+            isDragging = false;
+            wipWrapper.classList.remove('dragging');
+        });
+
+        // Prevent accidental click after a drag
+        wipWrapper.addEventListener('click', function (e) {
+            if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; }
+        }, true);
     }
 })();
 </script>
