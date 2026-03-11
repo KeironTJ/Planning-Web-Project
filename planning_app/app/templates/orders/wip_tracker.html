@@ -4,7 +4,7 @@
 <!-- Summary banner -->
 {% set all_active = not status_filter and not overdue_only %}
 <div class="row g-2 mb-3">
-    {% set status_order = ['firmed', 'released', 'wip', 'completed'] %}
+    {% set status_order = ['new_order', 'firmed', 'released', 'wip', 'completed'] %}
 
     {# All / no filter #}
     <div class="col-6 col-md-2">
@@ -557,19 +557,22 @@
 
     // ── Status metadata (mirrors Python STATUS_META) ─────────────────── //
     const STATUS_META = {
-        'firmed':    { label: 'Firmed',   colour: 'secondary' },
-        'released':  { label: 'Released', colour: 'primary'   },
-        'wip':       { label: 'WIP',      colour: 'warning'   },
-        'completed': { label: 'Complete', colour: 'success'   },
-        'closed':    { label: 'Closed',   colour: 'dark'      },
+        'new_order': { label: 'New Order', colour: 'light'     },
+        'firmed':    { label: 'Firmed',    colour: 'secondary' },
+        'released':  { label: 'Released',  colour: 'primary'   },
+        'wip':       { label: 'WIP',       colour: 'warning'   },
+        'completed': { label: 'Complete',  colour: 'success'   },
+        'closed':    { label: 'Closed',    colour: 'dark'      },
     };
     const NEXT_STATUS = {
+        'new_order': 'firmed',
         'firmed':    'released',
         'released':  'wip',
         'wip':       'completed',
         'completed': 'completed',
     };
     const PREV_STATUS = {
+        'firmed':    'new_order',
         'released':  'firmed',
         'wip':       'released',
         'completed': 'wip',

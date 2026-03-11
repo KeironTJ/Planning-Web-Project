@@ -102,6 +102,9 @@ class SalesOrderLine(db.Model):
     total_value = db.Column(db.Numeric(12, 2), nullable=True)                # TOTALVALUE
     imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
+    # Planner field — set by scheduler for lines that have no operations
+    planned_date = db.Column(db.Date, nullable=True, index=True)
+
     operations = db.relationship(
         "WorksOrderOperation",
         back_populates="sales_order_line",
@@ -123,7 +126,7 @@ class SalesOrderLine(db.Model):
         """
         ops = self.operations
         if not ops:
-            return self.LINE_STATUS_NEW
+            return self.LINE_STATUS_FIRM_PLANNED if self.planned_date else self.LINE_STATUS_NEW
 
         open_ops = [op for op in ops if op.status != WorksOrderOperation.STATUS_CLOSED]
 
@@ -146,20 +149,26 @@ class SalesOrderLine(db.Model):
         if open_statuses & production_statuses:
             return self.LINE_STATUS_WIP
 
-        # Has planned dates set → Firm Planned
-        if any(op.planned_date is not None for op in open_ops):
+        # Any op firmed by planner, or has planned dates → Firm Planned
+        if any(
+            op.status == WorksOrderOperation.STATUS_FIRMED or op.planned_date is not None
+            for op in open_ops
+        ):
             return self.LINE_STATUS_FIRM_PLANNED
 
         return self.LINE_STATUS_NEW
 
     @property
     def final_planned_date(self):
-        """Latest planned_date across open operations — represents expected completion."""
+        """Latest planned_date across open operations — represents expected completion.
+        Falls back to the line-level planned_date for lines with no operations."""
         dates = [
             op.planned_date for op in self.operations
             if op.planned_date and op.status != WorksOrderOperation.STATUS_CLOSED
         ]
-        return max(dates) if dates else None
+        if dates:
+            return max(dates)
+        return self.planned_date
 
     def __repr__(self) -> str:
         return f"<SalesOrderLine {self.so_number}/{self.line_number}>"
@@ -191,6 +200,7 @@ class WorksOrderOperation(db.Model):
     )
 
     # Status constants
+    STATUS_NEW_ORDER = "new_order"
     STATUS_FIRMED    = "firmed"
     STATUS_RELEASED  = "released"
     STATUS_WIP       = "wip"
@@ -198,10 +208,11 @@ class WorksOrderOperation(db.Model):
     STATUS_CLOSED    = "closed"
 
     # Legacy aliases — keep so any stale DB rows still resolve correctly
-    STATUS_NOT_STARTED = STATUS_FIRMED
+    STATUS_NOT_STARTED = STATUS_NEW_ORDER
     STATUS_STARTED     = STATUS_RELEASED
 
     VALID_STATUSES = [
+        STATUS_NEW_ORDER,
         STATUS_FIRMED,
         STATUS_RELEASED,
         STATUS_WIP,
@@ -211,11 +222,12 @@ class WorksOrderOperation(db.Model):
 
     # Status display labels and Bootstrap badge colours
     STATUS_META = {
-        STATUS_FIRMED:    ("Firmed",   "secondary"),
-        STATUS_RELEASED:  ("Released", "primary"),
-        STATUS_WIP:       ("WIP",      "warning"),
-        STATUS_COMPLETED: ("Complete", "success"),
-        STATUS_CLOSED:    ("Closed",   "dark"),
+        STATUS_NEW_ORDER: ("New Order", "light"),
+        STATUS_FIRMED:    ("Firmed",    "secondary"),
+        STATUS_RELEASED:  ("Released",  "primary"),
+        STATUS_WIP:       ("WIP",       "warning"),
+        STATUS_COMPLETED: ("Complete",  "success"),
+        STATUS_CLOSED:    ("Closed",    "dark"),
     }
 
     id = db.Column(db.Integer, primary_key=True)
@@ -244,7 +256,7 @@ class WorksOrderOperation(db.Model):
     imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     # Planner fields (NEVER overwritten by importer)
-    status = db.Column(db.String(20), default=STATUS_FIRMED, nullable=False, index=True)
+    status = db.Column(db.String(20), default=STATUS_NEW_ORDER, nullable=False, index=True)
     planned_date = db.Column(db.Date, nullable=True, index=True)
     completed_date = db.Column(db.Date, nullable=True)
     notes = db.Column(db.Text, nullable=True)

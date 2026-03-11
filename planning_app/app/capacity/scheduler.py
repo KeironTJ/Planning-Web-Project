@@ -178,7 +178,9 @@ def schedule_orders(
     )
 
     # ------------------------------------------------------------------ #
-    # 4. Collect SO lines with open operations
+    # 4. Collect SO lines to schedule
+    #    • Lines with at least one open operation, OR
+    #    • Lines that have no operations at all (will get a fallback date)
     # ------------------------------------------------------------------ #
     q = (
         db.session.query(WorksOrderOperation.sales_order_line_id)
@@ -194,6 +196,17 @@ def schedule_orders(
         q = q.filter(WorksOrderOperation.sales_order_line_id.in_(sol_ids))
     open_sol_ids = [r[0] for r in q.all()]
 
+    # Also include SOLs that have no operations at all
+    no_op_q = (
+        db.session.query(SalesOrderLine.id)
+        .filter(~SalesOrderLine.operations.any())
+    )
+    if sol_ids:
+        no_op_q = no_op_q.filter(SalesOrderLine.id.in_(sol_ids))
+    no_op_sol_ids = [r[0] for r in no_op_q.all()]
+
+    all_sol_ids = list(dict.fromkeys(open_sol_ids + no_op_sol_ids))  # deduplicate, preserve order
+
     scheduled = 0
     skipped = 0
     no_due_date = 0
@@ -202,7 +215,7 @@ def schedule_orders(
     # ------------------------------------------------------------------ #
     # 5. Schedule each SO line
     # ------------------------------------------------------------------ #
-    for sol_id in open_sol_ids:
+    for sol_id in all_sol_ids:
         sol = SalesOrderLine.query.get(sol_id)
         if sol is None or not sol.due_date:
             no_due_date += 1
@@ -216,6 +229,12 @@ def schedule_orders(
             )
         ]
         if not open_ops:
+            # No operations — set line-level planned_date to due_date minus 1 working day
+            if overwrite_manual or sol.planned_date is None:
+                sol.planned_date = subtract_working_days(sol.due_date, 1, working_days)
+                scheduled += 1
+            else:
+                skipped += 1
             continue
 
         # Map each operation to (sequence_order, lead_time)
@@ -233,6 +252,18 @@ def schedule_orders(
             op_tuples.append((op, seq, lt))
 
         if not op_tuples:
+            # All open operations lack a department — set planned_date to due_date - 1 working day
+            fallback = subtract_working_days(sol.due_date, 1, working_days)
+            if floor_date and fallback < floor_date:
+                fallback = floor_date
+            for op in open_ops:
+                if not overwrite_manual and op.planned_date is not None:
+                    skipped += 1
+                    continue
+                op.planned_date = fallback
+                if op.status == WorksOrderOperation.STATUS_NEW_ORDER:
+                    op.status = WorksOrderOperation.STATUS_FIRMED
+                scheduled += 1
             continue
 
         # ── Choose scheduling direction ──────────────────────────────── #
@@ -255,6 +286,8 @@ def schedule_orders(
                         skipped += 1
                         continue
                     op.planned_date = stage_start
+                    if op.status == WorksOrderOperation.STATUS_NEW_ORDER:
+                        op.status = WorksOrderOperation.STATUS_FIRMED
                     scheduled += 1
 
                 # Advance start for the next stage
@@ -281,6 +314,8 @@ def schedule_orders(
                         skipped += 1
                         continue
                     op.planned_date = effective_planned
+                    if op.status == WorksOrderOperation.STATUS_NEW_ORDER:
+                        op.status = WorksOrderOperation.STATUS_FIRMED
                     scheduled += 1
 
                 # This stage's unmodified date becomes the next stage's end

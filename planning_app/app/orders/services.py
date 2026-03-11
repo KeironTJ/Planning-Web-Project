@@ -18,23 +18,26 @@ from .models import Department, SalesOrderLine, WorksOrderOperation
 
 # Operation status priority (lowest = least complete = worst)
 _STATUS_PRIORITY = {
-    WorksOrderOperation.STATUS_NOT_STARTED: 0,
-    WorksOrderOperation.STATUS_STARTED:     1,
-    WorksOrderOperation.STATUS_WIP:         2,
-    WorksOrderOperation.STATUS_COMPLETED:   3,
-    WorksOrderOperation.STATUS_CLOSED:      4,
+    WorksOrderOperation.STATUS_NEW_ORDER: 0,
+    WorksOrderOperation.STATUS_FIRMED:    1,
+    WorksOrderOperation.STATUS_RELEASED:  2,
+    WorksOrderOperation.STATUS_WIP:       3,
+    WorksOrderOperation.STATUS_COMPLETED: 4,
+    WorksOrderOperation.STATUS_CLOSED:    5,
 }
 
 _NEXT_STATUS = {
-    WorksOrderOperation.STATUS_NOT_STARTED: WorksOrderOperation.STATUS_STARTED,
-    WorksOrderOperation.STATUS_STARTED:     WorksOrderOperation.STATUS_WIP,
-    WorksOrderOperation.STATUS_WIP:         WorksOrderOperation.STATUS_COMPLETED,
-    WorksOrderOperation.STATUS_COMPLETED:   WorksOrderOperation.STATUS_COMPLETED,
+    WorksOrderOperation.STATUS_NEW_ORDER: WorksOrderOperation.STATUS_FIRMED,
+    WorksOrderOperation.STATUS_FIRMED:    WorksOrderOperation.STATUS_RELEASED,
+    WorksOrderOperation.STATUS_RELEASED:  WorksOrderOperation.STATUS_WIP,
+    WorksOrderOperation.STATUS_WIP:       WorksOrderOperation.STATUS_COMPLETED,
+    WorksOrderOperation.STATUS_COMPLETED: WorksOrderOperation.STATUS_COMPLETED,
 }
 
 _PREV_STATUS = {
-    WorksOrderOperation.STATUS_STARTED:   WorksOrderOperation.STATUS_NOT_STARTED,
-    WorksOrderOperation.STATUS_WIP:       WorksOrderOperation.STATUS_STARTED,
+    WorksOrderOperation.STATUS_FIRMED:    WorksOrderOperation.STATUS_NEW_ORDER,
+    WorksOrderOperation.STATUS_RELEASED:  WorksOrderOperation.STATUS_FIRMED,
+    WorksOrderOperation.STATUS_WIP:       WorksOrderOperation.STATUS_RELEASED,
     WorksOrderOperation.STATUS_COMPLETED: WorksOrderOperation.STATUS_WIP,
 }
 
@@ -667,69 +670,9 @@ def get_dept_operations(
     return dept, q.paginate(page=page, per_page=per_page, error_out=False)
 
 
-def get_firming_queue(page: int = 1, per_page: int = 25, search: Optional[str] = None, cust_prod_ref: Optional[str] = None):
-    """
-    Return orders not yet in production (New Order or Firm Planned), grouped by SO.
-
-    Excludes any SO that already has a started / wip / completed operation.
-
-    Each item is a dict:
-        so_number           str
-        customer_name       str
-        due_date            date | None
-        days_delta          int | None
-        plan_start          date | None
-        plan_end            date | None
-        total_qty           Decimal
-        total_value         Decimal
-        line_count          int
-        agg_status          str
-        not_started_op_ids  list[int]   IDs of not_started ops (for Start Production)
-        lines               list[SalesOrderLine]
-    """
-    from sqlalchemy.orm import joinedload
-
+def _build_queue_groups(all_lines: list, page: int, per_page: int, sort: str = "due_date") -> tuple:
+    """Shared grouping/aggregation logic for firming and releasing queues."""
     today = date.today()
-
-    production_statuses = [
-        WorksOrderOperation.STATUS_STARTED,
-        WorksOrderOperation.STATUS_WIP,
-        WorksOrderOperation.STATUS_COMPLETED,
-    ]
-
-    q = (
-        SalesOrderLine.query
-        .filter(
-            SalesOrderLine.operations.any(
-                WorksOrderOperation.status == WorksOrderOperation.STATUS_NOT_STARTED
-            )
-        )
-        .filter(
-            ~SalesOrderLine.operations.any(
-                WorksOrderOperation.status.in_(production_statuses)
-            )
-        )
-        .options(joinedload(SalesOrderLine.operations).joinedload(WorksOrderOperation.department))
-        .order_by(
-            SalesOrderLine.due_date.asc().nullslast(),
-            SalesOrderLine.so_number,
-            SalesOrderLine.line_number,
-        )
-    )
-
-    if search:
-        term = f"%{search.strip()}%"
-        q = q.filter(db.or_(
-            SalesOrderLine.so_number.ilike(term),
-            SalesOrderLine.customer_name.ilike(term),
-            SalesOrderLine.product_description.ilike(term),
-            SalesOrderLine.customer_product_ref.ilike(term),
-        ))
-
-    if cust_prod_ref:
-        q = q.filter(SalesOrderLine.customer_product_ref.ilike(f"%{cust_prod_ref.strip()}%"))
-
-    all_lines = q.all()
 
     _line_status_priority = {
         SalesOrderLine.LINE_STATUS_NEW:          0,
@@ -743,11 +686,7 @@ def get_firming_queue(page: int = 1, per_page: int = 25, search: Optional[str] =
 
     for sol in all_lines:
         if sol.so_number not in seen:
-            entry: dict = {
-                "so_number":     sol.so_number,
-                "customer_name": sol.customer_name or "",
-                "lines":         [],
-            }
+            entry: dict = {"so_number": sol.so_number, "customer_name": sol.customer_name or "", "lines": []}
             seen[sol.so_number] = entry
             order_list.append(entry)
         seen[sol.so_number]["lines"].append(sol)
@@ -760,38 +699,122 @@ def get_firming_queue(page: int = 1, per_page: int = 25, search: Optional[str] =
         entry["total_value"] = sum((s.total_value or 0) for s in lines)
         entry["line_count"]  = len(lines)
         entry["days_delta"]  = (entry["due_date"] - today).days if entry["due_date"] else None
-
-        line_statuses = [s.aggregate_status for s in lines]
-        entry["agg_status"] = min(
-            line_statuses, key=lambda s: _line_status_priority.get(s, 99)
+        entry["agg_status"]  = min(
+            [s.aggregate_status for s in lines],
+            key=lambda s: _line_status_priority.get(s, 99),
         )
-
-        # Unique CPRs across all lines (preserving order, excluding nulls)
         entry["cpr_list"] = list(dict.fromkeys(
-            sol.customer_product_ref for sol in lines
-            if sol.customer_product_ref
+            s.customer_product_ref for s in lines if s.customer_product_ref
         ))
-
         all_planned = [
             op.planned_date
-            for sol in lines
-            for op in sol.operations
+            for s in lines for op in s.operations
             if op.planned_date and op.status != WorksOrderOperation.STATUS_CLOSED
         ]
         entry["plan_start"] = min(all_planned) if all_planned else None
         entry["plan_end"]   = max(all_planned) if all_planned else None
-
-        entry["not_started_op_ids"] = [
-            op.id
-            for sol in lines
-            for op in sol.operations
-            if op.status == WorksOrderOperation.STATUS_NOT_STARTED
+        entry["new_order_op_ids"] = [
+            op.id for s in lines for op in s.operations
+            if op.status == WorksOrderOperation.STATUS_NEW_ORDER
         ]
+        entry["firmed_op_ids"] = [
+            op.id for s in lines for op in s.operations
+            if op.status == WorksOrderOperation.STATUS_FIRMED
+        ]
+
+    # Post-grouping sort
+    if sort == "customer":
+        order_list.sort(key=lambda e: e["customer_name"].lower())
+    elif sort == "so_number":
+        order_list.sort(key=lambda e: e["so_number"])
+    elif sort == "overdue":
+        order_list.sort(key=lambda e: (e["days_delta"] is None, e["days_delta"] if e["days_delta"] is not None else 0))
+    # default "due_date" is already ordered by the SQL query
 
     total = len(order_list)
     start = (page - 1) * per_page
-    page_items = order_list[start: start + per_page]
-    return SimplePagination(page_items, total, page, per_page), page_items
+    return SimplePagination(order_list[start: start + per_page], total, page, per_page), order_list[start: start + per_page]
+
+
+def _queue_query(
+    status_filter: list,
+    search: Optional[str],
+    cust_prod_ref: Optional[str],
+    due_from: Optional[date] = None,
+    due_to: Optional[date] = None,
+    overdue_only: bool = False,
+):
+    """Base query for queue views — filters by op status, excludes production."""
+    from sqlalchemy.orm import joinedload
+
+    production_statuses = [
+        WorksOrderOperation.STATUS_RELEASED,
+        WorksOrderOperation.STATUS_WIP,
+        WorksOrderOperation.STATUS_COMPLETED,
+    ]
+    q = (
+        SalesOrderLine.query
+        .filter(SalesOrderLine.operations.any(WorksOrderOperation.status.in_(status_filter)))
+        .filter(~SalesOrderLine.operations.any(WorksOrderOperation.status.in_(production_statuses)))
+        .options(joinedload(SalesOrderLine.operations).joinedload(WorksOrderOperation.department))
+        .order_by(SalesOrderLine.due_date.asc().nullslast(), SalesOrderLine.so_number, SalesOrderLine.line_number)
+    )
+    if search:
+        term = f"%{search.strip()}%"
+        q = q.filter(db.or_(
+            SalesOrderLine.so_number.ilike(term),
+            SalesOrderLine.customer_name.ilike(term),
+            SalesOrderLine.product_description.ilike(term),
+            SalesOrderLine.customer_product_ref.ilike(term),
+        ))
+    if cust_prod_ref:
+        q = q.filter(SalesOrderLine.customer_product_ref.ilike(f"%{cust_prod_ref.strip()}%"))
+    if due_from:
+        q = q.filter(SalesOrderLine.due_date >= due_from)
+    if due_to:
+        q = q.filter(SalesOrderLine.due_date <= due_to)
+    if overdue_only:
+        q = q.filter(SalesOrderLine.due_date < date.today())
+    return q
+
+
+def get_firming_queue(
+    page: int = 1,
+    per_page: int = 25,
+    search: Optional[str] = None,
+    cust_prod_ref: Optional[str] = None,
+    due_from: Optional[date] = None,
+    due_to: Optional[date] = None,
+    overdue_only: bool = False,
+    sort: str = "due_date",
+):
+    """Orders with new_order operations and no firmed/higher ops yet."""
+    q = _queue_query([WorksOrderOperation.STATUS_NEW_ORDER], search, cust_prod_ref, due_from, due_to, overdue_only)
+    q = q.filter(
+        ~SalesOrderLine.operations.any(WorksOrderOperation.status == WorksOrderOperation.STATUS_FIRMED)
+    )
+    return _build_queue_groups(q.all(), page, per_page, sort)
+
+
+def get_releasing_queue(
+    page: int = 1,
+    per_page: int = 25,
+    search: Optional[str] = None,
+    cust_prod_ref: Optional[str] = None,
+    due_from: Optional[date] = None,
+    due_to: Optional[date] = None,
+    overdue_only: bool = False,
+    sort: str = "due_date",
+):
+    """
+    Orders that are fully firmed (no new_order ops remain) and ready for release.
+    An order graduates here once all its ops are firmed.
+    """
+    q = _queue_query([WorksOrderOperation.STATUS_FIRMED], search, cust_prod_ref, due_from, due_to, overdue_only)
+    q = q.filter(
+        ~SalesOrderLine.operations.any(WorksOrderOperation.status == WorksOrderOperation.STATUS_NEW_ORDER)
+    )
+    return _build_queue_groups(q.all(), page, per_page, sort)
 
 
 # ---------------------------------------------------------------------------

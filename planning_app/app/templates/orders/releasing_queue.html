@@ -16,15 +16,16 @@
 {# ── Page header ──────────────────────────────────────────────────────── #}
 <div class="d-flex justify-content-between align-items-start mb-3">
     <div>
-        <h4 class="mb-0">Firming Queue</h4>
+        <h4 class="mb-0">Releasing Queue</h4>
         <small class="text-muted">
-            New orders awaiting acknowledgement. Firm an order to move it to the
-            <a href="{{ url_for('orders.releasing_queue') }}">Releasing Queue</a>.
+            Firmed orders ready to be released to production.
+            <span class="badge bg-info ms-1">Firm Planned</span> — dates set.
+            <span class="badge bg-secondary ms-1">Firmed</span> — firmed but no dates yet.
         </small>
     </div>
     <div class="d-flex gap-2">
-        <a href="{{ url_for('orders.releasing_queue') }}" class="btn btn-outline-success btn-sm">
-            <i class="bi bi-play-circle me-1"></i>Releasing Queue
+        <a href="{{ url_for('orders.firming_queue') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-check2-circle me-1"></i>Firming Queue
         </a>
         <a href="{{ url_for('orders.planning') }}" class="btn btn-outline-primary btn-sm">
             <i class="bi bi-calendar-week me-1"></i>Date Planning
@@ -81,7 +82,7 @@
         </div>
         <div class="col-sm-auto d-flex gap-1">
             <button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button>
-            <a href="{{ url_for('orders.firming_queue') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
+            <a href="{{ url_for('orders.releasing_queue') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
         </div>
         <div class="col-sm-auto ms-auto">
             <small class="text-muted">{{ pagination.total }} order{{ 's' if pagination.total != 1 }}</small>
@@ -90,15 +91,16 @@
 </form>
 
 {# ── Bulk action bar (shown when rows selected) ───────────────────────── #}
-<div id="bulkBar" class="alert alert-secondary d-flex align-items-center gap-3 py-2 px-3 mb-2 rounded">
+<div id="bulkBar" class="alert alert-success d-flex align-items-center gap-3 py-2 px-3 mb-2 rounded">
     <span class="fw-semibold"><span id="bulkCount">0</span> order(s) selected</span>
-    <form method="POST" action="{{ url_for('orders.bulk_update_operations') }}" id="bulkForm" class="d-inline">
+    <form method="POST" action="{{ url_for('orders.bulk_update_operations') }}" id="bulkForm" class="d-inline"
+          onsubmit="return confirm('Release selected orders to production?')">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="operation_ids" id="bulkOpIds">
-        <input type="hidden" name="status" value="firmed">
+        <input type="hidden" name="status" value="released">
         <input type="hidden" name="back_url" value="{{ request.url }}">
-        <button type="submit" class="btn btn-sm btn-secondary">
-            <i class="bi bi-check2-all me-1"></i>Firm Selected
+        <button type="submit" class="btn btn-sm btn-success">
+            <i class="bi bi-play-circle-fill me-1"></i>Start Production for Selected
         </button>
     </form>
     <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="clearSelBtn">
@@ -109,7 +111,7 @@
 {# ── Table ────────────────────────────────────────────────────────────── #}
 {% if order_groups %}
 <div class="table-responsive">
-    <table class="table table-sm align-middle mb-0" style="font-size:.83rem;" id="firmTable">
+    <table class="table table-sm align-middle mb-0" style="font-size:.83rem;" id="releaseTable">
         <thead class="table-light">
             <tr>
                 <th style="width:28px;">
@@ -126,7 +128,7 @@
                 <th class="text-center" style="min-width:70px;">Plan End</th>
                 <th style="min-width:100px;">Status</th>
                 <th style="min-width:80px;">Materials</th>
-                <th style="min-width:140px;">Action</th>
+                <th style="min-width:160px;">Action</th>
             </tr>
         </thead>
         <tbody>
@@ -137,14 +139,14 @@
         {% set plan_late  = group.plan_end and group.due_date and group.plan_end > group.due_date %}
         {% set agg_label, agg_colour = line_status_meta.get(group.agg_status, ('Unknown','secondary')) %}
 
-        <tr class="table-light fw-semibold order-firm-row" id="firm-order-{{ gi }}">
+        <tr class="table-light fw-semibold" id="release-order-{{ gi }}">
             <td class="text-center p-1">
                 <input type="checkbox" class="form-check-input row-check"
-                       data-op-ids="{{ group.new_order_op_ids | join(',') }}"
+                       data-op-ids="{{ group.firmed_op_ids | join(',') }}"
                        title="Select {{ group.so_number }}">
             </td>
             <td class="text-center p-1">
-                <button class="btn btn-link btn-sm p-0 text-secondary toggle-firm-btn"
+                <button class="btn btn-link btn-sm p-0 text-secondary toggle-release-btn"
                         data-gi="{{ gi }}" title="Expand / collapse lines">
                     <i class="bi bi-chevron-right"></i>
                 </button>
@@ -209,20 +211,21 @@
             </td>
             <td>
                 <form method="POST" action="{{ url_for('orders.bulk_update_operations') }}"
-                      class="d-inline">
+                      class="d-inline"
+                      onsubmit="return confirm('Release {{ group.so_number }} to production?')">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="operation_ids"
-                           value="{{ group.new_order_op_ids | join(',') }}">
-                    <input type="hidden" name="status" value="firmed">
+                           value="{{ group.firmed_op_ids | join(',') }}">
+                    <input type="hidden" name="status" value="released">
                     <input type="hidden" name="back_url" value="{{ request.url }}">
-                    <button type="submit" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi bi-check2 me-1"></i>Firm
+                    <button type="submit" class="btn btn-sm btn-success">
+                        <i class="bi bi-play-circle me-1"></i>Start Production
                     </button>
                 </form>
                 <a href="{{ url_for('orders.planning', q=group.so_number) }}"
-                   class="btn btn-sm btn-outline-primary ms-1"
-                   title="Set planned dates for this order">
-                    <i class="bi bi-calendar-plus"></i>
+                   class="btn btn-sm btn-outline-secondary ms-1"
+                   title="Adjust planned dates">
+                    <i class="bi bi-pencil"></i>
                 </a>
             </td>
         </tr>
@@ -233,7 +236,7 @@
         {% set l_label, l_colour = line_status_meta.get(sol.aggregate_status, ('Unknown','secondary')) %}
         {% set l_overdue = sol.due_date and sol.due_date < today %}
 
-        <tr class="firm-line-row" data-gi="{{ gi }}" style="display:none; background:#f8f9fa; font-size:.8rem;">
+        <tr class="release-line-row" data-gi="{{ gi }}" style="display:none; background:#f8f9fa; font-size:.8rem;">
             <td></td>
             <td></td>
             <td class="ps-3 text-muted">
@@ -281,7 +284,7 @@
 {# ── Pagination ── #}
 {% set _start = (pagination.page - 1) * pagination.per_page + 1 %}
 {% set _end   = [pagination.page * pagination.per_page, pagination.total] | min %}
-{% macro page_url(p) %}{{ url_for('orders.firming_queue', q=search, cpr=cust_prod_ref, per_page=per_page, sort=sort, due_from=due_from.isoformat() if due_from else '', due_to=due_to.isoformat() if due_to else '', overdue='1' if overdue_only else '', page=p) }}{% endmacro %}
+{% macro page_url(p) %}{{ url_for('orders.releasing_queue', q=search, cpr=cust_prod_ref, per_page=per_page, sort=sort, due_from=due_from.isoformat() if due_from else '', due_to=due_to.isoformat() if due_to else '', overdue='1' if overdue_only else '', page=p) }}{% endmacro %}
 
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3">
     <small class="text-muted">
@@ -329,11 +332,11 @@
 
 {% else %}
 <div class="text-center py-5 text-muted">
-    <i class="bi bi-check2-all fs-1 d-block mb-2 text-success"></i>
-    No new orders awaiting firming.
+    <i class="bi bi-hourglass fs-1 d-block mb-2 text-secondary"></i>
+    No firmed orders ready for release.
     <div class="mt-2 d-flex gap-2 justify-content-center">
-        <a href="{{ url_for('orders.releasing_queue') }}" class="btn btn-sm btn-outline-success">
-            Releasing Queue
+        <a href="{{ url_for('orders.firming_queue') }}" class="btn btn-sm btn-outline-secondary">
+            Firming Queue
         </a>
         <a href="{{ url_for('orders.wip_tracker') }}" class="btn btn-sm btn-outline-secondary">
             WIP Tracker
@@ -347,11 +350,11 @@
 {% block extra_js %}
 <script>
 // ── Expand/collapse ────────────────────────────────────────────────── //
-document.querySelectorAll('.toggle-firm-btn').forEach(function (btn) {
+document.querySelectorAll('.toggle-release-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
         const gi   = btn.dataset.gi;
         const icon = btn.querySelector('i');
-        const rows = document.querySelectorAll('.firm-line-row[data-gi="' + gi + '"]');
+        const rows = document.querySelectorAll('.release-line-row[data-gi="' + gi + '"]');
         const expanding = icon.classList.contains('bi-chevron-right');
         rows.forEach(function (row) { row.style.display = expanding ? '' : 'none'; });
         icon.classList.toggle('bi-chevron-right', !expanding);
@@ -360,10 +363,10 @@ document.querySelectorAll('.toggle-firm-btn').forEach(function (btn) {
 });
 
 // ── Bulk select ───────────────────────────────────────────────────── //
-const selectAll  = document.getElementById('selectAll');
-const bulkBar    = document.getElementById('bulkBar');
-const bulkCount  = document.getElementById('bulkCount');
-const bulkOpIds  = document.getElementById('bulkOpIds');
+const selectAll   = document.getElementById('selectAll');
+const bulkBar     = document.getElementById('bulkBar');
+const bulkCount   = document.getElementById('bulkCount');
+const bulkOpIds   = document.getElementById('bulkOpIds');
 const clearSelBtn = document.getElementById('clearSelBtn');
 
 function updateBulkBar() {

@@ -193,6 +193,10 @@ def firming_queue():
     per_page      = request.args.get("per_page", 25, type=int)
     search        = request.args.get("q", "")
     cust_prod_ref = request.args.get("cpr", "")
+    overdue_only  = request.args.get("overdue", "") == "1"
+    sort          = request.args.get("sort", "due_date")
+    due_from      = _parse_date(request.args.get("due_from", ""))
+    due_to        = _parse_date(request.args.get("due_to", ""))
     if per_page not in (25, 50, 100):
         per_page = 25
 
@@ -200,6 +204,10 @@ def firming_queue():
         page=page, per_page=per_page,
         search=search or None,
         cust_prod_ref=cust_prod_ref or None,
+        due_from=due_from,
+        due_to=due_to,
+        overdue_only=overdue_only,
+        sort=sort,
     )
 
     plan_start_map = {g["so_number"]: g["plan_start"] for g in order_groups if g.get("plan_start")}
@@ -214,6 +222,58 @@ def firming_queue():
         pagination=pagination,
         search=search,
         cust_prod_ref=cust_prod_ref,
+        overdue_only=overdue_only,
+        sort=sort,
+        due_from=due_from,
+        due_to=due_to,
+        per_page=per_page,
+        line_status_meta=SalesOrderLine.LINE_STATUS_META,
+        mat_status_meta=MAT_STATUS_META,
+        today=date.today(),
+    )
+
+
+@orders_bp.route("/releasing")
+@login_required
+@permission_required("view_orders")
+def releasing_queue():
+    page          = request.args.get("page", 1, type=int)
+    per_page      = request.args.get("per_page", 25, type=int)
+    search        = request.args.get("q", "")
+    cust_prod_ref = request.args.get("cpr", "")
+    overdue_only  = request.args.get("overdue", "") == "1"
+    sort          = request.args.get("sort", "due_date")
+    due_from      = _parse_date(request.args.get("due_from", ""))
+    due_to        = _parse_date(request.args.get("due_to", ""))
+    if per_page not in (25, 50, 100):
+        per_page = 25
+
+    pagination, order_groups = services.get_releasing_queue(
+        page=page, per_page=per_page,
+        search=search or None,
+        cust_prod_ref=cust_prod_ref or None,
+        due_from=due_from,
+        due_to=due_to,
+        overdue_only=overdue_only,
+        sort=sort,
+    )
+
+    plan_start_map = {g["so_number"]: g["plan_start"] for g in order_groups if g.get("plan_start")}
+    mat_status_map = get_so_material_status([g["so_number"] for g in order_groups], plan_start_map=plan_start_map)
+    for g in order_groups:
+        g["mat_status"] = mat_status_map.get(g["so_number"], "no_data")
+
+    return render_template(
+        "orders/releasing_queue.html",
+        title="Releasing Queue",
+        order_groups=order_groups,
+        pagination=pagination,
+        search=search,
+        cust_prod_ref=cust_prod_ref,
+        overdue_only=overdue_only,
+        sort=sort,
+        due_from=due_from,
+        due_to=due_to,
         per_page=per_page,
         line_status_meta=SalesOrderLine.LINE_STATUS_META,
         mat_status_meta=MAT_STATUS_META,

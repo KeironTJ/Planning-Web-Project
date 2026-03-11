@@ -120,6 +120,55 @@ def seed():
     return redirect(url_for("admin.role_list"))
 
 
+@admin_bp.route("/departments/seed")
+@login_required
+@admin_required
+def seed_departments():
+    """Seed the default production departments (idempotent)."""
+    from app.orders.models import Department
+
+    depts = [
+        "WOODMILL",
+        "FURNITURE TIMBER",
+        "CUTTING",
+        "MACHINING",
+        "FILLING",
+        "UPHOLSTERY",
+        "MATTRESS",
+        "TACKING",
+        "CURTAINS",
+        "CURTAIN POLES",
+        "BEDDING",
+        "BLINDS (CTN SECTION)",
+        "DESPATCH",
+        "AFTER SALES",
+        "BELFIELD TEXTILES",
+        "TEK SEATING (CAB SEATS)",
+        "DIVAN",
+        "ENCAPSULATED SPRINGS",
+        "GENERAL",
+    ]
+
+    created = 0
+    for name in depts:
+        code = (
+            name.upper()
+            .replace(" ", "_")
+            .replace("(", "")
+            .replace(")", "")
+        )
+        if not Department.query.filter_by(name=name).first():
+            db.session.add(Department(code=code, name=name, is_active=True))
+            created += 1
+    db.session.commit()
+
+    if created:
+        flash(f"{created} department(s) seeded.", "success")
+    else:
+        flash("All departments already exist — nothing to seed.", "info")
+    return redirect(url_for("admin.dept_list"))
+
+
 # ---------------------------------------------------------------------------
 # Audit Log
 # ---------------------------------------------------------------------------

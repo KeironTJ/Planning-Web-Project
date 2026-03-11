@@ -115,6 +115,17 @@ def seed_departments():
         click.echo(f"{created} department(s) created ({len(depts) - created} already existed).")
 
 
+@app.cli.command("clear-oob")
+def clear_oob():
+    """Delete all OOB sales order lines and their operations."""
+    from app.orders.models import SalesOrderLine, WorksOrderOperation
+    with app.app_context():
+        ops = WorksOrderOperation.query.delete()
+        lines = SalesOrderLine.query.delete()
+        db.session.commit()
+        click.echo(f"Deleted {lines} sales order line(s) and {ops} operation(s).")
+
+
 # ---------------------------------------------------------------------------
 # CSV Import commands
 # ---------------------------------------------------------------------------

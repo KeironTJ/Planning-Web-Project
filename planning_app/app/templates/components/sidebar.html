@@ -19,6 +19,12 @@
                     <i class="bi bi-check2-circle me-2"></i>Firming Queue
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'orders.releasing_queue' %}active{% endif %}"
+                   href="{{ url_for('orders.releasing_queue') }}">
+                    <i class="bi bi-play-circle me-2"></i>Releasing Queue
+                </a>
+            </li>
             {% if current_user.has_permission('manage_orders') %}
             <li class="nav-item">
                 <a class="nav-link {% if request.endpoint == 'orders.planning' %}active{% endif %}"
