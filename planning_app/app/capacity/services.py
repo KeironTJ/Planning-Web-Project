@@ -143,8 +143,9 @@ def get_load_by_week_dept(
     from_date: date,
     to_date: date,
 ) -> dict[tuple[str, int], float]:
-    """Planned load only — operations with planned_date set."""
-    return _load_query(from_date, to_date, WorksOrderOperation.planned_date)
+    """Planned load only — operations with planned_date set.
+    Overdue operations (planned_date before from_date) are capped into week 1."""
+    return _load_query(from_date, to_date, WorksOrderOperation.planned_date, floor_date=from_date)
 
 
 def get_demand_by_week_dept(
@@ -182,7 +183,7 @@ def get_capacity_dashboard(
     from_dt = weeks[0][0]
     to_dt   = weeks[-1][1]
 
-    dept_q = Department.query.filter_by(is_active=True).order_by(Department.name)
+    dept_q = Department.query.filter_by(is_active=True).order_by(Department.flow_order.nulls_last(), Department.name)
     if dept_id:
         dept_q = dept_q.filter(Department.id == dept_id)
     departments = dept_q.all()

@@ -42,7 +42,7 @@ def dashboard():
     next_from = (from_date + timedelta(weeks=num_weeks)).isoformat()
 
     data          = services.get_capacity_dashboard(from_date, num_weeks=num_weeks, dept_id=dept_id)
-    departments   = Department.query.filter_by(is_active=True).order_by(Department.name).all()
+    departments   = Department.query.filter_by(is_active=True).order_by(Department.flow_order.nulls_last(), Department.name).all()
     selected_dept = Department.query.get(dept_id) if dept_id else None
 
     chart_data = [

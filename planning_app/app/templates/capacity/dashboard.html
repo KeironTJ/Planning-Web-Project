@@ -112,9 +112,8 @@
                         <th>Department</th>
                         <th class="text-end">Available Hrs</th>
                         <th class="text-end">Planned Load</th>
-                        <th class="text-end">Due Load</th>
                         <th class="text-end">Headroom</th>
-                        <th style="min-width:160px;">Utilisation <small class="text-muted">(planned)</small></th>
+                        <th style="min-width:160px;">Utilisation</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -124,40 +123,29 @@
                         <td class="fw-semibold">{{ row.dept.name }}</td>
                         <td class="text-end">{{ row.avail_total if row.avail_total else '—' }}</td>
                         <td class="text-end">{{ row.load_total if row.load_total else '—' }}</td>
-                        <td class="text-end text-muted">{{ row.demand_total if row.demand_total else '—' }}</td>
                         <td class="text-end {{ 'text-danger fw-semibold' if row.headroom < 0 else '' }}">
                             {{ row.headroom if row.avail_total else '—' }}
                         </td>
                         <td>
-                            {% if row.avail_total %}
-                            <div class="d-flex align-items-center gap-1 mb-1" title="Due load utilisation">
+                            {% if row.avail_total and row.util_pct %}
+                            <div class="d-flex align-items-center gap-1">
                                 <div class="progress flex-grow-1" style="height:8px;">
                                     <div class="progress-bar
-                                        {% if row.demand_util_pct > 100 %}bg-danger
-                                        {% elif row.demand_util_pct > 85 %}bg-warning
-                                        {% else %}bg-success{% endif %}"
-                                        style="width:{{ [row.demand_util_pct, 100] | min }}%">
-                                    </div>
-                                </div>
-                                <small class="{% if row.demand_util_pct > 100 %}text-danger fw-semibold
-                                             {% elif row.demand_util_pct > 85 %}text-warning
-                                             {% else %}text-success{% endif %}"
-                                       style="min-width:52px;">
-                                    {{ row.demand_util_pct }}% <span class="text-muted">(due)</span>
-                                </small>
-                            </div>
-                            {% if row.util_pct %}
-                            <div class="d-flex align-items-center gap-1" title="Planned load utilisation">
-                                <div class="progress flex-grow-1" style="height:4px;">
-                                    <div class="progress-bar bg-primary"
+                                        {% if row.util_pct > 100 %}bg-danger
+                                        {% elif row.util_pct > 85 %}bg-warning
+                                        {% else %}bg-primary{% endif %}"
                                         style="width:{{ [row.util_pct, 100] | min }}%">
                                     </div>
                                 </div>
-                                <small class="text-primary" style="min-width:52px;">
-                                    {{ row.util_pct }}% <span class="text-muted">(plan)</span>
+                                <small class="{% if row.util_pct > 100 %}text-danger fw-semibold
+                                             {% elif row.util_pct > 85 %}text-warning
+                                             {% else %}text-primary{% endif %}"
+                                       style="min-width:44px;">
+                                    {{ row.util_pct }}%
                                 </small>
                             </div>
-                            {% endif %}
+                            {% elif row.avail_total %}
+                            <span class="text-muted small">No load data</span>
                             {% else %}
                             <span class="text-muted small">No data</span>
                             {% endif %}
@@ -208,7 +196,7 @@
                     {% for row in d.rows %}{% if row.avail > 0 or row.demand > 0 %}{% set has_any.val = true %}{% endif %}{% endfor %}
                     {% if has_any.val %}
                     <tr class="table-light">
-                        <td class="fw-semibold" rowspan="5" style="vertical-align:middle; border-right:2px solid #dee2e6; width: 150px; max-width:150px; overflow:hidden; word-break:break-word;">
+                        <td class="fw-semibold" rowspan="3" style="vertical-align:middle; border-right:2px solid #dee2e6; width: 150px; max-width:150px; overflow:hidden; word-break:break-word;">
                             {{ d.dept.name }}
                             <br>
                             <a href="{{ url_for('capacity.dept_calendar', dept_id=d.dept.id) }}"
@@ -227,29 +215,15 @@
                         <td class="text-center">{{ row.load if row.load else '—' }}</td>
                         {% endfor %}
                     </tr>
-                    <tr>
-                        <td class="text-nowrap text-warning-emphasis" title="Hours for all open operations by ERP due date">Due load</td>
-                        {% for row in d.rows %}
-                        <td class="text-center text-muted">{{ row.demand if row.demand else '—' }}</td>
-                        {% endfor %}
-                    </tr>
-                    <tr>
-                        <td class="text-nowrap small text-muted">Util % <span class="text-primary">(planned)</span></td>
-                        {% for row in d.rows %}
-                        <td class="text-center small">
-                            {{ row.util ~ '%' if row.avail and row.util else '—' }}
-                        </td>
-                        {% endfor %}
-                    </tr>
                     <tr style="border-bottom:2px solid #dee2e6;">
-                        <td class="text-nowrap small text-muted">Util % <span class="text-warning-emphasis">(due)</span></td>
+                        <td class="text-nowrap small text-muted">Util %</td>
                         {% for row in d.rows %}
-                        <td class="text-center fw-semibold
-                            {% if row.avail and row.demand_util > 100 %}bg-danger text-white
-                            {% elif row.avail and row.demand_util > 85 %}bg-warning
-                            {% elif row.avail and row.demand_util > 0 %}bg-success bg-opacity-25
+                        <td class="text-center small fw-semibold
+                            {% if row.avail and row.util > 100 %}bg-danger text-white
+                            {% elif row.avail and row.util > 85 %}bg-warning
+                            {% elif row.avail and row.util > 0 %}bg-primary bg-opacity-25
                             {% endif %}">
-                            {{ row.demand_util ~ '%' if row.avail and row.demand_util else '—' }}
+                            {{ row.util ~ '%' if row.avail and row.util else '—' }}
                         </td>
                         {% endfor %}
                     </tr>
@@ -291,19 +265,12 @@ document.addEventListener('DOMContentLoaded', function () {
                         backgroundColor: 'rgba(200,200,200,0.4)',
                         borderColor: 'rgba(150,150,150,0.8)',
                         borderWidth: 1,
-                        order: 3,
-                    },
-                    {
-                        label: 'Due Load',
-                        data: d.rows.map(r => r.demand),
-                        backgroundColor: d.rows.map(r => utilColour(r.demand_util)),
-                        borderWidth: 0,
                         order: 2,
                     },
                     {
                         label: 'Planned Load',
                         data: d.rows.map(r => r.load),
-                        backgroundColor: 'rgba(13,110,253,0.7)',
+                        backgroundColor: d.rows.map(r => utilColour(r.util)),
                         borderWidth: 0,
                         order: 1,
                     },
@@ -318,7 +285,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         callbacks: {
                             footer: (items) => {
                                 const r = d.rows[items[0].dataIndex];
-                                return `Due util: ${r.demand_util}%  |  Planned util: ${r.util}%`;
+                                return `Utilisation: ${r.util}%`;
                             }
                         }
                     }
@@ -332,9 +299,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (ctx2 && chartData.length) {
         const labels  = chartData.map(d => d.dept.name.substring(0, 14));
         const avails  = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.avail, 0).toFixed(1)));
-        const demands = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.demand, 0).toFixed(1)));
         const loads   = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.load, 0).toFixed(1)));
-        const utils   = avails.map((a, i) => a > 0 ? demands[i] / a * 100 : 0);
+        const utils   = avails.map((a, i) => a > 0 ? loads[i] / a * 100 : 0);
+
+        const headrooms = avails.map((a, i) => parseFloat(Math.max(0, a - loads[i]).toFixed(1)));
 
         new Chart(ctx2, {
             type: 'bar',
@@ -342,26 +310,19 @@ document.addEventListener('DOMContentLoaded', function () {
                 labels: labels,
                 datasets: [
                     {
-                        label: 'Available Hrs',
-                        data: avails,
-                        backgroundColor: 'rgba(200,200,200,0.4)',
-                        borderColor: 'rgba(150,150,150,0.8)',
-                        borderWidth: 1,
-                        order: 3,
-                    },
-                    {
-                        label: 'Due Load',
-                        data: demands,
-                        backgroundColor: utils.map(u => utilColour(u)),
-                        borderWidth: 0,
-                        order: 2,
-                    },
-                    {
                         label: 'Planned Load',
                         data: loads,
-                        backgroundColor: 'rgba(13,110,253,0.7)',
+                        backgroundColor: utils.map(u => utilColour(u)),
                         borderWidth: 0,
-                        order: 1,
+                        stack: 'capacity',
+                    },
+                    {
+                        label: 'Headroom',
+                        data: headrooms,
+                        backgroundColor: 'rgba(200,200,200,0.35)',
+                        borderColor: 'rgba(150,150,150,0.6)',
+                        borderWidth: 1,
+                        stack: 'capacity',
                     },
                 ]
             },
@@ -372,13 +333,21 @@ document.addEventListener('DOMContentLoaded', function () {
                     legend: { position: 'top' },
                     tooltip: {
                         callbacks: {
-                            footer: (items) => `Util: ${utils[items[0].dataIndex].toFixed(1)}%`
+                            label: (item) => {
+                                const i = item.dataIndex;
+                                if (item.datasetIndex === 0) return `Planned Load: ${loads[i]} hrs`;
+                                return `Headroom: ${headrooms[i]} hrs`;
+                            },
+                            footer: (items) => {
+                                const i = items[0].dataIndex;
+                                return `Available: ${avails[i]} hrs  |  Util: ${utils[i].toFixed(1)}%`;
+                            }
                         }
                     }
                 },
                 scales: {
-                    x: { ticks: { maxRotation: 45 } },
-                    y: { title: { display: true, text: 'Hours (period total)' }, beginAtZero: true }
+                    x: { stacked: true, ticks: { maxRotation: 45 } },
+                    y: { stacked: true, title: { display: true, text: 'Hours (period total)' }, beginAtZero: true }
                 }
             }
         });
