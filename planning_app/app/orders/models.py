@@ -323,7 +323,15 @@ class SmvMatrix(db.Model):
     date_updated = db.Column(db.Date, nullable=True)                      # Date Updated
     confidence = db.Column(db.String(20), default=CONFIDENCE_ESTIMATED, nullable=False)
 
+    last_modified_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_modified_by_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     department = db.relationship("Department", back_populates="smv_entries")
+    last_modified_by = db.relationship("User", foreign_keys=[last_modified_by_id])
 
     def __repr__(self) -> str:
         return f"<SmvMatrix {self.component_id} dept={self.department_id}>"

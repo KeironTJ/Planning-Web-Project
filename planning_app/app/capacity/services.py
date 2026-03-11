@@ -142,20 +142,22 @@ def _load_query(
 def get_load_by_week_dept(
     from_date: date,
     to_date: date,
+    floor_date: Optional[date] = None,
 ) -> dict[tuple[str, int], float]:
     """Planned load only — operations with planned_date set.
-    Overdue operations (planned_date before from_date) are capped into week 1."""
-    return _load_query(from_date, to_date, WorksOrderOperation.planned_date, floor_date=from_date)
+    If floor_date is given, overdue operations are capped into that week."""
+    return _load_query(from_date, to_date, WorksOrderOperation.planned_date, floor_date=floor_date)
 
 
 def get_demand_by_week_dept(
     from_date: date,
     to_date: date,
+    floor_date: Optional[date] = None,
 ) -> dict[tuple[str, int], float]:
     """Demand load — all open operations bucketed by ERP due_date.
-    Overdue operations (due before from_date) are capped into week 1."""
+    If floor_date is given, overdue operations are capped into that week."""
     return _load_query(
-        from_date, to_date, WorksOrderOperation.due_date, floor_date=from_date
+        from_date, to_date, WorksOrderOperation.due_date, floor_date=floor_date
     )
 
 
@@ -188,9 +190,15 @@ def get_capacity_dashboard(
         dept_q = dept_q.filter(Department.id == dept_id)
     departments = dept_q.all()
 
+    # Only cap overdue orders into week 1 when viewing from the current operating week.
+    # For future-dated views the floor would be a future date, incorrectly pulling in
+    # all historical overdue work.
+    today_week_start = _week_start(date.today())
+    floor = from_dt if from_dt <= today_week_start else None
+
     avail_map  = get_available_by_week_dept(from_dt, to_dt)
-    load_map   = get_load_by_week_dept(from_dt, to_dt)
-    demand_map = get_demand_by_week_dept(from_dt, to_dt)
+    load_map   = get_load_by_week_dept(from_dt, to_dt, floor_date=floor)
+    demand_map = get_demand_by_week_dept(from_dt, to_dt, floor_date=floor)
 
     has_buckets = bool(avail_map)
     has_smv     = bool(load_map) or bool(demand_map)

@@ -303,6 +303,8 @@ class SmvImporter:
                         existing.ops = ops
                         existing.date_updated = date_updated
                         # confidence is NOT overwritten — planner controls it
+                        existing.last_modified_at = now
+                        existing.last_modified_by_id = uploaded_by_id
                         rows_updated += 1
                     else:
                         entry = SmvMatrix(
@@ -314,6 +316,8 @@ class SmvImporter:
                             ops=ops,
                             date_updated=date_updated,
                             confidence=SmvMatrix.CONFIDENCE_ESTIMATED,
+                            last_modified_at=now,
+                            last_modified_by_id=uploaded_by_id,
                         )
                         db.session.add(entry)
                         rows_inserted += 1

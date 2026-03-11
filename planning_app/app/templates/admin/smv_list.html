@@ -1,0 +1,288 @@
+{% extends 'base.html' %}
+
+{% block extra_css %}
+<style>
+    .smv-table th, .smv-table td { white-space: nowrap; }
+    .smv-table thead th.dept-col {
+        font-size: .7rem;
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+        min-width: 38px;
+        max-width: 38px;
+        padding: .5rem .25rem;
+        vertical-align: bottom;
+        text-align: left;
+        cursor: default;
+    }
+    .smv-cell {
+        font-size: .78rem;
+        font-family: monospace;
+        text-align: right;
+        padding: .2rem .4rem;
+        cursor: pointer;
+        border-radius: 3px;
+        transition: background .1s;
+        display: block;
+        width: 100%;
+        background: none;
+        border: none;
+        color: inherit;
+    }
+    .smv-cell:hover { background: var(--bs-primary-bg-subtle); }
+.smv-cell.conf-timed     { color: #146c43; font-weight: 600; }
+    .smv-cell.conf-most      { color: #084298; font-weight: 600; }
+    .smv-cell.conf-estimated { color: inherit; }
+    .smv-cell.empty          { color: #ccc; cursor: default; }
+    .smv-cell.empty:hover    { background: none; }
+    .sticky-col { position: sticky; left: 0; background: var(--bs-body-bg); z-index: 1; }
+    .smv-table tbody tr:hover .sticky-col { background: var(--bs-table-hover-bg); }
+    .filter-active { border-color: var(--bs-primary) !important; }
+</style>
+{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('admin.import_upload') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-cloud-upload me-1"></i>Import CSV
+</a>
+{% endblock %}
+
+{% block content %}
+
+{# ── Filters ───────────────────────────────────────────────────────────────── #}
+{% set any_filter = search or f_timing or f_conf or f_dept_id %}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small text-muted mb-1">Search</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" value="{{ search }}" class="form-control {% if search %}filter-active{% endif %}"
+                           placeholder="Component, description…">
+                </div>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">Timing Code</label>
+                <select name="timing_code" class="form-select form-select-sm {% if f_timing %}filter-active{% endif %}">
+                    <option value="">All</option>
+                    {% for tc in timing_codes %}
+                    <option value="{{ tc }}" {% if tc == f_timing %}selected{% endif %}>{{ tc }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">Confidence</label>
+                <select name="confidence" class="form-select form-select-sm {% if f_conf %}filter-active{% endif %}">
+                    <option value="">All</option>
+                    {% for value, label in confidence_choices %}
+                    <option value="{{ value }}" {% if value == f_conf %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">Has entry in dept</label>
+                <select name="dept_id" class="form-select form-select-sm {% if f_dept_id %}filter-active{% endif %}">
+                    <option value="">Any department</option>
+                    {% for dept in departments %}
+                    <option value="{{ dept.id }}" {% if dept.id == f_dept_id %}selected{% endif %}>{{ dept.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+                {% if any_filter %}
+                <a href="{{ url_for('admin.smv_list') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-x-circle me-1"></i>Clear
+                </a>
+                {% endif %}
+            </div>
+            <div class="col-auto ms-auto align-self-center">
+                <small class="text-muted">
+                    {{ total }} component{{ 's' if total != 1 else '' }}
+                    &nbsp;·&nbsp;
+                    <span style="color:#146c43; font-weight:600;">■</span> Timed
+                    <span style="color:#084298; font-weight:600;" class="ms-1">■</span> MOST
+                    <span class="text-muted ms-1">■</span> Estimated
+                </small>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# ── Matrix ────────────────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0" style="overflow-x: auto;">
+        <table class="table table-hover table-bordered table-sm mb-0 smv-table">
+            <thead class="table-light">
+                <tr>
+                    <th class="sticky-col align-bottom" style="min-width:130px; z-index:2;">Component</th>
+                    <th class="align-bottom text-center" style="min-width:90px;">Confidence</th>
+                    <th class="align-bottom" style="min-width:140px;">Last Updated</th>
+                    {% for dept in departments %}
+                    <th class="dept-col {% if dept.id == f_dept_id %}table-primary{% endif %}"
+                        title="{{ dept.name }}">{{ dept.name }}</th>
+                    {% endfor %}
+                    <th class="align-bottom text-center" style="min-width:44px;" title="Count of departments with SMV &gt; 0">OPS</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td class="sticky-col fw-semibold small font-monospace">{{ row.component_id }}</td>
+                    <td class="text-center">
+                        {% if row.confidence == 'timed_study' %}
+                            <span class="badge bg-success">Timed</span>
+                        {% elif row.confidence == 'most_study' %}
+                            <span class="badge bg-primary">MOST</span>
+                        {% elif row.confidence == 'estimated' %}
+                            <span class="badge bg-secondary">Est</span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="small">
+                        {% if row.last_modified_at %}
+                            <span class="text-muted" title="{{ row.last_modified_at.strftime('%d %b %Y %H:%M') }}">
+                                {{ row.last_modified_at.strftime('%d %b %Y') }}
+                            </span>
+                            {% if row.last_modified_by %}
+                            <br><span class="text-muted" style="font-size:.75rem;">{{ row.last_modified_by.username }}</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    {% for dept in departments %}
+                    {% set entry = row.cells.get(dept.id) %}
+                    {% if entry %}
+                    <td class="p-0">
+                        <button type="button"
+                                class="smv-cell {% if entry.confidence == 'timed_study' %}conf-timed{% elif entry.confidence == 'most_study' %}conf-most{% else %}conf-estimated{% endif %}"
+                                data-bs-toggle="modal"
+                                data-bs-target="#editModal"
+                                data-smv-id="{{ entry.id }}"
+                                data-component="{{ entry.component_id }}"
+                                data-department="{{ dept.name }}"
+                                data-smv-minutes="{{ entry.smv_minutes if entry.smv_minutes is not none else '' }}"
+                                data-confidence="{{ entry.confidence }}"
+                                data-modified-at="{{ entry.last_modified_at.strftime('%d %b %Y %H:%M') if entry.last_modified_at else '' }}"
+                                data-modified-by="{{ entry.last_modified_by.username if entry.last_modified_by else '' }}"
+                                title="Click to edit">
+                            {{ "%.3f"|format(entry.smv_minutes|float) if entry.smv_minutes is not none else '—' }}
+                        </button>
+                    </td>
+                    {% else %}
+                    <td class="p-0"><div class="smv-cell empty">—</div></td>
+                    {% endif %}
+                    {% endfor %}
+                    <td class="text-center small text-muted">{{ row.ops_count or '—' }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="{{ departments|length + 4 }}" class="text-center py-4 text-muted">
+                        No SMV records found.
+                        {% if any_filter %}
+                        <a href="{{ url_for('admin.smv_list') }}">Clear filters</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{# ── Pagination ────────────────────────────────────────────────────────────── #}
+{% if total_pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination pagination-sm justify-content-center">
+        <li class="page-item {% if not has_prev %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('admin.smv_list', page=page-1, q=search, timing_code=f_timing, confidence=f_conf, dept_id=f_dept_id or '') }}">&laquo;</a>
+        </li>
+        {% for p in range(1, total_pages + 1) %}
+            {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+            <li class="page-item {% if p == page %}active{% endif %}">
+                <a class="page-link" href="{{ url_for('admin.smv_list', page=p, q=search, timing_code=f_timing, confidence=f_conf, dept_id=f_dept_id or '') }}">{{ p }}</a>
+            </li>
+            {% elif p == page - 3 or p == page + 3 %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not has_next %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('admin.smv_list', page=page+1, q=search, timing_code=f_timing, confidence=f_conf, dept_id=f_dept_id or '') }}">&raquo;</a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+
+{# ── Edit Modal ────────────────────────────────────────────────────────────── #}
+<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <form method="post" id="editForm" action="">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header pb-1">
+                    <div>
+                        <h6 class="modal-title mb-0 font-monospace fw-bold" id="editModalComponent"></h6>
+                        <small class="text-muted" id="editModalDept"></small>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">SMV (minutes per unit)</label>
+                        <input type="number" name="smv_minutes" id="editSmvMinutes"
+                               class="form-control form-control-sm" step="0.001" min="0"
+                               placeholder="0.000">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Confidence</label>
+                        <select name="confidence" id="editConfidence" class="form-select form-select-sm">
+                            {% for value, label in confidence_choices %}
+                            <option value="{{ value }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <p class="text-muted small mb-0" id="editLastModified"></p>
+                </div>
+                <div class="modal-footer pt-2">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    function initSmvModal() {
+        var modalEl = document.getElementById('editModal');
+        if (!modalEl) { console.error('SMV: editModal element not found'); return; }
+
+        modalEl.addEventListener('show.bs.modal', function (e) {
+            var btn = e.relatedTarget;
+            if (!btn) { console.error('SMV: no relatedTarget on show.bs.modal'); return; }
+            document.getElementById('editModalComponent').textContent = btn.dataset.component;
+            document.getElementById('editModalDept').textContent      = btn.dataset.department;
+            document.getElementById('editSmvMinutes').value           = btn.dataset.smvMinutes;
+            document.getElementById('editConfidence').value           = btn.dataset.confidence;
+            document.getElementById('editForm').action                = '/admin/smv/' + btn.dataset.smvId + '/edit';
+
+            var el = document.getElementById('editLastModified');
+            el.textContent = btn.dataset.modifiedAt
+                ? 'Last updated ' + btn.dataset.modifiedAt + (btn.dataset.modifiedBy ? ' by ' + btn.dataset.modifiedBy : '')
+                : 'No manual edits recorded.';
+        });
+
+        console.log('SMV: modal listener attached, buttons found:', document.querySelectorAll('[data-bs-toggle="modal"]').length);
+    }
+
+    // Try immediately (script runs after body is parsed)
+    initSmvModal();
+})();
+</script>
+{% endblock %}

@@ -60,6 +60,14 @@
                 </a>
             </li>
             {% endif %}
+            {% if current_user.is_admin %}
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'admin.smv_list' or request.endpoint == 'admin.smv_edit' %}active{% endif %}"
+                   href="{{ url_for('admin.smv_list') }}">
+                    <i class="bi bi-stopwatch me-2"></i>SMV Matrix
+                </a>
+            </li>
+            {% endif %}
             {% endif %}
 
             {# ── Materials ─────────────────────────────────────────── #}
