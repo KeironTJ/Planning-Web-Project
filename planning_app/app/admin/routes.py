@@ -454,6 +454,96 @@ def smv_list():
     )
 
 
+# ---------------------------------------------------------------------------
+# ERP Data Refresh
+# ---------------------------------------------------------------------------
+
+@admin_bp.route("/erp-refresh/start", methods=["POST"])
+@login_required
+@admin_required
+def erp_refresh_start():
+    """Start a background ERP export + import cycle. Returns {task_id}."""
+    from flask import current_app
+    from app.admin.erp_refresh import start_refresh
+
+    task_id = start_refresh(current_app._get_current_object(), current_user.id)
+    return jsonify({"task_id": task_id})
+
+
+@admin_bp.route("/erp-refresh/status/<task_id>")
+@login_required
+@admin_required
+def erp_refresh_status(task_id: str):
+    """Poll the status of a running or completed ERP refresh task."""
+    from app.admin.erp_refresh import get_task
+
+    task = get_task(task_id)
+    if task is None:
+        return jsonify({"error": "Task not found"}), 404
+    return jsonify(task)
+
+
+# ---------------------------------------------------------------------------
+# ERP Data Viewers
+# ---------------------------------------------------------------------------
+
+@admin_bp.route("/data/main-material")
+@login_required
+@admin_required
+def data_main_material():
+    from app.materials.models import MaterialRequirementMain
+    q = request.args.get("q", "").strip()
+    f_dept = request.args.get("dept", "").strip()
+    page = request.args.get("page", 1, type=int)
+    query = MaterialRequirementMain.query
+    if q:
+        like = f"%{q}%"
+        query = query.filter(db.or_(
+            MaterialRequirementMain.works_order.ilike(like),
+            MaterialRequirementMain.material_code.ilike(like),
+            MaterialRequirementMain.material_description.ilike(like),
+        ))
+    if f_dept:
+        query = query.filter(MaterialRequirementMain.department == f_dept)
+    rows = query.order_by(MaterialRequirementMain.due_date, MaterialRequirementMain.works_order).paginate(page=page, per_page=50, error_out=False)
+    total = MaterialRequirementMain.query.count()
+    last = MaterialRequirementMain.query.order_by(MaterialRequirementMain.imported_at.desc()).first()
+    from sqlalchemy import distinct
+    depts = [r[0] for r in db.session.query(distinct(MaterialRequirementMain.department)).filter(MaterialRequirementMain.department.isnot(None)).order_by(MaterialRequirementMain.department).all()]
+    return render_template(
+        "admin/data_main_material.html",
+        title="Main Material Requirements",
+        rows=rows, q=q, f_dept=f_dept, depts=depts, total=total,
+        last_imported=last.imported_at if last else None,
+    )
+
+
+@admin_bp.route("/data/after-sales")
+@login_required
+@admin_required
+def data_after_sales():
+    from app.materials.models import MaterialRequirementAfterSales
+    q = request.args.get("q", "").strip()
+    page = request.args.get("page", 1, type=int)
+    query = MaterialRequirementAfterSales.query
+    if q:
+        like = f"%{q}%"
+        query = query.filter(db.or_(
+            MaterialRequirementAfterSales.order_number.ilike(like),
+            MaterialRequirementAfterSales.product_code.ilike(like),
+            MaterialRequirementAfterSales.customer.ilike(like),
+        ))
+    rows = query.order_by(MaterialRequirementAfterSales.due_date, MaterialRequirementAfterSales.order_number).paginate(page=page, per_page=50, error_out=False)
+    total = MaterialRequirementAfterSales.query.count()
+    last = MaterialRequirementAfterSales.query.order_by(MaterialRequirementAfterSales.imported_at.desc()).first()
+    return render_template(
+        "admin/data_after_sales.html",
+        title="AfterSales Material Requirements",
+        rows=rows, q=q, total=total,
+        last_imported=last.imported_at if last else None,
+    )
+
+
 @admin_bp.route("/smv/<int:smv_id>/edit", methods=["POST"])
 @login_required
 @admin_required

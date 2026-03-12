@@ -76,9 +76,45 @@
                 <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">Materials</h6>
             </li>
             <li class="nav-item">
-                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('materials') %}active{% endif %}"
+                <a class="nav-link {% if request.endpoint == 'materials.index' %}active{% endif %}"
                    href="{{ url_for('materials.index') }}">
-                    <i class="bi bi-box-seam me-2"></i>Stock &amp; Shortages
+                    <i class="bi bi-speedometer2 me-2"></i>Dashboard
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'materials.shortage' %}active{% endif %}"
+                   href="{{ url_for('materials.shortage') }}">
+                    <i class="bi bi-exclamation-triangle me-2"></i>Shortage Report
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'materials.mrp' %}active{% endif %}"
+                   href="{{ url_for('materials.mrp') }}">
+                    <i class="bi bi-diagram-2 me-2"></i>MRP Pegging
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'materials.stock_list' %}active{% endif %}"
+                   href="{{ url_for('materials.stock_list') }}">
+                    <i class="bi bi-boxes me-2"></i>Stock on Hand
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'materials.po_list' %}active{% endif %}"
+                   href="{{ url_for('materials.po_list') }}">
+                    <i class="bi bi-cart me-2"></i>Open POs
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'materials.main_requirements' %}active{% endif %}"
+                   href="{{ url_for('materials.main_requirements') }}">
+                    <i class="bi bi-list-columns me-2"></i>Main Material Reqs
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'materials.aftersales_requirements' %}active{% endif %}"
+                   href="{{ url_for('materials.aftersales_requirements') }}">
+                    <i class="bi bi-arrow-return-left me-2"></i>AfterSales Reqs
                 </a>
             </li>
             {% endif %}

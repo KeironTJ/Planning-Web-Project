@@ -44,6 +44,7 @@ def create_app(config_class=None) -> Flask:
 def _init_extensions(app: Flask) -> None:
     """Bind all extensions to the app instance."""
     db.init_app(app)
+    _configure_sqlite(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
     bcrypt.init_app(app)
@@ -52,6 +53,26 @@ def _init_extensions(app: Flask) -> None:
     cache.init_app(app)
     # Allow CORS only on API routes
     cors.init_app(app, resources={r"/api/*": {"origins": "*"}})
+
+
+def _configure_sqlite(app: Flask) -> None:
+    """Enable WAL mode and a busy timeout for SQLite connections.
+
+    WAL (Write-Ahead Logging) allows concurrent readers while a writer holds
+    the DB — preventing "database is locked" errors when the background ERP
+    refresh thread writes at the same time as a normal request reads.
+    busy_timeout tells SQLite to wait up to 30 s rather than failing immediately.
+    No-ops silently for non-SQLite databases.
+    """
+    import sqlite3
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    @event.listens_for(Engine, "connect")
+    def _set_wal(dbapi_conn, _record):
+        if isinstance(dbapi_conn, sqlite3.Connection):
+            dbapi_conn.execute("PRAGMA journal_mode=WAL")
+            dbapi_conn.execute("PRAGMA busy_timeout=30000")
 
 
 def _register_blueprints(app: Flask) -> None:

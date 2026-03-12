@@ -21,20 +21,34 @@ _EXCEL_EPOCH = date(1899, 12, 30)
 
 def excel_serial_to_date(value) -> Optional[date]:
     """
-    Convert an Excel date serial number to a Python date.
+    Convert a date value to a Python date.
 
-    Excel stores dates as integers counting days since 1899-12-30.
+    Handles two formats:
+    - Excel serial number (integer): days since 1899-12-30, used in Excel-exported CSVs
+    - ISO date string (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS): used in direct ERP exports via pyodbc
+
     Returns None for any value that cannot be converted (empty, None, non-numeric).
 
     Examples:
-        excel_serial_to_date(46094)  -> date(2026, 2, 28)
-        excel_serial_to_date("")     -> None
-        excel_serial_to_date(None)   -> None
+        excel_serial_to_date(46094)        -> date(2026, 2, 28)
+        excel_serial_to_date("2026-02-28") -> date(2026, 2, 28)
+        excel_serial_to_date("")           -> None
+        excel_serial_to_date(None)         -> None
     """
     if value is None:
         return None
+    s = str(value).strip()
+    if not s:
+        return None
+    # ISO date string (direct ERP export via pyodbc)
+    if len(s) >= 10 and s[4] == "-":
+        try:
+            return date.fromisoformat(s[:10])
+        except ValueError:
+            pass
+    # Excel serial number (Excel-exported CSV)
     try:
-        n = int(float(str(value).strip()))
+        n = int(float(s))
         if n <= 0:
             return None
         return _EXCEL_EPOCH + timedelta(days=n)

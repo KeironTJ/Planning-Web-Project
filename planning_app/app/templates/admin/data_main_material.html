@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <span class="text-muted small">{{ total }} records</span>
+        {% if last_imported %}
+        <span class="text-muted small ms-2">— last imported {{ last_imported.strftime('%d %b %Y %H:%M') }}</span>
+        {% endif %}
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('materials.stock_list') }}" class="btn btn-sm btn-outline-secondary">Stock</a>
+        <a href="{{ url_for('materials.po_list') }}" class="btn btn-sm btn-outline-secondary">Open POs</a>
+        <a href="{{ url_for('admin.data_after_sales') }}" class="btn btn-sm btn-outline-secondary">AfterSales</a>
+    </div>
+</div>
+
+<form method="get" class="mb-3 d-flex gap-2 flex-wrap">
+    <div class="input-group input-group-sm" style="max-width:380px;">
+        <input type="text" name="q" class="form-control" placeholder="Works order, material code or description…" value="{{ q }}">
+        <button class="btn btn-outline-secondary" type="submit"><i class="bi bi-search"></i></button>
+        {% if q or f_dept %}<a href="{{ url_for('admin.data_main_material') }}" class="btn btn-outline-danger"><i class="bi bi-x"></i></a>{% endif %}
+    </div>
+    <select name="dept" class="form-select form-select-sm" style="max-width:220px;" onchange="this.form.submit()">
+        <option value="">All departments</option>
+        {% for d in depts %}
+        <option value="{{ d }}" {{ 'selected' if f_dept == d else '' }}>{{ d }}</option>
+        {% endfor %}
+    </select>
+</form>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Works Order</th>
+                        <th>Department</th>
+                        <th>Material Code</th>
+                        <th>Description</th>
+                        <th class="text-end">Qty for Order</th>
+                        <th class="text-end">Qty Issued</th>
+                        <th>Due Date</th>
+                        <th class="text-center">Complete</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows.items %}
+                    <tr>
+                        <td class="font-monospace small">{{ row.works_order or '—' }}</td>
+                        <td class="small">{{ row.department or '—' }}</td>
+                        <td class="font-monospace small">{{ row.material_code or '—' }}</td>
+                        <td class="small">{{ row.material_description or '—' }}</td>
+                        <td class="text-end small">{{ row.qty_for_order }}</td>
+                        <td class="text-end small">{{ row.qty_issued or 0 }}</td>
+                        <td class="small">{{ row.due_date.strftime('%d %b %Y') if row.due_date else '—' }}</td>
+                        <td class="text-center">
+                            {% if row.complete == 'Y' %}
+                            <span class="badge bg-success">Y</span>
+                            {% else %}
+                            <span class="text-muted small">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-center py-4 text-muted">No records found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if rows.pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination pagination-sm justify-content-center">
+        {% for p in rows.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+            {% if p %}
+                <li class="page-item {{ 'active' if p == rows.page else '' }}">
+                    <a class="page-link" href="{{ url_for('admin.data_main_material', page=p, q=q, dept=f_dept) }}">{{ p }}</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+        {% endfor %}
+    </ul>
+</nav>
+{% endif %}
+
+{% endblock %}

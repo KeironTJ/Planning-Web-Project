@@ -151,6 +151,7 @@ def get_shortage_report(
     search: Optional[str] = None,
     shortages_only: bool = True,
     due_before: Optional[date] = None,
+    due_from: Optional[date] = None,
 ) -> dict:
     """
     Compute material shortages using cumulative MRP netting.
@@ -288,6 +289,8 @@ def get_shortage_report(
     rows: list[ShortageRow] = []
     for r in all_netted:
         if dept_filter and r["department"] != dept_filter:
+            continue
+        if due_from and r["due_date"] and r["due_date"] < due_from:
             continue
         if due_before and r["due_date"] and r["due_date"] > due_before:
             continue
@@ -787,6 +790,85 @@ def get_mrp_pegging(
         "material_count": len(materials),
         "stock_imported": bool(stock_map),
     }
+
+
+# ---------------------------------------------------------------------------
+# Weekly availability summary (for dashboard)
+# ---------------------------------------------------------------------------
+
+def get_weekly_availability_summary(weeks_ahead: int = 12) -> list[dict]:
+    """
+    Aggregate netted shortage data by ISO week for the materials dashboard chart.
+
+    Runs the full cumulative netting (same logic as get_shortage_report) then
+    groups by due_date ISO week.  Only includes weeks from this week onward up
+    to `weeks_ahead` weeks out, plus any overdue (past) weeks that still have
+    open requirements.
+
+    Each returned dict:
+        iso_key       — 'YYYY-WNN' sortable string
+        week_label    — 'Wnn  dd Mon' display string
+        week_start    — Monday date of that week
+        total_lines   — total requirement lines in the week
+        ok_lines      — lines with zero shortage
+        shortage_lines — lines with shortage > 0
+        shortage_pct  — shortage_lines / total_lines * 100
+        total_shortage_qty — sum of shortage Decimals
+    """
+    from datetime import timedelta
+
+    # Run full netting with no display filters
+    report = get_shortage_report(source="all", shortages_only=False)
+    rows = report["rows"]
+
+    today = date.today()
+    # ISO week of today
+    today_iso = today.isocalendar()
+    cutoff = today + timedelta(weeks=weeks_ahead)
+
+    # Group by ISO year+week
+    buckets: dict[str, dict] = defaultdict(lambda: {
+        "total_lines": 0,
+        "ok_lines": 0,
+        "shortage_lines": 0,
+        "total_shortage_qty": Decimal(0),
+        "week_start": None,
+        "week_label": "",
+        "iso_key": "",
+    })
+
+    for row in rows:
+        d = row.due_date
+        if d is None:
+            continue
+        if d > cutoff:
+            continue  # beyond our horizon
+
+        iso_y, iso_w, _ = d.isocalendar()
+        key = f"{iso_y}-W{iso_w:02d}"
+
+        # Monday of that week
+        week_start = date.fromisocalendar(iso_y, iso_w, 1)
+
+        b = buckets[key]
+        b["iso_key"] = key
+        b["week_start"] = week_start
+        b["week_label"] = f"W{iso_w:02d}  {week_start.strftime('%d %b')}"
+        b["total_lines"] += 1
+
+        if row.shortage > 0:
+            b["shortage_lines"] += 1
+            b["total_shortage_qty"] += row.shortage
+        else:
+            b["ok_lines"] += 1
+
+    result = sorted(buckets.values(), key=lambda b: b["iso_key"])
+
+    for b in result:
+        total = b["total_lines"]
+        b["shortage_pct"] = round(b["shortage_lines"] / total * 100, 1) if total else 0.0
+
+    return result
 
 
 def _has_reqs(source: str) -> bool:

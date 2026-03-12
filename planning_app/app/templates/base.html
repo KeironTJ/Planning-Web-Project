@@ -24,6 +24,7 @@
 
 <body>
     {% include 'components/navbar.html' %}
+    {% include 'components/quick_actions.html' %}
 
     <div class="container-fluid">
         <div class="row">
@@ -65,5 +66,137 @@
     <!-- App JS -->
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
     {% block extra_js %}{% endblock %}
+
+    {% if current_user.is_authenticated and current_user.is_admin %}
+    <!-- ERP Refresh Modal (global — available from any page) -->
+    <div class="modal fade" id="erpRefreshModal" tabindex="-1"
+         data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="erpRefreshModalLabel">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="erpRefreshModalLabel">
+                        <i class="bi bi-database-up me-2"></i>ERP Data Refresh
+                    </h5>
+                </div>
+                <div class="modal-body">
+                    <div id="erp-steps-container" class="mb-2">
+                        <div class="text-center py-4 text-muted">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            Starting&hellip;
+                        </div>
+                    </div>
+                    <div id="erp-refresh-result"></div>
+                </div>
+                <div class="modal-footer">
+                    <a href="{{ url_for('admin.import_list') }}" class="btn btn-outline-secondary btn-sm me-auto">
+                        <i class="bi bi-clock-history me-1"></i>View Import History
+                    </a>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+    (function () {
+        let _pollInterval = null;
+
+        const SECTIONS = [
+            { title: "Connection",        indices: [0] },
+            { title: "ERP → Planning DB", indices: [1, 2, 3, 4, 5] },
+        ];
+
+        function stepIcon(status) {
+            switch (status) {
+                case "running": return '<span class="spinner-border spinner-border-sm text-primary" role="status" style="width:1rem;height:1rem;vertical-align:middle;"></span>';
+                case "success": return '<i class="bi bi-check-circle-fill text-success"></i>';
+                case "failed":  return '<i class="bi bi-x-circle-fill text-danger"></i>';
+                case "skipped": return '<i class="bi bi-dash-circle text-secondary"></i>';
+                default:        return '<i class="bi bi-circle text-secondary"></i>';
+            }
+        }
+
+        function renderSteps(steps) {
+            let html = "";
+            for (const section of SECTIONS) {
+                html += `<p class="fw-semibold small text-uppercase text-muted mb-1 mt-3">${section.title}</p>`;
+                html += '<ul class="list-unstyled ps-1 mb-0">';
+                for (const idx of section.indices) {
+                    const step = steps[idx];
+                    if (!step) continue;
+                    const msgHtml = step.message
+                        ? `<span class="text-muted small ms-2">— ${step.message}</span>`
+                        : "";
+                    html += `<li class="d-flex align-items-center gap-2 py-1 border-bottom border-light">
+                        <span style="min-width:1.1rem;text-align:center;">${stepIcon(step.status)}</span>
+                        <span>${step.label}${msgHtml}</span>
+                    </li>`;
+                }
+                html += "</ul>";
+            }
+            document.getElementById("erp-steps-container").innerHTML = html;
+        }
+
+        function showResult(status) {
+            const el = document.getElementById("erp-refresh-result");
+            if (status === "success") {
+                el.innerHTML = '<div class="alert alert-success mt-3 mb-0"><i class="bi bi-check-circle-fill me-2"></i>All datasets refreshed successfully.</div>';
+            } else if (status === "partial") {
+                el.innerHTML = '<div class="alert alert-warning mt-3 mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>Completed with some errors — check the steps above.</div>';
+            } else {
+                el.innerHTML = '<div class="alert alert-danger mt-3 mb-0"><i class="bi bi-x-circle-fill me-2"></i>Refresh failed — check the steps above for details.</div>';
+            }
+        }
+
+        function poll(taskId, btn) {
+            fetch(`/admin/erp-refresh/status/${taskId}`)
+                .then(r => r.json())
+                .then(task => {
+                    renderSteps(task.steps);
+                    if (task.status !== "running") {
+                        clearInterval(_pollInterval);
+                        _pollInterval = null;
+                        btn.disabled = false;
+                        showResult(task.status);
+                    }
+                })
+                .catch(err => console.error("ERP refresh poll error:", err));
+        }
+
+        window.startErpRefresh = function () {
+            const btn = document.getElementById("erp-refresh-btn");
+            if (btn) btn.disabled = true;
+
+            document.getElementById("erp-steps-container").innerHTML =
+                '<div class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2" role="status"></div>Starting&hellip;</div>';
+            document.getElementById("erp-refresh-result").innerHTML = "";
+
+            const modal = new bootstrap.Modal(document.getElementById("erpRefreshModal"));
+            modal.show();
+
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+            fetch("/admin/erp-refresh/start", {
+                method: "POST",
+                headers: { "X-CSRFToken": csrfToken, "Content-Type": "application/json" },
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.task_id) {
+                    _pollInterval = setInterval(() => poll(data.task_id, btn), 1500);
+                } else {
+                    document.getElementById("erp-refresh-result").innerHTML =
+                        '<div class="alert alert-danger mt-3 mb-0">Failed to start refresh.</div>';
+                    if (btn) btn.disabled = false;
+                }
+            })
+            .catch(err => {
+                document.getElementById("erp-refresh-result").innerHTML =
+                    `<div class="alert alert-danger mt-3 mb-0">Error: ${err}</div>`;
+                if (btn) btn.disabled = false;
+            });
+        };
+    })();
+    </script>
+    {% endif %}
 </body>
 </html>

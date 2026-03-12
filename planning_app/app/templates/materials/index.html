@@ -85,6 +85,61 @@
     </div>
 </div>
 
+<!-- Weekly availability summary -->
+{% if weekly %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">Material Availability by Week</span>
+        <span class="text-muted small">Next 12 weeks · requirement lines</span>
+    </div>
+    <div class="card-body">
+        <canvas id="weeklyAvailChart" height="90"></canvas>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Week</th>
+                        <th class="text-end">Total Lines</th>
+                        <th class="text-end text-success">Covered</th>
+                        <th class="text-end text-danger">Short</th>
+                        <th style="min-width:160px;">Coverage</th>
+                        <th class="text-end">Shortage Qty</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for w in weekly %}
+                    {% set week_url = url_for('materials.shortage', due_from=w.week_start.strftime('%Y-%m-%d'), due_before=(w.week_start + timedelta(days=6)).strftime('%Y-%m-%d'), shortages_only='0') %}
+                    <tr class="cursor-pointer {{ 'table-danger' if w.shortage_pct > 50 else ('table-warning' if w.shortage_pct > 0 else '') }}"
+                        onclick="window.location='{{ week_url }}'" style="cursor:pointer;">
+                        <td class="fw-semibold small">{{ w.week_label }}</td>
+                        <td class="text-end small">{{ w.total_lines }}</td>
+                        <td class="text-end small text-success fw-semibold">{{ w.ok_lines }}</td>
+                        <td class="text-end small text-danger fw-semibold">{{ w.shortage_lines or '—' }}</td>
+                        <td>
+                            {% if w.total_lines %}
+                            <div class="progress" style="height:8px;">
+                                <div class="progress-bar bg-success" style="width:{{ 100 - w.shortage_pct }}%"></div>
+                                <div class="progress-bar bg-danger" style="width:{{ w.shortage_pct }}%"></div>
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td class="text-end small text-muted">
+                            {{ w.total_shortage_qty | round(0) if w.total_shortage_qty else '—' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Data freshness notice -->
 {% if summary.last_stock_import %}
 <div class="alert alert-light border small">
@@ -99,5 +154,59 @@
     No stock data imported yet.
     <a href="{{ url_for('admin.import_upload') }}" class="alert-link">Upload StockOnHand_HIDE.csv</a> to get started.
 </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if weekly %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const labels = {{ weekly | map(attribute='week_label') | list | tojson }};
+    const ok     = {{ weekly | map(attribute='ok_lines')       | list | tojson }};
+    const short  = {{ weekly | map(attribute='shortage_lines') | list | tojson }};
+
+    const ctx = document.getElementById('weeklyAvailChart');
+    if (!ctx) return;
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Covered',
+                    data: ok,
+                    backgroundColor: 'rgba(25,135,84,0.75)',
+                    borderRadius: 3,
+                },
+                {
+                    label: 'Short',
+                    data: short,
+                    backgroundColor: 'rgba(220,53,69,0.75)',
+                    borderRadius: 3,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        footer: (items) => {
+                            const total = items.reduce((s, i) => s + i.raw, 0);
+                            return `Total: ${total}`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: { stacked: true, grid: { display: false } },
+                y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Requirement lines' } },
+            },
+        },
+    });
+});
+</script>
 {% endif %}
 {% endblock %}

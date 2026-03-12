@@ -18,6 +18,9 @@ env/
 .env.local          # keep .env.example, ignore actual secrets
 .env                # contains real secrets — never commit this
 
+# ── ERP config (credentials — use .env instead) ──────────────────────────────
+config/config.json
+
 # ── Database ─────────────────────────────────────────────────────────────────
 *.db
 *.sqlite

@@ -184,14 +184,14 @@ class OobImporter:
                         rows_inserted += 1
 
             # --- 4. Mark absent operations as closed ---
-            # Find all operations that are NOT completed/closed and NOT in today's CSV
-            closeable_statuses = [
-                WorksOrderOperation.STATUS_NOT_STARTED,
-                WorksOrderOperation.STATUS_STARTED,
-                WorksOrderOperation.STATUS_WIP,
+            # OOB is the authoritative source — if absent, the order has shipped/cancelled in ERP.
+            # Close everything that isn't already in a terminal state.
+            terminal_statuses = [
+                WorksOrderOperation.STATUS_COMPLETED,
+                WorksOrderOperation.STATUS_CLOSED,
             ]
             open_ops = WorksOrderOperation.query.filter(
-                WorksOrderOperation.status.in_(closeable_statuses)
+                WorksOrderOperation.status.notin_(terminal_statuses)
             ).all()
 
             for op in open_ops:
