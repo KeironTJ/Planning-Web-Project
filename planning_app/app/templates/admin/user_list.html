@@ -1,6 +1,12 @@
 {% extends 'base.html' %}
 {% from 'components/pagination.html' import render_pagination %}
 
+{% block page_actions %}
+<a href="{{ url_for('admin.user_create') }}" class="btn btn-sm btn-primary">
+    <i class="bi bi-person-plus me-1"></i>Create User
+</a>
+{% endblock %}
+
 {% block content %}
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">

@@ -29,7 +29,7 @@
         color: inherit;
     }
     .smv-cell:hover { background: var(--bs-primary-bg-subtle); }
-.smv-cell.conf-timed     { color: #146c43; font-weight: 600; }
+    .smv-cell.conf-timed     { color: #146c43; font-weight: 600; }
     .smv-cell.conf-most      { color: #084298; font-weight: 600; }
     .smv-cell.conf-estimated { color: inherit; }
     .smv-cell.empty          { color: #ccc; cursor: default; }
@@ -91,7 +91,7 @@
             <div class="col-auto d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm">Filter</button>
                 {% if any_filter %}
-                <a href="{{ url_for('admin.smv_list') }}" class="btn btn-outline-secondary btn-sm">
+                <a href="{{ url_for('capacity.smv_list') }}" class="btn btn-outline-secondary btn-sm">
                     <i class="bi bi-x-circle me-1"></i>Clear
                 </a>
                 {% endif %}
@@ -182,7 +182,7 @@
                     <td colspan="{{ departments|length + 4 }}" class="text-center py-4 text-muted">
                         No SMV records found.
                         {% if any_filter %}
-                        <a href="{{ url_for('admin.smv_list') }}">Clear filters</a>
+                        <a href="{{ url_for('capacity.smv_list') }}">Clear filters</a>
                         {% endif %}
                     </td>
                 </tr>
@@ -197,19 +197,19 @@
 <nav class="mt-3">
     <ul class="pagination pagination-sm justify-content-center">
         <li class="page-item {% if not has_prev %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('admin.smv_list', page=page-1, q=search, timing_code=f_timing, confidence=f_conf, dept_id=f_dept_id or '') }}">&laquo;</a>
+            <a class="page-link" href="{{ url_for('capacity.smv_list', page=page-1, q=search, timing_code=f_timing, confidence=f_conf, dept_id=f_dept_id or '') }}">&laquo;</a>
         </li>
         {% for p in range(1, total_pages + 1) %}
             {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
             <li class="page-item {% if p == page %}active{% endif %}">
-                <a class="page-link" href="{{ url_for('admin.smv_list', page=p, q=search, timing_code=f_timing, confidence=f_conf, dept_id=f_dept_id or '') }}">{{ p }}</a>
+                <a class="page-link" href="{{ url_for('capacity.smv_list', page=p, q=search, timing_code=f_timing, confidence=f_conf, dept_id=f_dept_id or '') }}">{{ p }}</a>
             </li>
             {% elif p == page - 3 or p == page + 3 %}
             <li class="page-item disabled"><span class="page-link">…</span></li>
             {% endif %}
         {% endfor %}
         <li class="page-item {% if not has_next %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('admin.smv_list', page=page+1, q=search, timing_code=f_timing, confidence=f_conf, dept_id=f_dept_id or '') }}">&raquo;</a>
+            <a class="page-link" href="{{ url_for('capacity.smv_list', page=page+1, q=search, timing_code=f_timing, confidence=f_conf, dept_id=f_dept_id or '') }}">&raquo;</a>
         </li>
     </ul>
 </nav>
@@ -259,30 +259,23 @@
 {% block extra_js %}
 <script>
 (function () {
-    function initSmvModal() {
-        var modalEl = document.getElementById('editModal');
-        if (!modalEl) { console.error('SMV: editModal element not found'); return; }
+    var modalEl = document.getElementById('editModal');
+    if (!modalEl) return;
 
-        modalEl.addEventListener('show.bs.modal', function (e) {
-            var btn = e.relatedTarget;
-            if (!btn) { console.error('SMV: no relatedTarget on show.bs.modal'); return; }
-            document.getElementById('editModalComponent').textContent = btn.dataset.component;
-            document.getElementById('editModalDept').textContent      = btn.dataset.department;
-            document.getElementById('editSmvMinutes').value           = btn.dataset.smvMinutes;
-            document.getElementById('editConfidence').value           = btn.dataset.confidence;
-            document.getElementById('editForm').action                = '/admin/smv/' + btn.dataset.smvId + '/edit';
+    modalEl.addEventListener('show.bs.modal', function (e) {
+        var btn = e.relatedTarget;
+        if (!btn) return;
+        document.getElementById('editModalComponent').textContent = btn.dataset.component;
+        document.getElementById('editModalDept').textContent      = btn.dataset.department;
+        document.getElementById('editSmvMinutes').value           = btn.dataset.smvMinutes;
+        document.getElementById('editConfidence').value           = btn.dataset.confidence;
+        document.getElementById('editForm').action                = '/capacity/smv/' + btn.dataset.smvId + '/edit';
 
-            var el = document.getElementById('editLastModified');
-            el.textContent = btn.dataset.modifiedAt
-                ? 'Last updated ' + btn.dataset.modifiedAt + (btn.dataset.modifiedBy ? ' by ' + btn.dataset.modifiedBy : '')
-                : 'No manual edits recorded.';
-        });
-
-        console.log('SMV: modal listener attached, buttons found:', document.querySelectorAll('[data-bs-toggle="modal"]').length);
-    }
-
-    // Try immediately (script runs after body is parsed)
-    initSmvModal();
+        var el = document.getElementById('editLastModified');
+        el.textContent = btn.dataset.modifiedAt
+            ? 'Last updated ' + btn.dataset.modifiedAt + (btn.dataset.modifiedBy ? ' by ' + btn.dataset.modifiedBy : '')
+            : 'No manual edits recorded.';
+    });
 })();
 </script>
 {% endblock %}

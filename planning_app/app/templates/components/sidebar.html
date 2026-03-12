@@ -59,11 +59,15 @@
                     <i class="bi bi-calendar-check me-2"></i>Schedule Orders
                 </a>
             </li>
-            {% endif %}
-            {% if current_user.is_admin %}
             <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'admin.smv_list' or request.endpoint == 'admin.smv_edit' %}active{% endif %}"
-                   href="{{ url_for('admin.smv_list') }}">
+                <a class="nav-link {% if request.endpoint == 'capacity.labour_plan_list' or request.endpoint == 'capacity.labour_plan_save' %}active{% endif %}"
+                   href="{{ url_for('capacity.labour_plan_list') }}">
+                    <i class="bi bi-people me-2"></i>Labour Plan
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'capacity.smv_list' or request.endpoint == 'capacity.smv_edit' %}active{% endif %}"
+                   href="{{ url_for('capacity.smv_list') }}">
                     <i class="bi bi-stopwatch me-2"></i>SMV Matrix
                 </a>
             </li>
@@ -137,13 +141,26 @@
             {% endfor %}
             {% endif %}
 
+            {# ── Data Management — manage_imports (non-admin) ──────── #}
+            {% if current_user.has_permission('manage_imports') and not current_user.is_admin %}
+            <li class="mt-3">
+                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">Data Management</h6>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'admin.import_list' or request.endpoint == 'admin.import_upload' or request.endpoint == 'admin.import_detail' %}active{% endif %}"
+                   href="{{ url_for('admin.import_list') }}">
+                    <i class="bi bi-cloud-upload me-2"></i>CSV Imports
+                </a>
+            </li>
+            {% endif %}
+
             {# ── Administration ────────────────────────────────────── #}
             {% if current_user.is_admin %}
             <li class="mt-3">
                 <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">Administration</h6>
             </li>
             <li class="nav-item">
-                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.') and request.endpoint != 'admin.dept_list' %}active{% endif %}"
+                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.') and request.endpoint not in ('admin.dept_list', 'admin.dept_edit', 'admin.import_list', 'admin.import_upload', 'admin.import_detail') %}active{% endif %}"
                    href="{{ url_for('admin.dashboard') }}">
                     <i class="bi bi-speedometer2 me-2"></i>Dashboard
                 </a>

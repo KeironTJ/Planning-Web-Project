@@ -18,9 +18,10 @@ class CapacityBucket(db.Model):
     """
     Available capacity for a Department on a specific calendar day.
 
-    One row per department per day, imported from LabourPlan_HIDE.csv.
+    One row per department per day. Populated via CSV import (LabourPlan_HIDE.csv)
+    or edited directly through Admin → Labour Plan.
     The `manually_overridden` flag is set True when a planner edits a
-    bucket after import, so re-imports do not overwrite manual adjustments.
+    bucket directly, so re-imports do not overwrite manual adjustments.
     """
 
     __tablename__ = "capacity_buckets"

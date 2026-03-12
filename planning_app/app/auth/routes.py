@@ -38,7 +38,7 @@ def login():
     if form.validate_on_submit():
         try:
             user = AuthService.login(
-                email=form.email.data,
+                login=form.login.data,
                 password=form.password.data,
                 ip=request.remote_addr,
             )

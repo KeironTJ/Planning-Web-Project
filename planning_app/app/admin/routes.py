@@ -16,9 +16,9 @@ from .forms import ImportUploadForm, DeptHoursForm
 from app.auth.models import User, Role, AuditLog
 from app.auth.services import RoleService
 from app.extensions import db
-from app.core.decorators import admin_required
+from app.core.decorators import admin_required, permission_required
 from app.core.exceptions import NotFoundError
-from app.orders.models import Department, ImportBatch, SmvMatrix
+from app.orders.models import Department, ImportBatch
 
 
 @admin_bp.route("/")
@@ -103,6 +103,67 @@ def user_detail(user_id: int):
 # ---------------------------------------------------------------------------
 # Role Management
 # ---------------------------------------------------------------------------
+
+@admin_bp.route("/users/create", methods=["GET", "POST"])
+@login_required
+@admin_required
+def user_create():
+    all_roles = Role.query.order_by(Role.name).all()
+
+    if request.method == "POST":
+        username   = request.form.get("username", "").strip()
+        email      = request.form.get("email", "").strip()
+        password   = request.form.get("password", "")
+        first_name = request.form.get("first_name", "").strip() or None
+        last_name  = request.form.get("last_name", "").strip() or None
+        department = request.form.get("department", "").strip() or None
+        role_ids   = request.form.getlist("role_ids", type=int)
+
+        errors = []
+        if not username:
+            errors.append("Username is required.")
+        elif User.query.filter_by(username=username).first():
+            errors.append(f"Username '{username}' is already taken.")
+        if not email:
+            errors.append("Email is required.")
+        elif User.query.filter_by(email=email).first():
+            errors.append(f"Email '{email}' is already registered.")
+        if not password:
+            errors.append("Password is required.")
+
+        if errors:
+            for e in errors:
+                flash(e, "danger")
+            return render_template(
+                "admin/user_create.html",
+                title="Create User",
+                all_roles=all_roles,
+                form_data=request.form,
+            )
+
+        user = User(
+            username=username,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            department=department,
+            is_active=True,
+        )
+        user.set_password(password)
+        for role in Role.query.filter(Role.id.in_(role_ids)).all():
+            user.roles.append(role)
+        db.session.add(user)
+        db.session.commit()
+        flash(f"User '{username}' created successfully.", "success")
+        return redirect(url_for("admin.user_detail", user_id=user.id))
+
+    return render_template(
+        "admin/user_create.html",
+        title="Create User",
+        all_roles=all_roles,
+        form_data={},
+    )
+
 
 @admin_bp.route("/roles")
 @login_required
@@ -235,7 +296,7 @@ def dept_edit(dept_id: int):
 
 @admin_bp.route("/imports")
 @login_required
-@admin_required
+@permission_required("manage_imports")
 def import_list():
     page = request.args.get("page", 1, type=int)
     import_type = request.args.get("type", "")
@@ -253,7 +314,7 @@ def import_list():
 
 @admin_bp.route("/imports/<int:batch_id>")
 @login_required
-@admin_required
+@permission_required("manage_imports")
 def import_detail(batch_id: int):
     batch = ImportBatch.query.get_or_404(batch_id)
     return render_template(
@@ -265,7 +326,7 @@ def import_detail(batch_id: int):
 
 @admin_bp.route("/imports/upload", methods=["GET", "POST"])
 @login_required
-@admin_required
+@permission_required("manage_imports")
 def import_upload():
     form = ImportUploadForm()
 
@@ -320,147 +381,12 @@ def _run_importer(import_type: str, stream, filename: str, user_id: int) -> Impo
 
 
 # ---------------------------------------------------------------------------
-# SMV Management
-# ---------------------------------------------------------------------------
-
-@admin_bp.route("/smv")
-@login_required
-@admin_required
-def smv_list():
-    from math import ceil
-
-    page       = request.args.get("page", 1, type=int)
-    search     = request.args.get("q", "").strip()
-    f_timing   = request.args.get("timing_code", "").strip()
-    f_conf     = request.args.get("confidence", "").strip()
-    f_dept_id  = request.args.get("dept_id", 0, type=int)
-
-    # Column headers — active departments ordered by flow
-    departments = (
-        Department.query
-        .filter_by(is_active=True)
-        .order_by(Department.flow_order.asc().nullslast(), Department.name.asc())
-        .all()
-    )
-
-    # Distinct timing codes for the filter dropdown
-    timing_codes = [
-        r[0] for r in
-        db.session.query(SmvMatrix.timing_code)
-        .filter(SmvMatrix.timing_code.isnot(None))
-        .distinct()
-        .order_by(SmvMatrix.timing_code)
-        .all()
-    ]
-
-    # --- Build the set of matching component_ids via filters ---
-    cid_q = db.session.query(SmvMatrix.component_id).distinct()
-
-    if search:
-        like = f"%{search}%"
-        cid_q = cid_q.filter(db.or_(
-            SmvMatrix.component_id.ilike(like),
-            SmvMatrix.description.ilike(like),
-            SmvMatrix.timing_code.ilike(like),
-        ))
-    if f_timing:
-        cid_q = cid_q.filter(SmvMatrix.timing_code == f_timing)
-    if f_conf:
-        cid_q = cid_q.filter(SmvMatrix.confidence == f_conf)
-    if f_dept_id:
-        cid_q = cid_q.filter(
-            SmvMatrix.department_id == f_dept_id,
-            SmvMatrix.smv_minutes > 0,
-        )
-
-    matching_cids = sorted([r[0] for r in cid_q.all()])
-
-    # --- Fetch ALL entries for matching components (full matrix rows) ---
-    all_entries = (
-        SmvMatrix.query
-        .filter(SmvMatrix.component_id.in_(matching_cids))
-        .order_by(SmvMatrix.component_id.asc())
-        .all()
-    ) if matching_cids else []
-
-    # Build pivot
-    pivot = {}
-    for entry in all_entries:
-        cid = entry.component_id
-        if cid not in pivot:
-            pivot[cid] = {
-                "component_id": cid,
-                "timing_code": entry.timing_code,
-                "description": entry.description,
-                "cells": {},
-            }
-        pivot[cid]["cells"][entry.department_id] = entry
-
-    _conf_rank = {
-        SmvMatrix.CONFIDENCE_ESTIMATED: 0,
-        SmvMatrix.CONFIDENCE_TIMED:     1,
-        SmvMatrix.CONFIDENCE_MOST:      2,
-    }
-    for row in pivot.values():
-        row["ops_count"] = sum(
-            1 for e in row["cells"].values()
-            if e.smv_minutes is not None and e.smv_minutes > 0
-        )
-        # Row confidence = lowest (least certain) across all cells with smv > 0
-        active_cells = [e for e in row["cells"].values() if e.smv_minutes and e.smv_minutes > 0]
-        if active_cells:
-            row["confidence"] = min(active_cells, key=lambda e: _conf_rank.get(e.confidence, 0)).confidence
-        else:
-            row["confidence"] = None
-
-        # Most recent manual edit across all cells
-        edited_cells = [e for e in row["cells"].values() if e.last_modified_at]
-        if edited_cells:
-            latest = max(edited_cells, key=lambda e: e.last_modified_at)
-            row["last_modified_at"] = latest.last_modified_at
-            row["last_modified_by"] = latest.last_modified_by
-        else:
-            row["last_modified_at"] = None
-            row["last_modified_by"] = None
-
-    # Paginate on sorted component_ids
-    total      = len(matching_cids)
-    per_page   = 50
-    start      = (page - 1) * per_page
-    total_pages = ceil(total / per_page) if total else 1
-    rows        = [pivot[cid] for cid in matching_cids[start : start + per_page] if cid in pivot]
-
-    return render_template(
-        "admin/smv_list.html",
-        title="SMV Matrix",
-        rows=rows,
-        departments=departments,
-        timing_codes=timing_codes,
-        search=search,
-        f_timing=f_timing,
-        f_conf=f_conf,
-        f_dept_id=f_dept_id,
-        page=page,
-        total=total,
-        total_pages=total_pages,
-        per_page=per_page,
-        has_prev=page > 1,
-        has_next=page < total_pages,
-        confidence_choices=[
-            (SmvMatrix.CONFIDENCE_ESTIMATED, "Estimated"),
-            (SmvMatrix.CONFIDENCE_TIMED,     "Timed Study"),
-            (SmvMatrix.CONFIDENCE_MOST,      "MOST Study"),
-        ],
-    )
-
-
-# ---------------------------------------------------------------------------
 # ERP Data Refresh
 # ---------------------------------------------------------------------------
 
 @admin_bp.route("/erp-refresh/start", methods=["POST"])
 @login_required
-@admin_required
+@permission_required("manage_imports")
 def erp_refresh_start():
     """Start a background ERP export + import cycle. Returns {task_id}."""
     from flask import current_app
@@ -472,7 +398,7 @@ def erp_refresh_start():
 
 @admin_bp.route("/erp-refresh/status/<task_id>")
 @login_required
-@admin_required
+@permission_required("manage_imports")
 def erp_refresh_status(task_id: str):
     """Poll the status of a running or completed ERP refresh task."""
     from app.admin.erp_refresh import get_task
@@ -489,7 +415,7 @@ def erp_refresh_status(task_id: str):
 
 @admin_bp.route("/data/main-material")
 @login_required
-@admin_required
+@permission_required("view_materials")
 def data_main_material():
     from app.materials.models import MaterialRequirementMain
     q = request.args.get("q", "").strip()
@@ -520,7 +446,7 @@ def data_main_material():
 
 @admin_bp.route("/data/after-sales")
 @login_required
-@admin_required
+@permission_required("view_materials")
 def data_after_sales():
     from app.materials.models import MaterialRequirementAfterSales
     q = request.args.get("q", "").strip()
@@ -543,38 +469,3 @@ def data_after_sales():
         last_imported=last.imported_at if last else None,
     )
 
-
-@admin_bp.route("/smv/<int:smv_id>/edit", methods=["POST"])
-@login_required
-@admin_required
-def smv_edit(smv_id: int):
-    from decimal import Decimal, InvalidOperation
-
-    entry = SmvMatrix.query.get_or_404(smv_id)
-
-    smv_minutes = request.form.get("smv_minutes", "").strip()
-    confidence  = request.form.get("confidence", "").strip()
-
-    if smv_minutes:
-        try:
-            entry.smv_minutes = Decimal(smv_minutes)
-        except InvalidOperation:
-            flash("Invalid SMV value — must be a number.", "danger")
-            return redirect(request.referrer or url_for("admin.smv_list"))
-    else:
-        entry.smv_minutes = None
-
-    valid_confidences = {
-        SmvMatrix.CONFIDENCE_ESTIMATED,
-        SmvMatrix.CONFIDENCE_TIMED,
-        SmvMatrix.CONFIDENCE_MOST,
-    }
-    if confidence in valid_confidences:
-        entry.confidence = confidence
-
-    entry.last_modified_at = datetime.now(timezone.utc)
-    entry.last_modified_by_id = current_user.id
-
-    db.session.commit()
-    flash(f"SMV updated for {entry.component_id} / {entry.department.name}.", "success")
-    return redirect(request.referrer or url_for("admin.smv_list"))

@@ -69,23 +69,27 @@ class AuthService:
         return user
 
     @staticmethod
-    def login(email: str, password: str, ip: str = "") -> User:
+    def login(login: str, password: str, ip: str = "") -> User:
         """
-        Authenticate a user by email and password.
+        Authenticate a user by username or email and password.
 
         Implements account lockout after repeated failures to mitigate
         brute-force attacks.
         """
-        identifier = ip or email
+        identifier = ip or login
         if is_locked_out(identifier):
             raise AuthorisationError(
                 "Too many failed login attempts. Please try again in 15 minutes."
             )
 
-        user = User.query.filter_by(email=email.lower().strip()).first()
+        login = login.strip()
+        user = (
+            User.query.filter_by(email=login.lower()).first()
+            or User.query.filter_by(username=login).first()
+        )
         if not user or not user.check_password(password):
             record_failed_login(identifier)
-            raise AuthorisationError("Invalid email or password.")
+            raise AuthorisationError("Invalid username/email or password.")
 
         if not user.is_active:
             raise AuthorisationError("Your account has been deactivated.")
@@ -220,6 +224,27 @@ class RoleService:
                 "description": "Read-only access",
                 "permissions": [
                     "view_orders", "view_capacity", "view_materials",
+                ],
+            },
+            "production_operative": {
+                "description": "Shop-floor operative — view orders and update operation status",
+                "permissions": [
+                    "view_orders", "update_order_status",
+                ],
+            },
+            "production_supervisor": {
+                "description": "Section supervisor — plan dates, view capacity and materials",
+                "permissions": [
+                    "view_orders", "update_order_status", "manage_orders",
+                    "view_capacity", "view_materials",
+                ],
+            },
+            "production_manager": {
+                "description": "Production manager — full production visibility including capacity override",
+                "permissions": [
+                    "view_orders", "update_order_status", "manage_orders",
+                    "view_capacity", "override_capacity",
+                    "view_materials",
                 ],
             },
         }

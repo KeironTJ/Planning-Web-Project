@@ -18,12 +18,12 @@ from .models import User
 
 
 class LoginForm(FlaskForm):
-    """Login with email + password."""
+    """Login with username or email + password."""
 
-    email = StringField(
-        "Email",
-        validators=[DataRequired(), Email()],
-        render_kw={"placeholder": "you@company.com", "autocomplete": "email"},
+    login = StringField(
+        "Username or Email",
+        validators=[DataRequired()],
+        render_kw={"placeholder": "username or email", "autocomplete": "username"},
     )
     password = PasswordField(
         "Password",

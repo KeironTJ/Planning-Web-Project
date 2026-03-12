@@ -39,6 +39,42 @@ def create_admin(username, email, password):
         click.echo(f"Admin user '{username}' created successfully.")
 
 
+@app.cli.command("create-user")
+@click.option("--username", prompt=True, help="Username")
+@click.option("--email", prompt=True, help="Email address")
+@click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True)
+@click.option("--role", "role_name", prompt=True, default="viewer",
+              help="Role to assign (e.g. planner, viewer, production_manager)")
+@click.option("--first-name", default="", help="First name (optional)")
+@click.option("--last-name", default="", help="Last name (optional)")
+def create_user(username, email, password, role_name, first_name, last_name):
+    """Create a new application user and assign a role."""
+    with app.app_context():
+        if User.query.filter_by(username=username).first():
+            click.echo(f"Error: Username '{username}' already exists.")
+            return
+        if User.query.filter_by(email=email).first():
+            click.echo(f"Error: Email '{email}' already exists.")
+            return
+        role = Role.query.filter_by(name=role_name).first()
+        if not role:
+            available = [r.name for r in Role.query.order_by(Role.name).all()]
+            click.echo(f"Error: Role '{role_name}' not found. Available: {', '.join(available)}")
+            return
+        user = User(
+            username=username,
+            email=email,
+            first_name=first_name or None,
+            last_name=last_name or None,
+            is_active=True,
+        )
+        user.set_password(password)
+        user.roles.append(role)
+        db.session.add(user)
+        db.session.commit()
+        click.echo(f"User '{username}' created with role '{role_name}'.")
+
+
 @app.cli.command("seed-db")
 def seed_db():
     """Seed the database with default roles, permissions, and sample data."""

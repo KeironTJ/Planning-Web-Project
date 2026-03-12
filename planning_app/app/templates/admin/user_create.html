@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+
+{% block page_actions %}
+<a href="{{ url_for('admin.user_list') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back to Users
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <form method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <h6 class="text-muted text-uppercase small mb-3">Account</h6>
+
+                    <div class="mb-3">
+                        <label class="form-label">Username <span class="text-danger">*</span></label>
+                        <input type="text" name="username" class="form-control"
+                               value="{{ form_data.get('username', '') }}" required autofocus>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email <span class="text-danger">*</span></label>
+                        <input type="email" name="email" class="form-control"
+                               value="{{ form_data.get('email', '') }}" required>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label">Password <span class="text-danger">*</span></label>
+                        <input type="password" name="password" class="form-control" required>
+                        <div class="form-text">Min 10 characters, must include upper, lower, digit and special character.</div>
+                    </div>
+
+                    <h6 class="text-muted text-uppercase small mb-3">Profile</h6>
+
+                    <div class="row mb-3">
+                        <div class="col">
+                            <label class="form-label">First Name</label>
+                            <input type="text" name="first_name" class="form-control"
+                                   value="{{ form_data.get('first_name', '') }}">
+                        </div>
+                        <div class="col">
+                            <label class="form-label">Last Name</label>
+                            <input type="text" name="last_name" class="form-control"
+                                   value="{{ form_data.get('last_name', '') }}">
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label">Department</label>
+                        <input type="text" name="department" class="form-control"
+                               value="{{ form_data.get('department', '') }}"
+                               placeholder="e.g. UPHOLSTERY">
+                    </div>
+
+                    <h6 class="text-muted text-uppercase small mb-3">Roles</h6>
+
+                    <div class="mb-4">
+                        {% set selected_role_ids = form_data.getlist('role_ids') if form_data and form_data.getlist else [] %}
+                    {% for role in all_roles %}
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   name="role_ids" value="{{ role.id }}"
+                                   id="role_{{ role.id }}"
+                                   {% if role.id|string in selected_role_ids %}checked{% endif %}>
+                            <label class="form-check-label" for="role_{{ role.id }}">
+                                <span class="fw-semibold">{{ role.name }}</span>
+                                {% if role.description %}
+                                <span class="text-muted small ms-1">— {{ role.description }}</span>
+                                {% endif %}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">Create User</button>
+                        <a href="{{ url_for('admin.user_list') }}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
