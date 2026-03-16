@@ -240,9 +240,48 @@ def seed_departments():
 @login_required
 @admin_required
 def audit_log():
-    page = request.args.get("page", 1, type=int)
-    logs = AuditLog.query.order_by(AuditLog.timestamp.desc()).paginate(page=page, per_page=50, error_out=False)
-    return render_template("admin/audit_log.html", title="Audit Log", logs=logs)
+    from app.auth.models import User
+    page       = request.args.get("page", 1, type=int)
+    action_f   = request.args.get("action", "").strip()
+    user_f     = request.args.get("user", "").strip()
+    date_from  = request.args.get("date_from", "").strip()
+    date_to    = request.args.get("date_to", "").strip()
+
+    q = AuditLog.query
+
+    if action_f:
+        q = q.filter(AuditLog.action.ilike(f"%{action_f}%"))
+    if user_f:
+        user_ids = [u.id for u in User.query.filter(User.username.ilike(f"%{user_f}%")).all()]
+        q = q.filter(AuditLog.user_id.in_(user_ids) if user_ids else db.false())
+    if date_from:
+        try:
+            from datetime import date as _date
+            q = q.filter(AuditLog.timestamp >= _date.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            from datetime import date as _date, timedelta
+            q = q.filter(AuditLog.timestamp < _date.fromisoformat(date_to) + timedelta(days=1))
+        except ValueError:
+            pass
+
+    logs = q.order_by(AuditLog.timestamp.desc()).paginate(page=page, per_page=50, error_out=False)
+
+    # Distinct action values for the dropdown
+    actions = [r[0] for r in db.session.query(AuditLog.action).distinct().order_by(AuditLog.action).all()]
+
+    return render_template(
+        "admin/audit_log.html",
+        title="Audit Log",
+        logs=logs,
+        actions=actions,
+        action_f=action_f,
+        user_f=user_f,
+        date_from=date_from,
+        date_to=date_to,
+    )
 
 
 # ---------------------------------------------------------------------------

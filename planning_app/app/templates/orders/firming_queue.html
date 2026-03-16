@@ -95,7 +95,7 @@
     <form method="POST" action="{{ url_for('orders.bulk_update_operations') }}" id="bulkForm" class="d-inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="operation_ids" id="bulkOpIds">
-        <input type="hidden" name="status" value="firmed">
+        <input type="hidden" name="status" value="firm_planned">
         <input type="hidden" name="back_url" value="{{ request.url }}">
         <button type="submit" class="btn btn-sm btn-secondary">
             <i class="bi bi-check2-all me-1"></i>Firm Selected
@@ -164,7 +164,7 @@
                 {% endif %}
             </td>
             <td class="text-muted fw-normal" style="font-size:.78rem;">
-                {{ group.line_count }} line{{ 's' if group.line_count != 1 }}
+                {{ group.op_count }} op{{ 's' if group.op_count != 1 }}
                 &nbsp;/&nbsp;{{ group.total_qty | int }} units
             </td>
             <td class="text-end fw-normal text-muted" style="font-size:.78rem;">
@@ -213,7 +213,7 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="operation_ids"
                            value="{{ group.new_order_op_ids | join(',') }}">
-                    <input type="hidden" name="status" value="firmed">
+                    <input type="hidden" name="status" value="firm_planned">
                     <input type="hidden" name="back_url" value="{{ request.url }}">
                     <button type="submit" class="btn btn-sm btn-outline-secondary">
                         <i class="bi bi-check2 me-1"></i>Firm

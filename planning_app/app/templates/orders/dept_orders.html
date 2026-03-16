@@ -170,7 +170,7 @@
                 {% endif %}
             </td>
             <td class="text-muted fw-normal" style="font-size:.78rem;">
-                {{ group.line_count }} line{{ 's' if group.line_count != 1 }}
+                {{ group.op_count }} op{{ 's' if group.op_count != 1 }}
                 &nbsp;/&nbsp;{{ group.total_qty | int }} units
             </td>
             <td class="text-center text-nowrap {{ 'text-danger' if is_overdue else ('text-warning' if is_urgent else '') }}">
@@ -384,22 +384,25 @@
 
     // ── Status metadata ────────────────────────────────────────────────── //
     const STATUS_META = {
-        'firmed':    { label: 'Firmed',   colour: 'secondary' },
-        'released':  { label: 'Released', colour: 'primary'   },
-        'wip':       { label: 'WIP',      colour: 'warning'   },
-        'completed': { label: 'Complete', colour: 'success'   },
-        'closed':    { label: 'Closed',   colour: 'dark'      },
+        'new_order':    { label: 'New Order',    colour: 'light'   },
+        'firm_planned': { label: 'Firm Planned', colour: 'info'    },
+        'released':     { label: 'Released',     colour: 'primary' },
+        'wip':          { label: 'WIP',          colour: 'warning' },
+        'completed':    { label: 'Completed',    colour: 'success' },
+        'closed':       { label: 'Closed',       colour: 'dark'    },
     };
     const NEXT_STATUS = {
-        'firmed':    'released',
-        'released':  'wip',
-        'wip':       'completed',
-        'completed': 'completed',
+        'new_order':    'firm_planned',
+        'firm_planned': 'released',
+        'released':     'wip',
+        'wip':          'completed',
+        'completed':    'completed',
     };
     const PREV_STATUS = {
-        'released':  'firmed',
-        'wip':       'released',
-        'completed': 'wip',
+        'firm_planned': 'new_order',
+        'released':     'firm_planned',
+        'wip':          'released',
+        'completed':    'wip',
     };
 
     // ── AJAX call to advance or reverse an SO+dept ─────────────────────── //

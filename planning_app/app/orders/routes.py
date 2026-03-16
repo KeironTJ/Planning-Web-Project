@@ -31,6 +31,18 @@ def _parse_date(val: str):
         return None
 
 
+@orders_bp.route("/dashboard")
+@login_required
+@permission_required("view_orders")
+def wip_dashboard():
+    data = services.get_wip_dashboard_data()
+    return render_template(
+        "orders/wip_dashboard.html",
+        title="WIP Dashboard",
+        **data,
+    )
+
+
 @orders_bp.route("/wip")
 @login_required
 @permission_required("view_orders")
@@ -86,6 +98,14 @@ def wip_tracker():
     )
     for o in orders:
         o["mat_status"] = mat_status_map.get(o["so_number"], "no_data")
+
+    comment_summaries = services.get_comment_summaries([o["so_number"] for o in orders])
+    for o in orders:
+        cs = comment_summaries.get(o["so_number"], {})
+        o["comment_count"]   = cs.get("count", 0)
+        o["latest_comment"]  = cs.get("latest_body")
+        o["latest_user"]     = cs.get("latest_user")
+        o["latest_at"]       = cs.get("latest_at")
 
     return render_template(
         "orders/wip_tracker.html",
@@ -393,6 +413,75 @@ def reverse_so_dept():
     return jsonify(result)
 
 
+@orders_bp.route("/so/<so_number>/comments", methods=["GET"])
+@login_required
+@permission_required("view_orders")
+def so_comments(so_number: str):
+    """AJAX — return comments for an SO as JSON."""
+    comments = services.get_so_comments(so_number)
+    return jsonify({
+        "ok": True,
+        "comments": [
+            {
+                "id": c.id,
+                "user": c.user.username if c.user else "deleted",
+                "body": c.body,
+                "created_at": c.created_at.strftime("%d %b %Y %H:%M"),
+            }
+            for c in comments
+        ],
+    })
+
+
+@orders_bp.route("/so/<so_number>/comments", methods=["POST"])
+@login_required
+@permission_required("update_order_status")
+def add_so_comment(so_number: str):
+    """AJAX — add a comment to an SO."""
+    from flask_login import current_user
+    body = request.form.get("body", "").strip()
+    try:
+        comment = services.add_so_comment(so_number, current_user.id, body)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    return jsonify({
+        "ok": True,
+        "comment": {
+            "id": comment.id,
+            "user": current_user.username,
+            "body": comment.body,
+            "created_at": comment.created_at.strftime("%d %b %Y %H:%M"),
+        },
+    })
+
+
+@orders_bp.route("/operations/advance-so-all", methods=["POST"])
+@login_required
+@permission_required("update_order_status")
+def advance_so_all():
+    """AJAX — advance every open op for a given SO (all depts) to next status."""
+    so_number = request.form.get("so_number", "").strip()
+    if not so_number:
+        return jsonify({"ok": False, "error": "Missing parameters"}), 400
+    result = services.advance_so_all_status(so_number)
+    result["ok"] = True
+    return jsonify(result)
+
+
+@orders_bp.route("/operations/reverse-so-all", methods=["POST"])
+@login_required
+@permission_required("update_order_status")
+def reverse_so_all():
+    """AJAX — step every op for a given SO (all depts) back one status."""
+    so_number = request.form.get("so_number", "").strip()
+    if not so_number:
+        return jsonify({"ok": False, "error": "Missing parameters"}), 400
+    result = services.reverse_so_all_status(so_number)
+    result["ok"] = True
+    return jsonify(result)
+
+
 # ---------------------------------------------------------------------------
 # Date Planning
 # ---------------------------------------------------------------------------
@@ -426,6 +515,14 @@ def planning():
     mat_status_map = get_so_material_status([g["so_number"] for g in order_groups], plan_start_map=plan_start_map)
     for g in order_groups:
         g["mat_status"] = mat_status_map.get(g["so_number"], "no_data")
+
+    comment_summaries = services.get_comment_summaries([g["so_number"] for g in order_groups])
+    for g in order_groups:
+        cs = comment_summaries.get(g["so_number"], {})
+        g["comment_count"]  = cs.get("count", 0)
+        g["latest_comment"] = cs.get("latest_body")
+        g["latest_user"]    = cs.get("latest_user")
+        g["latest_at"]      = cs.get("latest_at")
 
     return render_template(
         "orders/planning.html",

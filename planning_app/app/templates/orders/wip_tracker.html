@@ -4,7 +4,7 @@
 <!-- Summary banner -->
 {% set all_active = not status_filter and not overdue_only %}
 <div class="row g-2 mb-3">
-    {% set status_order = ['new_order', 'firmed', 'released', 'wip', 'completed'] %}
+    {% set status_order = ['new_order', 'firm_planned', 'released', 'wip', 'completed'] %}
 
     {# All / no filter #}
     <div class="col-6 col-md-2">
@@ -164,8 +164,9 @@
 <!-- Key: order-level buttons advance ALL lines; line-level buttons open detail modal -->
 <p class="text-muted small mb-2">
     <i class="bi bi-arrow-right-circle me-1"></i>
-    <strong>Left-click</strong> a dept button to advance status &nbsp;·&nbsp;
-    <strong>Right-click</strong> to step back &nbsp;·&nbsp;
+    <strong>Left-click</strong> the <strong>Status</strong> badge to advance <em>all ops</em> for that order &nbsp;·&nbsp;
+    <strong>Left-click</strong> a dept button to advance that dept &nbsp;·&nbsp;
+    <strong>Right-click</strong> either to step back &nbsp;·&nbsp;
     Expand <i class="bi bi-chevron-right"></i> to update individual lines.
     Dates shown below buttons are planned dates.
     &nbsp;·&nbsp;
@@ -198,6 +199,20 @@
 #wipTable tbody tr { background-color: #fff; }
 #wipTable tbody tr.table-light { background-color: #f8f9fa; }
 #wipTable tbody tr.order-detail-row { background-color: #fafafa; }
+/* Uniform badge / dept-button size across the whole table */
+#wipTable .badge,
+#wipTable .advance-so-dept-btn,
+#wipTable .advance-so-all-btn,
+#wipTable .op-status-btn {
+    font-size: .72rem;
+    display: inline-block;
+    width: 90px !important;
+    min-width: 90px !important;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 </style>
 <div class="table-responsive" id="wipWrapper">
     <table class="table table-sm align-middle mb-0" style="font-size: .82rem;" id="wipTable">
@@ -206,6 +221,7 @@
                 <th style="width:24px;"></th>
                 <th style="min-width:90px;">SO</th>
                 <th style="min-width:120px;">Customer</th>
+                <th style="min-width:75px;" class="text-end">Value</th>
                 <th style="min-width:80px;">Lines / Qty</th>
                 <th class="text-center" style="min-width:70px;">
                     <a href="?{{ request.query_string.decode()|replace('sort=due_date','') }}&sort=due_date"
@@ -226,6 +242,8 @@
                     {{ dept.name }}
                 </th>
                 {% endfor %}
+                <th style="min-width:36px;"></th>{# Comments icon #}
+                <th style="min-width:160px;">Latest Note</th>
             </tr>
         </thead>
         <tbody>
@@ -264,8 +282,19 @@
                     </div>
                     {% endif %}
                 </td>
+                <td class="text-end text-muted" style="font-size:.78rem; white-space:nowrap;">
+                    {% if order.total_value >= 1000000 %}
+                        £{{ "%.1f" | format(order.total_value / 1000000) }}m
+                    {% elif order.total_value >= 1000 %}
+                        £{{ "%.2f" | format(order.total_value / 1000) }}k
+                    {% elif order.total_value > 0 %}
+                        £{{ "%.0f" | format(order.total_value) }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
                 <td class="text-muted" style="font-size:.78rem;">
-                    {{ order.line_count }} line{{ 's' if order.line_count != 1 }}
+                    {{ order.op_count }} op{{ 's' if order.op_count != 1 }}
                     &nbsp;/&nbsp;{{ order.total_qty | int }} units
                 </td>
                 <td class="text-center {{ 'text-danger fw-semibold' if order.due_date and order.due_date < today else '' }}">
@@ -275,7 +304,14 @@
                     {{ order.plan_date.strftime('%d %b') if order.plan_date else '—' }}
                 </td>
                 <td>
-                    <span class="badge bg-{{ agg_colour }}">{{ agg_label }}</span>
+                    <button type="button"
+                            class="badge bg-{{ agg_colour }} border-0 advance-so-all-btn"
+                            style="cursor:pointer;"
+                            data-so="{{ order.so_number }}"
+                            data-current-status="{{ order.agg_status }}"
+                            title="Left-click: advance all · Right-click: step back all">
+                        {{ agg_label }}
+                    </button>
                 </td>
 
                 {# Material availability status #}
@@ -331,6 +367,30 @@
                     {% endif %}
                 </td>
                 {% endfor %}
+                {# Comment button #}
+                <td class="text-center p-1">
+                    <button type="button"
+                            class="btn btn-link btn-sm p-0 so-comment-btn {{ 'text-warning' if order.comment_count else 'text-muted' }}"
+                            data-so="{{ order.so_number }}"
+                            data-count="{{ order.comment_count }}"
+                            title="{{ order.comment_count }} comment{{ 's' if order.comment_count != 1 }} — click to view / add">
+                        <i class="bi bi-chat{{ '-fill' if order.comment_count else '' }}" style="font-size:.9rem;"></i>
+                        {% if order.comment_count %}
+                        <sup style="font-size:.65rem;">{{ order.comment_count }}</sup>
+                        {% endif %}
+                    </button>
+                </td>
+                {# Latest note cell #}
+                <td style="max-width:200px;">
+                    {% if order.latest_comment %}
+                    <div class="text-truncate" style="font-size:.75rem;" title="{{ order.latest_comment }}">
+                        {{ order.latest_comment }}
+                    </div>
+                    <div class="text-muted" style="font-size:.68rem;">
+                        {{ order.latest_user }} · {{ order.latest_at }}
+                    </div>
+                    {% endif %}
+                </td>
             </tr>
 
             {# ── Per-line detail rows (collapsed by default) ──────────── #}
@@ -402,6 +462,8 @@
                     {% endif %}
                 </td>
                 {% endfor %}
+                <td></td>{# Comments icon — order-level only #}
+                <td></td>{# Latest note — order-level only #}
             </tr>
             {% endfor %}
 
@@ -418,6 +480,7 @@
 {% macro page_url(p) %}{{ url_for('orders.wip_tracker',
     page=p, q=search, cpr=cust_prod_ref or None,
     status=status_filter, dept=dept_filter,
+    order_type=order_type_filter or None,
     sort=order_by, per_page=per_page,
     overdue=1 if overdue_only else None,
     due_from=due_date_from.isoformat() if due_date_from else None,
@@ -491,6 +554,44 @@
 </div>
 {% endif %}
 
+<!-- SO Comment modal -->
+<div class="modal fade" id="commentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title mb-0" id="commentModalLabel">
+                    <i class="bi bi-chat me-1"></i> Order Notes
+                </h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                {# Thread #}
+                <div id="commentThread" style="max-height:320px; overflow-y:auto; padding:1rem;">
+                    <div class="text-center text-muted small py-3" id="commentLoading">
+                        <span class="spinner-border spinner-border-sm me-1"></span> Loading…
+                    </div>
+                </div>
+                {# Add comment #}
+                <div class="border-top p-3">
+                    <form id="commentForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mb-2">
+                            <textarea id="commentBody" name="body" class="form-control form-control-sm"
+                                      rows="3" placeholder="Add a note…" maxlength="1000"></textarea>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted" id="commentCharCount">0 / 1000</small>
+                            <button type="submit" class="btn btn-primary btn-sm" id="commentSubmit">
+                                <i class="bi bi-send me-1"></i>Post
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Operation update modal (line-level individual ops) -->
 <div class="modal fade" id="opModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-sm">
@@ -557,25 +658,25 @@
 
     // ── Status metadata (mirrors Python STATUS_META) ─────────────────── //
     const STATUS_META = {
-        'new_order': { label: 'New Order', colour: 'light'     },
-        'firmed':    { label: 'Firmed',    colour: 'secondary' },
-        'released':  { label: 'Released',  colour: 'primary'   },
-        'wip':       { label: 'WIP',       colour: 'warning'   },
-        'completed': { label: 'Complete',  colour: 'success'   },
-        'closed':    { label: 'Closed',    colour: 'dark'      },
+        'new_order':    { label: 'New Order',    colour: 'light'   },
+        'firm_planned': { label: 'Firm Planned', colour: 'info'    },
+        'released':     { label: 'Released',     colour: 'primary' },
+        'wip':          { label: 'WIP',          colour: 'warning' },
+        'completed':    { label: 'Completed',    colour: 'success' },
+        'closed':       { label: 'Closed',       colour: 'dark'    },
     };
     const NEXT_STATUS = {
-        'new_order': 'firmed',
-        'firmed':    'released',
-        'released':  'wip',
-        'wip':       'completed',
-        'completed': 'completed',
+        'new_order':    'firm_planned',
+        'firm_planned': 'released',
+        'released':     'wip',
+        'wip':          'completed',
+        'completed':    'completed',
     };
     const PREV_STATUS = {
-        'firmed':    'new_order',
-        'released':  'firmed',
-        'wip':       'released',
-        'completed': 'wip',
+        'firm_planned': 'new_order',
+        'released':     'firm_planned',
+        'wip':          'released',
+        'completed':    'wip',
     };
 
     // ── Shared: call advance or reverse for an SO + dept ─────────────── //
@@ -606,20 +707,16 @@
             const newColour = data.colour;
             const newLabel  = data.label;
 
-            // Restore button or replace with badge if completed
+            // Always keep as a button so right-click step-back remains available
+            btn.disabled = false;
+            btn.dataset.currentStatus = newStatus;
+            btn.className = 'btn btn-' + newColour + ' btn-sm py-0 px-1 advance-so-dept-btn';
             if (newStatus === 'completed' || newStatus === 'closed') {
-                const badge = document.createElement('span');
-                badge.className = 'badge bg-' + newColour;
-                badge.style.cssText = 'font-size:.68rem; min-width:58px; display:inline-block;';
-                badge.setAttribute('title', newLabel + ' — right-click to step back');
-                badge.textContent = newLabel.substring(0, 6);
-                btn.replaceWith(badge);
+                btn.innerHTML = '<i class="bi bi-check-circle" style="font-size:.65rem;"></i> ' + newLabel.substring(0, 5);
+                btn.title = newLabel + ' — right-click to step back';
             } else {
-                btn.disabled = false;
-                btn.dataset.currentStatus = newStatus;
-                btn.className = 'btn btn-' + newColour + ' btn-sm py-0 px-1 advance-so-dept-btn';
-                btn.innerHTML = '<i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> '
-                              + newLabel.substring(0, 5);
+                btn.innerHTML = '<i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> ' + newLabel.substring(0, 5);
+                btn.title = 'Left-click: advance · Right-click: step back';
             }
 
             // Mirror change on all line-level op buttons for this dept
@@ -679,11 +776,79 @@
         .catch(function () { opBtn.disabled = false; opBtn.innerHTML = origHTML; });
     }
 
+    // ── Shared: call advance or reverse ALL depts for an SO ──────────── //
+    function callSoAllEndpoint(url, soNumber, btn, orderRow, statusMapFn) {
+        btn.disabled = true;
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span>';
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: 'so_number=' + encodeURIComponent(soNumber)
+                + '&csrf_token=' + encodeURIComponent(csrfToken),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            btn.disabled = false;
+            if (!data.ok) { btn.innerHTML = originalHTML; return; }
+
+            const meta = STATUS_META[data.status] || { label: data.status, colour: 'secondary' };
+            btn.dataset.currentStatus = data.status;
+            btn.className = btn.className.replace(/bg-\w+/, 'bg-' + meta.colour);
+            btn.textContent = meta.label;
+
+            // Mirror on all dept buttons in this order row
+            if (!orderRow) return;
+            const orderGroup = orderRow.id.replace('order-row-', 'order-');
+            orderRow.querySelectorAll('.advance-so-dept-btn').forEach(function (deptBtn) {
+                const oldStatus  = deptBtn.dataset.currentStatus;
+                const nextStatus = statusMapFn(oldStatus);
+                if (!nextStatus || nextStatus === oldStatus) return;
+                const deptMeta = STATUS_META[nextStatus] || { label: nextStatus, colour: 'secondary' };
+                deptBtn.dataset.currentStatus = nextStatus;
+                deptBtn.className = deptBtn.className.replace(/btn-\w+/, 'btn-' + deptMeta.colour);
+                deptBtn.innerHTML = '<i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> '
+                                  + deptMeta.label.substring(0, 5);
+            });
+
+            // Mirror on all expanded line-level op buttons
+            document.querySelectorAll('.order-detail-row[data-group="' + orderGroup + '"]')
+                .forEach(function (row) {
+                    row.querySelectorAll('.op-status-btn').forEach(function (opBtn) {
+                        const oldStatus  = opBtn.dataset.status;
+                        const nextStatus = statusMapFn(oldStatus);
+                        if (!nextStatus || nextStatus === oldStatus) return;
+                        const opMeta = STATUS_META[nextStatus] || { label: nextStatus, colour: 'secondary' };
+                        opBtn.dataset.status = nextStatus;
+                        opBtn.className = opBtn.className.replace(/btn-\w+/, 'btn-' + opMeta.colour);
+                        opBtn.textContent = opMeta.label.substring(0, 6);
+                    });
+                });
+        })
+        .catch(function () { btn.disabled = false; btn.innerHTML = originalHTML; });
+    }
+
     // ── Order-level click (advance) and contextmenu (step back) ──────── //
     const wipTable = document.getElementById('wipTable');
     if (wipTable) {
-        // Left-click → advance (order-level only)
+        // Left-click → advance (order-level only OR status-all)
         wipTable.addEventListener('click', function (e) {
+            // Status-column advance-all button
+            const allBtn = e.target.closest('.advance-so-all-btn');
+            if (allBtn) {
+                e.preventDefault();
+                callSoAllEndpoint(
+                    '{{ url_for("orders.advance_so_all") }}',
+                    allBtn.dataset.so, allBtn, allBtn.closest('tr.order-row'),
+                    function (s) { return NEXT_STATUS[s] || s; }
+                );
+                return;
+            }
+
             const btn = e.target.closest('.advance-so-dept-btn');
             if (!btn) return;
             e.preventDefault();
@@ -696,8 +861,19 @@
             );
         });
 
-        // Right-click → step back (order-level OR line-level)
+        // Right-click → step back (order-level OR line-level OR status-all)
         wipTable.addEventListener('contextmenu', function (e) {
+            // Status-column step-back-all button
+            const allBtn = e.target.closest('.advance-so-all-btn');
+            if (allBtn) {
+                e.preventDefault();
+                callSoAllEndpoint(
+                    '{{ url_for("orders.reverse_so_all") }}',
+                    allBtn.dataset.so, allBtn, allBtn.closest('tr.order-row'),
+                    function (s) { return PREV_STATUS[s] || s; }
+                );
+                return;
+            }
             // Order-level button
             const advBtn = e.target.closest('.advance-so-dept-btn');
             if (advBtn) {
@@ -750,6 +926,135 @@
             window.location.href = url.toString();
         });
     }
+
+    // ── SO Comments modal ─────────────────────────────────────────────── //
+    let activeSo = null;
+    const commentModal  = document.getElementById('commentModal');
+    const commentThread = document.getElementById('commentThread');
+    const commentForm   = document.getElementById('commentForm');
+    const commentBody   = document.getElementById('commentBody');
+    const commentSubmit = document.getElementById('commentSubmit');
+    const commentLabel  = document.getElementById('commentModalLabel');
+    const commentCount  = document.getElementById('commentCharCount');
+
+    function renderComment(c) {
+        const div = document.createElement('div');
+        div.className = 'mb-3';
+        div.innerHTML =
+            '<div class="d-flex justify-content-between align-items-baseline mb-1">' +
+                '<span class="fw-semibold small">' + escHtml(c.user) + '</span>' +
+                '<span class="text-muted" style="font-size:.72rem;">' + escHtml(c.created_at) + '</span>' +
+            '</div>' +
+            '<div class="rounded p-2 small" style="background:#f0f4ff; white-space:pre-wrap;">' +
+                escHtml(c.body) +
+            '</div>';
+        return div;
+    }
+
+    function escHtml(s) {
+        return String(s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function loadComments(soNumber) {
+        commentThread.innerHTML =
+            '<div class="text-center text-muted small py-3">' +
+            '<span class="spinner-border spinner-border-sm me-1"></span> Loading…</div>';
+
+        fetch('/orders/so/' + encodeURIComponent(soNumber) + '/comments', {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            commentThread.innerHTML = '';
+            if (!data.ok) { commentThread.innerHTML = '<p class="text-danger small p-3">Failed to load.</p>'; return; }
+            if (data.comments.length === 0) {
+                commentThread.innerHTML = '<p class="text-muted small text-center py-3">No notes yet — be the first to add one.</p>';
+            } else {
+                data.comments.forEach(function (c) { commentThread.appendChild(renderComment(c)); });
+                commentThread.scrollTop = commentThread.scrollHeight;
+            }
+        })
+        .catch(function () {
+            commentThread.innerHTML = '<p class="text-danger small p-3">Could not load comments.</p>';
+        });
+    }
+
+    // Open modal when comment button clicked
+    if (wipTable) {
+        wipTable.addEventListener('click', function (e) {
+            const btn = e.target.closest('.so-comment-btn');
+            if (!btn) return;
+            activeSo = btn.dataset.so;
+            commentLabel.textContent = 'Notes — ' + activeSo;
+            commentBody.value = '';
+            commentCount.textContent = '0 / 1000';
+            bootstrap.Modal.getOrCreateInstance(commentModal).show();
+            loadComments(activeSo);
+        });
+    }
+
+    // Character counter
+    commentBody.addEventListener('input', function () {
+        commentCount.textContent = commentBody.value.length + ' / 1000';
+    });
+
+    // Submit new comment
+    commentForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!activeSo || !commentBody.value.trim()) return;
+        commentSubmit.disabled = true;
+
+        fetch('/orders/so/' + encodeURIComponent(activeSo) + '/comments', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: 'body=' + encodeURIComponent(commentBody.value)
+                + '&csrf_token=' + encodeURIComponent(csrfToken),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            commentSubmit.disabled = false;
+            if (!data.ok) { alert(data.error || 'Failed to post comment.'); return; }
+
+            // Append to thread
+            if (commentThread.querySelector('.text-muted')) commentThread.innerHTML = '';
+            commentThread.appendChild(renderComment(data.comment));
+            commentThread.scrollTop = commentThread.scrollHeight;
+            commentBody.value = '';
+            commentCount.textContent = '0 / 1000';
+
+            // Update the trigger button count in the table
+            const triggerBtn = wipTable.querySelector('.so-comment-btn[data-so="' + activeSo + '"]');
+            if (triggerBtn) {
+                const newCount = parseInt(triggerBtn.dataset.count || '0', 10) + 1;
+                triggerBtn.dataset.count = newCount;
+                triggerBtn.className = triggerBtn.className.replace('text-muted', 'text-warning');
+                triggerBtn.innerHTML =
+                    '<i class="bi bi-chat-fill" style="font-size:.9rem;"></i>' +
+                    '<sup style="font-size:.65rem;">' + newCount + '</sup>';
+
+                // Refresh the Latest Note cell (last td of the order row)
+                const orderRow = triggerBtn.closest('tr.order-row');
+                if (orderRow) {
+                    const lastTd = orderRow.querySelector('td:last-child');
+                    if (lastTd) {
+                        lastTd.innerHTML =
+                            '<div class="text-truncate" style="font-size:.75rem;" title="' + escHtml(data.comment.body) + '">' +
+                                escHtml(data.comment.body) +
+                            '</div>' +
+                            '<div class="text-muted" style="font-size:.68rem;">' +
+                                escHtml(data.comment.user) + ' · ' + escHtml(data.comment.created_at) +
+                            '</div>';
+                    }
+                }
+            }
+        })
+        .catch(function () { commentSubmit.disabled = false; alert('Network error.'); });
+    });
 
     // ── Drag-to-scroll on the WIP table wrapper ───────────────────────── //
     const wipWrapper = document.getElementById('wipWrapper');

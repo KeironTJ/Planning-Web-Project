@@ -5,7 +5,13 @@
             {# ── Planning ─────────────────────────────────────────── #}
             {% if current_user.has_permission('view_orders') %}
             <li class="mt-1">
-                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">Planning</h6>
+                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">Orders</h6>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'orders.wip_dashboard' %}active{% endif %}"
+                   href="{{ url_for('orders.wip_dashboard') }}">
+                    <i class="bi bi-speedometer2 me-2"></i>Dashboard
+                </a>
             </li>
             <li class="nav-item">
                 <a class="nav-link {% if request.endpoint == 'orders.wip_tracker' %}active{% endif %}"

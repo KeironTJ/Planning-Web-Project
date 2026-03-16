@@ -262,7 +262,7 @@ def schedule_orders(
                     continue
                 op.planned_date = fallback
                 if op.status == WorksOrderOperation.STATUS_NEW_ORDER:
-                    op.status = WorksOrderOperation.STATUS_FIRMED
+                    op.status = WorksOrderOperation.STATUS_FIRM_PLANNED
                 scheduled += 1
             continue
 
@@ -287,7 +287,7 @@ def schedule_orders(
                         continue
                     op.planned_date = stage_start
                     if op.status == WorksOrderOperation.STATUS_NEW_ORDER:
-                        op.status = WorksOrderOperation.STATUS_FIRMED
+                        op.status = WorksOrderOperation.STATUS_FIRM_PLANNED
                     scheduled += 1
 
                 # Advance start for the next stage
@@ -315,7 +315,7 @@ def schedule_orders(
                         continue
                     op.planned_date = effective_planned
                     if op.status == WorksOrderOperation.STATUS_NEW_ORDER:
-                        op.status = WorksOrderOperation.STATUS_FIRMED
+                        op.status = WorksOrderOperation.STATUS_FIRM_PLANNED
                     scheduled += 1
 
                 # This stage's unmodified date becomes the next stage's end

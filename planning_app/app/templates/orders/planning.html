@@ -141,6 +141,8 @@
                 <th class="text-center" style="min-width:100px;">Status</th>
                 <th style="min-width:80px;">Materials</th>
                 <th style="width:28px;"></th>{# ops expand #}
+                <th style="min-width:36px;"></th>{# comment icon #}
+                <th style="min-width:160px;">Latest Note</th>
             </tr>
         </thead>
         <tbody>
@@ -179,7 +181,7 @@
                 {% endif %}
             </td>
             <td class="text-muted fw-normal" style="font-size:.78rem;">
-                {{ group.line_count }} line{{ 's' if group.line_count != 1 }}
+                {{ group.op_count }} op{{ 's' if group.op_count != 1 }}
             </td>
             <td class="text-center text-nowrap {{ 'text-danger' if is_overdue else ('text-warning' if is_urgent else '') }}">
                 {{ group.due_date.strftime('%d %b %Y') if group.due_date else '—' }}
@@ -231,7 +233,29 @@
                        target="_blank">{{ mat_label }}</a>
                 {% endif %}
             </td>
-            <td></td>
+            <td></td>{# ops expand placeholder #}
+            <td class="text-center p-1">
+                <button type="button"
+                        class="btn btn-link btn-sm p-0 so-comment-btn {{ 'text-warning' if group.comment_count else 'text-muted' }}"
+                        data-so="{{ group.so_number }}"
+                        data-count="{{ group.comment_count }}"
+                        title="{{ group.comment_count }} comment{{ 's' if group.comment_count != 1 }} — click to view / add">
+                    <i class="bi bi-chat{{ '-fill' if group.comment_count else '' }}" style="font-size:.9rem;"></i>
+                    {% if group.comment_count %}
+                    <sup style="font-size:.65rem;">{{ group.comment_count }}</sup>
+                    {% endif %}
+                </button>
+            </td>
+            <td style="max-width:200px;">
+                {% if group.latest_comment %}
+                <div class="text-truncate" style="font-size:.75rem;" title="{{ group.latest_comment }}">
+                    {{ group.latest_comment }}
+                </div>
+                <div class="text-muted" style="font-size:.68rem;">
+                    {{ group.latest_user }} · {{ group.latest_at }}
+                </div>
+                {% endif %}
+            </td>
         </tr>
 
         {# ── Line rows (collapsed by default) ─────────────────────── #}
@@ -318,11 +342,13 @@
                     <i class="bi bi-chevron-down" style="font-size:.7rem"></i>
                 </button>
             </td>
+            <td></td>{# comment icon — order-level only #}
+            <td></td>{# latest note — order-level only #}
         </tr>
 
         {# ── Operations detail row ─────────────────────────────────── #}
         <tr class="planning-detail" id="detail-{{ sol.id }}" style="display:none">
-            <td colspan="12" class="p-0">
+            <td colspan="15" class="p-0">
                 <div class="py-2 px-4" style="background:#eef0f2;">
                     {% if row.open_ops %}
                     <table class="table table-sm mb-0" style="font-size:.82rem">
@@ -446,6 +472,38 @@
 </div>
 
 {% endif %}{# end if order_groups #}
+
+<!-- SO Comment modal -->
+<div class="modal fade" id="commentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title mb-0" id="commentModalLabel">
+                    <i class="bi bi-chat me-1"></i> Order Notes
+                </h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div id="commentThread" style="max-height:320px; overflow-y:auto; padding:1rem;"></div>
+                <div class="border-top p-3">
+                    <form id="commentForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mb-2">
+                            <textarea id="commentBody" name="body" class="form-control form-control-sm"
+                                      rows="3" placeholder="Add a note…" maxlength="1000"></textarea>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted" id="commentCharCount">0 / 1000</small>
+                            <button type="submit" class="btn btn-primary btn-sm" id="commentSubmit">
+                                <i class="bi bi-send me-1"></i>Post
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 {% endblock %}
 
@@ -583,6 +641,109 @@ function clearDate(e, opId, url, csrf) {
     document.body.appendChild(form);
     form.submit();
 }
+
+// ── SO Comments ──────────────────────────────────────────────────────── //
+(function () {
+    const csrfToken     = '{{ csrf_token() }}';
+    const commentModal  = document.getElementById('commentModal');
+    const commentThread = document.getElementById('commentThread');
+    const commentForm   = document.getElementById('commentForm');
+    const commentBody   = document.getElementById('commentBody');
+    const commentSubmit = document.getElementById('commentSubmit');
+    const commentLabel  = document.getElementById('commentModalLabel');
+    const commentCount  = document.getElementById('commentCharCount');
+    let activeSo = null;
+
+    function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function renderComment(c) {
+        const div = document.createElement('div');
+        div.className = 'mb-3';
+        div.innerHTML =
+            '<div class="d-flex justify-content-between align-items-baseline mb-1">' +
+                '<span class="fw-semibold small">' + escHtml(c.user) + '</span>' +
+                '<span class="text-muted" style="font-size:.72rem;">' + escHtml(c.created_at) + '</span>' +
+            '</div>' +
+            '<div class="rounded p-2 small" style="background:#f0f4ff; white-space:pre-wrap;">' + escHtml(c.body) + '</div>';
+        return div;
+    }
+
+    function loadComments(soNumber) {
+        commentThread.innerHTML = '<div class="text-center text-muted small py-3"><span class="spinner-border spinner-border-sm me-1"></span> Loading…</div>';
+        fetch('/orders/so/' + encodeURIComponent(soNumber) + '/comments', {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        })
+        .then(r => r.json())
+        .then(data => {
+            commentThread.innerHTML = '';
+            if (!data.ok) { commentThread.innerHTML = '<p class="text-danger small p-3">Failed to load.</p>'; return; }
+            if (data.comments.length === 0) {
+                commentThread.innerHTML = '<p class="text-muted small text-center py-3">No notes yet — be the first to add one.</p>';
+            } else {
+                data.comments.forEach(c => commentThread.appendChild(renderComment(c)));
+                commentThread.scrollTop = commentThread.scrollHeight;
+            }
+        })
+        .catch(() => { commentThread.innerHTML = '<p class="text-danger small p-3">Could not load comments.</p>'; });
+    }
+
+    document.addEventListener('click', function (e) {
+        const btn = e.target.closest('.so-comment-btn');
+        if (!btn) return;
+        activeSo = btn.dataset.so;
+        commentLabel.textContent = 'Notes — ' + activeSo;
+        commentBody.value = '';
+        commentCount.textContent = '0 / 1000';
+        bootstrap.Modal.getOrCreateInstance(commentModal).show();
+        loadComments(activeSo);
+    });
+
+    commentBody.addEventListener('input', function () {
+        commentCount.textContent = commentBody.value.length + ' / 1000';
+    });
+
+    commentForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!activeSo || !commentBody.value.trim()) return;
+        commentSubmit.disabled = true;
+        fetch('/orders/so/' + encodeURIComponent(activeSo) + '/comments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+            body: 'body=' + encodeURIComponent(commentBody.value) + '&csrf_token=' + encodeURIComponent(csrfToken),
+        })
+        .then(r => r.json())
+        .then(data => {
+            commentSubmit.disabled = false;
+            if (!data.ok) { alert(data.error || 'Failed to post.'); return; }
+            if (commentThread.querySelector('.text-muted')) commentThread.innerHTML = '';
+            commentThread.appendChild(renderComment(data.comment));
+            commentThread.scrollTop = commentThread.scrollHeight;
+            commentBody.value = '';
+            commentCount.textContent = '0 / 1000';
+
+            // Update trigger button + latest note cell
+            const triggerBtn = document.querySelector('.so-comment-btn[data-so="' + activeSo + '"]');
+            if (triggerBtn) {
+                const newCount = parseInt(triggerBtn.dataset.count || '0', 10) + 1;
+                triggerBtn.dataset.count = newCount;
+                triggerBtn.className = triggerBtn.className.replace('text-muted', 'text-warning');
+                triggerBtn.innerHTML = '<i class="bi bi-chat-fill" style="font-size:.9rem;"></i><sup style="font-size:.65rem;">' + newCount + '</sup>';
+                const orderRow = triggerBtn.closest('tr');
+                if (orderRow) {
+                    const lastTd = orderRow.querySelector('td:last-child');
+                    if (lastTd) {
+                        lastTd.innerHTML =
+                            '<div class="text-truncate" style="font-size:.75rem;" title="' + escHtml(data.comment.body) + '">' + escHtml(data.comment.body) + '</div>' +
+                            '<div class="text-muted" style="font-size:.68rem;">' + escHtml(data.comment.user) + ' · ' + escHtml(data.comment.created_at) + '</div>';
+                    }
+                }
+            }
+        })
+        .catch(() => { commentSubmit.disabled = false; alert('Network error.'); });
+    });
+})();
 
 // Jump-to-page
 const jumpForm = document.getElementById('jumpForm');

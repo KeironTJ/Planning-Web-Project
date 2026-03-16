@@ -71,14 +71,17 @@ class SalesOrderLine(db.Model):
     # ── Line-level aggregate status constants ─────────────────────────── #
     LINE_STATUS_NEW          = "new_order"
     LINE_STATUS_FIRM_PLANNED = "firm_planned"
+    LINE_STATUS_RELEASED     = "released"
     LINE_STATUS_WIP          = "wip"
-    LINE_STATUS_COMPLETE     = "complete"
+    LINE_STATUS_COMPLETED    = "completed"
+    LINE_STATUS_COMPLETE     = LINE_STATUS_COMPLETED   # backward-compat alias
 
     LINE_STATUS_META = {
         "new_order":    ("New Order",    "secondary"),
         "firm_planned": ("Firm Planned", "info"),
+        "released":     ("Released",     "primary"),
         "wip":          ("WIP",          "warning"),
-        "complete":     ("Complete",     "success"),
+        "completed":    ("Completed",    "success"),
     }
 
     id = db.Column(db.Integer, primary_key=True)
@@ -118,11 +121,11 @@ class SalesOrderLine(db.Model):
         Derive a line-level status from the collection of operations.
 
         Priority (highest wins):
-          complete     — all operations are completed or closed
-          wip          — any operation is started, wip, or completed
+          completed    — all operations are completed or closed
+          wip          — any operation is in wip or completed
                          (production has begun on at least one department)
-          firm_planned — any open operation has a planned_date set
-          new_order    — no planned dates, all operations not_started
+          firm_planned — any open operation has a planned_date set or is firm_planned/released
+          new_order    — no planned dates, all operations new_order
         """
         ops = self.operations
         if not ops:
@@ -132,26 +135,26 @@ class SalesOrderLine(db.Model):
 
         # All closed (shipped / cancelled in ERP)
         if not open_ops:
-            return self.LINE_STATUS_COMPLETE
+            return self.LINE_STATUS_COMPLETED
 
         open_statuses = {op.status for op in open_ops}
 
         # All remaining open operations are completed
         if open_statuses == {WorksOrderOperation.STATUS_COMPLETED}:
-            return self.LINE_STATUS_COMPLETE
+            return self.LINE_STATUS_COMPLETED
 
-        # Any production activity → WIP
-        production_statuses = {
-            WorksOrderOperation.STATUS_STARTED,
-            WorksOrderOperation.STATUS_WIP,
-            WorksOrderOperation.STATUS_COMPLETED,
-        }
-        if open_statuses & production_statuses:
+        # Any wip or completed ops → WIP
+        if open_statuses & {WorksOrderOperation.STATUS_WIP, WorksOrderOperation.STATUS_COMPLETED}:
             return self.LINE_STATUS_WIP
 
-        # Any op firmed by planner, or has planned dates → Firm Planned
+        # All open ops are released (none still at new_order or firm_planned) → Released
+        if open_statuses <= {WorksOrderOperation.STATUS_RELEASED}:
+            return self.LINE_STATUS_RELEASED
+
+        # Mix of released+firm_planned, firm_planned only, or any planned dates → Firm Planned
         if any(
-            op.status == WorksOrderOperation.STATUS_FIRMED or op.planned_date is not None
+            op.status in (WorksOrderOperation.STATUS_FIRM_PLANNED, WorksOrderOperation.STATUS_RELEASED)
+            or op.planned_date is not None
             for op in open_ops
         ):
             return self.LINE_STATUS_FIRM_PLANNED
@@ -200,20 +203,21 @@ class WorksOrderOperation(db.Model):
     )
 
     # Status constants
-    STATUS_NEW_ORDER = "new_order"
-    STATUS_FIRMED    = "firmed"
-    STATUS_RELEASED  = "released"
-    STATUS_WIP       = "wip"
-    STATUS_COMPLETED = "completed"
-    STATUS_CLOSED    = "closed"
+    STATUS_NEW_ORDER   = "new_order"
+    STATUS_FIRM_PLANNED = "firm_planned"
+    STATUS_RELEASED    = "released"
+    STATUS_WIP         = "wip"
+    STATUS_COMPLETED   = "completed"
+    STATUS_CLOSED      = "closed"
 
-    # Legacy aliases — keep so any stale DB rows still resolve correctly
+    # Legacy aliases — keep so any stale references still resolve correctly
     STATUS_NOT_STARTED = STATUS_NEW_ORDER
     STATUS_STARTED     = STATUS_RELEASED
+    STATUS_FIRMED      = STATUS_FIRM_PLANNED   # backward-compat alias
 
     VALID_STATUSES = [
         STATUS_NEW_ORDER,
-        STATUS_FIRMED,
+        STATUS_FIRM_PLANNED,
         STATUS_RELEASED,
         STATUS_WIP,
         STATUS_COMPLETED,
@@ -222,12 +226,12 @@ class WorksOrderOperation(db.Model):
 
     # Status display labels and Bootstrap badge colours
     STATUS_META = {
-        STATUS_NEW_ORDER: ("New Order", "light"),
-        STATUS_FIRMED:    ("Firmed",    "secondary"),
-        STATUS_RELEASED:  ("Released",  "primary"),
-        STATUS_WIP:       ("WIP",       "warning"),
-        STATUS_COMPLETED: ("Complete",  "success"),
-        STATUS_CLOSED:    ("Closed",    "dark"),
+        STATUS_NEW_ORDER:    ("New Order",    "light"),
+        STATUS_FIRM_PLANNED: ("Firm Planned", "info"),
+        STATUS_RELEASED:     ("Released",     "primary"),
+        STATUS_WIP:          ("WIP",          "warning"),
+        STATUS_COMPLETED:    ("Completed",    "success"),
+        STATUS_CLOSED:       ("Closed",       "dark"),
     }
 
     id = db.Column(db.Integer, primary_key=True)
@@ -420,6 +424,40 @@ class ImportBatch(db.Model):
     notes = db.Column(db.Text, nullable=True)
 
     uploaded_by = db.relationship("User", foreign_keys=[uploaded_by_id])
+
+
+# ---------------------------------------------------------------------------
+# Sales Order Comment
+# ---------------------------------------------------------------------------
+
+class SalesOrderComment(db.Model):
+    """
+    Free-text comment left by a user against a sales order number.
+    Append-only — comments are never edited or deleted.
+    """
+
+    __tablename__ = "so_comments"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    so_number  = db.Column(db.String(50), nullable=False, index=True)
+    user_id    = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    body       = db.Column(db.Text, nullable=False)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+
+    user = db.relationship("User", backref=db.backref("so_comments", lazy="dynamic"))
+
+    def __repr__(self) -> str:
+        return f"<SalesOrderComment so={self.so_number} user_id={self.user_id}>"
 
     def __repr__(self) -> str:
         return f"<ImportBatch {self.import_type} {self.uploaded_at}>"

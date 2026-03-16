@@ -2,29 +2,84 @@
 {% from 'components/pagination.html' import render_pagination %}
 
 {% block content %}
+
+{# ── Filter bar ─────────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-sm-3 col-md-2">
+                <label class="form-label form-label-sm text-muted mb-0">Action</label>
+                <select name="action" class="form-select form-select-sm">
+                    <option value="">All actions</option>
+                    {% for a in actions %}
+                    <option value="{{ a }}" {{ 'selected' if action_f == a }}>{{ a }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-3 col-md-2">
+                <label class="form-label form-label-sm text-muted mb-0">User</label>
+                <input type="search" name="user" class="form-control form-control-sm"
+                       placeholder="Username…" value="{{ user_f }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label form-label-sm text-muted mb-0">From</label>
+                <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label form-label-sm text-muted mb-0">To</label>
+                <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+            </div>
+            <div class="col-auto mt-1">
+                <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+                <a href="{{ url_for('admin.audit_log') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# ── Results ─────────────────────────────────────────────────────────────── #}
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0">
+            <table class="table table-sm table-hover mb-0" style="font-size:.84rem;">
                 <thead class="table-light">
                     <tr>
-                        <th>Timestamp</th>
+                        <th class="text-nowrap">Timestamp</th>
                         <th>User</th>
                         <th>Action</th>
                         <th>Resource</th>
-                        <th>IP Address</th>
+                        <th>IP</th>
                         <th>Details</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for log in logs.items %}
+                    {% set action_colour = {
+                        'op_status_change': 'primary',
+                        'so_dept_advance':  'success',
+                        'so_dept_reverse':  'warning',
+                        'so_all_advance':   'success',
+                        'so_all_reverse':   'warning',
+                        'login':            'secondary',
+                        'logout':           'secondary',
+                        'password_change':  'danger',
+                    }.get(log.action, 'secondary') %}
                     <tr>
-                        <td class="small text-muted text-nowrap">{{ log.timestamp.strftime('%d %b %Y %H:%M:%S') }}</td>
-                        <td>{{ log.user.username if log.user else '—' }}</td>
-                        <td><span class="badge bg-secondary">{{ log.action }}</span></td>
-                        <td class="small text-muted">{{ log.resource or '—' }}</td>
-                        <td class="small text-muted">{{ log.ip_address or '—' }}</td>
-                        <td class="small text-muted">{{ log.details or '—' }}</td>
+                        <td class="text-muted text-nowrap">{{ log.timestamp.strftime('%d %b %Y %H:%M') }}</td>
+                        <td>{{ log.user.username if log.user else '<em class="text-muted">deleted</em>'|safe }}</td>
+                        <td><span class="badge bg-{{ action_colour }}">{{ log.action }}</span></td>
+                        <td class="text-muted">{{ log.resource or '—' }}</td>
+                        <td class="text-muted">{{ log.ip_address or '—' }}</td>
+                        <td class="text-muted">
+                            {% if log.details %}
+                                {% set d = log.details | tojson if log.details is mapping else log.details %}
+                                <code style="font-size:.78rem; white-space:pre-wrap;">{{ log.details }}</code>
+                            {% else %}—{% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">No log entries match the current filters.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -32,7 +87,12 @@
         </div>
     </div>
     <div class="card-footer border-0 bg-transparent py-3">
-        {{ render_pagination(logs) }}
+        <div class="d-flex justify-content-between align-items-center">
+            <small class="text-muted">
+                <strong>{{ logs.total }}</strong> entr{{ 'y' if logs.total == 1 else 'ies' }} found
+            </small>
+            {{ render_pagination(logs) }}
+        </div>
     </div>
 </div>
 {% endblock %}

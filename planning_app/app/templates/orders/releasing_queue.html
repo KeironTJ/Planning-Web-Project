@@ -142,7 +142,7 @@
         <tr class="table-light fw-semibold" id="release-order-{{ gi }}">
             <td class="text-center p-1">
                 <input type="checkbox" class="form-check-input row-check"
-                       data-op-ids="{{ group.firmed_op_ids | join(',') }}"
+                       data-op-ids="{{ group.firm_planned_op_ids | join(',') }}"
                        title="Select {{ group.so_number }}">
             </td>
             <td class="text-center p-1">
@@ -166,7 +166,7 @@
                 {% endif %}
             </td>
             <td class="text-muted fw-normal" style="font-size:.78rem;">
-                {{ group.line_count }} line{{ 's' if group.line_count != 1 }}
+                {{ group.op_count }} op{{ 's' if group.op_count != 1 }}
                 &nbsp;/&nbsp;{{ group.total_qty | int }} units
             </td>
             <td class="text-end fw-normal text-muted" style="font-size:.78rem;">
@@ -215,7 +215,7 @@
                       onsubmit="return confirm('Release {{ group.so_number }} to production?')">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="operation_ids"
-                           value="{{ group.firmed_op_ids | join(',') }}">
+                           value="{{ group.firm_planned_op_ids | join(',') }}">
                     <input type="hidden" name="status" value="released">
                     <input type="hidden" name="back_url" value="{{ request.url }}">
                     <button type="submit" class="btn btn-sm btn-success">
