@@ -1517,40 +1517,28 @@ def get_wip_dashboard_data() -> dict:
         "completed":    "#198754",
     }
 
-    # 3. Distinct active SOs: min due_date for week bucketing
+    # 3. Distinct SOs (excl. closed): min due_date for week bucketing
     active_so_due = (
         db.session.query(
             SalesOrderLine.so_number,
             func.min(SalesOrderLine.due_date).label("min_due"),
         )
         .join(WorksOrderOperation, WorksOrderOperation.sales_order_line_id == SalesOrderLine.id)
-        .filter(
-            WorksOrderOperation.status.notin_([
-                WorksOrderOperation.STATUS_CLOSED,
-                WorksOrderOperation.STATUS_COMPLETED,
-            ])
-        )
+        .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
         .group_by(SalesOrderLine.so_number)
         .all()
     )
 
-    # Worst (aggregate) status per active SO — for stacked week chart
+    # Best (most advanced) status per SO (excl. closed) — for stacked week chart
     so_status_rows = (
         db.session.query(
             WorksOrderOperation.so_number,
             WorksOrderOperation.status,
         )
-        .filter(
-            WorksOrderOperation.status.notin_([
-                WorksOrderOperation.STATUS_CLOSED,
-                WorksOrderOperation.STATUS_COMPLETED,
-            ])
-        )
+        .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
         .distinct()
         .all()
     )
-    # Keep the BEST (most advanced) status per SO so the chart shows how far
-    # along an order is — e.g. an SO with firm_planned + wip ops shows as wip.
     so_status_map: dict = {}
     for so_num, status in so_status_rows:
         if so_num not in so_status_map:
@@ -1558,8 +1546,7 @@ def get_wip_dashboard_data() -> dict:
         elif _STATUS_PRIORITY.get(status, 99) > _STATUS_PRIORITY.get(so_status_map[so_num], 99):
             so_status_map[so_num] = status
 
-    # Total value per active SO — separate query to avoid multiplication from the ops join
-    _active_statuses_excl = [WorksOrderOperation.STATUS_CLOSED, WorksOrderOperation.STATUS_COMPLETED]
+    # Total value per SO (excl. closed) — separate query to avoid join multiplication
     so_value_rows = (
         db.session.query(
             SalesOrderLine.so_number,
@@ -1567,7 +1554,7 @@ def get_wip_dashboard_data() -> dict:
         )
         .filter(
             SalesOrderLine.operations.any(
-                WorksOrderOperation.status.notin_(_active_statuses_excl)
+                WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED
             )
         )
         .group_by(SalesOrderLine.so_number)
