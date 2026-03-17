@@ -1,0 +1,613 @@
+{% extends 'base.html' %}
+
+{% block extra_css %}
+{# chartjs-plugin-datalabels — loaded after Chart.js (both defer, in doc order) #}
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js" defer></script>
+<style>
+@media print {
+    .navbar, #sidebarMenu, .btn-toolbar, #filterPanel,
+    .pagination, .card-footer nav, .no-print,
+    [data-bs-toggle="collapse"] { display: none !important; }
+
+    #main-content {
+        margin-left: 0 !important;
+        padding: 0.5rem 1rem !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    .container-fluid > .row { display: block !important; }
+
+    .card {
+        border: 1px solid #bbb !important;
+        break-inside: avoid;
+        box-shadow: none !important;
+    }
+    .table { font-size: 0.72rem !important; }
+    canvas { max-height: 180px !important; }
+
+    .print-header { display: block !important; }
+    .page-header-bar { display: none !important; }
+    .badge { border: 1px solid #999 !important; }
+}
+@media screen {
+    .print-header { display: none; }
+}
+</style>
+{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('orders.wip_dashboard') }}" class="btn btn-sm btn-outline-secondary no-print">
+    <i class="bi bi-speedometer2 me-1"></i>Dashboard
+</a>
+<a href="{{ url_for('orders.wip_tracker', overdue=1) }}" class="btn btn-sm btn-outline-danger no-print">
+    <i class="bi bi-grid-3x3-gap me-1"></i>WIP Tracker (overdue)
+</a>
+<button onclick="window.print()" class="btn btn-sm btn-outline-secondary no-print">
+    <i class="bi bi-printer me-1"></i>Print
+</button>
+{% endblock %}
+
+{% block content %}
+
+{# Print-only header #}
+<div class="print-header mb-3 pb-2 border-bottom">
+    <h4 class="mb-0">Overdue Orders Report</h4>
+    <p class="text-muted small mb-0">Belfield Furnishings Ltd &mdash; {{ today.strftime('%d %B %Y') }}</p>
+</div>
+
+{# ── KPI Cards ──────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-danger shadow-sm h-100 text-center py-3">
+            <div class="fw-bold fs-2 text-danger">{{ total_overdue_orders }}</div>
+            <div class="small text-danger">Overdue Orders</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="fw-bold fs-2 text-warning">{{ total_overdue_ops }}</div>
+            <div class="small text-muted">Overdue Operations</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-4 col-xl-3">
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            {% set val = total_overdue_value %}
+            {% if val >= 1000000 %}
+                {% set val_fmt = "£%.2fm" | format(val / 1000000) %}
+            {% elif val >= 1000 %}
+                {% set val_fmt = "£%.0fk" | format(val / 1000) %}
+            {% else %}
+                {% set val_fmt = "£%.0f" | format(val) %}
+            {% endif %}
+            <div class="fw-bold fs-2 text-danger">{{ val_fmt }}</div>
+            <div class="small text-muted">Overdue Order Value</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-6 col-xl-2">
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="fw-bold fs-2
+                {% if avg_days_overdue > 30 %}text-danger
+                {% elif avg_days_overdue > 14 %}text-warning
+                {% else %}text-secondary{% endif %}">
+                {{ avg_days_overdue }}
+            </div>
+            <div class="small text-muted">Avg Days Overdue</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-6 col-xl-3">
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="fw-bold fs-2
+                {% if max_days_overdue > 60 %}text-danger
+                {% elif max_days_overdue > 30 %}text-warning
+                {% else %}text-secondary{% endif %}">
+                {{ max_days_overdue }}
+            </div>
+            <div class="small text-muted">Max Days Overdue</div>
+        </div>
+    </div>
+
+</div>
+
+{% if total_overdue_orders == 0 %}
+<div class="card border-success shadow-sm mb-4">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-check-circle-fill text-success fs-1 d-block mb-2"></i>
+        <h5 class="fw-semibold text-success mb-1">No overdue orders!</h5>
+        <p class="text-muted mb-0">All active operations are within their ERP due dates.</p>
+    </div>
+</div>
+
+{% else %}
+
+{# ── Row 1: Age Distribution | Status Doughnut ─────────────────────────── #}
+<div class="row g-3 mb-4">
+    <div class="col-lg-7">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-bar-chart me-2 text-warning"></i>Orders by Age (How Long Overdue)
+                </h6>
+                <p class="text-muted small mb-0">Number of overdue sales orders in each age bracket</p>
+            </div>
+            <div class="card-body">
+                <canvas id="chartAge" style="max-height:240px;"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-pie-chart me-2 text-danger"></i>Overdue Ops by Status
+                </h6>
+                <p class="text-muted small mb-0">Operations past due date, broken down by planning status</p>
+            </div>
+            <div class="card-body d-flex align-items-center justify-content-center">
+                <canvas id="chartStatusDoughnut" style="max-height:240px;max-width:240px;"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Row 2: By Department | Value by Customer ──────────────────────────── #}
+<div class="row g-3 mb-4">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-building me-2 text-danger"></i>Overdue Operations by Department
+                </h6>
+                <p class="text-muted small mb-0">Number of overdue operations per work centre</p>
+            </div>
+            <div class="card-body">
+                {% set dept_count = by_dept.depts | length %}
+                <canvas id="chartByDept"
+                        style="height:{{ [dept_count * 34 + 40, 160] | max }}px;"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-people me-2 text-primary"></i>Overdue Value by Customer
+                </h6>
+                <p class="text-muted small mb-0">Total value of overdue orders per customer (top 15)</p>
+            </div>
+            <div class="card-body">
+                {% if value_by_customer %}
+                <canvas id="chartCustomer"
+                        style="height:{{ [value_by_customer | length * 30 + 20, 160] | max }}px;"></canvas>
+                {% else %}
+                <div class="text-center text-muted py-4 small">No customer data available.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Detail Table ─────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-transparent border-0">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <h6 class="mb-0 fw-semibold">
+                <i class="bi bi-table me-2 text-danger"></i>Overdue Orders Detail
+                <span class="badge bg-danger ms-1">{{ total_filtered }}</span>
+            </h6>
+            <button class="btn btn-sm btn-outline-secondary no-print" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#filterPanel" aria-expanded="false">
+                <i class="bi bi-funnel me-1"></i>Filters
+                {% if dept_id or status_filter or search %}
+                <span class="badge bg-warning text-dark ms-1">active</span>
+                {% endif %}
+            </button>
+        </div>
+
+        {# ── Filter Panel ── #}
+        <div class="collapse {% if dept_id or status_filter or search %}show{% endif %}" id="filterPanel">
+            <form method="get" action="{{ url_for('orders.overdue_report') }}" class="mt-3">
+                <div class="row g-2 align-items-end">
+                    <div class="col-12 col-sm-6 col-md-3">
+                        <label class="form-label small mb-1">Department</label>
+                        <select name="dept" class="form-select form-select-sm">
+                            <option value="">All departments</option>
+                            {% for dept in departments %}
+                            <option value="{{ dept.id }}" {% if dept.id == dept_id %}selected{% endif %}>
+                                {{ dept.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-6 col-md-2">
+                        <label class="form-label small mb-1">Status</label>
+                        <select name="status" class="form-select form-select-sm">
+                            <option value="">All statuses</option>
+                            {% for s in ['new_order', 'firm_planned', 'released', 'wip'] %}
+                            {% set label, colour = status_meta.get(s, (s, 'secondary')) %}
+                            <option value="{{ s }}" {% if s == status_filter %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-6 col-md-3">
+                        <label class="form-label small mb-1">Search (SO / Customer)</label>
+                        <input type="text" name="q" value="{{ search }}"
+                               class="form-control form-control-sm" placeholder="Search…">
+                    </div>
+                    <div class="col-6 col-sm-3 col-md-2">
+                        <label class="form-label small mb-1">Sort by</label>
+                        <select name="sort" class="form-select form-select-sm">
+                            <option value="days_overdue" {% if sort == 'days_overdue' %}selected{% endif %}>Days Overdue</option>
+                            <option value="due_date"     {% if sort == 'due_date'     %}selected{% endif %}>Due Date</option>
+                            <option value="value"        {% if sort == 'value'        %}selected{% endif %}>Value</option>
+                            <option value="customer"     {% if sort == 'customer'     %}selected{% endif %}>Customer</option>
+                            <option value="so_number"    {% if sort == 'so_number'    %}selected{% endif %}>SO Number</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-sm-3 col-md-1">
+                        <label class="form-label small mb-1">Per page</label>
+                        <select name="per_page" class="form-select form-select-sm">
+                            {% for n in [25, 50, 100] %}
+                            <option value="{{ n }}" {% if n == per_page %}selected{% endif %}>{{ n }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-1 d-flex gap-1">
+                        <button type="submit" class="btn btn-sm btn-danger flex-fill">Apply</button>
+                        <a href="{{ url_for('orders.overdue_report') }}"
+                           class="btn btn-sm btn-outline-secondary flex-fill">Reset</a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card-body p-0">
+        {% if orders %}
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3">SO Number</th>
+                        <th>Customer</th>
+                        <th>Type</th>
+                        <th>ERP Due</th>
+                        <th class="text-center">Days Overdue</th>
+                        <th class="text-end">Value</th>
+                        <th>Overdue In</th>
+                        <th>Status</th>
+                        <th>Latest Comment</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for o in orders %}
+                    <tr>
+                        <td class="ps-3 fw-semibold font-monospace">{{ o.so_number }}</td>
+                        <td class="text-truncate" style="max-width:150px;" title="{{ o.customer_name }}">
+                            {{ o.customer_name }}
+                        </td>
+                        <td>
+                            {% if o.order_type %}
+                            <span class="badge bg-light text-dark border small">{{ o.order_type }}</span>
+                            {% else %}—{% endif %}
+                        </td>
+                        <td class="text-nowrap text-danger small">
+                            {{ o.min_due.strftime('%d %b %Y') if o.min_due else '—' }}
+                        </td>
+                        <td class="text-center">
+                            {% set d = o.days_overdue %}
+                            <span class="badge rounded-pill
+                                {% if d > 60 %}bg-danger
+                                {% elif d > 30 %}bg-danger bg-opacity-75
+                                {% elif d > 14 %}bg-warning text-dark
+                                {% else %}bg-secondary{% endif %}">
+                                {{ d }}d
+                            </span>
+                        </td>
+                        <td class="text-end small">
+                            {{ '£{:,.0f}'.format(o.total_value) if o.total_value else '—' }}
+                        </td>
+                        <td class="small text-body-secondary" style="max-width:200px;">
+                            {% if o.depts %}
+                                {% if o.depts | length <= 3 %}
+                                    {{ o.depts | join(', ') }}
+                                {% else %}
+                                    <span title="{{ o.depts | join(', ') }}" style="cursor:help;">
+                                        {{ o.depts[:3] | join(', ') }}
+                                        <span class="badge bg-secondary ms-1">+{{ o.depts | length - 3 }}</span>
+                                    </span>
+                                {% endif %}
+                            {% else %}—{% endif %}
+                        </td>
+                        <td>
+                            {% set s = o.worst_status %}
+                            {% set label, colour = status_meta.get(s, (s, 'secondary')) %}
+                            <span class="badge bg-{{ colour }}">{{ label }}</span>
+                        </td>
+                        <td class="small" style="max-width:220px;">
+                            {% if o.latest_comment %}
+                            <span class="text-body-secondary"
+                                  title="{{ o.latest_comment }} — {{ o.latest_user }}{% if o.latest_at %}, {{ o.latest_at.strftime('%d %b %Y') }}{% endif %}"
+                                  style="cursor:help;">
+                                <i class="bi bi-chat-left-text me-1 text-info"></i>{% if o.latest_comment | length > 55 %}{{ o.latest_comment[:55] }}&hellip;{% else %}{{ o.latest_comment }}{% endif %}
+                            </span>
+                            <div class="text-muted" style="font-size:0.7rem;">
+                                {{ o.latest_user }}{% if o.latest_at %} &middot; {{ o.latest_at.strftime('%d %b') }}{% endif %}
+                                {% if o.comment_count > 1 %}
+                                <span class="badge bg-secondary ms-1" style="font-size:0.65rem;">{{ o.comment_count }}</span>
+                                {% endif %}
+                            </div>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end pe-3">
+                            <a href="{{ url_for('orders.wip_tracker', q=o.so_number) }}"
+                               class="btn btn-sm btn-outline-secondary py-0 px-1 no-print"
+                               title="View in WIP Tracker">
+                                <i class="bi bi-arrow-up-right-square"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {# ── Pagination ── #}
+        {% if pagination.pages > 1 %}
+        <div class="card-footer bg-transparent border-top-0 py-2 no-print">
+            <nav>
+                <ul class="pagination pagination-sm mb-0 justify-content-center">
+                    <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                        <a class="page-link" href="{{ url_for('orders.overdue_report',
+                            page=pagination.page-1, dept=dept_id, status=status_filter,
+                            q=search, sort=sort, per_page=per_page) }}">&laquo;</a>
+                    </li>
+                    {% for p in pagination.iter_pages() %}
+                        {% if p %}
+                        <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('orders.overdue_report',
+                                page=p, dept=dept_id, status=status_filter,
+                                q=search, sort=sort, per_page=per_page) }}">{{ p }}</a>
+                        </li>
+                        {% else %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                        {% endif %}
+                    {% endfor %}
+                    <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                        <a class="page-link" href="{{ url_for('orders.overdue_report',
+                            page=pagination.page+1, dept=dept_id, status=status_filter,
+                            q=search, sort=sort, per_page=per_page) }}">&raquo;</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="text-center text-muted py-5">
+            <i class="bi bi-funnel fs-2 d-block mb-2"></i>
+            No overdue orders match your filters.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endif %}{# end total_overdue_orders > 0 #}
+
+<p class="text-muted small text-end mb-0 no-print">
+    <i class="bi bi-clock me-1"></i>Data as of last ERP import &mdash; refresh via the ERP Refresh button in the navbar.
+</p>
+
+{% endblock %}
+
+
+{% block extra_js %}
+{% if total_overdue_orders > 0 %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    const style      = getComputedStyle(document.documentElement);
+    const textColor  = style.getPropertyValue('--bs-body-color').trim() || '#212529';
+    const gridColor  = 'rgba(0,0,0,0.06)';
+    Chart.defaults.color       = textColor;
+    Chart.defaults.font.family = style.getPropertyValue('--bs-body-font-family').trim() || 'system-ui, sans-serif';
+
+    const ageData  = {{ age_chart         | tojson }};
+    const byDept   = {{ by_dept           | tojson }};
+    const byStatus = {{ by_status         | tojson }};
+    const custData = {{ value_by_customer | tojson }};
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+    function fmtGbp(v) {
+        return v >= 1000000 ? `£${(v/1000000).toFixed(1)}m`
+             : v >= 1000    ? `£${(v/1000).toFixed(0)}k`
+             : `£${Math.round(v).toLocaleString('en-GB')}`;
+    }
+
+    // ── 1. Age Distribution (vertical bar, no datalabels needed — values readable on axis) ──
+    {
+        const ageColors = [
+            'rgba(108,117,125,0.80)',
+            'rgba(255,193,7,0.85)',
+            'rgba(253,126,20,0.85)',
+            'rgba(220,53,69,0.80)',
+            'rgba(140,10,25,0.88)',
+        ];
+        new Chart(document.getElementById('chartAge').getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels:   ageData.labels,
+                datasets: [{
+                    label:           'Orders',
+                    data:            ageData.counts,
+                    backgroundColor: ageColors,
+                    borderColor:     ageColors.map(c => c.replace(/[\d.]+\)$/, '1)')),
+                    borderWidth: 1,
+                    borderRadius: 4,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ` ${ctx.parsed.y} order${ctx.parsed.y !== 1 ? 's' : ''}`,
+                        },
+                    },
+                },
+                scales: {
+                    x: { grid: { color: gridColor } },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { precision: 0 },
+                        grid: { color: gridColor },
+                        title: { display: true, text: 'Orders' },
+                    },
+                },
+            },
+        });
+    }
+
+    // ── 2. Status Doughnut ───────────────────────────────────────────────
+    {
+        const statuses = byStatus.statuses;
+        new Chart(document.getElementById('chartStatusDoughnut').getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels:   statuses.map(s => byStatus.labels[s] || s),
+                datasets: [{
+                    data:            byStatus.counts,
+                    backgroundColor: statuses.map(s => byStatus.colors[s] || '#888'),
+                    borderWidth: 2,
+                    hoverOffset: 6,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                cutout: '60%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { padding: 12, usePointStyle: true } },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ` ${ctx.label}: ${ctx.parsed} op${ctx.parsed !== 1 ? 's' : ''}`,
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    // ── 3. By Department — horizontal bar with count labels ─────────────
+    {
+        new Chart(document.getElementById('chartByDept').getContext('2d'), {
+            type: 'bar',
+            plugins: [ChartDataLabels],
+            data: {
+                labels:   byDept.depts,
+                datasets: [{
+                    label:           'Overdue Ops',
+                    data:            byDept.counts,
+                    backgroundColor: 'rgba(220,53,69,0.65)',
+                    borderColor:     '#dc3545',
+                    borderWidth: 1,
+                    borderRadius: 3,
+                }],
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { right: 36 } },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ` ${ctx.parsed.x} overdue op${ctx.parsed.x !== 1 ? 's' : ''}`,
+                        },
+                    },
+                    datalabels: {
+                        anchor: 'end',
+                        align:  'end',
+                        formatter: v => v > 0 ? v : null,
+                        font:   { size: 11, weight: 'bold' },
+                        color:  textColor,
+                    },
+                },
+                scales: {
+                    x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: gridColor } },
+                    y: { grid: { display: false }, ticks: { font: { size: 11 } } },
+                },
+            },
+        });
+    }
+
+    // ── 4. Value by Customer — horizontal bar with £ labels ─────────────
+    {% if value_by_customer %}
+    {
+        const counts = custData.map(d => d.count);
+        new Chart(document.getElementById('chartCustomer').getContext('2d'), {
+            type: 'bar',
+            plugins: [ChartDataLabels],
+            data: {
+                labels:   custData.map(d => d.customer),
+                datasets: [{
+                    label:           'Overdue Value',
+                    data:            custData.map(d => d.value),
+                    backgroundColor: 'rgba(220,53,69,0.55)',
+                    borderColor:     '#dc3545',
+                    borderWidth: 1,
+                    borderRadius: 3,
+                }],
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { right: 70 } },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const c = counts[ctx.dataIndex];
+                                return ` ${fmtGbp(ctx.parsed.x)} (${c} order${c !== 1 ? 's' : ''})`;
+                            },
+                        },
+                    },
+                    datalabels: {
+                        anchor: 'end',
+                        align:  'end',
+                        formatter: v => v > 0 ? fmtGbp(v) : null,
+                        font:   { size: 10, weight: 'bold' },
+                        color:  textColor,
+                    },
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            callback: v => fmtGbp(v),
+                            font: { size: 11 },
+                        },
+                        grid: { color: gridColor },
+                    },
+                    y: { ticks: { font: { size: 11 } }, grid: { display: false } },
+                },
+            },
+        });
+    }
+    {% endif %}
+
+});
+</script>
+{% endif %}
+{% endblock %}

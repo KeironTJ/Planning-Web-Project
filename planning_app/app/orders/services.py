@@ -1842,3 +1842,265 @@ def get_wip_dashboard_data() -> dict:
         "value_by_customer": value_by_customer,
     }
 
+
+# ---------------------------------------------------------------------------
+# Overdue Orders Report
+# ---------------------------------------------------------------------------
+
+def get_overdue_report_data(
+    dept_id: Optional[int] = None,
+    status_filter: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+    sort: str = "days_overdue",
+) -> dict:
+    """
+    Return aggregated data for the Overdue Orders Report.
+
+    Charts / KPIs always reflect ALL overdue operations (no search filter).
+    The detail table respects dept_id, status_filter, and search.
+    """
+    today = date.today()
+
+    _OVERDUE_EXCLUDED = [
+        WorksOrderOperation.STATUS_COMPLETED,
+        WorksOrderOperation.STATUS_CLOSED,
+    ]
+
+    # ── Chart / KPI queries (unfiltered — full overdue picture) ────────────
+    chart_filter = [
+        WorksOrderOperation.due_date < today,
+        WorksOrderOperation.status.notin_(_OVERDUE_EXCLUDED),
+    ]
+
+    total_overdue_ops = (
+        db.session.query(func.count(WorksOrderOperation.id))
+        .filter(*chart_filter)
+        .scalar()
+    ) or 0
+
+    overdue_so_nums = {
+        r[0]
+        for r in db.session.query(WorksOrderOperation.so_number)
+        .filter(*chart_filter)
+        .distinct()
+        .all()
+    }
+    total_overdue_orders = len(overdue_so_nums)
+
+    overdue_value = (
+        db.session.query(func.sum(SalesOrderLine.total_value))
+        .filter(SalesOrderLine.so_number.in_(list(overdue_so_nums)))
+        .scalar()
+    ) or 0.0
+
+    # Min ERP due_date per overdue SO (used for age buckets + KPIs)
+    so_min_due_rows = (
+        db.session.query(
+            WorksOrderOperation.so_number,
+            func.min(WorksOrderOperation.due_date).label("min_due"),
+        )
+        .filter(*chart_filter)
+        .group_by(WorksOrderOperation.so_number)
+        .all()
+    )
+    days_list = sorted(
+        [(today - r.min_due).days for r in so_min_due_rows if r.min_due],
+        reverse=True,
+    )
+    avg_days_overdue = round(sum(days_list) / len(days_list)) if days_list else 0
+    max_days_overdue = max(days_list) if days_list else 0
+
+    # Age distribution (orders, not ops)
+    age_labels = ["1–7 days", "8–14 days", "15–30 days", "31–60 days", "60+ days"]
+    age_counts = [0, 0, 0, 0, 0]
+    for d in days_list:
+        if d <= 7:
+            age_counts[0] += 1
+        elif d <= 14:
+            age_counts[1] += 1
+        elif d <= 30:
+            age_counts[2] += 1
+        elif d <= 60:
+            age_counts[3] += 1
+        else:
+            age_counts[4] += 1
+
+    # Overdue ops by department (sorted by count desc)
+    by_dept_rows = (
+        db.session.query(
+            Department.name,
+            func.count(WorksOrderOperation.id).label("cnt"),
+        )
+        .join(Department, WorksOrderOperation.department_id == Department.id)
+        .filter(*chart_filter)
+        .group_by(Department.name)
+        .order_by(func.count(WorksOrderOperation.id).desc())
+        .all()
+    )
+
+    # Overdue ops by status
+    by_status_rows = (
+        db.session.query(
+            WorksOrderOperation.status,
+            func.count(WorksOrderOperation.id).label("cnt"),
+        )
+        .filter(*chart_filter)
+        .group_by(WorksOrderOperation.status)
+        .order_by(func.count(WorksOrderOperation.id).desc())
+        .all()
+    )
+
+    # Value by customer (top 15 overdue SOs by value)
+    value_by_cust_rows = (
+        db.session.query(
+            SalesOrderLine.customer_name,
+            func.sum(SalesOrderLine.total_value).label("val"),
+            func.count(SalesOrderLine.so_number.distinct()).label("cnt"),
+        )
+        .filter(SalesOrderLine.so_number.in_(list(overdue_so_nums)))
+        .group_by(SalesOrderLine.customer_name)
+        .order_by(func.sum(SalesOrderLine.total_value).desc())
+        .limit(15)
+        .all()
+    )
+
+    # ── Detail table (dept + status + search filters apply) ────────────────
+    detail_filter = list(chart_filter)
+    if status_filter:
+        detail_filter.append(WorksOrderOperation.status == status_filter)
+
+    detail_q = (
+        db.session.query(
+            WorksOrderOperation.so_number,
+            WorksOrderOperation.status,
+            WorksOrderOperation.due_date,
+            Department.name.label("dept_name"),
+        )
+        .join(Department, WorksOrderOperation.department_id == Department.id)
+        .filter(*detail_filter)
+    )
+    if dept_id:
+        detail_q = detail_q.filter(Department.id == dept_id)
+
+    detail_op_rows = detail_q.all()
+
+    # Aggregate per SO
+    so_detail: dict = {}
+    for row in detail_op_rows:
+        so = row.so_number
+        if so not in so_detail:
+            so_detail[so] = {
+                "depts":         set(),
+                "prod_statuses": set(),  # excludes DESPATCH (for worst_status)
+                "all_statuses":  set(),
+                "min_due":       row.due_date,
+            }
+        if row.due_date and row.due_date < so_detail[so]["min_due"]:
+            so_detail[so]["min_due"] = row.due_date
+        so_detail[so]["depts"].add(row.dept_name)
+        so_detail[so]["all_statuses"].add(row.status)
+        if row.dept_name.upper() != "DESPATCH":
+            so_detail[so]["prod_statuses"].add(row.status)
+
+    # SO-level metadata (customer, value, order_type)
+    so_keys = list(so_detail.keys())
+    so_meta_rows = (
+        db.session.query(
+            SalesOrderLine.so_number,
+            SalesOrderLine.customer_name,
+            SalesOrderLine.order_type,
+            func.sum(SalesOrderLine.total_value).label("total_value"),
+        )
+        .filter(SalesOrderLine.so_number.in_(so_keys))
+        .group_by(
+            SalesOrderLine.so_number,
+            SalesOrderLine.customer_name,
+            SalesOrderLine.order_type,
+        )
+        .all()
+    ) if so_keys else []
+    so_meta = {r.so_number: r for r in so_meta_rows}
+
+    # Build and filter records
+    search_lower = search.lower() if search else None
+    records = []
+    for so_num, op_data in so_detail.items():
+        meta = so_meta.get(so_num)
+        if not meta:
+            continue
+        customer = meta.customer_name or "—"
+        if search_lower and search_lower not in so_num.lower() and search_lower not in customer.lower():
+            continue
+        min_due = op_data["min_due"]
+        days = (today - min_due).days if min_due else 0
+        statuses_for_worst = op_data["prod_statuses"] or op_data["all_statuses"]
+        worst_status = min(statuses_for_worst, key=lambda s: _STATUS_PRIORITY.get(s, 99)) if statuses_for_worst else WorksOrderOperation.STATUS_NEW_ORDER
+        records.append({
+            "so_number":          so_num,
+            "customer_name":      customer,
+            "order_type":         meta.order_type,
+            "total_value":        float(meta.total_value or 0),
+            "min_due":            min_due,
+            "days_overdue":       days,
+            "depts":              sorted(op_data["depts"]),
+            "overdue_dept_count": len(op_data["depts"]),
+            "worst_status":       worst_status,
+        })
+
+    # Sort
+    _sort_fns = {
+        "days_overdue": lambda r: -r["days_overdue"],
+        "due_date":     lambda r: r["min_due"] or date.max,
+        "value":        lambda r: -r["total_value"],
+        "customer":     lambda r: r["customer_name"].lower(),
+        "so_number":    lambda r: r["so_number"],
+    }
+    records.sort(key=_sort_fns.get(sort, _sort_fns["days_overdue"]))
+
+    total_filtered = len(records)
+    start = (page - 1) * per_page
+    pagination = SimplePagination(records[start: start + per_page], total_filtered, page, per_page)
+
+    _chart_status_colors = {
+        "new_order":    "#adb5bd",
+        "firm_planned": "#0dcaf0",
+        "released":     "#0d6efd",
+        "wip":          "#ffc107",
+    }
+
+    return {
+        # KPIs
+        "total_overdue_orders": total_overdue_orders,
+        "total_overdue_ops":    total_overdue_ops,
+        "total_overdue_value":  float(overdue_value),
+        "avg_days_overdue":     avg_days_overdue,
+        "max_days_overdue":     max_days_overdue,
+        # Charts
+        "age_chart": {
+            "labels": age_labels,
+            "counts": age_counts,
+        },
+        "by_dept": {
+            "depts":  [r.name for r in by_dept_rows],
+            "counts": [r.cnt  for r in by_dept_rows],
+        },
+        "by_status": {
+            "statuses": [r.status for r in by_status_rows],
+            "counts":   [r.cnt    for r in by_status_rows],
+            "labels":   {
+                r.status: WorksOrderOperation.STATUS_META.get(r.status, (r.status, "secondary"))[0]
+                for r in by_status_rows
+            },
+            "colors": _chart_status_colors,
+        },
+        "value_by_customer": [
+            {"customer": r.customer_name or "—", "value": float(r.val or 0), "count": r.cnt}
+            for r in value_by_cust_rows
+        ],
+        # Table
+        "pagination":     pagination,
+        "orders":         pagination.items,
+        "total_filtered": total_filtered,
+    }

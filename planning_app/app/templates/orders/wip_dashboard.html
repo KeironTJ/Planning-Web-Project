@@ -1,6 +1,9 @@
 {% extends 'base.html' %}
 
 {% block page_actions %}
+<a href="{{ url_for('orders.overdue_report') }}" class="btn btn-sm btn-outline-danger">
+    <i class="bi bi-exclamation-triangle me-1"></i>Overdue Report
+</a>
 <a href="{{ url_for('orders.wip_tracker') }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-grid-3x3-gap me-1"></i>WIP Tracker
 </a>

@@ -43,6 +43,55 @@ def wip_dashboard():
     )
 
 
+@orders_bp.route("/overdue-report")
+@login_required
+@permission_required("view_orders")
+def overdue_report():
+    dept_id       = request.args.get("dept", None, type=int)
+    status_filter = request.args.get("status", "")
+    search        = request.args.get("q", "")
+    page          = request.args.get("page", 1, type=int)
+    per_page      = request.args.get("per_page", 50, type=int)
+    sort          = request.args.get("sort", "days_overdue")
+
+    if per_page not in (25, 50, 100):
+        per_page = 50
+    if sort not in ("days_overdue", "due_date", "value", "customer", "so_number"):
+        sort = "days_overdue"
+
+    data        = services.get_overdue_report_data(
+        dept_id=dept_id,
+        status_filter=status_filter or None,
+        search=search or None,
+        page=page,
+        per_page=per_page,
+        sort=sort,
+    )
+    departments = services.get_active_departments()
+
+    comment_summaries = services.get_comment_summaries([o["so_number"] for o in data["orders"]])
+    for o in data["orders"]:
+        cs = comment_summaries.get(o["so_number"], {})
+        o["comment_count"]  = cs.get("count", 0)
+        o["latest_comment"] = cs.get("latest_body")
+        o["latest_user"]    = cs.get("latest_user")
+        o["latest_at"]      = cs.get("latest_at")
+
+    return render_template(
+        "orders/overdue_report.html",
+        title="Overdue Orders Report",
+        departments=departments,
+        dept_id=dept_id or "",
+        status_filter=status_filter,
+        search=search,
+        per_page=per_page,
+        sort=sort,
+        status_meta=WorksOrderOperation.STATUS_META,
+        today=date.today(),
+        **data,
+    )
+
+
 @orders_bp.route("/wip")
 @login_required
 @permission_required("view_orders")
