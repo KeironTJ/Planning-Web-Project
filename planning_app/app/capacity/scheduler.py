@@ -18,6 +18,7 @@ Working day calendar:
 from __future__ import annotations
 
 import bisect
+import time
 from datetime import date, timedelta
 from itertools import groupby
 from typing import Optional
@@ -211,6 +212,12 @@ def schedule_orders(
     skipped = 0
     no_due_date = 0
     no_dept = 0
+    forward_count = 0
+    backward_count = 0
+    affected_so_nums: set[str] = set()
+    dept_counts: dict[str, int] = {}
+    no_due_date_sos: list[str] = []
+    t0 = time.perf_counter()
 
     # ------------------------------------------------------------------ #
     # 5. Schedule each SO line
@@ -219,6 +226,8 @@ def schedule_orders(
         sol = SalesOrderLine.query.get(sol_id)
         if sol is None or not sol.due_date:
             no_due_date += 1
+            if sol and len(no_due_date_sos) < 25:
+                no_due_date_sos.append(sol.so_number)
             continue
 
         open_ops = [
@@ -233,6 +242,7 @@ def schedule_orders(
             if overwrite_manual or sol.planned_date is None:
                 sol.planned_date = subtract_working_days(sol.due_date, 1, working_days)
                 scheduled += 1
+                affected_so_nums.add(sol.so_number)
             else:
                 skipped += 1
             continue
@@ -264,6 +274,8 @@ def schedule_orders(
                 if op.status == WorksOrderOperation.STATUS_NEW_ORDER:
                     op.status = WorksOrderOperation.STATUS_FIRM_PLANNED
                 scheduled += 1
+                affected_so_nums.add(sol.so_number)
+                dept_counts["Unknown"] = dept_counts.get("Unknown", 0) + 1
             continue
 
         # ── Choose scheduling direction ──────────────────────────────── #
@@ -289,6 +301,10 @@ def schedule_orders(
                     if op.status == WorksOrderOperation.STATUS_NEW_ORDER:
                         op.status = WorksOrderOperation.STATUS_FIRM_PLANNED
                     scheduled += 1
+                    forward_count += 1
+                    affected_so_nums.add(sol.so_number)
+                    dept_name = op.department.name if op.department else "Unknown"
+                    dept_counts[dept_name] = dept_counts.get(dept_name, 0) + 1
 
                 # Advance start for the next stage
                 stage_start = add_working_days(stage_start, max_lt, working_days)
@@ -317,16 +333,28 @@ def schedule_orders(
                     if op.status == WorksOrderOperation.STATUS_NEW_ORDER:
                         op.status = WorksOrderOperation.STATUS_FIRM_PLANNED
                     scheduled += 1
+                    backward_count += 1
+                    affected_so_nums.add(sol.so_number)
+                    dept_name = op.department.name if op.department else "Unknown"
+                    dept_counts[dept_name] = dept_counts.get(dept_name, 0) + 1
 
                 # This stage's unmodified date becomes the next stage's end
                 stage_end = planned
 
     db.session.commit()
 
+    duration_ms = round((time.perf_counter() - t0) * 1000)
+
     return {
-        "scheduled":   scheduled,
-        "skipped":     skipped,
-        "no_due_date": no_due_date,
-        "no_dept":     no_dept,
-        "template_name": template.name,
+        "scheduled":       scheduled,
+        "skipped":         skipped,
+        "no_due_date":     no_due_date,
+        "no_dept":         no_dept,
+        "template_name":   template.name,
+        "orders_affected": len(affected_so_nums),
+        "forward_count":   forward_count,
+        "backward_count":  backward_count,
+        "dept_counts":     dict(sorted(dept_counts.items(), key=lambda x: -x[1])),
+        "no_due_date_sos": no_due_date_sos,
+        "duration_ms":     duration_ms,
     }

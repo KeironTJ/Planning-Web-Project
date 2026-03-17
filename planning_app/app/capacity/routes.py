@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 
-from flask import render_template, redirect, url_for, flash, request
+from flask import render_template, redirect, url_for, flash, request, jsonify
 from flask_login import login_required, current_user
 
 from . import capacity_bp
@@ -274,26 +274,27 @@ def routing_stage_rename(stage_id: int):
 # Backward Scheduler
 # ---------------------------------------------------------------------------
 
-@capacity_bp.route("/scheduler/", methods=["GET", "POST"])
+@capacity_bp.route("/scheduler/", methods=["GET"])
 @login_required
 @permission_required("override_capacity")
 def scheduler():
     templates = RoutingTemplate.query.filter_by(is_active=True).order_by(RoutingTemplate.name).all()
-    result = None
+    return render_template("capacity/scheduler.html", title="Backward Scheduler", templates=templates)
 
-    if request.method == "POST":
-        template_id = request.form.get("template_id", type=int)
-        overwrite   = request.form.get("overwrite_manual") == "1"
-        try:
-            result = sched_service.schedule_orders(overwrite_manual=overwrite, template_id=template_id)
-            msg = f"Scheduling complete — {result['scheduled']} operations planned"
-            if result["skipped"]:
-                msg += f", {result['skipped']} skipped (manual dates preserved)"
-            flash(msg + ".", "success")
-        except ValueError as exc:
-            flash(str(exc), "danger")
 
-    return render_template("capacity/scheduler.html", title="Backward Scheduler", templates=templates, result=result)
+@capacity_bp.route("/scheduler/run", methods=["POST"])
+@login_required
+@permission_required("override_capacity")
+def scheduler_run():
+    """AJAX endpoint — run the backward scheduler and return JSON results."""
+    template_id = request.form.get("template_id", type=int)
+    overwrite   = request.form.get("overwrite_manual") == "1"
+    try:
+        result = sched_service.schedule_orders(overwrite_manual=overwrite, template_id=template_id)
+        result["ok"] = True
+        return jsonify(result)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
 
 # ---------------------------------------------------------------------------
