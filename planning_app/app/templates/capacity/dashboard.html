@@ -4,55 +4,67 @@
 
 <!-- Controls bar -->
 <div class="card border-0 shadow-sm mb-3">
-    <div class="card-body py-2">
-        <form method="GET" class="row g-2 align-items-end">
-            <input type="hidden" name="from" value="{{ from_date.isoformat() }}">
-            <div class="col-sm-3 col-md-2">
-                <label class="form-label form-label-sm fw-semibold mb-1">Department</label>
-                <select name="dept" class="form-select form-select-sm">
-                    <option value="">All Departments</option>
-                    {% for d in departments %}
-                    <option value="{{ d.id }}" {{ 'selected' if dept_id == d.id }}>{{ d.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-sm-3 col-md-2">
-                <label class="form-label form-label-sm fw-semibold mb-1">Weeks</label>
-                <select name="weeks" class="form-select form-select-sm">
+    <div class="card-body py-2 px-3">
+
+        <!-- Row 1: Weeks | Period nav | Today | Import -->
+        <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
+
+            <!-- Weeks -->
+            <div class="d-flex align-items-center gap-2">
+                <span class="small fw-semibold text-muted text-nowrap">Weeks</span>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Number of weeks">
                     {% for w in [1, 2, 4, 8, 13, 26] %}
-                    <option value="{{ w }}" {{ 'selected' if num_weeks == w }}>{{ w }} weeks</option>
+                    <a href="{{ url_for('capacity.dashboard', **{'from': from_date.isoformat(), 'weeks': w, 'dept': dept_id}) }}"
+                       class="btn {{ 'btn-primary' if num_weeks == w else 'btn-outline-secondary' }}">{{ w }}w</a>
                     {% endfor %}
-                </select>
+                </div>
             </div>
-            <div class="col-sm-3 col-md-2">
-                <label class="form-label form-label-sm fw-semibold mb-1">View</label>
-                <select name="view" class="form-select form-select-sm">
-                    <option value="chart" {{ 'selected' if view_mode == 'chart' }}>Chart</option>
-                    <option value="table" {{ 'selected' if view_mode == 'table' }}>Table</option>
-                </select>
-            </div>
-            <div class="col-auto">
-                <button type="submit" class="btn btn-primary btn-sm">Apply</button>
-                <a href="{{ url_for('capacity.dashboard') }}" class="btn btn-outline-secondary btn-sm">Today</a>
-            </div>
-            <div class="col-auto ms-auto d-flex gap-2 align-items-center">
-                <!-- Period navigation -->
-                <a href="{{ url_for('capacity.dashboard', **{'from': prev_from, 'weeks': num_weeks, 'dept': dept_id, 'view': view_mode}) }}"
+
+            <!-- Period navigation -->
+            <div class="d-flex align-items-center gap-2 ms-auto">
+                <a href="{{ url_for('capacity.dashboard', **{'from': prev_from, 'weeks': num_weeks, 'dept': dept_id}) }}"
                    class="btn btn-outline-secondary btn-sm" title="Previous period">
                     <i class="bi bi-chevron-left"></i>
                 </a>
                 <span class="small text-muted text-nowrap">
                     {{ data.from_date.strftime('%d %b') }} – {{ data.to_date.strftime('%d %b %Y') }}
                 </span>
-                <a href="{{ url_for('capacity.dashboard', **{'from': next_from, 'weeks': num_weeks, 'dept': dept_id, 'view': view_mode}) }}"
+                <a href="{{ url_for('capacity.dashboard', **{'from': next_from, 'weeks': num_weeks, 'dept': dept_id}) }}"
                    class="btn btn-outline-secondary btn-sm" title="Next period">
                     <i class="bi bi-chevron-right"></i>
                 </a>
-                <a href="{{ url_for('admin.import_upload') }}" class="btn btn-outline-secondary btn-sm ms-2">
+                <a href="{{ url_for('capacity.dashboard') }}" class="btn btn-outline-secondary btn-sm" title="Go to today">
+                    Today
+                </a>
+                <a href="{{ url_for('admin.import_upload') }}" class="btn btn-outline-secondary btn-sm ms-1">
                     <i class="bi bi-upload me-1"></i>Import
                 </a>
             </div>
-        </form>
+        </div>
+
+        <!-- Row 2: Department buttons -->
+        {% set ns = namespace(data_dept_ids=[]) %}
+        {% for row in data.summary %}
+            {% if row.avail_total or row.load_total %}
+                {% set ns.data_dept_ids = ns.data_dept_ids + [row.dept.id] %}
+            {% endif %}
+        {% endfor %}
+        <div class="d-flex flex-wrap gap-1 align-items-center">
+            <span class="small fw-semibold text-muted me-1 text-nowrap">Dept</span>
+            <a href="{{ url_for('capacity.dashboard', **{'from': from_date.isoformat(), 'weeks': num_weeks}) }}"
+               class="btn btn-sm {{ 'btn-primary' if not dept_id else 'btn-outline-secondary' }}">
+                All
+            </a>
+            {% for d in departments %}
+            {% set has_data = d.id in ns.data_dept_ids %}
+            <a href="{{ url_for('capacity.dashboard', **{'from': from_date.isoformat(), 'weeks': num_weeks, 'dept': d.id}) }}"
+               class="btn btn-sm {{ 'btn-primary' if dept_id == d.id else 'btn-outline-secondary' }}{{ ' opacity-50' if not has_data }}"
+               title="{{ d.name }}{{ ' — no data for this period' if not has_data }}">
+                {{ d.name | truncate(18, True, '…') }}
+            </a>
+            {% endfor %}
+        </div>
+
     </div>
 </div>
 
@@ -80,19 +92,25 @@
 </div>
 {% endif %}
 
-{% if view_mode == 'chart' and data.departments %}
+{% if data.departments %}
     {% if selected_dept %}
     <div class="card border-0 shadow-sm mb-3">
-        <div class="card-header bg-transparent fw-semibold">{{ data.departments[0].dept.name }} — Load vs Available (hrs/week)</div>
+        <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center">
+            <span>{{ data.departments[0].dept.name }} — Load vs Available</span>
+            <small class="text-muted fw-normal">Hours per week · Utilisation %</small>
+        </div>
         <div class="card-body">
-            <canvas id="deptChart" style="height:280px;" aria-label="Dept capacity chart"></canvas>
+            <canvas id="deptChart" style="height:300px;" aria-label="Dept capacity chart"></canvas>
         </div>
     </div>
     {% else %}
     <div class="card border-0 shadow-sm mb-3">
-        <div class="card-header bg-transparent fw-semibold">All Departments — Load vs Available ({{ num_weeks }}-week totals)</div>
+        <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center">
+            <span>All Departments — Load vs Available</span>
+            <small class="text-muted fw-normal">{{ num_weeks }}-week totals · Hover for detail</small>
+        </div>
         <div class="card-body">
-            <canvas id="allDeptsChart" style="height:300px;" aria-label="All depts capacity chart"></canvas>
+            <canvas id="allDeptsChart" style="height:320px;" aria-label="All depts capacity chart"></canvas>
         </div>
     </div>
     {% endif %}
@@ -119,8 +137,14 @@
                 </thead>
                 <tbody>
                     {% for row in data.summary %}
+                    {% if row.avail_total or row.load_total %}
                     <tr>
-                        <td class="fw-semibold">{{ row.dept.name }}</td>
+                        <td class="fw-semibold">
+                            <a href="{{ url_for('orders.dept_orders', dept_id=row.dept.id, plan_from=data.from_date.isoformat(), plan_to=data.to_date.isoformat()) }}"
+                               class="text-decoration-none text-body" title="View orders with planned operations in this period ({{ data.from_date.strftime('%d %b') }} – {{ data.to_date.strftime('%d %b') }})">
+                                {{ row.dept.name }}
+                            </a>
+                        </td>
                         <td class="text-end">{{ row.avail_total if row.avail_total else '—' }}</td>
                         <td class="text-end">{{ row.load_total if row.load_total else '—' }}</td>
                         <td class="text-end {{ 'text-danger fw-semibold' if row.headroom < 0 else '' }}">
@@ -158,6 +182,7 @@
                             </a>
                         </td>
                     </tr>
+                    {% endif %}
                     {% else %}
                     <tr>
                         <td colspan="6" class="text-center py-4 text-muted">
@@ -172,7 +197,7 @@
     </div>
 </div>
 
-{% if view_mode == 'table' and data.departments %}
+{% if data.departments %}
 <div class="card border-0 shadow-sm mt-3">
     <div class="card-header bg-transparent fw-semibold py-2 d-flex justify-content-between align-items-center">
         <span>Weekly Capacity Buckets</span>
@@ -197,7 +222,10 @@
                     {% if has_any.val %}
                     <tr class="table-light">
                         <td class="fw-semibold" rowspan="3" style="vertical-align:middle; border-right:2px solid #dee2e6; width: 150px; max-width:150px; overflow:hidden; word-break:break-word;">
-                            {{ d.dept.name }}
+                            <a href="{{ url_for('orders.dept_orders', dept_id=d.dept.id) }}"
+                               class="text-decoration-none text-body" title="View orders with planned operations in this period ({{ data.from_date.strftime('%d %b') }} – {{ data.to_date.strftime('%d %b') }})">
+                                {{ d.dept.name }}
+                            </a>
                             <br>
                             <a href="{{ url_for('capacity.dept_calendar', dept_id=d.dept.id) }}"
                                class="text-muted small text-decoration-none">
@@ -244,34 +272,98 @@ document.addEventListener('DOMContentLoaded', function () {
     const chartData = {{ chart_data | tojson }};
     const weeks     = {{ data.weeks | tojson }};
 
-    function utilColour(util) {
-        if (util > 100) return 'rgba(220,53,69,0.8)';
-        if (util > 85)  return 'rgba(255,193,7,0.8)';
-        return 'rgba(25,135,84,0.6)';
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    // Convert "YYYY-Www" to the Monday Date of that ISO week
+    function isoWeekMonday(iso) {
+        const [year, week] = iso.split('-W').map(Number);
+        const jan4    = new Date(year, 0, 4);
+        const jan4dow = jan4.getDay() || 7;          // Mon=1 … Sun=7
+        const monday  = new Date(jan4);
+        monday.setDate(jan4.getDate() - (jan4dow - 1) + (week - 1) * 7);
+        return monday;
     }
 
+    // Two-line label: ["W12", "23 Mar"] — Chart.js renders each element as a separate line
+    function weekLabel(iso) {
+        const [, week] = iso.split('-W');
+        const d = isoWeekMonday(iso);
+        return [`W${week}`, `${d.getDate()} ${MONTHS[d.getMonth()]}`];
+    }
+
+    // Full human-readable week string for tooltips: "W12 · 23 Mar – 29 Mar"
+    function weekTitle(iso) {
+        const mon = isoWeekMonday(iso);
+        const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+        const [, week] = iso.split('-W');
+        return `W${week}  ·  ${mon.getDate()} ${MONTHS[mon.getMonth()]} – ${sun.getDate()} ${MONTHS[sun.getMonth()]}`;
+    }
+
+    // Wrap a department name into a two-line label at a sensible split point
+    function deptLabel(name) {
+        if (name.length <= 14) return name;
+        // Try to split at a space or bracket
+        const mid = Math.floor(name.length / 2);
+        let split = name.lastIndexOf(' ', mid + 4);
+        if (split < 4) split = name.indexOf(' ', mid - 4);
+        if (split < 1) return name;
+        return [name.substring(0, split), name.substring(split + 1)];
+    }
+
+    function utilColour(util, alpha) {
+        alpha = alpha || 0.75;
+        if (util > 100) return `rgba(220,53,69,${alpha})`;
+        if (util > 85)  return `rgba(255,193,7,${alpha})`;
+        return `rgba(25,135,84,${alpha})`;
+    }
+
+    const gridColour = 'rgba(0,0,0,0.06)';
+
     {% if selected_dept and data.departments %}
+    // ── Single department chart ───────────────────────────────────────────────
     const d   = chartData[0];
     const ctx = document.getElementById('deptChart');
     if (ctx) {
+        const utils      = d.rows.map(r => r.util);
+        const weekTitles = weeks.map(weekTitle);
+        const maxUtil    = Math.max(...utils, 0);
+
         new Chart(ctx, {
-            type: 'bar',
             data: {
-                labels: weeks,
+                labels: weeks.map(weekLabel),
                 datasets: [
                     {
-                        label: 'Available Hrs',
+                        type: 'bar',
+                        label: 'Available',
                         data: d.rows.map(r => r.avail),
-                        backgroundColor: 'rgba(200,200,200,0.4)',
-                        borderColor: 'rgba(150,150,150,0.8)',
+                        backgroundColor: 'rgba(200,210,220,0.45)',
+                        borderColor:     'rgba(150,160,175,0.7)',
                         borderWidth: 1,
+                        yAxisID: 'yHrs',
+                        order: 3,
+                    },
+                    {
+                        type: 'bar',
+                        label: 'Planned Load',
+                        data: d.rows.map(r => r.load),
+                        backgroundColor: utils.map(u => utilColour(u, 0.8)),
+                        borderWidth: 0,
+                        yAxisID: 'yHrs',
                         order: 2,
                     },
                     {
-                        label: 'Planned Load',
-                        data: d.rows.map(r => r.load),
-                        backgroundColor: d.rows.map(r => utilColour(r.util)),
-                        borderWidth: 0,
+                        type: 'line',
+                        label: 'Utilisation %',
+                        data: utils,
+                        borderColor:     'rgba(99,99,255,0.9)',
+                        backgroundColor: 'rgba(99,99,255,0.1)',
+                        borderWidth: 2.5,
+                        pointRadius: 5,
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: utils.map(u => utilColour(u, 1)),
+                        fill: false,
+                        tension: 0.3,
+                        yAxisID: 'yUtil',
                         order: 1,
                     },
                 ]
@@ -279,29 +371,64 @@ document.addEventListener('DOMContentLoaded', function () {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    legend: { position: 'top' },
+                    legend: {
+                        position: 'top',
+                        labels: { usePointStyle: true, padding: 16 },
+                    },
                     tooltip: {
                         callbacks: {
+                            title: (items) => weekTitles[items[0].dataIndex],
+                            label: (item) => {
+                                if (item.dataset.label === 'Utilisation %')
+                                    return `  Utilisation:  ${item.raw}%`;
+                                return `  ${item.dataset.label}:  ${item.raw} hrs`;
+                            },
                             footer: (items) => {
-                                const r = d.rows[items[0].dataIndex];
-                                return `Utilisation: ${r.util}%`;
+                                const u = utils[items[0].dataIndex];
+                                return u > 100 ? '⚠ Over capacity' : u > 85 ? '⚠ High utilisation' : '';
                             }
                         }
                     }
                 },
-                scales: { y: { title: { display: true, text: 'Hours' }, beginAtZero: true } }
+                scales: {
+                    yHrs: {
+                        type: 'linear',
+                        position: 'left',
+                        beginAtZero: true,
+                        title: { display: true, text: 'Hours / week', font: { size: 12 } },
+                        grid: { color: gridColour },
+                        ticks: { callback: v => v + ' h' },
+                    },
+                    yUtil: {
+                        type: 'linear',
+                        position: 'right',
+                        beginAtZero: true,
+                        suggestedMax: Math.max(120, Math.ceil(maxUtil / 10) * 10 + 20),
+                        title: { display: true, text: 'Utilisation', font: { size: 12 } },
+                        grid: { drawOnChartArea: false },
+                        ticks: { callback: v => v + '%' },
+                    },
+                    x: {
+                        grid: { color: gridColour },
+                        ticks: { maxRotation: 0, font: { size: 11 } },
+                    }
+                }
             }
         });
     }
     {% else %}
+    // ── All departments chart ─────────────────────────────────────────────────
     const ctx2 = document.getElementById('allDeptsChart');
     if (ctx2 && chartData.length) {
-        const labels  = chartData.map(d => d.dept.name.substring(0, 14));
-        const avails  = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.avail, 0).toFixed(1)));
-        const loads   = chartData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.load, 0).toFixed(1)));
-        const utils   = avails.map((a, i) => a > 0 ? loads[i] / a * 100 : 0);
-
+        // Strip departments that have no avail and no load across all weeks
+        const activeData = chartData.filter(d => d.rows.some(r => r.avail > 0 || r.load > 0));
+        const fullNames = activeData.map(d => d.dept.name);
+        const labels    = fullNames.map(deptLabel);
+        const avails    = activeData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.avail, 0).toFixed(1)));
+        const loads     = activeData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.load, 0).toFixed(1)));
+        const utils     = avails.map((a, i) => a > 0 ? parseFloat((loads[i] / a * 100).toFixed(1)) : 0);
         const headrooms = avails.map((a, i) => parseFloat(Math.max(0, a - loads[i]).toFixed(1)));
 
         new Chart(ctx2, {
@@ -312,42 +439,61 @@ document.addEventListener('DOMContentLoaded', function () {
                     {
                         label: 'Planned Load',
                         data: loads,
-                        backgroundColor: utils.map(u => utilColour(u)),
+                        backgroundColor: utils.map(u => utilColour(u, 0.82)),
                         borderWidth: 0,
-                        stack: 'capacity',
+                        stack: 'cap',
                     },
                     {
-                        label: 'Headroom',
+                        label: 'Remaining Capacity',
                         data: headrooms,
-                        backgroundColor: 'rgba(200,200,200,0.35)',
-                        borderColor: 'rgba(150,150,150,0.6)',
+                        backgroundColor: 'rgba(210,215,220,0.4)',
+                        borderColor:     'rgba(160,165,175,0.5)',
                         borderWidth: 1,
-                        stack: 'capacity',
+                        stack: 'cap',
                     },
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    legend: { position: 'top' },
+                    legend: {
+                        position: 'top',
+                        labels: { usePointStyle: true, padding: 16 },
+                    },
                     tooltip: {
                         callbacks: {
+                            title: (items) => fullNames[items[0].dataIndex],
                             label: (item) => {
                                 const i = item.dataIndex;
-                                if (item.datasetIndex === 0) return `Planned Load: ${loads[i]} hrs`;
-                                return `Headroom: ${headrooms[i]} hrs`;
+                                if (item.datasetIndex === 0)
+                                    return `  Planned Load:       ${loads[i]} hrs`;
+                                return `  Remaining Capacity: ${headrooms[i]} hrs`;
                             },
                             footer: (items) => {
                                 const i = items[0].dataIndex;
-                                return `Available: ${avails[i]} hrs  |  Util: ${utils[i].toFixed(1)}%`;
+                                const flag = utils[i] > 100 ? '  ⚠ OVER CAPACITY'
+                                           : utils[i] > 85  ? '  ⚠ High utilisation'
+                                           : '';
+                                return `Available: ${avails[i]} hrs  ·  Utilisation: ${utils[i]}%${flag}`;
                             }
                         }
                     }
                 },
                 scales: {
-                    x: { stacked: true, ticks: { maxRotation: 45 } },
-                    y: { stacked: true, title: { display: true, text: 'Hours (period total)' }, beginAtZero: true }
+                    x: {
+                        stacked: true,
+                        ticks: { maxRotation: 0, font: { size: 11 }, autoSkip: false },
+                        grid: { color: gridColour },
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        title: { display: true, text: 'Total hours  ({{ num_weeks }}-week period)', font: { size: 12 } },
+                        grid: { color: gridColour },
+                        ticks: { callback: v => v + ' h' },
+                    }
                 }
             }
         });

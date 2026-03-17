@@ -125,6 +125,17 @@ def _register_template_globals(app: Flask) -> None:
     """Inject variables and helpers available in all templates."""
     import datetime
 
+    @app.template_filter("hm")
+    def hours_minutes_filter(decimal_hours) -> str:
+        """Format a decimal hours value as '2hrs 30mins'."""
+        if decimal_hours is None:
+            return "—"
+        total_mins = int(round(float(decimal_hours) * 60))
+        h, m = divmod(total_mins, 60)
+        if h == 0:
+            return f"{m}min{'s' if m != 1 else ''}"
+        return f"{h}hr{'s' if h != 1 else ''} {m:02d}min{'s' if m != 1 else ''}"
+
     @app.context_processor
     def inject_globals():
         from flask_login import current_user

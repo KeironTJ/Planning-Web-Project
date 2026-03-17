@@ -15,7 +15,16 @@ from sqlalchemy import func, case, and_
 
 from app.extensions import db
 from app.core.exceptions import NotFoundError, ValidationError
-from .models import Department, SalesOrderLine, WorksOrderOperation, SalesOrderComment
+from .models import Department, SalesOrderLine, WorksOrderOperation, SalesOrderComment, SmvMatrix
+
+
+def _add_working_days(d: date, n: int) -> date:
+    """Add n working days (Mon–Fri) to date d, skipping weekends."""
+    while n > 0:
+        d += timedelta(days=1)
+        if d.weekday() < 5:  # Mon=0 … Fri=4
+            n -= 1
+    return d
 
 
 def _audit(action: str, resource: str, details: dict) -> None:
@@ -382,7 +391,7 @@ def get_wip_grouped(
             for op in sol.operations
             if op.planned_date and op.status != WorksOrderOperation.STATUS_CLOSED
         ]
-        entry["plan_date"]  = max(all_planned) if all_planned else None
+        entry["plan_date"]  = _add_working_days(max(all_planned), 1) if all_planned else None
         entry["plan_start"] = min(all_planned) if all_planned else None
 
         # Unique CPRs across all lines (preserving order, excluding nulls)
@@ -578,6 +587,8 @@ def get_dept_orders_grouped(
     order_by: str = "due_date",
     due_date_from: Optional[date] = None,
     due_date_to: Optional[date] = None,
+    planned_date_from: Optional[date] = None,
+    planned_date_to: Optional[date] = None,
 ):
     """
     Return (dept, SimplePagination, order_list) for a single department,
@@ -658,6 +669,25 @@ def get_dept_orders_grouped(
     if due_date_to:
         q = q.filter(SalesOrderLine.due_date <= due_date_to)
 
+    if planned_date_from:
+        q = q.filter(
+            SalesOrderLine.operations.any(
+                and_(
+                    WorksOrderOperation.department_id == dept_id,
+                    WorksOrderOperation.planned_date >= planned_date_from,
+                )
+            )
+        )
+    if planned_date_to:
+        q = q.filter(
+            SalesOrderLine.operations.any(
+                and_(
+                    WorksOrderOperation.department_id == dept_id,
+                    WorksOrderOperation.planned_date <= planned_date_to,
+                )
+            )
+        )
+
     if order_by == "so_number":
         q = q.order_by(SalesOrderLine.so_number, SalesOrderLine.line_number)
     elif order_by == "customer":
@@ -727,6 +757,24 @@ def get_dept_orders_grouped(
 
     if order_by == "plan_date":
         order_list.sort(key=lambda e: e["dept_planned"] or date.max)
+
+    # SMV: pre-load {component_id: smv_minutes} for this dept, then annotate groups
+    smv_dict = {
+        row.component_id: float(row.smv_minutes)
+        for row in SmvMatrix.query.filter_by(department_id=dept_id).all()
+        if row.smv_minutes is not None
+    }
+    for entry in order_list:
+        op_smv: dict[int, float] = {}
+        total_smv = 0.0
+        for op in entry["dept_ops"]:
+            sol = op.sales_order_line
+            mins = smv_dict.get(sol.product_description or "", 0.0)
+            hrs  = round(float(op.qty or 0) * mins / 60, 2)
+            op_smv[op.id] = hrs
+            total_smv += hrs
+        entry["op_smv_hours"]   = op_smv
+        entry["dept_smv_hours"] = round(total_smv, 2)
 
     total = len(order_list)
     start = (page - 1) * per_page
@@ -824,7 +872,7 @@ def _build_queue_groups(all_lines: list, page: int, per_page: int, sort: str = "
             if op.planned_date and op.status != WorksOrderOperation.STATUS_CLOSED
         ]
         entry["plan_start"] = min(all_planned) if all_planned else None
-        entry["plan_end"]   = max(all_planned) if all_planned else None
+        entry["plan_end"]   = _add_working_days(max(all_planned), 1) if all_planned else None
         entry["new_order_op_ids"] = [
             op.id for s in lines for op in s.operations
             if op.status == WorksOrderOperation.STATUS_NEW_ORDER
@@ -999,14 +1047,15 @@ def bulk_update_status(
 
 def get_wip_summary() -> dict:
     """
-    Return SO-level counts for the WIP tracker summary banner.
+    Return SO-level counts and values for the WIP tracker summary banner.
 
     Counts distinct Sales Orders (SO numbers):
-      total     — SOs with at least one non-closed op
-      overdue   — SOs with at least one overdue open op
-      by_status — for each status, SOs that have at least one op in that status
-                  (an SO can appear in multiple buckets; each matches the
-                  ?status= filter link on the banner card)
+      total         — SOs with at least one non-closed op
+      overdue       — SOs with at least one overdue open op
+      by_status     — for each status, SOs that have at least one op in that status
+      total_value   — sum of total_value for all active SOs
+      overdue_value — sum of total_value for overdue SOs
+      value_by_status — dict of status → sum of total_value
     """
     today = date.today()
 
@@ -1039,11 +1088,36 @@ def get_wip_summary() -> dict:
         for s in statuses:
             by_status[s] = by_status.get(s, 0) + 1
 
+    # Fetch SO-level value totals for all active SOs in one query
+    value_rows = (
+        db.session.query(
+            SalesOrderLine.so_number,
+            func.sum(SalesOrderLine.total_value).label("val"),
+        )
+        .filter(SalesOrderLine.so_number.in_(seen_sos))
+        .group_by(SalesOrderLine.so_number)
+        .all()
+    )
+    so_value_map: dict[str, float] = {r.so_number: float(r.val or 0) for r in value_rows}
+
+    total_value   = sum(so_value_map.values())
+    overdue_value = sum(so_value_map.get(so, 0.0) for so in overdue_sos)
+
+    value_by_status: dict[str, float] = {}
+    for so_number, statuses in so_statuses.items():
+        val = so_value_map.get(so_number, 0.0)
+        for s in statuses:
+            value_by_status[s] = value_by_status.get(s, 0.0) + val
+
     return {
-        "total":     len(seen_sos),
-        "overdue":   len(overdue_sos),
-        "by_status": by_status,
+        "total":           len(seen_sos),
+        "overdue":         len(overdue_sos),
+        "by_status":       by_status,
+        "total_value":     total_value,
+        "overdue_value":   overdue_value,
+        "value_by_status": value_by_status,
     }
+
 
 
 def get_active_departments() -> list[Department]:
@@ -1167,7 +1241,7 @@ def get_planning_list(
 
         planned_dates = [op.planned_date for op in open_ops if op.planned_date]
         plan_start = min(planned_dates) if planned_dates else None
-        plan_end   = max(planned_dates) if planned_dates else None
+        plan_end   = _add_working_days(max(planned_dates), 1) if planned_dates else None
 
         days_delta = (sol.due_date - today).days if sol.due_date else None
         headroom   = (sol.due_date - plan_end).days if (sol.due_date and plan_end) else None
@@ -1192,6 +1266,8 @@ def get_planning_grouped(
     search: Optional[str] = None,
     cust_prod_ref: Optional[str] = None,
     dept_id: Optional[int] = None,
+    sort_by: str = "due_date",
+    status_filter: Optional[str] = None,
 ):
     """
     Return planning data grouped by SO number.
@@ -1306,7 +1382,7 @@ def get_planning_grouped(
 
         planned_dates = [op.planned_date for op in open_ops if op.planned_date]
         plan_start = min(planned_dates) if planned_dates else None
-        plan_end   = max(planned_dates) if planned_dates else None
+        plan_end   = _add_working_days(max(planned_dates), 1) if planned_dates else None
         days_delta = (sol.due_date - today).days if sol.due_date else None
         headroom   = (sol.due_date - plan_end).days if (sol.due_date and plan_end) else None
 
@@ -1347,6 +1423,23 @@ def get_planning_grouped(
             r["sol"].customer_product_ref for r in rows
             if r["sol"].customer_product_ref
         ))
+
+    # Apply status filter (post-aggregation, on agg_status)
+    if status_filter:
+        order_list = [e for e in order_list if e["agg_status"] == status_filter]
+
+    # Sort the grouped list
+    _far_future = date(9999, 12, 31)
+    if sort_by == "customer":
+        order_list.sort(key=lambda e: e["customer_name"].lower())
+    elif sort_by == "plan_end":
+        order_list.sort(key=lambda e: (e["plan_end"] is None, e["plan_end"] or _far_future))
+    elif sort_by == "headroom":
+        order_list.sort(key=lambda e: (e["headroom"] is None, e["headroom"] if e["headroom"] is not None else 9999))
+    elif sort_by == "status":
+        order_list.sort(key=lambda e: _line_status_priority.get(e["agg_status"], 99))
+    else:  # due_date (default)
+        order_list.sort(key=lambda e: (e["due_date"] is None, e["due_date"] or _far_future))
 
     total = len(order_list)
     start = (page - 1) * per_page
@@ -1600,6 +1693,46 @@ def get_wip_dashboard_data() -> dict:
             if agg_status in week_status_counts:
                 week_status_counts[agg_status][bucket] += 1
 
+    # 3b. Orders planned by week: max planned_date (+1 working day delivery) per SO
+    active_so_planned = (
+        db.session.query(
+            WorksOrderOperation.so_number,
+            func.max(WorksOrderOperation.planned_date).label("max_planned"),
+        )
+        .filter(
+            WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED,
+            WorksOrderOperation.planned_date.isnot(None),
+        )
+        .group_by(WorksOrderOperation.so_number)
+        .all()
+    )
+
+    plan_week_counts = [0] * n_buckets
+    plan_week_values = [0.0] * n_buckets
+    plan_week_status_counts: dict = {s: [0] * n_buckets for s in all_statuses}
+
+    for so_num, max_planned in active_so_planned:
+        if max_planned is None:
+            continue
+        delivery_date = _add_working_days(max_planned, 1)
+        agg_status = so_status_map.get(so_num, WorksOrderOperation.STATUS_NEW_ORDER)
+        val = so_value_map.get(so_num, 0.0)
+
+        if delivery_date < this_monday:
+            bucket = 0
+        else:
+            bucket = next(
+                (i for i, ws in enumerate(week_starts[1:], 1)
+                 if ws <= delivery_date <= ws + timedelta(days=6)),
+                None,
+            )
+
+        if bucket is not None:
+            plan_week_counts[bucket] += 1
+            plan_week_values[bucket] += val
+            if agg_status in plan_week_status_counts:
+                plan_week_status_counts[agg_status][bucket] += 1
+
     # 4. Throughput: completed operations per ISO week over last 8 weeks
     eight_weeks_ago = this_monday - timedelta(weeks=8)
     throughput_rows = (
@@ -1653,6 +1786,25 @@ def get_wip_dashboard_data() -> dict:
         .all()
     )
 
+    # 6. Value by customer (for bar chart on dashboard)
+    value_by_customer_rows = (
+        db.session.query(
+            SalesOrderLine.customer_name,
+            func.sum(SalesOrderLine.total_value).label("val"),
+        )
+        .filter(
+            SalesOrderLine.so_number.in_(list(so_value_map.keys())),
+            SalesOrderLine.customer_name.isnot(None),
+        )
+        .group_by(SalesOrderLine.customer_name)
+        .order_by(func.sum(SalesOrderLine.total_value).desc())
+        .all()
+    )
+    value_by_customer = [
+        {"customer": r.customer_name, "value": float(r.val or 0)}
+        for r in value_by_customer_rows
+    ]
+
     return {
         "summary": summary,
         "dept_status": {
@@ -1671,6 +1823,14 @@ def get_wip_dashboard_data() -> dict:
             "status_order":  all_statuses,
             "status_labels": {s: WorksOrderOperation.STATUS_META.get(s, (s, "secondary"))[0] for s in all_statuses},
         },
+        "planned_by_week": {
+            "labels":        week_labels,
+            "counts":        plan_week_counts,
+            "values":        [round(v, 2) for v in plan_week_values],
+            "status_counts": {s: plan_week_status_counts[s] for s in all_statuses},
+            "status_order":  all_statuses,
+            "status_labels": {s: WorksOrderOperation.STATUS_META.get(s, (s, "secondary"))[0] for s in all_statuses},
+        },
         "throughput": {
             "labels": throughput_labels,
             "counts": list(throughput_weeks.values()),
@@ -1679,5 +1839,6 @@ def get_wip_dashboard_data() -> dict:
             "depts":  [r[0] for r in overdue_by_dept_rows],
             "counts": [r[1] for r in overdue_by_dept_rows],
         },
+        "value_by_customer": value_by_customer,
     }
 

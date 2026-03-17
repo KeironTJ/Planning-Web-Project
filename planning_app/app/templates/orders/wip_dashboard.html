@@ -50,6 +50,9 @@
             <div class="card h-100 border-danger shadow-sm text-center py-3">
                 <div class="fw-bold fs-2 text-danger">{{ summary.overdue }}</div>
                 <div class="small text-danger">Overdue</div>
+                {% if summary.overdue_value %}
+                <div class="small text-danger mt-1">£{{ "{:,.0f}".format(summary.overdue_value) }}</div>
+                {% endif %}
             </div>
         </a>
     </div>
@@ -57,12 +60,16 @@
     {% for s in status_order %}
         {% set count = summary.by_status.get(s, 0) %}
         {% set label, colour = status_meta.get(s, ('Unknown', 'secondary')) %}
+        {% set s_value = summary.value_by_status.get(s, 0) %}
         {% if count %}
         <div class="col-6 col-md-2">
             <a href="{{ url_for('orders.wip_tracker', status=s) }}" class="text-decoration-none">
                 <div class="card h-100 border-0 shadow-sm text-center py-3">
                     <div class="fw-bold fs-2">{{ count }}</div>
                     <div class="small"><span class="badge bg-{{ colour }}">{{ label }}</span></div>
+                    {% if s_value %}
+                    <div class="small text-muted mt-1">£{{ "{:,.0f}".format(s_value) }}</div>
+                    {% endif %}
                 </div>
             </a>
         </div>
@@ -70,16 +77,40 @@
     {% endfor %}
 </div>
 
-{# ── Row 2: Due by Week | Status Distribution ───────────────────────── #}
+{# ── Row 2: Orders by Week (Due / Planned toggle) ───────────────────── #}
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0 d-flex align-items-start justify-content-between gap-2">
+                <div>
+                    <h6 class="mb-0 fw-semibold">
+                        <i class="bi bi-calendar-week me-2 text-primary" id="weekChartIcon"></i><span id="weekChartTitle">Orders Planned by Week</span>
+                    </h6>
+                    <p class="text-muted small mb-0" id="weekChartSubtitle">Active orders grouped by their planned completion (despatch + 1 delivery day)</p>
+                </div>
+                <div class="btn-group btn-group-sm flex-shrink-0" role="group" aria-label="View toggle">
+                    <button type="button" class="btn btn-outline-secondary" id="btnViewDue">Due</button>
+                    <button type="button" class="btn btn-secondary active" id="btnViewPlanned">Planned</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <canvas id="chartWeekly" style="max-height:280px;"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Row 3: Operations by Department | Status Distribution ─────────────── #}
 <div class="row g-3 mb-4">
     <div class="col-lg-8">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-transparent border-0 pb-0">
-                <h6 class="mb-0 fw-semibold"><i class="bi bi-calendar-week me-2 text-primary"></i>Orders Due by Week</h6>
-                <p class="text-muted small mb-0">Active orders (with open ops) grouped by their earliest due date</p>
+                <h6 class="mb-0 fw-semibold"><i class="bi bi-bar-chart-steps me-2 text-primary"></i>Operations by Department</h6>
+                <p class="text-muted small mb-0">Active operations per work centre, broken down by status</p>
             </div>
             <div class="card-body">
-                <canvas id="chartDueByWeek" style="max-height:280px;"></canvas>
+                {% set dept_count = dept_status.depts | length %}
+                <canvas id="chartDeptStatus" style="height:{{ [dept_count * 36 + 60, 200] | max }}px;"></canvas>
             </div>
         </div>
     </div>
@@ -91,22 +122,6 @@
             </div>
             <div class="card-body d-flex align-items-center justify-content-center">
                 <canvas id="chartStatusDoughnut" style="max-height:260px;max-width:260px;"></canvas>
-            </div>
-        </div>
-    </div>
-</div>
-
-{# ── Row 3: Operations by Department (full-width stacked bar) ─────────── #}
-<div class="row g-3 mb-4">
-    <div class="col-12">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-transparent border-0 pb-0">
-                <h6 class="mb-0 fw-semibold"><i class="bi bi-bar-chart-steps me-2 text-primary"></i>Operations by Department</h6>
-                <p class="text-muted small mb-0">Active operations per work centre, broken down by status</p>
-            </div>
-            <div class="card-body">
-                {% set dept_count = dept_status.depts | length %}
-                <canvas id="chartDeptStatus" style="height:{{ [dept_count * 36 + 60, 200] | max }}px;"></canvas>
             </div>
         </div>
     </div>
@@ -147,6 +162,25 @@
     </div>
 </div>
 
+{# ── Row 5: Value by Customer ──────────────────────────────────────────── #}
+{% if value_by_customer %}
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold"><i class="bi bi-people me-2 text-primary"></i>Value by Customer</h6>
+                <p class="text-muted small mb-0">Total active order value per customer</p>
+            </div>
+            <div class="card-body">
+                <canvas id="chartCustomerValue"
+                        style="height:{{ [value_by_customer|length * 28, 180]|max }}px;">
+                </canvas>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {# ── Last updated note ─────────────────────────────────────────────────── #}
 <p class="text-muted small text-end mb-0">
     <i class="bi bi-clock me-1"></i>Data as of last ERP import &mdash; refresh via the ERP Refresh button in the navbar.
@@ -160,10 +194,11 @@
 document.addEventListener('DOMContentLoaded', function () {
 
     // ── Data from Flask ──────────────────────────────────────────────────
-    const dueByWeek   = {{ due_by_week   | tojson }};
-    const deptStatus  = {{ dept_status   | tojson }};
-    const throughput  = {{ throughput    | tojson }};
-    const overdueDept = {{ overdue_by_dept | tojson }};
+    const dueByWeek     = {{ due_by_week     | tojson }};
+    const plannedByWeek = {{ planned_by_week | tojson }};
+    const deptStatus    = {{ dept_status     | tojson }};
+    const throughput    = {{ throughput      | tojson }};
+    const overdueDept   = {{ overdue_by_dept | tojson }};
 
     // Resolve theme colour for chart text / grid
     const style     = getComputedStyle(document.documentElement);
@@ -173,9 +208,8 @@ document.addEventListener('DOMContentLoaded', function () {
     Chart.defaults.color = textColor;
     Chart.defaults.font.family = style.getPropertyValue('--bs-body-font-family').trim() || 'system-ui, sans-serif';
 
-    // ── 1. Orders Due by Week (stacked bars by status + value line) ─────
+    // ── 1. Orders by Week — Due / Planned toggle ────────────────────────
     {
-        const ctx = document.getElementById('chartDueByWeek').getContext('2d');
         const statusColors = {
             new_order:    '#adb5bd',
             firm_planned: '#0dcaf0',
@@ -183,81 +217,114 @@ document.addEventListener('DOMContentLoaded', function () {
             wip:          '#ffc107',
             completed:    '#198754',
         };
-
-        // Stacked bar dataset per status
-        const stackedDatasets = dueByWeek.status_order.map(s => ({
-            label:           dueByWeek.status_labels[s] || s,
-            data:            dueByWeek.status_counts[s] || [],
-            backgroundColor: statusColors[s] || '#888',
-            borderWidth: 0,
-            borderRadius: 2,
-            stack: 'orders',
-            yAxisID: 'yCount',
-            order: 2,
-        }));
-
-        // Value line on secondary axis (£k)
-        const valuesK = dueByWeek.values.map(v => +(v / 1000).toFixed(2));
         const fmtGbp = v => v >= 1000 ? `£${(v/1000).toFixed(1)}m` : `£${v.toLocaleString('en-GB')}k`;
 
-        stackedDatasets.push({
-            label: 'Value',
-            type: 'line',
-            data: valuesK,
-            borderColor: '#6f42c1',
-            backgroundColor: 'rgba(111,66,193,0.08)',
-            fill: true,
-            tension: 0.35,
-            pointRadius: 4,
-            pointHoverRadius: 6,
-            borderWidth: 2,
-            yAxisID: 'yValue',
-            order: 1,
-        });
+        function buildDatasets(src) {
+            const ds = src.status_order.map(s => ({
+                label:           src.status_labels[s] || s,
+                data:            src.status_counts[s] || [],
+                backgroundColor: statusColors[s] || '#888',
+                borderWidth: 0,
+                borderRadius: 2,
+                stack: 'orders',
+                yAxisID: 'yCount',
+                order: 2,
+            }));
+            ds.push({
+                label: 'Value',
+                type: 'line',
+                data: src.values.map(v => +(v / 1000).toFixed(2)),
+                borderColor: '#6f42c1',
+                backgroundColor: 'rgba(111,66,193,0.08)',
+                fill: true,
+                tension: 0.35,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                borderWidth: 2,
+                yAxisID: 'yValue',
+                order: 1,
+            });
+            return ds;
+        }
 
-        new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels:   dueByWeek.labels,
-                datasets: stackedDatasets,
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: { display: true, position: 'top', labels: { usePointStyle: true, padding: 12 } },
-                    tooltip: {
-                        mode: 'index',
-                        callbacks: {
-                            label: function(ctx) {
-                                if (ctx.dataset.label === 'Value') return ` Value: ${fmtGbp(ctx.parsed.y)}`;
-                                const n = ctx.parsed.y;
-                                if (n === 0) return null;
-                                return ` ${ctx.dataset.label}: ${n} order${n !== 1 ? 's' : ''}`;
-                            },
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: true, position: 'top', labels: { usePointStyle: true, padding: 12 } },
+                tooltip: {
+                    mode: 'index',
+                    callbacks: {
+                        label: function(ctx) {
+                            if (ctx.dataset.label === 'Value') return ` Value: ${fmtGbp(ctx.parsed.y)}`;
+                            const n = ctx.parsed.y;
+                            if (n === 0) return null;
+                            return ` ${ctx.dataset.label}: ${n} order${n !== 1 ? 's' : ''}`;
                         },
                     },
                 },
-                scales: {
-                    x:      { stacked: true, grid: { color: gridColor } },
-                    yCount: {
-                        type: 'linear', position: 'left',
-                        stacked: true,
-                        beginAtZero: true,
-                        ticks: { precision: 0 },
-                        grid: { color: gridColor },
-                        title: { display: true, text: 'Orders' },
-                    },
-                    yValue: {
-                        type: 'linear', position: 'right',
-                        beginAtZero: true,
-                        grid: { drawOnChartArea: false },
-                        ticks: { callback: v => `£${v}k` },
-                        title: { display: true, text: 'Value' },
-                    },
+            },
+            scales: {
+                x:      { stacked: true, grid: { color: gridColor } },
+                yCount: {
+                    type: 'linear', position: 'left',
+                    stacked: true, beginAtZero: true,
+                    ticks: { precision: 0 },
+                    grid: { color: gridColor },
+                    title: { display: true, text: 'Orders' },
+                },
+                yValue: {
+                    type: 'linear', position: 'right',
+                    beginAtZero: true,
+                    grid: { drawOnChartArea: false },
+                    ticks: { callback: v => `£${v}k` },
+                    title: { display: true, text: 'Value' },
                 },
             },
-        });
+        };
+
+        const weeklyChart = new Chart(
+            document.getElementById('chartWeekly').getContext('2d'),
+            {
+                type: 'bar',
+                data: { labels: plannedByWeek.labels, datasets: buildDatasets(plannedByWeek) },
+                options: chartOptions,
+            }
+        );
+
+        const views = {
+            planned: {
+                src:      plannedByWeek,
+                title:    'Orders Planned by Week',
+                subtitle: 'Active orders grouped by their planned completion (despatch + 1 delivery day)',
+                icon:     'bi-calendar-check text-success',
+            },
+            due: {
+                src:      dueByWeek,
+                title:    'Orders Due by Week',
+                subtitle: 'Active orders (with open ops) grouped by their earliest due date',
+                icon:     'bi-calendar-week text-primary',
+            },
+        };
+
+        function switchView(mode) {
+            const v = views[mode];
+            weeklyChart.data.labels   = v.src.labels;
+            weeklyChart.data.datasets = buildDatasets(v.src);
+            weeklyChart.update();
+            document.getElementById('weekChartTitle').textContent    = v.title;
+            document.getElementById('weekChartSubtitle').textContent = v.subtitle;
+            document.getElementById('weekChartIcon').className       = 'bi me-2 ' + v.icon;
+            document.getElementById('btnViewDue').classList.toggle('active',     mode === 'due');
+            document.getElementById('btnViewDue').classList.toggle('btn-secondary',     mode === 'due');
+            document.getElementById('btnViewDue').classList.toggle('btn-outline-secondary', mode !== 'due');
+            document.getElementById('btnViewPlanned').classList.toggle('active',  mode === 'planned');
+            document.getElementById('btnViewPlanned').classList.toggle('btn-secondary',  mode === 'planned');
+            document.getElementById('btnViewPlanned').classList.toggle('btn-outline-secondary', mode !== 'planned');
+        }
+
+        document.getElementById('btnViewDue').addEventListener('click',     () => switchView('due'));
+        document.getElementById('btnViewPlanned').addEventListener('click', () => switchView('planned'));
     }
 
     // ── 2. Status Doughnut ───────────────────────────────────────────────
@@ -430,6 +497,53 @@ document.addEventListener('DOMContentLoaded', function () {
                 },
             },
         });
+    }
+    {% endif %}
+
+    // ── 6. Value by Customer (horizontal bar) ───────────────────────────
+    {% if value_by_customer %}
+    {
+        const canvas = document.getElementById('chartCustomerValue');
+        const customerData = {{ value_by_customer | tojson }};
+        const labels = customerData.map(d => d.customer);
+        const values = customerData.map(d => d.value);
+        new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Value',
+                        data: values,
+                        backgroundColor: 'rgba(13, 110, 253, 0.65)',
+                        borderColor: '#0d6efd',
+                        borderWidth: 1,
+                        borderRadius: 3,
+                    }],
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ' £' + ctx.parsed.x.toLocaleString('en-GB', { maximumFractionDigits: 0 }),
+                            },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                callback: v => '£' + (v >= 1000000 ? (v / 1000000).toFixed(1) + 'm' : v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v),
+                                font: { size: 11 },
+                            },
+                            grid: { color: gridColor },
+                        },
+                        y: { ticks: { font: { size: 11 } }, grid: { display: false } },
+                    },
+                },
+            });
     }
     {% endif %}
 

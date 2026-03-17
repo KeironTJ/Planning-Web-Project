@@ -226,13 +226,13 @@
                 <th class="text-center" style="min-width:70px;">
                     <a href="?{{ request.query_string.decode()|replace('sort=due_date','') }}&sort=due_date"
                        class="text-decoration-none text-dark">
-                        Due {% if order_by == 'due_date' %}<i class="bi bi-sort-down"></i>{% endif %}
+                        Due Delivery Date {% if order_by == 'due_date' %}<i class="bi bi-sort-down"></i>{% endif %}
                     </a>
                 </th>
                 <th class="text-center" style="min-width:70px;">
                     <a href="?{{ request.query_string.decode()|replace('sort=plan_date','') }}&sort=plan_date"
                        class="text-decoration-none text-dark">
-                        Plan {% if order_by == 'plan_date' %}<i class="bi bi-sort-down"></i>{% endif %}
+                        Planned Delivery Date {% if order_by == 'plan_date' %}<i class="bi bi-sort-down"></i>{% endif %}
                     </a>
                 </th>
                 <th style="min-width:100px;">Status</th>
@@ -294,8 +294,8 @@
                     {% endif %}
                 </td>
                 <td class="text-muted" style="font-size:.78rem;">
-                    {{ order.op_count }} op{{ 's' if order.op_count != 1 }}
-                    &nbsp;/&nbsp;{{ order.total_qty | int }} units
+                    {{ order.line_count }} line{{ 's' if order.line_count != 1 }}
+                    &nbsp;/&nbsp;{{ order.total_qty | int }} qty
                 </td>
                 <td class="text-center {{ 'text-danger fw-semibold' if order.due_date and order.due_date < today else '' }}">
                     {{ order.due_date.strftime('%d %b') if order.due_date else '—' }}
@@ -416,7 +416,9 @@
                 <td colspan="2" class="text-truncate" style="max-width:200px;" title="{{ sol.product_description }}">
                     <span class="text-muted small">{{ sol.product_code }}</span>
                     {{ sol.product_description or '' }}
-                    <span class="text-muted small ms-1">× {{ sol.qty_ordered | int if sol.qty_ordered else '?' }}</span>
+                </td>
+                <td class="text-muted" style="font-size:.78rem;">
+                    {{ sol.qty_ordered | int if sol.qty_ordered else '—' }} qty
                 </td>
                 <td class="text-center {{ 'text-danger' if sol.due_date and sol.due_date < today else '' }}"
                     style="font-size:.78rem;">
@@ -442,14 +444,10 @@
                                 class="btn btn-{{ op_colour }} btn-sm py-0 px-1 op-status-btn"
                                 style="font-size:.68rem; min-width:58px;"
                                 data-op-id="{{ op.id }}"
-                                data-bs-toggle="modal"
-                                data-bs-target="#opModal"
                                 data-so="{{ sol.so_number }}/{{ sol.line_number }}"
                                 data-dept="{{ dept.name }}"
                                 data-status="{{ op.status }}"
-                                data-planned="{{ op.planned_date.isoformat() if op.planned_date else '' }}"
-                                data-notes="{{ op.notes or '' }}"
-                                title="{{ op_label }}{% if op.planned_date %} — {{ op.planned_date.strftime('%d %b') }}{% endif %}{% if op.is_overdue %} ⚠ Overdue{% endif %}">
+                                title="Left-click: advance · Right-click: step back{% if op.planned_date %} — {{ op.planned_date.strftime('%d %b') }}{% endif %}{% if op.is_overdue %} ⚠ Overdue{% endif %}">
                             {% if op.is_overdue %}<i class="bi bi-exclamation-triangle" style="font-size:.65rem;"></i> {% endif %}{{ op_label[:6] }}
                         </button>
                         {% if op.planned_date %}
@@ -744,36 +742,66 @@
         });
     }
 
-    // ── Helper: step back a single line-level op via AJAX ────────────── //
-    function stepBackOp(opBtn) {
-        const currStatus = opBtn.dataset.status;
-        const prevStatus = PREV_STATUS[currStatus];
-        if (!prevStatus) return; // already at not_started
+    // ── Helper: advance or step-back a single line-level op via AJAX ─── //
+    function _callOpEndpoint(opBtn, newStatus) {
+        const origHTML  = opBtn.innerHTML;
+        opBtn.disabled  = true;
+        opBtn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span>';
 
-        const opId       = opBtn.dataset.opId;
-        const origHTML   = opBtn.innerHTML;
-        opBtn.disabled   = true;
-        opBtn.innerHTML  = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span>';
-
-        fetch('/orders/operations/' + opId + '/update', {
+        fetch('/orders/operations/' + opBtn.dataset.opId + '/update', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-Requested-With': 'XMLHttpRequest',
             },
-            body: 'status=' + encodeURIComponent(prevStatus)
+            body: 'status=' + encodeURIComponent(newStatus)
                 + '&csrf_token=' + encodeURIComponent(csrfToken),
         })
         .then(function (r) { return r.json(); })
         .then(function (data) {
             opBtn.disabled = false;
             if (!data.ok) { opBtn.innerHTML = origHTML; return; }
+
             const meta = STATUS_META[data.status] || { label: data.status, colour: 'secondary' };
+
+            // Update the op button itself
             opBtn.dataset.status = data.status;
             opBtn.className = opBtn.className.replace(/btn-\w+/, 'btn-' + meta.colour);
             opBtn.textContent = meta.label.substring(0, 6);
+
+            // Mirror up to the order-level dept button
+            const detailRow = opBtn.closest('.order-detail-row');
+            if (detailRow) {
+                const orderRowId = detailRow.dataset.group.replace('order-', 'order-row-');
+                const orderRow   = document.getElementById(orderRowId);
+                if (orderRow) {
+                    const dept    = opBtn.dataset.dept;
+                    const deptBtn = orderRow.querySelector('.advance-so-dept-btn[data-dept="' + dept + '"]');
+                    if (deptBtn) {
+                        deptBtn.dataset.currentStatus = data.status;
+                        deptBtn.className = 'btn btn-' + meta.colour + ' btn-sm py-0 px-1 advance-so-dept-btn';
+                        if (data.status === 'completed' || data.status === 'closed') {
+                            deptBtn.innerHTML = '<i class="bi bi-check-circle" style="font-size:.65rem;"></i> ' + meta.label.substring(0, 5);
+                            deptBtn.title = meta.label + ' — right-click to step back';
+                        } else {
+                            deptBtn.innerHTML = '<i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> ' + meta.label.substring(0, 5);
+                            deptBtn.title = 'Left-click: advance · Right-click: step back';
+                        }
+                    }
+                }
+            }
         })
         .catch(function () { opBtn.disabled = false; opBtn.innerHTML = origHTML; });
+    }
+
+    function advanceOp(opBtn) {
+        const next = NEXT_STATUS[opBtn.dataset.status];
+        if (next) _callOpEndpoint(opBtn, next);
+    }
+
+    function stepBackOp(opBtn) {
+        const prev = PREV_STATUS[opBtn.dataset.status];
+        if (prev) _callOpEndpoint(opBtn, prev);
     }
 
     // ── Shared: call advance or reverse ALL depts for an SO ──────────── //
@@ -848,6 +876,10 @@
                 );
                 return;
             }
+
+            // Line-level op advance
+            const opBtn = e.target.closest('.op-status-btn');
+            if (opBtn) { e.preventDefault(); advanceOp(opBtn); return; }
 
             const btn = e.target.closest('.advance-so-dept-btn');
             if (!btn) return;
@@ -1092,5 +1124,6 @@
         }, true);
     }
 })();
+
 </script>
 {% endblock %}

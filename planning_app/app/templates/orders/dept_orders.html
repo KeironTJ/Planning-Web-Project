@@ -57,7 +57,7 @@
             </div>
 
             {# Date range (collapsible) #}
-            {% set date_active = due_date_from or due_date_to %}
+            {% set date_active = due_date_from or due_date_to or planned_date_from or planned_date_to %}
             <div class="col-12 mt-1">
                 <a class="small text-muted text-decoration-none" data-bs-toggle="collapse"
                    href="#dateFilters" role="button"
@@ -69,14 +69,28 @@
             <div class="col-12 collapse {{ 'show' if date_active }}" id="dateFilters">
                 <div class="row g-2 align-items-end">
                     <div class="col-auto">
-                        <label class="form-label form-label-sm text-muted mb-0">Due from</label>
+                        <label class="form-label form-label-sm text-muted mb-0"
+                               title="Requested Delivery Date (from ERP)">Req. Delivery from</label>
                         <input type="date" name="due_from" class="form-control form-control-sm"
                                value="{{ due_date_from.isoformat() if due_date_from else '' }}">
                     </div>
                     <div class="col-auto">
-                        <label class="form-label form-label-sm text-muted mb-0">Due to</label>
+                        <label class="form-label form-label-sm text-muted mb-0"
+                               title="Requested Delivery Date (from ERP)">Req. Delivery to</label>
                         <input type="date" name="due_to" class="form-control form-control-sm"
                                value="{{ due_date_to.isoformat() if due_date_to else '' }}">
+                    </div>
+                    <div class="col-auto ms-3">
+                        <label class="form-label form-label-sm text-muted mb-0"
+                               title="Planner-set Planned Date for this department's operations">Planned Date from</label>
+                        <input type="date" name="plan_from" class="form-control form-control-sm"
+                               value="{{ planned_date_from.isoformat() if planned_date_from else '' }}">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label form-label-sm text-muted mb-0"
+                               title="Planner-set Planned Date for this department's operations">Planned Date to</label>
+                        <input type="date" name="plan_to" class="form-control form-control-sm"
+                               value="{{ planned_date_to.isoformat() if planned_date_to else '' }}">
                     </div>
                 </div>
             </div>
@@ -123,11 +137,15 @@
                 <th style="min-width:90px;">SO</th>
                 <th style="min-width:130px;">Customer</th>
                 <th style="min-width:70px;">Lines / Qty</th>
-                <th class="text-center" style="min-width:80px;">ERP Due</th>
+                <th class="text-center" style="min-width:80px;"
+                    title="Requested Delivery Date — from ERP">Req. Delivery</th>
                 <th class="text-center" style="min-width:55px;">±Days</th>
-                <th class="text-center" style="min-width:80px;">Planned</th>
+                <th class="text-center" style="min-width:80px;"
+                    title="Planned Delivery Date — set by planner">Planned Date</th>
                 <th style="min-width:100px;">Status</th>
                 <th style="min-width:80px;">Materials</th>
+                <th class="text-end" style="min-width:70px;"
+                    title="Total planned hours for this department (qty × SMV)">SMV hrs</th>
             </tr>
         </thead>
         <tbody>
@@ -228,6 +246,15 @@
                        target="_blank">{{ mat_label }}</a>
                 {% endif %}
             </td>
+            <td class="text-end fw-normal text-nowrap">
+                {% if group.dept_smv_hours %}
+                <span title="Total planned hours for this SO in {{ dept.name }}">
+                    {{ group.dept_smv_hours | hm }}
+                </span>
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+            </td>
         </tr>
 
         {# ── Line rows (collapsed) ──────────────────────────── #}
@@ -291,6 +318,10 @@
                 </div>
             </td>
             <td></td>{# Materials — order-level only #}
+            <td class="text-end text-muted small text-nowrap">
+                {% set op_hrs = group.op_smv_hours.get(op.id, 0) %}
+                {{ op_hrs | hm if op_hrs else '—' }}
+            </td>
         </tr>
         {% endfor %}
 

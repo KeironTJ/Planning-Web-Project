@@ -18,12 +18,12 @@
 {% block content %}
 
 {# ── Filter / Search bar ─────────────────────────────────────────────── #}
-<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+<div class="d-flex flex-wrap align-items-center gap-2 mb-2">
 
     {# Filter tabs #}
     <div class="btn-group btn-group-sm" role="group">
         {% for mode, label in [('all','All'), ('overdue','Overdue'), ('this_week','Due This Week'), ('no_dates','No Dates Set')] %}
-        <a href="{{ url_for('orders.planning', filter=mode, q=search, dept=dept_id, per_page=per_page) }}"
+        <a href="{{ url_for('orders.planning', filter=mode, q=search, dept=dept_id, per_page=per_page, sort=sort_by, status=status_filter) }}"
            class="btn btn-outline-secondary {% if filter_mode == mode %}active{% endif %}">
             {{ label }}
             <span class="badge {% if filter_mode == mode %}bg-light text-dark{% else %}bg-secondary{% endif %} ms-1">
@@ -35,29 +35,44 @@
 
     {# Department filter #}
     <select class="form-select form-select-sm" style="width:auto"
-            onchange="window.location = '{{ url_for('orders.planning', filter=filter_mode, q=search, per_page=per_page) }}&dept=' + this.value">
+            onchange="window.location = '{{ url_for('orders.planning', filter=filter_mode, q=search, per_page=per_page, sort=sort_by, status=status_filter) }}&dept=' + this.value">
         <option value="">All departments</option>
         {% for dept in departments %}
         <option value="{{ dept.id }}" {% if dept_id == dept.id %}selected{% endif %}>{{ dept.name }}</option>
         {% endfor %}
     </select>
 
-    {# Search + CPR filter #}
-    <form class="d-flex gap-1" method="GET" action="{{ url_for('orders.planning') }}">
+    {# Search + CPR + Status filter form #}
+    <form class="d-flex flex-wrap gap-1 align-items-center" method="GET" action="{{ url_for('orders.planning') }}">
         <input type="hidden" name="filter"   value="{{ filter_mode }}">
         <input type="hidden" name="dept"     value="{{ dept_id }}">
         <input type="hidden" name="per_page" value="{{ per_page }}">
+        <input type="hidden" name="sort"     value="{{ sort_by }}">
         <input type="search" name="q" class="form-control form-control-sm" placeholder="SO#, customer, product…"
                value="{{ search }}" style="width:180px">
         <input type="search" name="cpr" class="form-control form-control-sm" placeholder="Cust. Prod. Ref…"
                value="{{ cust_prod_ref }}" style="width:150px"
                title="Filter by Customer Product Reference (CUSPRODREF)">
-        <button class="btn btn-sm btn-outline-secondary">Search</button>
+        <select name="status" class="form-select form-select-sm" style="width:auto" title="Filter by order status">
+            <option value="">All statuses</option>
+            {% for key, (label, colour) in LINE_STATUS_META_ITEMS %}
+            <option value="{{ key }}" {% if status_filter == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-search me-1"></i>Search
+        </button>
+        {% if search or cust_prod_ref or status_filter %}
+        <a href="{{ url_for('orders.planning', filter=filter_mode, dept=dept_id, per_page=per_page, sort=sort_by) }}"
+           class="btn btn-sm btn-outline-danger" title="Clear filters">
+            <i class="bi bi-x"></i>
+        </a>
+        {% endif %}
     </form>
 
     {# Per-page #}
     <select class="form-select form-select-sm ms-auto" style="width:auto"
-            onchange="window.location = '{{ url_for('orders.planning', filter=filter_mode, q=search, dept=dept_id) }}&per_page=' + this.value">
+            onchange="window.location = '{{ url_for('orders.planning', filter=filter_mode, q=search, dept=dept_id, sort=sort_by, status=status_filter) }}&per_page=' + this.value">
         {% for n in [25, 50, 100] %}
         <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}/page</option>
         {% endfor %}
@@ -124,6 +139,16 @@
 {% else %}
 <div class="table-responsive">
     <table class="table table-sm align-middle mb-0" style="font-size:.82rem;" id="planTable">
+        {%- macro sort_th(label, key, cls='', style='') -%}
+        {%- set active = sort_by == key -%}
+        <th class="{{ cls }}" style="{{ style }}">
+            <a href="{{ url_for('orders.planning', filter=filter_mode, q=search, cpr=cust_prod_ref or None, dept=dept_id, per_page=per_page, status=status_filter, sort=key) }}"
+               class="text-decoration-none {{ 'text-dark fw-semibold' if active else 'text-secondary' }}"
+               title="Sort by {{ label }}">
+                {{ label }}{% if active %} <i class="bi bi-caret-up-fill" style="font-size:.65rem;vertical-align:middle;"></i>{% endif %}
+            </a>
+        </th>
+        {%- endmacro -%}
         <thead class="table-light">
             <tr>
                 <th style="width:32px;">
@@ -131,14 +156,14 @@
                 </th>
                 <th style="width:28px;"></th>{# expand toggle #}
                 <th style="min-width:90px;">SO</th>
-                <th style="min-width:120px;">Customer / Product</th>
+                {{ sort_th('Customer', 'customer', style='min-width:120px;') }}
                 <th style="min-width:70px;">Lines / Qty</th>
-                <th class="text-center" style="min-width:80px;">ERP Due</th>
+                {{ sort_th('ERP Due', 'due_date', cls='text-center', style='min-width:80px;') }}
                 <th class="text-center" style="min-width:55px;">±Days</th>
                 <th class="text-center" style="min-width:130px;">Plan Start</th>
-                <th class="text-center" style="min-width:70px;">Plan End</th>
-                <th class="text-center" style="min-width:70px;">Headroom</th>
-                <th class="text-center" style="min-width:100px;">Status</th>
+                {{ sort_th('Plan End', 'plan_end', cls='text-center', style='min-width:70px;') }}
+                {{ sort_th('Headroom', 'headroom', cls='text-center', style='min-width:70px;') }}
+                {{ sort_th('Status', 'status', cls='text-center', style='min-width:100px;') }}
                 <th style="min-width:80px;">Materials</th>
                 <th style="width:28px;"></th>{# ops expand #}
                 <th style="min-width:36px;"></th>{# comment icon #}
@@ -181,7 +206,7 @@
                 {% endif %}
             </td>
             <td class="text-muted fw-normal" style="font-size:.78rem;">
-                {{ group.op_count }} op{{ 's' if group.op_count != 1 }}
+                {{ group.line_count }} line{{ 's' if group.line_count != 1 }}
             </td>
             <td class="text-center text-nowrap {{ 'text-danger' if is_overdue else ('text-warning' if is_urgent else '') }}">
                 {{ group.due_date.strftime('%d %b %Y') if group.due_date else '—' }}
@@ -423,7 +448,7 @@
 {# ── Pagination ── #}
 {% set _start = (pagination.page - 1) * pagination.per_page + 1 %}
 {% set _end   = [pagination.page * pagination.per_page, pagination.total] | min %}
-{% macro page_url(p) %}{{ url_for('orders.planning', filter=filter_mode, q=search, cpr=cust_prod_ref or None, dept=dept_id, per_page=per_page, page=p) }}{% endmacro %}
+{% macro page_url(p) %}{{ url_for('orders.planning', filter=filter_mode, q=search, cpr=cust_prod_ref or None, dept=dept_id, per_page=per_page, sort=sort_by, status=status_filter, page=p) }}{% endmacro %}
 
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3">
     <small class="text-muted">

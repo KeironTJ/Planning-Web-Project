@@ -24,7 +24,7 @@ from app.core.exceptions import NotFoundError
 @login_required
 @permission_required("view_capacity")
 def dashboard():
-    num_weeks  = request.args.get("weeks", 1, type=int)
+    num_weeks  = request.args.get("weeks", 4, type=int)
     dept_id    = request.args.get("dept", None, type=int)
     view_mode  = request.args.get("view", "chart")
     from_str   = request.args.get("from", "")
@@ -576,3 +576,110 @@ def labour_plan_save():
     db.session.commit()
     flash("Labour plan entry saved.", "success")
     return redirect(request.referrer or url_for("capacity.labour_plan_list"))
+
+
+@capacity_bp.route("/labour-plan/bulk-generate", methods=["POST"])
+@login_required
+@permission_required("override_capacity")
+def labour_plan_bulk_generate():
+    from decimal import Decimal, InvalidOperation
+
+    dept_id      = request.form.get("dept_id", 0, type=int)
+    from_str     = request.form.get("from_date", "").strip()
+    to_str       = request.form.get("to_date", "").strip()
+    skip_manual  = request.form.get("skip_manual") == "1"
+
+    # Per-day hours and workday flags
+    day_hours = {}
+    day_workday = {}
+    day_names = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    for i, name in enumerate(day_names):
+        raw = request.form.get(f"hours_{name}", "").strip()
+        try:
+            day_hours[i] = Decimal(raw) if raw else None
+        except InvalidOperation:
+            flash(f"Invalid hours value for {name.capitalize()}.", "danger")
+            return redirect(url_for("capacity.labour_plan_list"))
+        day_workday[i] = request.form.get(f"workday_{name}") == "1"
+
+    try:
+        from_date = date.fromisoformat(from_str)
+        to_date   = date.fromisoformat(to_str)
+    except ValueError:
+        flash("Invalid date range.", "danger")
+        return redirect(url_for("capacity.labour_plan_list"))
+
+    if to_date < from_date:
+        flash("To date must be on or after from date.", "danger")
+        return redirect(url_for("capacity.labour_plan_list"))
+
+    if (to_date - from_date).days > 365:
+        flash("Date range cannot exceed 1 year.", "danger")
+        return redirect(url_for("capacity.labour_plan_list"))
+
+    departments = (
+        [Department.query.get_or_404(dept_id)] if dept_id
+        else Department.query.filter_by(is_active=True).all()
+    )
+
+    # Pre-load existing buckets into a set for fast lookup
+    existing = {
+        (b.department_id, b.date): b
+        for b in CapacityBucket.query.filter(
+            CapacityBucket.date >= from_date,
+            CapacityBucket.date <= to_date,
+            CapacityBucket.department_id.in_([d.id for d in departments]),
+        ).all()
+    }
+
+    created = updated = skipped = 0
+    d = from_date
+    while d <= to_date:
+        dow = d.weekday()  # 0=Mon … 6=Sun
+        iso = d.isocalendar()
+        week_str = f"{iso[0]}-W{iso[1]:02d}"
+        hours = day_hours[dow]
+        is_workday = day_workday[dow]
+
+        for dept in departments:
+            key = (dept.id, d)
+            bucket = existing.get(key)
+            if bucket:
+                if skip_manual and bucket.manually_overridden:
+                    skipped += 1
+                    continue
+                bucket.available_hours     = hours
+                bucket.is_workday          = is_workday
+                bucket.manually_overridden = True
+                bucket.week                = week_str
+                updated += 1
+            else:
+                bucket = CapacityBucket(
+                    department_id=dept.id,
+                    date=d,
+                    week=week_str,
+                    available_hours=hours,
+                    is_workday=is_workday,
+                    manually_overridden=True,
+                )
+                db.session.add(bucket)
+                created += 1
+
+        d += timedelta(days=1)
+
+    db.session.commit()
+
+    parts = []
+    if created:
+        parts.append(f"{created} created")
+    if updated:
+        parts.append(f"{updated} updated")
+    if skipped:
+        parts.append(f"{skipped} skipped (manual)")
+    flash("Bulk generate complete — " + ", ".join(parts) + ".", "success")
+    return redirect(url_for(
+        "capacity.labour_plan_list",
+        from_date=from_str,
+        to_date=to_str,
+        dept_id=dept_id or "",
+    ))

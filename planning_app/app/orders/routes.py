@@ -148,9 +148,11 @@ def dept_orders(dept_id: int):
     order_by       = request.args.get("sort", "due_date")
     page           = request.args.get("page", 1, type=int)
     per_page       = request.args.get("per_page", 25, type=int)
-    overdue_only   = request.args.get("overdue", "") == "1"
-    due_date_from  = _parse_date(request.args.get("due_from", ""))
-    due_date_to    = _parse_date(request.args.get("due_to", ""))
+    overdue_only       = request.args.get("overdue", "") == "1"
+    due_date_from      = _parse_date(request.args.get("due_from", ""))
+    due_date_to        = _parse_date(request.args.get("due_to", ""))
+    planned_date_from  = _parse_date(request.args.get("plan_from", ""))
+    planned_date_to    = _parse_date(request.args.get("plan_to", ""))
     if per_page not in (25, 50, 100):
         per_page = 25
 
@@ -165,6 +167,8 @@ def dept_orders(dept_id: int):
             order_by=order_by,
             due_date_from=due_date_from,
             due_date_to=due_date_to,
+            planned_date_from=planned_date_from,
+            planned_date_to=planned_date_to,
         )
     except NotFoundError:
         flash("Department not found.", "warning")
@@ -194,6 +198,8 @@ def dept_orders(dept_id: int):
         overdue_only=overdue_only,
         due_date_from=due_date_from,
         due_date_to=due_date_to,
+        planned_date_from=planned_date_from,
+        planned_date_to=planned_date_to,
         form=form,
         all_depts=all_depts,
         valid_statuses=WorksOrderOperation.VALID_STATUSES,
@@ -495,6 +501,11 @@ def planning():
     dept_id       = request.args.get("dept", None, type=int)
     page          = request.args.get("page", 1, type=int)
     cust_prod_ref = request.args.get("cpr", "")
+    sort_by       = request.args.get("sort", "due_date")
+    status_filter = request.args.get("status", "")
+
+    if sort_by not in ("due_date", "plan_end", "headroom", "customer", "status"):
+        sort_by = "due_date"
 
     per_page    = request.args.get("per_page", 25, type=int)
     if per_page not in (25, 50, 100):
@@ -507,6 +518,8 @@ def planning():
         search=search or None,
         cust_prod_ref=cust_prod_ref or None,
         dept_id=dept_id,
+        sort_by=sort_by,
+        status_filter=status_filter or None,
     )
     counts      = services.count_planning_filters()
     departments = services.get_active_departments()
@@ -540,7 +553,10 @@ def planning():
         valid_statuses=WorksOrderOperation.VALID_STATUSES,
         STATUS_META=WorksOrderOperation.STATUS_META,
         LINE_STATUS_META=SalesOrderLine.LINE_STATUS_META,
+        LINE_STATUS_META_ITEMS=list(SalesOrderLine.LINE_STATUS_META.items()),
         mat_status_meta=MAT_STATUS_META,
+        sort_by=sort_by,
+        status_filter=status_filter,
     )
 
 
