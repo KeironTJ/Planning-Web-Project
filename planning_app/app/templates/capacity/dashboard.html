@@ -125,7 +125,7 @@
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0 align-middle">
-                <thead class="table-light">
+                <thead class="thead-subtle">
                     <tr>
                         <th>Department</th>
                         <th class="text-end">Available Hrs</th>
@@ -206,7 +206,7 @@
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-sm table-bordered mb-0 align-middle" style="font-size:.78rem; min-width:600px;">
-                <thead class="table-dark">
+                <thead class="thead-subtle">
                     <tr>
                         <th class="text-nowrap" style="min-width:150px; width:150px;">Department</th>
                         <th style="min-width:90px; width:90px;">Metric</th>
@@ -220,8 +220,8 @@
                     {% set has_any = namespace(val=false) %}
                     {% for row in d.rows %}{% if row.avail > 0 or row.demand > 0 %}{% set has_any.val = true %}{% endif %}{% endfor %}
                     {% if has_any.val %}
-                    <tr class="table-light">
-                        <td class="fw-semibold" rowspan="3" style="vertical-align:middle; border-right:2px solid #dee2e6; width: 150px; max-width:150px; overflow:hidden; word-break:break-word;">
+                    <tr class="table-group-row">
+                        <td class="fw-semibold border-end border-2" rowspan="3" style="vertical-align:middle; width:150px; max-width:150px; overflow:hidden; word-break:break-word;">
                             <a href="{{ url_for('orders.dept_orders', dept_id=d.dept.id) }}"
                                class="text-decoration-none text-body" title="View orders with planned operations in this period ({{ data.from_date.strftime('%d %b') }} – {{ data.to_date.strftime('%d %b') }})">
                                 {{ d.dept.name }}
@@ -238,12 +238,12 @@
                         {% endfor %}
                     </tr>
                     <tr>
-                        <td class="text-nowrap" style="color:#0d6efd;" title="Hours for operations with a planned date set">Planned load</td>
+                        <td class="text-nowrap text-primary" title="Hours for operations with a planned date set">Planned load</td>
                         {% for row in d.rows %}
                         <td class="text-center">{{ row.load if row.load else '—' }}</td>
                         {% endfor %}
                     </tr>
-                    <tr style="border-bottom:2px solid #dee2e6;">
+                    <tr class="border-bottom border-2">
                         <td class="text-nowrap small text-muted">Util %</td>
                         {% for row in d.rows %}
                         <td class="text-center small fw-semibold

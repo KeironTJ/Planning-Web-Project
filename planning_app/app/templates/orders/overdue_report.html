@@ -3,36 +3,6 @@
 {% block extra_css %}
 {# chartjs-plugin-datalabels — loaded after Chart.js (both defer, in doc order) #}
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js" defer></script>
-<style>
-@media print {
-    .navbar, #sidebarMenu, .btn-toolbar, #filterPanel,
-    .pagination, .card-footer nav, .no-print,
-    [data-bs-toggle="collapse"] { display: none !important; }
-
-    #main-content {
-        margin-left: 0 !important;
-        padding: 0.5rem 1rem !important;
-        width: 100% !important;
-        max-width: 100% !important;
-    }
-    .container-fluid > .row { display: block !important; }
-
-    .card {
-        border: 1px solid #bbb !important;
-        break-inside: avoid;
-        box-shadow: none !important;
-    }
-    .table { font-size: 0.72rem !important; }
-    canvas { max-height: 180px !important; }
-
-    .print-header { display: block !important; }
-    .page-header-bar { display: none !important; }
-    .badge { border: 1px solid #999 !important; }
-}
-@media screen {
-    .print-header { display: none; }
-}
-</style>
 {% endblock %}
 
 {% block page_actions %}
@@ -203,7 +173,7 @@
                     data-bs-toggle="collapse" data-bs-target="#filterPanel" aria-expanded="false">
                 <i class="bi bi-funnel me-1"></i>Filters
                 {% if dept_id or status_filter or search %}
-                <span class="badge bg-warning text-dark ms-1">active</span>
+                <span class="badge text-bg-warning ms-1">active</span>
                 {% endif %}
             </button>
         </div>
@@ -270,7 +240,7 @@
         {% if orders %}
         <div class="table-responsive">
             <table class="table table-hover table-sm mb-0 align-middle">
-                <thead class="table-light">
+                <thead class="thead-subtle">
                     <tr>
                         <th class="ps-3">SO Number</th>
                         <th>Customer</th>
@@ -293,7 +263,7 @@
                         </td>
                         <td>
                             {% if o.order_type %}
-                            <span class="badge bg-light text-dark border small">{{ o.order_type }}</span>
+                            <span class="badge text-bg-secondary border small">{{ o.order_type }}</span>
                             {% else %}—{% endif %}
                         </td>
                         <td class="text-nowrap text-danger small">
@@ -302,10 +272,9 @@
                         <td class="text-center">
                             {% set d = o.days_overdue %}
                             <span class="badge rounded-pill
-                                {% if d > 60 %}bg-danger
-                                {% elif d > 30 %}bg-danger bg-opacity-75
-                                {% elif d > 14 %}bg-warning text-dark
-                                {% else %}bg-secondary{% endif %}">
+                                {% if d > 30 %}text-bg-danger
+                                {% elif d > 14 %}text-bg-warning
+                                {% else %}text-bg-secondary{% endif %}">
                                 {{ d }}d
                             </span>
                         </td>
@@ -319,7 +288,7 @@
                                 {% else %}
                                     <span title="{{ o.depts | join(', ') }}" style="cursor:help;">
                                         {{ o.depts[:3] | join(', ') }}
-                                        <span class="badge bg-secondary ms-1">+{{ o.depts | length - 3 }}</span>
+                                        <span class="badge text-bg-secondary ms-1">+{{ o.depts | length - 3 }}</span>
                                     </span>
                                 {% endif %}
                             {% else %}—{% endif %}
@@ -327,7 +296,7 @@
                         <td>
                             {% set s = o.worst_status %}
                             {% set label, colour = status_meta.get(s, (s, 'secondary')) %}
-                            <span class="badge bg-{{ colour }}">{{ label }}</span>
+                            <span class="badge text-bg-{{ colour }}">{{ label }}</span>
                         </td>
                         <td class="small" style="max-width:220px;">
                             {% if o.latest_comment %}
@@ -339,7 +308,7 @@
                             <div class="text-muted" style="font-size:0.7rem;">
                                 {{ o.latest_user }}{% if o.latest_at %} &middot; {{ o.latest_at.strftime('%d %b') }}{% endif %}
                                 {% if o.comment_count > 1 %}
-                                <span class="badge bg-secondary ms-1" style="font-size:0.65rem;">{{ o.comment_count }}</span>
+                                <span class="badge text-bg-secondary ms-1" style="font-size:0.65rem;">{{ o.comment_count }}</span>
                                 {% endif %}
                             </div>
                             {% else %}

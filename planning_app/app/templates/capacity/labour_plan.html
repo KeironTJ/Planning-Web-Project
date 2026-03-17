@@ -1,54 +1,6 @@
 {% extends 'base.html' %}
 
-{% block extra_css %}
-<style>
-    .lp-table th, .lp-table td { white-space: nowrap; }
-    .lp-table thead th.dept-col {
-        font-size: .7rem;
-        writing-mode: vertical-rl;
-        transform: rotate(180deg);
-        min-width: 38px;
-        max-width: 38px;
-        padding: .5rem .25rem;
-        vertical-align: bottom;
-        text-align: left;
-        cursor: default;
-    }
-    .lp-cell {
-        font-size: .78rem;
-        font-family: monospace;
-        text-align: right;
-        padding: .2rem .4rem;
-        cursor: pointer;
-        border-radius: 3px;
-        transition: background .1s;
-        display: block;
-        width: 100%;
-        background: none;
-        border: none;
-        color: inherit;
-    }
-    .lp-cell:hover { background: var(--bs-primary-bg-subtle); }
-    .lp-cell.is-manual { color: #084298; font-weight: 600; }
-    .lp-cell.is-nonworkday { color: #adb5bd; font-style: italic; }
-    .lp-cell.is-complete { color: #146c43; }
-    .lp-cell.empty { color: #ccc; cursor: pointer; }
-    .lp-cell.empty:hover { background: var(--bs-primary-bg-subtle); color: #888; }
-    .sticky-col { position: sticky; left: 0; background: var(--bs-body-bg); z-index: 1; }
-    .lp-table tbody tr:hover .sticky-col { background: var(--bs-table-hover-bg); }
-    .week-header td {
-        background: var(--bs-secondary-bg);
-        font-size: .7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .05em;
-        color: var(--bs-secondary-color);
-        padding: .2rem .5rem;
-    }
-    .filter-active { border-color: var(--bs-primary) !important; }
-    .day-sat, .day-sun { background: var(--bs-secondary-bg) !important; }
-</style>
-{% endblock %}
+{% block extra_css %}{% endblock %}
 
 {% block page_actions %}
 <button class="btn btn-sm btn-outline-primary" type="button"
@@ -106,7 +58,7 @@
                 {# Per-day hours grid #}
                 <div class="table-responsive mb-3">
                     <table class="table table-sm table-bordered mb-0" style="width:auto;">
-                        <thead class="table-light">
+                        <thead class="thead-subtle">
                             <tr>
                                 {% for day in [('mon','Monday'),('tue','Tuesday'),('wed','Wednesday'),('thu','Thursday'),('fri','Friday'),('sat','Saturday'),('sun','Sunday')] %}
                                 <th class="text-center small px-3 {% if loop.index > 5 %}table-secondary{% endif %}">{{ day[1] }}</th>

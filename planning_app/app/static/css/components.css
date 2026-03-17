@@ -1,0 +1,363 @@
+/*
+ * Planning Hub — Component Styles
+ *
+ * References ONLY --ph-* tokens from tokens.css.
+ * No raw hex values. No --bs-* vars. No [data-bs-theme] blocks.
+ * Theme changes belong in tokens.css only.
+ *
+ * Sections:
+ *   1. Status day chips
+ *   2. Bulk action bars
+ *   3. Planning view
+ *   4. Shared matrix table utilities
+ *   5. Labour plan table
+ *   6. SMV matrix table
+ *   7. WIP tracker table
+ *   8. Overdue report (print)
+ *   9. Legend colour indicators
+ *  10. Planning: ops panel + comment bubble
+ */
+
+/* ============================================================
+   1. STATUS DAY CHIPS
+   Used in: firming_queue, releasing_queue, planning
+   ============================================================ */
+
+.days-chip {
+    font-size: .75rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 99px;
+    white-space: nowrap;
+}
+
+.days-overdue { background: var(--ph-chip-danger-bg);   color: var(--ph-chip-danger-color); }
+.days-urgent  { background: var(--ph-chip-warning-bg);  color: var(--ph-chip-warning-color); }
+.days-ok      { background: var(--ph-chip-success-bg);  color: var(--ph-chip-success-color); }
+.days-none    { background: var(--ph-chip-neutral-bg);  color: var(--ph-chip-neutral-color); }
+
+/* ============================================================
+   2. BULK ACTION BARS
+   #bulkBar — firming_queue, releasing_queue (ID-addressed)
+   .bulk-bar — planning (class-addressed)
+   ============================================================ */
+
+#bulkBar {
+    display: none;
+    position: sticky;
+    top: 56px;
+    z-index: 100;
+}
+
+.bulk-bar {
+    position: sticky;
+    top: 56px;
+    z-index: 100;
+    background: var(--ph-bulk-bar-bg);
+    border-bottom: 1px solid var(--ph-bulk-bar-border);
+    display: none;
+}
+
+.bulk-bar.active {
+    display: block;
+}
+
+/* ============================================================
+   3. PLANNING VIEW
+   Used in: planning.html
+   ============================================================ */
+
+.planning-detail > td {
+    padding: 0 !important;
+}
+
+.plan-date-input {
+    width: 130px;
+    font-size: .82rem;
+}
+
+.plan-line-row td {
+    font-size: .82rem;
+}
+
+/* ============================================================
+   4. SHARED MATRIX TABLE UTILITIES
+   Used in: labour_plan, smv_list
+   ============================================================ */
+
+/*
+ * Sticky first column.
+ *
+ * Dark-mode table bug explained:
+ *   Bootstrap table cells are transparent by default; the page body-bg
+ *   shows through. Sticky columns need an explicit solid background or
+ *   they'll bleed through the content that scrolls beneath them.
+ *
+ *   Using --ph-table-sticky-bg (= body-bg) works for normal rows,
+ *   but rows with their own background colour (weekend rows, week-header
+ *   rows, hover) need the sticky cell to also update — handled below.
+ */
+.sticky-col {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--ph-table-sticky-bg);
+}
+
+/* Match sticky-col to the row's own background so it doesn't "pop out" */
+.lp-table tbody tr:hover .sticky-col,
+.smv-table tbody tr:hover .sticky-col {
+    background: var(--ph-table-sticky-hover-bg);
+}
+
+.day-sat .sticky-col,
+.day-sun .sticky-col {
+    background: var(--ph-table-weekend-bg);
+}
+
+.week-header .sticky-col {
+    background: var(--ph-table-week-hdr-bg);
+}
+
+/* Active filter indicator */
+.filter-active {
+    border-color: var(--ph-filter-active-border) !important;
+}
+
+/* ============================================================
+   5. LABOUR PLAN TABLE
+   Used in: labour_plan.html
+   ============================================================ */
+
+.lp-table th,
+.lp-table td {
+    white-space: nowrap;
+}
+
+.lp-table thead th.dept-col {
+    font-size: .7rem;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    min-width: 38px;
+    max-width: 38px;
+    padding: .5rem .25rem;
+    vertical-align: bottom;
+    text-align: left;
+    cursor: default;
+}
+
+.lp-cell {
+    font-size: .78rem;
+    font-family: monospace;
+    text-align: right;
+    padding: .2rem .4rem;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background .1s;
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    color: inherit;
+}
+
+.lp-cell:hover           { background: var(--ph-cell-hover-bg); }
+.lp-cell.is-manual       { color: var(--ph-cell-manual-color);     font-weight: 600; }
+.lp-cell.is-nonworkday   { color: var(--ph-cell-nonworkday-color); font-style: italic; }
+.lp-cell.is-complete     { color: var(--ph-cell-complete-color); }
+.lp-cell.empty           { color: var(--ph-cell-empty-color);      cursor: pointer; }
+.lp-cell.empty:hover     { background: var(--ph-cell-hover-bg);    color: var(--ph-cell-nonworkday-color); }
+
+.week-header td {
+    background: var(--ph-table-week-hdr-bg);
+    color: var(--ph-table-week-hdr-color);
+    font-size: .7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    padding: .2rem .5rem;
+}
+
+.day-sat,
+.day-sun {
+    background: var(--ph-table-weekend-bg) !important;
+}
+
+/* ============================================================
+   6. SMV MATRIX TABLE
+   Used in: smv_list.html
+   ============================================================ */
+
+.smv-table th,
+.smv-table td {
+    white-space: nowrap;
+}
+
+.smv-table thead th.dept-col {
+    font-size: .7rem;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    min-width: 38px;
+    max-width: 38px;
+    padding: .5rem .25rem;
+    vertical-align: bottom;
+    text-align: left;
+    cursor: default;
+}
+
+.smv-cell {
+    font-size: .78rem;
+    font-family: monospace;
+    text-align: right;
+    padding: .2rem .4rem;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background .1s;
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    color: inherit;
+}
+
+.smv-cell:hover          { background: var(--ph-cell-hover-bg); }
+.smv-cell.conf-timed     { color: var(--ph-cell-timed-color); font-weight: 600; }
+.smv-cell.conf-most      { color: var(--ph-cell-most-color);  font-weight: 600; }
+.smv-cell.conf-estimated { color: inherit; }
+.smv-cell.empty          { color: var(--ph-cell-empty-color); cursor: default; }
+.smv-cell.empty:hover    { background: none; }
+
+/* ============================================================
+   7. WIP TRACKER TABLE
+   Used in: wip_tracker.html
+   Sticky-column logic and row backgrounds for the wide WIP grid.
+   Moved from an inline <style> block inside the template.
+   ============================================================ */
+
+/* Drag-to-scroll cursor on the scrollable wrapper */
+#wipWrapper              { cursor: grab; user-select: none; }
+#wipWrapper.dragging     { cursor: grabbing; }
+
+/* Three sticky left columns — SO #, customer, status panel */
+#wipTable th:nth-child(1),
+#wipTable td:nth-child(1) { position: sticky; left: 0;     z-index: 1; background: inherit; }
+
+#wipTable th:nth-child(2),
+#wipTable td:nth-child(2) { position: sticky; left: 24px;  z-index: 1; background: inherit; }
+
+#wipTable th:nth-child(3),
+#wipTable td:nth-child(3) {
+    position: sticky; left: 114px; z-index: 1; background: inherit;
+    box-shadow: 2px 0 4px -2px rgba(0, 0, 0, .15);
+}
+
+/* Header cells sit above body sticky cells */
+#wipTable thead th        { z-index: 2; background-color: var(--ph-table-head-bg); }
+
+/* Default body row — solid bg so sticky cells don't bleed through */
+#wipTable tbody tr        { background-color: var(--ph-table-detail-row-bg); }
+
+/* Group/order-level parent rows */
+#wipTable tbody tr.table-group-row { background-color: var(--ph-table-group-row-bg); }
+
+/* Expanded operation detail rows */
+#wipTable tbody tr.order-detail-row { background-color: var(--ph-table-detail-row-bg); }
+
+/* Uniform badge and action-button size across the table */
+#wipTable .badge,
+#wipTable .advance-so-dept-btn,
+#wipTable .advance-so-all-btn,
+#wipTable .op-status-btn {
+    font-size: .72rem;
+    display: inline-block;
+    width: 90px !important;
+    min-width: 90px !important;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ============================================================
+   9. LEGEND COLOUR INDICATORS
+   Used in: labour_plan.html, smv_list.html
+   Inline style="color:#hex" swatches replaced with these classes.
+   ============================================================ */
+
+.legend-manual   { color: var(--ph-cell-manual-color);   font-weight: 600; }
+.legend-complete { color: var(--ph-cell-complete-color); font-weight: 600; }
+.legend-timed    { color: var(--ph-cell-timed-color);    font-weight: 600; }
+.legend-most     { color: var(--ph-cell-most-color);     font-weight: 600; }
+
+/* ============================================================
+   10. PLANNING: OPS DETAIL PANEL + COMMENT BUBBLE
+   Used in: planning.html
+   ============================================================ */
+
+/* Operations breakdown panel (expanded row below an SO) */
+.ops-detail-panel {
+    background: var(--ph-detail-panel-bg);
+}
+
+/* SO comment bubble rendered by JS */
+.comment-bubble {
+    background: var(--ph-comment-bubble-bg);
+    white-space: pre-wrap;
+}
+
+/* ============================================================
+   8. OVERDUE REPORT — PRINT OVERRIDES
+   Supplements the global print block in theme.css.
+   Print output is always light, so hardcoded neutral tones are fine.
+   ============================================================ */
+
+.print-header {
+    display: none;
+}
+
+@media print {
+    #sidebarMenu,
+    #filterPanel,
+    .pagination,
+    .card-footer nav,
+    [data-bs-toggle="collapse"] {
+        display: none !important;
+    }
+
+    #main-content {
+        margin-left: 0 !important;
+        padding: 0.5rem 1rem !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .container-fluid > .row {
+        display: block !important;
+    }
+
+    .card {
+        border: 1px solid #bbb !important;
+        break-inside: avoid;
+        box-shadow: none !important;
+    }
+
+    .table {
+        font-size: 0.72rem !important;
+    }
+
+    canvas {
+        max-height: 180px !important;
+    }
+
+    .print-header {
+        display: block !important;
+    }
+
+    .page-header-bar {
+        display: none !important;
+    }
+
+    .badge {
+        border: 1px solid #999 !important;
+    }
+}

@@ -1,13 +1,16 @@
 /*
- * Planning Hub — Custom Theme
+ * Planning Hub — Theme (Layout & Typography)
  *
- * Layered on top of Bootstrap 5 data-bs-theme system.
- * Dark/light switching is handled via data-bs-theme on <html>.
+ * Structural rules only — sizing, spacing, typography, layout.
+ * All colour values must come from --ph-* tokens defined in tokens.css.
+ * All theme-sensitive overrides live in tokens.css, not here.
  *
- * Design decisions:
- * - CSS custom properties for colours so the theme toggle updates everything.
- * - Sidebar uses Bootstrap's bg-body-secondary so it adapts automatically.
- * - Sticky sidebar for large screens via position-sticky.
+ * Load order in base templates:
+ *   1. Bootstrap CSS (CDN)
+ *   2. Bootstrap Icons (CDN)
+ *   3. tokens.css   ← design tokens
+ *   4. theme.css    ← layout / typography  (this file)
+ *   5. components.css ← component rules
  */
 
 /* ---- Layout ---- */
@@ -73,6 +76,36 @@ body {
     letter-spacing: 0.04rem;
 }
 
+/*
+ * Theme-adaptive table header.
+ * Replaces Bootstrap's table-light / table-dark on <thead> —
+ * those classes are theme-blind and stay light/dark regardless of
+ * the active data-bs-theme. thead.thead-subtle uses --bs-secondary-bg
+ * which Bootstrap redefines for each theme automatically.
+ */
+thead.thead-subtle th {
+    background-color: var(--ph-table-head-bg);
+}
+
+/*
+ * Group / parent rows in expandable tables (replaces table-light on <tr>).
+ * Uses Bootstrap's --bs-tertiary-bg which adapts to dark mode.
+ * The !important is needed to beat Bootstrap's .table > tbody > tr
+ * background-color specificity.
+ */
+tr.table-group-row {
+    background-color: var(--ph-table-group-row-bg) !important;
+}
+
+/*
+ * Expanded detail sub-rows (replaces hardcoded #f8f9fa / #fafafa).
+ * These rows are toggled visible by JS; background must adapt to theme.
+ */
+tr.table-detail-row {
+    background-color: var(--ph-table-detail-row-bg) !important;
+    font-size: .8rem;
+}
+
 /* ---- Navbar ---- */
 
 .navbar-brand {
@@ -93,21 +126,45 @@ body {
     font-size: 0.85em;
 }
 
-/* ---- Status colour overrides for dark mode ---- */
-
-[data-bs-theme="dark"] .table-danger {
-    --bs-table-bg: rgba(220, 53, 69, 0.15);
-}
-
-[data-bs-theme="dark"] .table-warning {
-    --bs-table-bg: rgba(255, 193, 7, 0.1);
-}
-
 /* ---- Auth page centre card ---- */
 
 .card.auth-card {
     border-radius: 1rem;
 }
+
+/* ---- Auth form width constraints ---- */
+
+.auth-form-card      { width: 100%; max-width: 420px; }
+.auth-form-card-wide { width: 100%; max-width: 500px; }
+
+/* ---- Icon display sizing ---- */
+
+.fs-icon-lg  { font-size: 2rem; }
+.fs-icon-xl  { font-size: 2.5rem; }
+.fs-icon-xxl { font-size: 5rem; }
+
+/* ---- Navbar user avatar badge ---- */
+
+.navbar-avatar { font-size: .75rem; }
+
+/* ---- Sidebar sub-level department links ---- */
+
+.sidebar .nav-link.sidebar-dept-link {
+    font-size: .82rem;
+    padding-left: 1.5rem;
+}
+
+/* ---- Auth page toast stack (above navbar) ---- */
+
+.toast-stack { z-index: 1100; }
+
+/* ---- ERP refresh modal step icon column ---- */
+
+.step-status-icon { min-width: 1.1rem; text-align: center; }
+
+/* ---- Inline spinner size (used in JS template literals) ---- */
+
+.spinner-icon { width: 1rem; height: 1rem; vertical-align: middle; }
 
 /* ---- Print ---- */
 

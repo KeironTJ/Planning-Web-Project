@@ -1,44 +1,6 @@
 {% extends 'base.html' %}
 
-{% block extra_css %}
-<style>
-    .smv-table th, .smv-table td { white-space: nowrap; }
-    .smv-table thead th.dept-col {
-        font-size: .7rem;
-        writing-mode: vertical-rl;
-        transform: rotate(180deg);
-        min-width: 38px;
-        max-width: 38px;
-        padding: .5rem .25rem;
-        vertical-align: bottom;
-        text-align: left;
-        cursor: default;
-    }
-    .smv-cell {
-        font-size: .78rem;
-        font-family: monospace;
-        text-align: right;
-        padding: .2rem .4rem;
-        cursor: pointer;
-        border-radius: 3px;
-        transition: background .1s;
-        display: block;
-        width: 100%;
-        background: none;
-        border: none;
-        color: inherit;
-    }
-    .smv-cell:hover { background: var(--bs-primary-bg-subtle); }
-    .smv-cell.conf-timed     { color: #146c43; font-weight: 600; }
-    .smv-cell.conf-most      { color: #084298; font-weight: 600; }
-    .smv-cell.conf-estimated { color: inherit; }
-    .smv-cell.empty          { color: #ccc; cursor: default; }
-    .smv-cell.empty:hover    { background: none; }
-    .sticky-col { position: sticky; left: 0; background: var(--bs-body-bg); z-index: 1; }
-    .smv-table tbody tr:hover .sticky-col { background: var(--bs-table-hover-bg); }
-    .filter-active { border-color: var(--bs-primary) !important; }
-</style>
-{% endblock %}
+{% block extra_css %}{% endblock %}
 
 {% block page_actions %}
 <a href="{{ url_for('admin.import_upload') }}" class="btn btn-sm btn-outline-secondary">

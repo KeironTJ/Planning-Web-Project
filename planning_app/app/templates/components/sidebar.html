@@ -145,9 +145,8 @@
             </li>
             {% for dept in active_departments %}
             <li class="nav-item">
-                <a class="nav-link py-1 {% if request.endpoint == 'orders.dept_orders' and request.view_args.get('dept_id') == dept.id %}active{% endif %}"
-                   href="{{ url_for('orders.dept_orders', dept_id=dept.id) }}"
-                   style="font-size:.82rem; padding-left:1.5rem;">
+                <a class="nav-link py-1 sidebar-dept-link {% if request.endpoint == 'orders.dept_orders' and request.view_args.get('dept_id') == dept.id %}active{% endif %}"
+                   href="{{ url_for('orders.dept_orders', dept_id=dept.id) }}">
                     {{ dept.name }}
                 </a>
             </li>

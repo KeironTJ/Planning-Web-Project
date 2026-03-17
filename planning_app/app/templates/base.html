@@ -18,7 +18,9 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
     <!-- App CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
     {% block extra_css %}{% endblock %}
 </head>
 
@@ -107,7 +109,7 @@
 
         function stepIcon(status) {
             switch (status) {
-                case "running": return '<span class="spinner-border spinner-border-sm text-primary" role="status" style="width:1rem;height:1rem;vertical-align:middle;"></span>';
+                case "running": return '<span class="spinner-border spinner-border-sm text-primary spinner-icon" role="status"></span>';
                 case "success": return '<i class="bi bi-check-circle-fill text-success"></i>';
                 case "failed":  return '<i class="bi bi-x-circle-fill text-danger"></i>';
                 case "skipped": return '<i class="bi bi-dash-circle text-secondary"></i>';
@@ -127,7 +129,7 @@
                         ? `<span class="text-muted small ms-2">— ${step.message}</span>`
                         : "";
                     html += `<li class="d-flex align-items-center gap-2 py-1 border-bottom border-light">
-                        <span style="min-width:1.1rem;text-align:center;">${stepIcon(step.status)}</span>
+                        <span class="step-status-icon">${stepIcon(step.status)}</span>
                         <span>${step.label}${msgHtml}</span>
                     </li>`;
                 }

@@ -226,12 +226,12 @@ class WorksOrderOperation(db.Model):
 
     # Status display labels and Bootstrap badge colours
     STATUS_META = {
-        STATUS_NEW_ORDER:    ("New Order",    "light"),
+        STATUS_NEW_ORDER:    ("New Order",    "secondary"),  # "light" / "dark" are theme-blind; use adaptive colours
         STATUS_FIRM_PLANNED: ("Firm Planned", "info"),
         STATUS_RELEASED:     ("Released",     "primary"),
         STATUS_WIP:          ("WIP",          "warning"),
         STATUS_COMPLETED:    ("Completed",    "success"),
-        STATUS_CLOSED:       ("Closed",       "dark"),
+        STATUS_CLOSED:       ("Closed",       "secondary"),  # "dark" blends into dark-mode body bg
     }
 
     id = db.Column(db.Integer, primary_key=True)

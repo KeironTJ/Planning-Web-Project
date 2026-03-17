@@ -1,0 +1,112 @@
+/*
+ * Planning Hub — Design Tokens
+ *
+ * Single source of truth for all colours and theme-sensitive values.
+ * Every value in components.css and theme.css must reference a --ph-* token.
+ *
+ * ADDING A NEW THEME
+ *   1. Add a [data-bs-theme="your-theme"] block below.
+ *   2. Override only the tokens that differ from the light defaults.
+ *   3. Nothing in components.css or theme.css needs touching.
+ *
+ * TOKEN NAMING
+ *   --ph-<context>-<role>
+ *   e.g.  --ph-table-sticky-bg   (table / sticky-column / background)
+ *         --ph-chip-danger-bg    (status chip / danger state / background)
+ *
+ * Bootstrap 5.3's own vars (--bs-*) are the underlying source.
+ * Tokens map semantic meaning onto Bootstrap's implementation vars
+ * so Bootstrap updates or theme swaps only require touching this file.
+ */
+
+/* ============================================================
+   LIGHT THEME (default / :root)
+   ============================================================ */
+
+:root {
+
+    /* -- Table: semantic row / header backgrounds ---------------------- */
+    /* thead.thead-subtle and tr.table-group-row use these so they
+       automatically flip in dark mode without any extra overrides. */
+    --ph-table-head-bg:        var(--bs-secondary-bg);
+    --ph-table-group-row-bg:   var(--bs-tertiary-bg);
+    --ph-table-detail-row-bg:  var(--bs-body-bg);
+
+    /* -- Table: sticky first column ------------------------------------ */
+    /* Must match the table's own cell background to avoid a "halo" effect
+       when rows have a coloured background (weekend, header, hover). */
+    --ph-table-sticky-bg:         var(--bs-body-bg);
+    --ph-table-sticky-hover-bg:   var(--bs-tertiary-bg);
+    --ph-table-weekend-bg:        var(--bs-secondary-bg);
+    --ph-table-week-hdr-bg:       var(--bs-secondary-bg);
+    --ph-table-week-hdr-color:    var(--bs-secondary-color);
+
+    /* -- Table: contextual row colours (dark-mode overrides critical) --- */
+    --ph-table-danger-bg:         rgba(220, 53, 69, 0.08);
+    --ph-table-warning-bg:        rgba(255, 193, 7, 0.08);
+
+    /* -- Status day chips ---------------------------------------------- */
+    --ph-chip-danger-bg:          var(--bs-danger-bg-subtle);
+    --ph-chip-danger-color:       var(--bs-danger-text-emphasis);
+    --ph-chip-warning-bg:         var(--bs-warning-bg-subtle);
+    --ph-chip-warning-color:      var(--bs-warning-text-emphasis);
+    --ph-chip-success-bg:         var(--bs-success-bg-subtle);
+    --ph-chip-success-color:      var(--bs-success-text-emphasis);
+    --ph-chip-neutral-bg:         var(--bs-secondary-bg-subtle, var(--bs-secondary-bg));
+    --ph-chip-neutral-color:      var(--bs-secondary-color);
+
+    /* -- Bulk action bar ----------------------------------------------- */
+    --ph-bulk-bar-bg:             var(--bs-warning-bg-subtle);
+    --ph-bulk-bar-border:         var(--bs-warning-border-subtle);
+
+    /* -- Matrix cell colours (labour plan / SMV) ----------------------- */
+    --ph-cell-manual-color:       var(--bs-primary-text-emphasis);
+    --ph-cell-nonworkday-color:   var(--bs-secondary-color);
+    --ph-cell-complete-color:     var(--bs-success-text-emphasis);
+    --ph-cell-empty-color:        var(--bs-border-color);
+    --ph-cell-hover-bg:           var(--bs-primary-bg-subtle);
+    --ph-cell-timed-color:        var(--bs-success-text-emphasis);
+    --ph-cell-most-color:         var(--bs-primary-text-emphasis);
+
+    /* -- Filter / form active state ------------------------------------ */
+    --ph-filter-active-border:    var(--bs-primary);
+
+    /* -- Panels and overlays ------------------------------------------- */
+    --ph-detail-panel-bg:         var(--bs-secondary-bg);  /* ops detail panel in planning */
+    --ph-comment-bubble-bg:       var(--bs-tertiary-bg);   /* SO comment bubble in planning */
+}
+
+/* ============================================================
+   DARK THEME
+   Override only tokens whose light-mode defaults look wrong in dark.
+   ============================================================ */
+
+[data-bs-theme="dark"] {
+
+    /* -- Table: sticky column --
+       Bootstrap dark body-bg is #212529. Tables render at this colour
+       too, so the default falls through correctly — but contextual row
+       backgrounds (weekend, hover) need explicit sticky-col overrides. */
+    --ph-table-sticky-hover-bg:   rgba(255, 255, 255, 0.06);
+
+    /* -- Table: contextual row colours ---------------------------------
+       Bootstrap's default table-danger/table-warning in dark mode show
+       far too saturated; dial them down to subtle tints. */
+    --ph-table-danger-bg:         rgba(220, 53, 69, 0.15);
+    --ph-table-warning-bg:        rgba(255, 193, 7, 0.1);
+
+    /* -- Matrix cell colours ---
+       Bootstrap's *-text-emphasis vars are light enough in dark mode,
+       so the light defaults carry over. Only empty/border needs a nudge
+       since --bs-border-color is very faint in dark mode. */
+    --ph-cell-empty-color:        var(--bs-secondary-color);
+}
+
+/*
+ * Bootstrap table-danger / table-warning override.
+ * These classes set --bs-table-bg directly on the element.
+ * We must override at element-selector level (not via a token)
+ * because Bootstrap's specificity beats :root tokens for this var.
+ */
+[data-bs-theme="dark"] .table-danger  { --bs-table-bg: var(--ph-table-danger-bg); }
+[data-bs-theme="dark"] .table-warning { --bs-table-bg: var(--ph-table-warning-bg); }

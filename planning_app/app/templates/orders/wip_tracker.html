@@ -48,7 +48,7 @@
                             {{ 'border-2 border-' + colour + ' bg-' + colour + ' bg-opacity-10' if is_active else 'border-0' }}">
                     <div class="fw-bold fs-4 {{ 'text-' + colour if is_active else '' }}">{{ count }}</div>
                     <div class="small">
-                        <span class="badge bg-{{ colour }} {{ 'opacity-100' if is_active else 'opacity-75' }}">{{ label }}</span>
+                        <span class="badge text-bg-{{ colour }} {{ 'opacity-100' if is_active else 'opacity-75' }}">{{ label }}</span>
                         {% if is_active %}<i class="bi bi-check-lg ms-1 text-{{ colour }}"></i>{% endif %}
                     </div>
                 </div>
@@ -171,52 +171,18 @@
     Dates shown below buttons are planned dates.
     &nbsp;·&nbsp;
     <strong>Materials:</strong>
-    <span class="badge bg-success fw-normal" style="font-size:.7rem;">Mat. OK</span> stock covers all
-    <span class="badge bg-info fw-normal ms-1" style="font-size:.7rem;">Low Risk</span> covered by call-off (CO)
-    <span class="badge bg-warning fw-normal ms-1" style="font-size:.7rem;">Med Risk</span> covered by PO
-    <span class="badge bg-danger fw-normal ms-1" style="font-size:.7rem;">Shortage</span> uncovered &nbsp;·&nbsp; Click badge to view details.
+    <span class="badge text-bg-success fw-normal" style="font-size:.7rem;">Mat. OK</span> stock covers all
+    <span class="badge text-bg-info fw-normal ms-1" style="font-size:.7rem;">Low Risk</span> covered by call-off (CO)
+    <span class="badge text-bg-warning fw-normal ms-1" style="font-size:.7rem;">Med Risk</span> covered by PO
+    <span class="badge text-bg-danger fw-normal ms-1" style="font-size:.7rem;">Shortage</span> uncovered &nbsp;·&nbsp; Click badge to view details.
 </p>
 
 <!-- WIP Grid -->
 {% if orders %}
-<style>
-/* ── Sticky left columns ─────────────────────────────────────────── */
-#wipWrapper { cursor: grab; user-select: none; }
-#wipWrapper.dragging { cursor: grabbing; }
-#wipTable th:nth-child(1), #wipTable td:nth-child(1) {
-    position: sticky; left: 0; z-index: 1; background: inherit;
-}
-#wipTable th:nth-child(2), #wipTable td:nth-child(2) {
-    position: sticky; left: 24px; z-index: 1; background: inherit;
-}
-#wipTable th:nth-child(3), #wipTable td:nth-child(3) {
-    position: sticky; left: 114px; z-index: 1; background: inherit;
-    /* shadow to separate sticky from scrolling content */
-    box-shadow: 2px 0 4px -2px rgba(0,0,0,.15);
-}
-#wipTable thead th { z-index: 2; background: #f8f9fa; }
-/* default tbody row bg so sticky cells don't go transparent */
-#wipTable tbody tr { background-color: #fff; }
-#wipTable tbody tr.table-light { background-color: #f8f9fa; }
-#wipTable tbody tr.order-detail-row { background-color: #fafafa; }
-/* Uniform badge / dept-button size across the whole table */
-#wipTable .badge,
-#wipTable .advance-so-dept-btn,
-#wipTable .advance-so-all-btn,
-#wipTable .op-status-btn {
-    font-size: .72rem;
-    display: inline-block;
-    width: 90px !important;
-    min-width: 90px !important;
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-</style>
+{# WIP tracker table styles are in static/css/components.css #}
 <div class="table-responsive" id="wipWrapper">
     <table class="table table-sm align-middle mb-0" style="font-size: .82rem;" id="wipTable">
-        <thead class="table-light">
+        <thead class="thead-subtle">
             <tr>
                 <th style="width:24px;"></th>
                 <th style="min-width:90px;">SO</th>
@@ -225,13 +191,13 @@
                 <th style="min-width:80px;">Lines / Qty</th>
                 <th class="text-center" style="min-width:70px;">
                     <a href="?{{ request.query_string.decode()|replace('sort=due_date','') }}&sort=due_date"
-                       class="text-decoration-none text-dark">
+                       class="text-decoration-none text-body">
                         Due Delivery Date {% if order_by == 'due_date' %}<i class="bi bi-sort-down"></i>{% endif %}
                     </a>
                 </th>
                 <th class="text-center" style="min-width:70px;">
                     <a href="?{{ request.query_string.decode()|replace('sort=plan_date','') }}&sort=plan_date"
-                       class="text-decoration-none text-dark">
+                       class="text-decoration-none text-body">
                         Planned Delivery Date {% if order_by == 'plan_date' %}<i class="bi bi-sort-down"></i>{% endif %}
                     </a>
                 </th>
@@ -251,7 +217,7 @@
 
             {# ── Order-level header row ───────────────────────────────── #}
             {% set agg_label, agg_colour = line_status_meta.get(order.agg_status, ('Unknown', 'secondary')) %}
-            <tr class="table-light order-row" id="order-row-{{ loop.index }}">
+            <tr class="table-group-row order-row" id="order-row-{{ loop.index }}">
                 {# Expand toggle #}
                 <td class="text-center p-1">
                     <button class="btn btn-link btn-sm p-0 text-secondary toggle-order-btn"
@@ -305,7 +271,7 @@
                 </td>
                 <td>
                     <button type="button"
-                            class="badge bg-{{ agg_colour }} border-0 advance-so-all-btn"
+                            class="badge text-bg-{{ agg_colour }} border-0 advance-so-all-btn"
                             style="cursor:pointer;"
                             data-so="{{ order.so_number }}"
                             data-current-status="{{ order.agg_status }}"
@@ -318,10 +284,10 @@
                 {% set mat_label, mat_colour = mat_status_meta.get(order.mat_status, ('—', 'secondary')) %}
                 <td>
                     {% if order.mat_status == 'no_data' %}
-                        <span class="badge bg-success" style="font-size:.72rem;">Mat. OK</span>
+                        <span class="badge text-bg-success" style="font-size:.72rem;">Mat. OK</span>
                     {% else %}
                         <a href="{{ url_for('materials.mrp') }}?so={{ order.so_number }}"
-                           class="badge bg-{{ mat_colour }} text-decoration-none"
+                           class="badge text-bg-{{ mat_colour }} text-decoration-none"
                            style="font-size:.72rem;"
                            title="Click to view material requirements for {{ order.so_number }}"
                            target="_blank">{{ mat_label }}</a>
@@ -430,7 +396,7 @@
                     {{ fpd.strftime('%d %b') if fpd else '—' }}
                 </td>
                 <td>
-                    <span class="badge bg-{{ line_colour }}" style="font-size:.68rem;">{{ line_label }}</span>
+                    <span class="badge text-bg-{{ line_colour }}" style="font-size:.68rem;">{{ line_label }}</span>
                 </td>
                 <td></td>{# Materials column — order-level only #}
 

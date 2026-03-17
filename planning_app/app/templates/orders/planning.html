@@ -1,19 +1,6 @@
 {% extends 'base.html' %}
 
-{% block extra_css %}
-<style>
-.planning-detail > td { padding: 0 !important; }
-.days-chip { font-size: .75rem; font-weight: 600; padding: 2px 7px; border-radius: 99px; white-space: nowrap; }
-.days-overdue  { background:#f8d7da; color:#842029; }
-.days-urgent   { background:#fff3cd; color:#664d03; }
-.days-ok       { background:#d1e7dd; color:#0a3622; }
-.days-none     { background:#e9ecef; color:#6c757d; }
-.bulk-bar { position: sticky; top: 56px; z-index: 100; background: #fff3cd; border-bottom: 1px solid #ffc107; display: none; }
-.bulk-bar.active { display: block; }
-.plan-date-input { width: 130px; font-size: .82rem; }
-.plan-line-row td { font-size: .82rem; }
-</style>
-{% endblock %}
+{% block extra_css %}{% endblock %}
 
 {% block content %}
 
@@ -26,7 +13,7 @@
         <a href="{{ url_for('orders.planning', filter=mode, q=search, dept=dept_id, per_page=per_page, sort=sort_by, status=status_filter) }}"
            class="btn btn-outline-secondary {% if filter_mode == mode %}active{% endif %}">
             {{ label }}
-            <span class="badge {% if filter_mode == mode %}bg-light text-dark{% else %}bg-secondary{% endif %} ms-1">
+            <span class="badge {% if filter_mode == mode %}text-bg-primary{% else %}text-bg-secondary{% endif %} ms-1">
                 {{ counts[mode] }}
             </span>
         </a>
@@ -143,13 +130,13 @@
         {%- set active = sort_by == key -%}
         <th class="{{ cls }}" style="{{ style }}">
             <a href="{{ url_for('orders.planning', filter=filter_mode, q=search, cpr=cust_prod_ref or None, dept=dept_id, per_page=per_page, status=status_filter, sort=key) }}"
-               class="text-decoration-none {{ 'text-dark fw-semibold' if active else 'text-secondary' }}"
+               class="text-decoration-none {{ 'text-body fw-semibold' if active else 'text-secondary' }}"
                title="Sort by {{ label }}">
                 {{ label }}{% if active %} <i class="bi bi-caret-up-fill" style="font-size:.65rem;vertical-align:middle;"></i>{% endif %}
             </a>
         </th>
         {%- endmacro -%}
-        <thead class="table-light">
+        <thead class="thead-subtle">
             <tr>
                 <th style="width:32px;">
                     <input type="checkbox" id="selectAll" class="form-check-input" onchange="toggleAll(this)">
@@ -180,7 +167,7 @@
         {% set is_urgent  = group.days_delta is not none and group.days_delta >= 0 and group.days_delta <= 7 %}
         {% set plan_late  = group.plan_end and group.due_date and group.plan_end > group.due_date %}
 
-        <tr class="table-light fw-semibold order-plan-row" id="plan-order-{{ gi }}">
+        <tr class="table-group-row fw-semibold order-plan-row" id="plan-order-{{ gi }}">
             <td>
                 <input type="checkbox" class="form-check-input order-check"
                        data-gi="{{ gi }}" onchange="onOrderCheck(this)">
@@ -244,15 +231,15 @@
                 {% endif %}
             </td>
             <td class="text-center">
-                <span class="badge bg-{{ agg_colour }}">{{ agg_label }}</span>
+                <span class="badge text-bg-{{ agg_colour }}">{{ agg_label }}</span>
             </td>
             <td>
                 {% set mat_label, mat_colour = mat_status_meta.get(group.mat_status, ('—', 'secondary')) %}
                 {% if group.mat_status == 'no_data' %}
-                    <span class="badge bg-success" style="font-size:.72rem;">Mat. OK</span>
+                    <span class="badge text-bg-success" style="font-size:.72rem;">Mat. OK</span>
                 {% else %}
                     <a href="{{ url_for('materials.mrp') }}?so={{ group.so_number }}"
-                       class="badge bg-{{ mat_colour }} text-decoration-none"
+                       class="badge text-bg-{{ mat_colour }} text-decoration-none"
                        style="font-size:.72rem;"
                        title="Click to view material requirements for {{ group.so_number }}"
                        target="_blank">{{ mat_label }}</a>
@@ -291,8 +278,8 @@
         {% set l_late    = row.plan_end and sol.due_date and row.plan_end > sol.due_date %}
         {% set l_label, l_colour = LINE_STATUS_META.get(sol.aggregate_status, ('Unknown','secondary')) %}
 
-        <tr class="plan-line-row" data-gi="{{ gi }}" data-sol-id="{{ sol.id }}"
-            style="display:none; background:#f8f9fa;">
+        <tr class="plan-line-row table-detail-row" data-gi="{{ gi }}" data-sol-id="{{ sol.id }}"
+            style="display:none;">
             <td>
                 <input type="checkbox" class="form-check-input row-check"
                        value="{{ sol.id }}" data-gi="{{ gi }}" onchange="onRowCheck()">
@@ -358,7 +345,7 @@
                 {% endif %}
             </td>
             <td class="text-center">
-                <span class="badge bg-{{ l_colour }}" style="font-size:.68rem;">{{ l_label }}</span>
+                <span class="badge text-bg-{{ l_colour }}" style="font-size:.68rem;">{{ l_label }}</span>
             </td>
             <td class="text-center p-1">
                 <button class="btn btn-sm btn-outline-secondary py-0 px-1"
@@ -374,7 +361,7 @@
         {# ── Operations detail row ─────────────────────────────────── #}
         <tr class="planning-detail" id="detail-{{ sol.id }}" style="display:none">
             <td colspan="15" class="p-0">
-                <div class="py-2 px-4" style="background:#eef0f2;">
+                <div class="py-2 px-4 ops-detail-panel">
                     {% if row.open_ops %}
                     <table class="table table-sm mb-0" style="font-size:.82rem">
                         <thead>
@@ -416,7 +403,7 @@
                             </td>
                             <td class="text-center">
                                 {% set lbl, col = STATUS_META.get(op.status, ('?','secondary')) %}
-                                <span class="badge bg-{{ col }}">{{ lbl }}</span>
+                                <span class="badge text-bg-{{ col }}">{{ lbl }}</span>
                             </td>
                             <td class="text-muted" style="font-size:.75rem">
                                 {% if op.planned_date and sol.due_date %}
@@ -691,7 +678,7 @@ function clearDate(e, opId, url, csrf) {
                 '<span class="fw-semibold small">' + escHtml(c.user) + '</span>' +
                 '<span class="text-muted" style="font-size:.72rem;">' + escHtml(c.created_at) + '</span>' +
             '</div>' +
-            '<div class="rounded p-2 small" style="background:#f0f4ff; white-space:pre-wrap;">' + escHtml(c.body) + '</div>';
+            '<div class="rounded p-2 small comment-bubble">' + escHtml(c.body) + '</div>';
         return div;
     }
 

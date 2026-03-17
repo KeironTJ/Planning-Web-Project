@@ -1,15 +1,6 @@
 {% extends 'base.html' %}
 
-{% block extra_css %}
-<style>
-.days-chip { font-size:.75rem; font-weight:600; padding:2px 7px; border-radius:99px; white-space:nowrap; }
-.days-overdue { background:#f8d7da; color:#842029; }
-.days-urgent  { background:#fff3cd; color:#664d03; }
-.days-ok      { background:#d1e7dd; color:#0a3622; }
-.days-none    { background:#e9ecef; color:#6c757d; }
-#bulkBar { display:none; position:sticky; top:56px; z-index:100; }
-</style>
-{% endblock %}
+{% block extra_css %}{% endblock %}
 
 {% block content %}
 
@@ -19,8 +10,8 @@
         <h4 class="mb-0">Releasing Queue</h4>
         <small class="text-muted">
             Firmed orders ready to be released to production.
-            <span class="badge bg-info ms-1">Firm Planned</span> — dates set.
-            <span class="badge bg-secondary ms-1">Firmed</span> — firmed but no dates yet.
+            <span class="badge text-bg-info ms-1">Firm Planned</span> — dates set.
+            <span class="badge text-bg-secondary ms-1">Firmed</span> — firmed but no dates yet.
         </small>
     </div>
     <div class="d-flex gap-2">
@@ -112,7 +103,7 @@
 {% if order_groups %}
 <div class="table-responsive">
     <table class="table table-sm align-middle mb-0" style="font-size:.83rem;" id="releaseTable">
-        <thead class="table-light">
+        <thead class="thead-subtle">
             <tr>
                 <th style="width:28px;">
                     <input type="checkbox" class="form-check-input" id="selectAll" title="Select all">
@@ -139,7 +130,7 @@
         {% set plan_late  = group.plan_end and group.due_date and group.plan_end > group.due_date %}
         {% set agg_label, agg_colour = line_status_meta.get(group.agg_status, ('Unknown','secondary')) %}
 
-        <tr class="table-light fw-semibold" id="release-order-{{ gi }}">
+        <tr class="table-group-row fw-semibold" id="release-order-{{ gi }}">
             <td class="text-center p-1">
                 <input type="checkbox" class="form-check-input row-check"
                        data-op-ids="{{ group.firm_planned_op_ids | join(',') }}"
@@ -195,15 +186,15 @@
                 {{ group.plan_end.strftime('%d %b') if group.plan_end else '—' }}
             </td>
             <td>
-                <span class="badge bg-{{ agg_colour }}">{{ agg_label }}</span>
+                <span class="badge text-bg-{{ agg_colour }}">{{ agg_label }}</span>
             </td>
             <td>
                 {% set mat_label, mat_colour = mat_status_meta.get(group.mat_status, ('—', 'secondary')) %}
                 {% if group.mat_status == 'no_data' %}
-                    <span class="badge bg-success" style="font-size:.72rem;">Mat. OK</span>
+                    <span class="badge text-bg-success" style="font-size:.72rem;">Mat. OK</span>
                 {% else %}
                     <a href="{{ url_for('materials.mrp') }}?so={{ group.so_number }}"
-                       class="badge bg-{{ mat_colour }} text-decoration-none"
+                       class="badge text-bg-{{ mat_colour }} text-decoration-none"
                        style="font-size:.72rem;"
                        title="Click to view material requirements for {{ group.so_number }}"
                        target="_blank">{{ mat_label }}</a>
@@ -236,7 +227,7 @@
         {% set l_label, l_colour = line_status_meta.get(sol.aggregate_status, ('Unknown','secondary')) %}
         {% set l_overdue = sol.due_date and sol.due_date < today %}
 
-        <tr class="release-line-row" data-gi="{{ gi }}" style="display:none; background:#f8f9fa; font-size:.8rem;">
+        <tr class="release-line-row table-detail-row" data-gi="{{ gi }}" style="display:none;">
             <td></td>
             <td></td>
             <td class="ps-3 text-muted">
@@ -261,7 +252,7 @@
                 <div class="d-flex flex-wrap gap-1 justify-content-center">
                     {% for op in active_ops %}
                     {% set has_date = op.planned_date is not none %}
-                    <span class="badge {{ 'bg-info' if has_date else 'bg-secondary' }}"
+                    <span class="badge {{ 'text-bg-info' if has_date else 'text-bg-secondary' }}"
                           title="{{ op.work_centre_name }}{% if has_date %} — {{ op.planned_date.strftime('%d %b') }}{% endif %}">
                         {{ op.work_centre_name[:8] }}
                         {% if has_date %}<i class="bi bi-calendar-check ms-1"></i>{% endif %}
@@ -270,7 +261,7 @@
                 </div>
             </td>
             <td>
-                <span class="badge bg-{{ l_colour }}" style="font-size:.67rem;">{{ l_label }}</span>
+                <span class="badge text-bg-{{ l_colour }}" style="font-size:.67rem;">{{ l_label }}</span>
             </td>
             <td colspan="2"></td>
         </tr>
