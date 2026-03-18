@@ -1,5 +1,11 @@
 {% extends 'base.html' %}
 
+{% block extra_css %}
+<style>
+    tr.so-match { background-color: rgba(13, 110, 253, 0.08) !important; }
+</style>
+{% endblock %}
+
 {% block content %}
 
 <!-- Search form -->
@@ -106,7 +112,8 @@
                 </thead>
                 <tbody>
                     {% for ev in mat.events %}
-                    <tr class="{{ 'table-danger fw-semibold' if ev.is_short else ('table-active' if ev.row_type == 'opening') }}">
+                    {% set is_filtered_so = so_number and ev.row_type == 'requirement' and ev.reference.startswith(so_number) %}
+                    <tr class="{{ 'table-danger fw-semibold' if ev.is_short else ('table-active' if ev.row_type == 'opening') }}{{ ' so-match' if is_filtered_so and not ev.is_short else '' }}">
                         <td class="text-muted">
                             {{ ev.event_date.strftime('%d %b %y') if ev.event_date else '' }}
                         </td>
@@ -123,7 +130,10 @@
                             </span>
                             {% endif %}
                         </td>
-                        <td class="text-muted">{{ ev.reference }}</td>
+                        <td class="{{ 'fw-semibold text-dark' if is_filtered_so else 'text-muted' }}">
+                            {% if is_filtered_so %}<i class="bi bi-arrow-right-short text-primary"></i>{% endif %}
+                            {{ ev.reference }}
+                        </td>
                         <td class="text-muted small">{{ ev.department }}</td>
                         <td class="text-end {{ 'text-danger' if ev.demand else '' }}">
                             {{ ev.demand | round(2) if ev.demand else '—' }}
