@@ -20,7 +20,7 @@
             <div class="card-body">
                 <dl class="row mb-0">
                     <dt class="col-sm-4">Type</dt>
-                    <dd class="col-sm-8"><span class="badge bg-secondary">{{ batch.import_type }}</span></dd>
+                    <dd class="col-sm-8"><span class="badge text-bg-secondary">{{ batch.import_type }}</span></dd>
 
                     <dt class="col-sm-4">File</dt>
                     <dd class="col-sm-8 text-muted small">{{ batch.filename or '—' }}</dd>
@@ -34,13 +34,13 @@
                     <dt class="col-sm-4">Status</dt>
                     <dd class="col-sm-8">
                         {% if batch.status == 'success' %}
-                            <span class="badge bg-success fs-6">Success</span>
+                            <span class="badge text-bg-success fs-6">Success</span>
                         {% elif batch.status == 'failed' %}
-                            <span class="badge bg-danger fs-6">Failed</span>
+                            <span class="badge text-bg-danger fs-6">Failed</span>
                         {% elif batch.status == 'partial' %}
-                            <span class="badge bg-warning text-dark fs-6">Partial</span>
+                            <span class="badge text-bg-warning fs-6">Partial</span>
                         {% else %}
-                            <span class="badge bg-secondary fs-6">{{ batch.status }}</span>
+                            <span class="badge text-bg-secondary fs-6">{{ batch.status }}</span>
                         {% endif %}
                     </dd>
                 </dl>

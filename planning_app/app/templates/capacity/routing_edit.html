@@ -5,8 +5,8 @@
     <div>
         <h4 class="mb-0">
             {{ tmpl.name }}
-            {% if tmpl.is_default %}<span class="badge bg-success ms-2 align-middle">Default</span>{% endif %}
-            {% if not tmpl.is_active %}<span class="badge bg-secondary ms-1 align-middle">Inactive</span>{% endif %}
+            {% if tmpl.is_default %}<span class="badge text-bg-success ms-2 align-middle">Default</span>{% endif %}
+            {% if not tmpl.is_active %}<span class="badge text-bg-secondary ms-1 align-middle">Inactive</span>{% endif %}
         </h4>
         {% if tmpl.description %}<p class="text-muted small mb-0 mt-1">{{ tmpl.description }}</p>{% endif %}
     </div>
@@ -77,7 +77,7 @@
             <h5 class="mb-0">Production Stages
                 <small class="text-muted fw-normal fs-6">— lower sequence = earlier</small>
             </h5>
-            <span class="badge bg-light text-dark border" title="Sum of longest lead time per stage">
+            <span class="badge text-bg-secondary border" title="Sum of longest lead time per stage">
                 <i class="bi bi-clock me-1"></i>Total: ~{{ total_lt.value }}d
             </span>
         </div>
@@ -96,7 +96,7 @@
                     </span>
                     <span class="fw-bold text-truncate" style="font-size:1rem;">{{ stage.name or 'Stage ' ~ stage.sequence_order }}</span>
                     {% if is_parallel %}
-                        <span class="badge bg-info text-dark" title="Multiple departments run simultaneously">
+                        <span class="badge text-bg-info" title="Multiple departments run simultaneously">
                             <i class="bi bi-arrows-expand me-1"></i>Parallel
                         </span>
                     {% endif %}
@@ -138,7 +138,7 @@
 
             <div class="card-body p-0">
                 <table class="table table-sm align-middle mb-0">
-                    <thead class="table-light">
+                    <thead class="thead-subtle">
                         <tr>
                             <th>Department</th>
                             <th class="text-center" style="width:170px">Lead Time (days)</th>

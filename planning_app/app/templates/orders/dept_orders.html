@@ -63,7 +63,7 @@
                    href="#dateFilters" role="button"
                    aria-expanded="{{ 'true' if date_active else 'false' }}">
                     <i class="bi bi-calendar-range me-1"></i>Date filters
-                    {% if date_active %}<span class="badge bg-primary ms-1">active</span>{% endif %}
+                    {% if date_active %}<span class="badge text-bg-primary ms-1">active</span>{% endif %}
                 </a>
             </div>
             <div class="col-12 collapse {{ 'show' if date_active }}" id="dateFilters">
@@ -131,7 +131,7 @@
 
 <div class="table-responsive">
     <table class="table table-sm align-middle mb-0" style="font-size:.83rem;" id="deptTable">
-        <thead class="table-light">
+        <thead class="thead-subtle">
             <tr>
                 <th style="width:28px;"></th>{# expand #}
                 <th style="min-width:90px;">SO</th>
@@ -157,7 +157,7 @@
         {% set label, colour = status_meta.get(group.dept_status, ('Unknown', 'secondary')) %}
 
         {# ── Order header row ───────────────────────────────── #}
-        <tr class="table-light fw-semibold order-row" id="dept-order-{{ gi }}">
+        <tr class="table-group-row fw-semibold order-row" id="dept-order-{{ gi }}">
             <td class="text-center p-1">
                 <button class="btn btn-link btn-sm p-0 text-secondary toggle-row-btn"
                         data-target="dept-lines-{{ gi }}"
@@ -168,8 +168,8 @@
             <td>
                 {{ group.so_number }}
                 {% if group.order_type %}
-                <br><span class="badge fw-normal"
-                      style="font-size:.65rem;background-color:{{ '#0d6efd' if group.order_type == 'MAINLINE' else '#6c757d' }};">
+                <br><span class="badge fw-normal {{ 'text-bg-primary' if group.order_type == 'MAINLINE' else 'text-bg-secondary' }}"
+                      style="font-size:.65rem;">
                     {{ group.order_type }}
                 </span>
                 {% endif %}
@@ -197,11 +197,11 @@
             <td class="text-center">
                 {% if group.days_delta is not none %}
                     {% if group.days_delta < 0 %}
-                        <span class="badge bg-danger">{{ group.days_delta }}d</span>
+                        <span class="badge text-bg-danger">{{ group.days_delta }}d</span>
                     {% elif group.days_delta <= 7 %}
-                        <span class="badge bg-warning text-dark">{{ group.days_delta }}d</span>
+                        <span class="badge text-bg-warning">{{ group.days_delta }}d</span>
                     {% else %}
-                        <span class="badge bg-success">+{{ group.days_delta }}d</span>
+                        <span class="badge text-bg-success">+{{ group.days_delta }}d</span>
                     {% endif %}
                 {% else %}
                     <span class="text-muted">—</span>
@@ -237,10 +237,10 @@
             {% set mat_label, mat_colour = mat_status_meta.get(group.mat_status, ('—', 'secondary')) %}
             <td>
                 {% if group.mat_status == 'no_data' %}
-                    <span class="badge bg-success" style="font-size:.72rem;">Mat. OK</span>
+                    <span class="badge text-bg-success" style="font-size:.72rem;">Mat. OK</span>
                 {% else %}
                     <a href="{{ url_for('materials.mrp') }}?so={{ group.so_number }}"
-                       class="badge bg-{{ mat_colour }} text-decoration-none"
+                       class="badge text-bg-{{ mat_colour }} text-decoration-none"
                        style="font-size:.72rem;"
                        title="View material requirements for {{ group.so_number }}"
                        target="_blank">{{ mat_label }}</a>

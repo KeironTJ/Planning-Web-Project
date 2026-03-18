@@ -184,6 +184,131 @@
 </div>
 {% endif %}
 
+{# ── Row 6: Despatch & Completion KPIs ────────────────────────────────── #}
+<hr class="my-2">
+<h6 class="fw-semibold text-body-secondary text-uppercase small mb-3">
+    <i class="bi bi-truck me-2"></i>Despatch &amp; Completion KPIs
+</h6>
+
+{# ── Stat cards ──────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center py-3 h-100">
+            <div class="fw-bold fs-2 text-success">{{ despatch_kpis.despatched_30d }}</div>
+            <div class="small text-muted">Despatched</div>
+            <div class="text-muted" style="font-size:.75rem;">last 30 days</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center py-3 h-100">
+            {% if despatch_kpis.on_time_rate_30d is not none %}
+                {% if despatch_kpis.on_time_rate_30d >= 90 %}{% set _rc = 'text-success' %}
+                {% elif despatch_kpis.on_time_rate_30d >= 70 %}{% set _rc = 'text-warning' %}
+                {% else %}{% set _rc = 'text-danger' %}{% endif %}
+            <div class="fw-bold fs-2 {{ _rc }}">{{ despatch_kpis.on_time_rate_30d }}%</div>
+            <div class="small text-muted">On-Time Despatch</div>
+            <div class="text-muted" style="font-size:.75rem;">
+                {{ despatch_kpis.on_time_30d }} of {{ despatch_kpis.despatched_30d }} (30 days)
+            </div>
+            {% else %}
+            <div class="fw-bold fs-2 text-muted">—</div>
+            <div class="small text-muted">On-Time Despatch</div>
+            <div class="text-muted" style="font-size:.75rem;">no data yet</div>
+            {% endif %}
+            {% if despatch_kpis.all_time_on_time_rate is not none %}
+            <div class="text-muted mt-1" style="font-size:.72rem;">
+                All-time: {{ despatch_kpis.all_time_on_time_rate }}%
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center py-3 h-100">
+            {% if despatch_kpis.avg_variance_30d is not none %}
+                {% set v = despatch_kpis.avg_variance_30d %}
+                {% if v <= 0 %}{% set _vc = 'text-success' %}
+                {% elif v <= 3 %}{% set _vc = 'text-warning' %}
+                {% else %}{% set _vc = 'text-danger' %}{% endif %}
+            <div class="fw-bold fs-4 {{ _vc }} mt-1">
+                {% if v < 0 %}{{ (v * -1) | round(1) }}d early
+                {% elif v == 0 %}On time
+                {% else %}+{{ v }}d late{% endif %}
+            </div>
+            <div class="small text-muted">Avg Despatch Variance</div>
+            <div class="text-muted" style="font-size:.75rem;">last 30 days</div>
+            {% else %}
+            <div class="fw-bold fs-2 text-muted">—</div>
+            <div class="small text-muted">Avg Despatch Variance</div>
+            <div class="text-muted" style="font-size:.75rem;">no data yet</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center py-3 h-100">
+            <div class="fw-bold fs-2 text-primary">{{ despatch_kpis.completed_30d }}</div>
+            <div class="small text-muted">Orders Completed</div>
+            <div class="text-muted" style="font-size:.75rem;">last 30 days</div>
+        </div>
+    </div>
+
+</div>
+
+{# ── Charts ───────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+
+    <div class="col-lg-7">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-truck me-2 text-success"></i>Weekly Despatch Performance
+                </h6>
+                <p class="text-muted small mb-0">On-time vs late despatches per week (last 12 weeks)</p>
+            </div>
+            <div class="card-body">
+                {% if despatch_kpis.all_time_despatched %}
+                <canvas id="chartDespatchPerf" style="max-height:260px;"></canvas>
+                {% else %}
+                <div class="d-flex align-items-center justify-content-center py-5 text-muted">
+                    <div class="text-center">
+                        <i class="bi bi-hourglass fs-1 mb-2 d-block opacity-50"></i>
+                        <div>No despatch data recorded yet</div>
+                        <div class="small mt-1 opacity-75">Dates are captured automatically when orders are completed</div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-check2-all me-2 text-primary"></i>Order Completions by Week
+                </h6>
+                <p class="text-muted small mb-0">Orders fully completed (all depts) per week (last 12 weeks)</p>
+            </div>
+            <div class="card-body">
+                {% if despatch_kpis.weekly.completed | sum > 0 %}
+                <canvas id="chartOrderCompletions" style="max-height:260px;"></canvas>
+                {% else %}
+                <div class="d-flex align-items-center justify-content-center py-5 text-muted">
+                    <div class="text-center">
+                        <i class="bi bi-hourglass fs-1 mb-2 d-block opacity-50"></i>
+                        <div>No completion data recorded yet</div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+</div>
+
 {# ── Last updated note ─────────────────────────────────────────────────── #}
 <p class="text-muted small text-end mb-0">
     <i class="bi bi-clock me-1"></i>Data as of last ERP import &mdash; refresh via the ERP Refresh button in the navbar.
@@ -547,6 +672,111 @@ document.addEventListener('DOMContentLoaded', function () {
                     },
                 },
             });
+    }
+    {% endif %}
+
+    // ── 7. Despatch Performance — on-time vs late stacked bar ────────────
+    {% if despatch_kpis.all_time_despatched %}
+    {
+        const ctx = document.getElementById('chartDespatchPerf').getContext('2d');
+        const kpi = {{ despatch_kpis.weekly | tojson }};
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: kpi.labels,
+                datasets: [
+                    {
+                        label: 'On Time',
+                        data:  kpi.on_time,
+                        backgroundColor: 'rgba(25,135,84,0.75)',
+                        borderColor: '#198754',
+                        borderWidth: 1,
+                        borderRadius: 2,
+                        stack: 'despatch',
+                    },
+                    {
+                        label: 'Late',
+                        data:  kpi.late,
+                        backgroundColor: 'rgba(220,53,69,0.70)',
+                        borderColor: '#dc3545',
+                        borderWidth: 1,
+                        borderRadius: 2,
+                        stack: 'despatch',
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { position: 'top', labels: { usePointStyle: true, padding: 12 } },
+                    tooltip: {
+                        mode: 'index',
+                        callbacks: {
+                            label: ctx => {
+                                const n = ctx.parsed.y;
+                                return n === 0 ? null : ` ${ctx.dataset.label}: ${n} order${n !== 1 ? 's' : ''}`;
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: { stacked: true, grid: { color: gridColor } },
+                    y: {
+                        stacked: true, beginAtZero: true,
+                        ticks: { precision: 0 },
+                        grid: { color: gridColor },
+                        title: { display: true, text: 'Orders' },
+                    },
+                },
+            },
+        });
+    }
+    {% endif %}
+
+    // ── 8. Order Completions by Week (bar) ───────────────────────────────
+    {% if despatch_kpis.weekly.completed | sum > 0 %}
+    {
+        const ctx = document.getElementById('chartOrderCompletions').getContext('2d');
+        const kpi = {{ despatch_kpis.weekly | tojson }};
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: kpi.labels,
+                datasets: [{
+                    label: 'Completed Orders',
+                    data:  kpi.completed,
+                    backgroundColor: 'rgba(13,110,253,0.65)',
+                    borderColor: '#0d6efd',
+                    borderWidth: 1,
+                    borderRadius: 3,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => {
+                                const n = ctx.parsed.y;
+                                return ` ${n} order${n !== 1 ? 's' : ''} completed`;
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: { grid: { color: gridColor } },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { precision: 0 },
+                        grid: { color: gridColor },
+                        title: { display: true, text: 'Orders' },
+                    },
+                },
+            },
+        });
     }
     {% endif %}
 

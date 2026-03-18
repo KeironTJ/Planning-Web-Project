@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-7">
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">System Settings</h4>
+            <a href="{{ url_for('admin.dashboard') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1"></i>Back
+            </a>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            {% endfor %}
+        {% endwith %}
+
+        <form method="POST">
+            {{ form.hidden_tag() }}
+
+            <!-- WIP / Orders behaviour -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-transparent fw-semibold">
+                    <i class="bi bi-grid-3x3-gap me-2"></i>WIP Tracker Behaviour
+                </div>
+                <div class="card-body">
+
+                    <div class="d-flex justify-content-between align-items-start py-3 border-bottom">
+                        <div>
+                            <div class="fw-semibold">{{ form.auto_complete_despatch.label.text }}</div>
+                            <div class="text-muted small mt-1">
+                                {{ form.auto_complete_despatch.description }}
+                                <br>
+                                <span class="text-warning-emphasis">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    Recommended while the Despatch department is not yet using the system.
+                                    Disable once Despatch team begins managing their own status.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="ms-4 flex-shrink-0">
+                            <div class="form-check form-switch fs-5">
+                                {{ form.auto_complete_despatch(class="form-check-input", role="switch",
+                                    id="auto_complete_despatch") }}
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="card-footer bg-transparent text-end">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-floppy me-1"></i>Save Settings
+                    </button>
+                </div>
+            </div>
+
+        </form>
+
+    </div>
+</div>
+{% endblock %}

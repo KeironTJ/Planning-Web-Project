@@ -36,7 +36,7 @@
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0 align-middle">
-                <thead class="table-light">
+                <thead class="thead-subtle">
                     <tr>
                         <th>PO / Line</th>
                         <th>Product</th>
@@ -66,7 +66,7 @@
                         </td>
                         <td>
                             {% if po.po_type %}
-                            <span class="badge bg-secondary">{{ po.po_type }}</span>
+                            <span class="badge text-bg-secondary">{{ po.po_type }}</span>
                             {% else %}—{% endif %}
                         </td>
                         <td class="text-end fw-semibold">{{ po.outstanding_qty }}</td>

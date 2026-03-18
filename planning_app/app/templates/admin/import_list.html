@@ -29,7 +29,7 @@
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover mb-0 align-middle">
-                <thead class="table-light">
+                <thead class="thead-subtle">
                     <tr>
                         <th>#</th>
                         <th>Type</th>
@@ -47,7 +47,7 @@
                     {% for b in batches.items %}
                     <tr>
                         <td class="text-muted small">{{ b.id }}</td>
-                        <td><span class="badge bg-secondary">{{ b.import_type }}</span></td>
+                        <td><span class="badge text-bg-secondary">{{ b.import_type }}</span></td>
                         <td class="text-muted small text-truncate" style="max-width:180px;">{{ b.filename or '—' }}</td>
                         <td class="text-muted small">{{ b.uploaded_at.strftime('%d %b %Y %H:%M') }}</td>
                         <td class="small">{{ b.uploaded_by.username if b.uploaded_by else 'CLI' }}</td>
@@ -56,13 +56,13 @@
                         <td class="text-end small">{{ b.rows_updated or '—' }}</td>
                         <td class="text-center">
                             {% if b.status == 'success' %}
-                                <span class="badge bg-success">OK</span>
+                                <span class="badge text-bg-success">OK</span>
                             {% elif b.status == 'failed' %}
-                                <span class="badge bg-danger" title="{{ b.error_message }}">Failed</span>
+                                <span class="badge text-bg-danger" title="{{ b.error_message }}">Failed</span>
                             {% elif b.status == 'partial' %}
-                                <span class="badge bg-warning text-dark">Partial</span>
+                                <span class="badge text-bg-warning">Partial</span>
                             {% else %}
-                                <span class="badge bg-secondary">{{ b.status }}</span>
+                                <span class="badge text-bg-secondary">{{ b.status }}</span>
                             {% endif %}
                         </td>
                         <td>

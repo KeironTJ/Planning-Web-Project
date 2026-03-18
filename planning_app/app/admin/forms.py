@@ -2,7 +2,7 @@
 
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired, FileAllowed
-from wtforms import SelectField, HiddenField, DecimalField, IntegerField
+from wtforms import SelectField, HiddenField, DecimalField, IntegerField, BooleanField
 from wtforms.validators import Optional, NumberRange
 
 
@@ -26,6 +26,16 @@ class ImportUploadForm(FlaskForm):
             FileRequired(),
             FileAllowed(["csv"], "CSV files only"),
         ],
+    )
+
+
+class SystemSettingsForm(FlaskForm):
+    auto_complete_despatch = BooleanField(
+        "Auto-complete Despatch",
+        description=(
+            "When all non-Despatch operations for an order line are completed, "
+            "automatically mark the Despatch operation as completed too."
+        ),
     )
 
 

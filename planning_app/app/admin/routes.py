@@ -12,7 +12,8 @@ from flask import render_template, redirect, url_for, flash, request, jsonify
 from flask_login import login_required, current_user
 
 from . import admin_bp
-from .forms import ImportUploadForm, DeptHoursForm
+from .forms import ImportUploadForm, DeptHoursForm, SystemSettingsForm
+from .models import SystemSetting, SETTING_AUTO_COMPLETE_DESPATCH
 from app.auth.models import User, Role, AuditLog
 from app.auth.services import RoleService
 from app.extensions import db
@@ -508,3 +509,37 @@ def data_after_sales():
         last_imported=last.imported_at if last else None,
     )
 
+
+# ---------------------------------------------------------------------------
+# System Settings
+# ---------------------------------------------------------------------------
+
+@admin_bp.route("/settings", methods=["GET", "POST"])
+@login_required
+@admin_required
+def system_settings():
+    form = SystemSettingsForm()
+
+    if form.validate_on_submit():
+        SystemSetting.set_bool(
+            SETTING_AUTO_COMPLETE_DESPATCH,
+            form.auto_complete_despatch.data,
+            description=(
+                "Automatically mark Despatch as completed when all other "
+                "operations for an order line are completed."
+            ),
+        )
+        db.session.commit()
+        flash("Settings saved.", "success")
+        return redirect(url_for("admin.system_settings"))
+
+    # Pre-populate form from current DB values
+    form.auto_complete_despatch.data = SystemSetting.get_bool(
+        SETTING_AUTO_COMPLETE_DESPATCH, default=False
+    )
+
+    return render_template(
+        "admin/settings.html",
+        title="System Settings",
+        form=form,
+    )

@@ -27,6 +27,142 @@ def _add_working_days(d: date, n: int) -> date:
     return d
 
 
+def _maybe_auto_complete_despatch(so_number: str, line_number: int) -> None:
+    """
+    If the 'auto_complete_despatch' system setting is enabled, automatically
+    mark the DESPATCH operation as completed whenever all other non-closed
+    operations on the same SO line are completed.
+
+    Must be called *before* db.session.commit() so the auto-completion is
+    included in the same transaction.
+    """
+    try:
+        from flask import current_app
+        from app.admin.models import SystemSetting, SETTING_AUTO_COMPLETE_DESPATCH
+
+        if not SystemSetting.get_bool(SETTING_AUTO_COMPLETE_DESPATCH, default=False):
+            return
+
+        # Flush pending session changes so the query sees the latest statuses
+        db.session.flush()
+
+        # Only consider ops that belong to a known active department
+        # (mirrors what the WIP tracker shows — unmatched ERP work centres
+        #  like STORES have department_id=None and are intentionally excluded)
+        all_ops = (
+            WorksOrderOperation.query
+            .filter_by(so_number=so_number, line_number=line_number)
+            .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
+            .filter(WorksOrderOperation.department_id.isnot(None))
+            .all()
+        )
+
+        despatch_ops = [
+            op for op in all_ops
+            if op.work_centre_name.strip().upper() == "DESPATCH"
+        ]
+        if not despatch_ops:
+            current_app.logger.debug(
+                "auto_complete_despatch: no DESPATCH op for SO %s line %s",
+                so_number, line_number,
+            )
+            return
+
+        # Only proceed if all non-despatch ops (with a known dept) are completed
+        other_ops = [
+            op for op in all_ops
+            if op.work_centre_name.strip().upper() != "DESPATCH"
+        ]
+        if not other_ops:
+            return  # No other ops — nothing to trigger on
+
+        not_done = [op for op in other_ops if op.status != WorksOrderOperation.STATUS_COMPLETED]
+        if not_done:
+            current_app.logger.debug(
+                "auto_complete_despatch: SO %s line %s — %d ops still not completed: %s",
+                so_number, line_number, len(not_done),
+                [(op.work_centre_name, op.status) for op in not_done],
+            )
+            return
+
+        # Auto-complete any despatch ops that are not already completed
+        changed = []
+        for op in despatch_ops:
+            if op.status != WorksOrderOperation.STATUS_COMPLETED:
+                op.status = WorksOrderOperation.STATUS_COMPLETED
+                if op.completed_date is None:
+                    op.completed_date = date.today()
+                changed.append(op.id)
+
+        if changed:
+            _audit("auto_complete_despatch", f"so:{so_number}", {
+                "line": line_number, "op_ids": changed,
+            })
+    except Exception:
+        try:
+            from flask import current_app
+            current_app.logger.exception(
+                "auto_complete_despatch failed for SO %s line %s", so_number, line_number
+            )
+        except Exception:
+            pass
+
+
+def _update_sol_dates(so_number: str, line_number: int) -> None:
+    """
+    After any operation reaches COMPLETED, set the two KPI milestone dates on
+    the parent SalesOrderLine (first-set-wins — never overwritten once recorded):
+
+      despatch_completed_date  — when the DESPATCH op was marked complete
+      order_completed_date     — when every known-department op for the line
+                                  reached completed (including DESPATCH)
+
+    Must be called within an open session (after a flush so queries see the
+    latest in-transaction state).  Never raises.
+    """
+    try:
+        sol = SalesOrderLine.query.filter_by(
+            so_number=so_number, line_number=line_number
+        ).first()
+        if sol is None:
+            return
+
+        known_ops = (
+            WorksOrderOperation.query
+            .filter_by(so_number=so_number, line_number=line_number)
+            .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
+            .filter(WorksOrderOperation.department_id.isnot(None))
+            .all()
+        )
+        if not known_ops:
+            return
+
+        # Despatch completed date (first time DESPATCH op reaches COMPLETED)
+        if sol.despatch_completed_date is None:
+            despatch_done = next(
+                (op for op in known_ops
+                 if op.work_centre_name.strip().upper() == "DESPATCH"
+                 and op.status == WorksOrderOperation.STATUS_COMPLETED),
+                None,
+            )
+            if despatch_done:
+                sol.despatch_completed_date = despatch_done.completed_date or date.today()
+
+        # Order completed date (first time ALL known-dept ops reach COMPLETED)
+        if sol.order_completed_date is None:
+            if all(op.status == WorksOrderOperation.STATUS_COMPLETED for op in known_ops):
+                sol.order_completed_date = date.today()
+
+    except Exception:
+        try:
+            from flask import current_app
+            current_app.logger.exception(
+                "_update_sol_dates failed for SO %s line %s", so_number, line_number
+            )
+        except Exception:
+            pass
+
+
 def _audit(action: str, resource: str, details: dict) -> None:
     """Write a WIP-tracker audit log entry. Never raises."""
     try:
@@ -435,6 +571,11 @@ def advance_so_dept_status(so_number: str, work_centre_name: str) -> dict:
         op.status = next_s
         if next_s == WorksOrderOperation.STATUS_COMPLETED and op.completed_date is None:
             op.completed_date = date.today()
+
+    # Auto-complete DESPATCH then record KPI milestone dates for every affected line
+    for line_number in {op.line_number for op in ops}:
+        _maybe_auto_complete_despatch(so_number, line_number)
+        _update_sol_dates(so_number, line_number)
 
     db.session.commit()
     _audit("so_dept_advance", f"so:{so_number}", {
@@ -1010,6 +1151,11 @@ def update_operation_status(
     if notes is not None:
         op.notes = notes
 
+    # Auto-complete DESPATCH then record KPI milestone dates
+    if new_status == WorksOrderOperation.STATUS_COMPLETED:
+        _maybe_auto_complete_despatch(op.so_number, op.line_number)
+        _update_sol_dates(op.so_number, op.line_number)
+
     db.session.commit()
     _audit("op_status_change", f"operation:{op.id}", {
         "so": op.so_number, "dept": op.work_centre_name,
@@ -1031,11 +1177,20 @@ def bulk_update_status(
 
     count = 0
     ops = WorksOrderOperation.query.filter(WorksOrderOperation.id.in_(operation_ids)).all()
+    # Collect unique (so_number, line_number) pairs that reach COMPLETED
+    lines_to_check: set[tuple[str, int]] = set()
     for op in ops:
         op.status = new_status
         if new_status == WorksOrderOperation.STATUS_COMPLETED and op.completed_date is None:
             op.completed_date = date.today()
+            lines_to_check.add((op.so_number, op.line_number))
         count += 1
+
+    # Auto-complete DESPATCH then record KPI milestone dates for affected lines
+    if new_status == WorksOrderOperation.STATUS_COMPLETED:
+        for so_number, line_number in lines_to_check:
+            _maybe_auto_complete_despatch(so_number, line_number)
+            _update_sol_dates(so_number, line_number)
 
     db.session.commit()
     return count
@@ -1805,6 +1960,9 @@ def get_wip_dashboard_data() -> dict:
         for r in value_by_customer_rows
     ]
 
+    # 7. Despatch & completion KPIs
+    despatch_kpis = get_despatch_kpis()
+
     return {
         "summary": summary,
         "dept_status": {
@@ -1840,6 +1998,157 @@ def get_wip_dashboard_data() -> dict:
             "counts": [r[1] for r in overdue_by_dept_rows],
         },
         "value_by_customer": value_by_customer,
+        "despatch_kpis": despatch_kpis,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Despatch & Completion KPIs
+# ---------------------------------------------------------------------------
+
+def get_despatch_kpis() -> dict:
+    """
+    Aggregate KPI data driven by the two milestone dates on SalesOrderLine:
+      despatch_completed_date — when the DESPATCH op was marked complete
+      order_completed_date    — when every known-dept op for the line was completed
+
+    Returns:
+      despatched_30d       — orders despatched in the last 30 days
+      on_time_30d          — of those, despatched on or before due_date
+      late_30d             — despatched after due_date
+      on_time_rate_30d     — percentage (float) or None if no data
+      avg_variance_30d     — avg calendar days from due_date (negative = early,
+                             positive = late), rounded to 1dp, or None if no data
+      completed_30d        — orders fully completed in the last 30 days
+      all_time_despatched  — total orders ever despatched (for "no data" guard)
+      all_time_on_time_rate — all-time on-time % or None
+      weekly               — {labels, on_time, late, completed} last 12 ISO weeks
+    """
+    today = date.today()
+    thirty_days_ago  = today - timedelta(days=30)
+    this_monday      = today - timedelta(days=today.weekday())
+    twelve_weeks_ago = this_monday - timedelta(weeks=12)
+
+    # ── Last-30-days summary ─────────────────────────────────────────────
+    recent_rows = (
+        db.session.query(
+            SalesOrderLine.despatch_completed_date,
+            SalesOrderLine.due_date,
+        )
+        .filter(
+            SalesOrderLine.despatch_completed_date >= thirty_days_ago,
+            SalesOrderLine.despatch_completed_date.isnot(None),
+            SalesOrderLine.due_date.isnot(None),
+        )
+        .all()
+    )
+
+    despatched_30d = len(recent_rows)
+    on_time_30d    = sum(1 for r in recent_rows if r.despatch_completed_date <= r.due_date)
+    late_30d       = despatched_30d - on_time_30d
+    on_time_rate_30d = (
+        round(on_time_30d / despatched_30d * 100, 1) if despatched_30d else None
+    )
+    variances = [
+        (r.despatch_completed_date - r.due_date).days for r in recent_rows
+    ]
+    avg_variance_30d = (
+        round(sum(variances) / len(variances), 1) if variances else None
+    )
+
+    completed_30d = (
+        SalesOrderLine.query
+        .filter(
+            SalesOrderLine.order_completed_date >= thirty_days_ago,
+            SalesOrderLine.order_completed_date.isnot(None),
+        )
+        .count()
+    )
+
+    # ── All-time stats ───────────────────────────────────────────────────
+    all_time_despatched = (
+        SalesOrderLine.query
+        .filter(
+            SalesOrderLine.despatch_completed_date.isnot(None),
+            SalesOrderLine.due_date.isnot(None),
+        )
+        .count()
+    )
+    all_time_on_time = (
+        db.session.query(func.count(SalesOrderLine.id))
+        .filter(
+            SalesOrderLine.despatch_completed_date.isnot(None),
+            SalesOrderLine.due_date.isnot(None),
+            SalesOrderLine.despatch_completed_date <= SalesOrderLine.due_date,
+        )
+        .scalar() or 0
+    )
+    all_time_on_time_rate = (
+        round(all_time_on_time / all_time_despatched * 100, 1)
+        if all_time_despatched else None
+    )
+
+    # ── Weekly chart data (last 12 weeks) ────────────────────────────────
+    week_starts = [this_monday - timedelta(weeks=(11 - i)) for i in range(12)]
+    week_labels  = [f"Wk {ws.isocalendar()[1]}" for ws in week_starts]
+    weekly_on_time  = [0] * 12
+    weekly_late     = [0] * 12
+    weekly_completed = [0] * 12
+
+    def _week_bucket(d) -> int | None:
+        for i, ws in enumerate(week_starts):
+            if ws <= d <= ws + timedelta(days=6):
+                return i
+        return None
+
+    despatch_rows = (
+        db.session.query(
+            SalesOrderLine.despatch_completed_date,
+            SalesOrderLine.due_date,
+        )
+        .filter(
+            SalesOrderLine.despatch_completed_date >= twelve_weeks_ago,
+            SalesOrderLine.despatch_completed_date.isnot(None),
+            SalesOrderLine.due_date.isnot(None),
+        )
+        .all()
+    )
+    for r in despatch_rows:
+        b = _week_bucket(r.despatch_completed_date)
+        if b is not None:
+            if r.despatch_completed_date <= r.due_date:
+                weekly_on_time[b] += 1
+            else:
+                weekly_late[b] += 1
+
+    completion_rows = (
+        db.session.query(SalesOrderLine.order_completed_date)
+        .filter(
+            SalesOrderLine.order_completed_date >= twelve_weeks_ago,
+            SalesOrderLine.order_completed_date.isnot(None),
+        )
+        .all()
+    )
+    for r in completion_rows:
+        b = _week_bucket(r.order_completed_date)
+        if b is not None:
+            weekly_completed[b] += 1
+
+    return {
+        "despatched_30d":      despatched_30d,
+        "on_time_30d":         on_time_30d,
+        "late_30d":            late_30d,
+        "on_time_rate_30d":    on_time_rate_30d,
+        "avg_variance_30d":    avg_variance_30d,
+        "completed_30d":       completed_30d,
+        "all_time_despatched": all_time_despatched,
+        "all_time_on_time_rate": all_time_on_time_rate,
+        "weekly": {
+            "labels":    week_labels,
+            "on_time":   weekly_on_time,
+            "late":      weekly_late,
+            "completed": weekly_completed,
+        },
     }
 
 

@@ -62,8 +62,8 @@
                 <small class="text-muted">
                     {{ total }} component{{ 's' if total != 1 else '' }}
                     &nbsp;·&nbsp;
-                    <span style="color:#146c43; font-weight:600;">■</span> Timed
-                    <span style="color:#084298; font-weight:600;" class="ms-1">■</span> MOST
+                    <span class="legend-timed">■</span> Timed
+                    <span class="legend-most ms-1">■</span> MOST
                     <span class="text-muted ms-1">■</span> Estimated
                 </small>
             </div>
@@ -75,7 +75,7 @@
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0" style="overflow-x: auto;">
         <table class="table table-hover table-bordered table-sm mb-0 smv-table">
-            <thead class="table-light">
+            <thead class="thead-subtle">
                 <tr>
                     <th class="sticky-col align-bottom" style="min-width:130px; z-index:2;">Component</th>
                     <th class="align-bottom text-center" style="min-width:90px;">Confidence</th>
@@ -93,11 +93,11 @@
                     <td class="sticky-col fw-semibold small font-monospace">{{ row.component_id }}</td>
                     <td class="text-center">
                         {% if row.confidence == 'timed_study' %}
-                            <span class="badge bg-success">Timed</span>
+                            <span class="badge text-bg-success">Timed</span>
                         {% elif row.confidence == 'most_study' %}
-                            <span class="badge bg-primary">MOST</span>
+                            <span class="badge text-bg-primary">MOST</span>
                         {% elif row.confidence == 'estimated' %}
-                            <span class="badge bg-secondary">Est</span>
+                            <span class="badge text-bg-secondary">Est</span>
                         {% else %}
                             <span class="text-muted">—</span>
                         {% endif %}

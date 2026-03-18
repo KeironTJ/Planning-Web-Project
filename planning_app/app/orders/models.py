@@ -108,6 +108,10 @@ class SalesOrderLine(db.Model):
     # Planner field — set by scheduler for lines that have no operations
     planned_date = db.Column(db.Date, nullable=True, index=True)
 
+    # KPI completion milestones (set once, never cleared by importer)
+    despatch_completed_date = db.Column(db.Date, nullable=True, index=True)
+    order_completed_date    = db.Column(db.Date, nullable=True, index=True)
+
     operations = db.relationship(
         "WorksOrderOperation",
         back_populates="sales_order_line",

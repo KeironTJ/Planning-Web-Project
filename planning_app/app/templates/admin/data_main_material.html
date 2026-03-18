@@ -33,7 +33,7 @@
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover table-sm mb-0 align-middle">
-                <thead class="table-light">
+                <thead class="thead-subtle">
                     <tr>
                         <th>Works Order</th>
                         <th>Department</th>
@@ -57,7 +57,7 @@
                         <td class="small">{{ row.due_date.strftime('%d %b %Y') if row.due_date else '—' }}</td>
                         <td class="text-center">
                             {% if row.complete == 'Y' %}
-                            <span class="badge bg-success">Y</span>
+                            <span class="badge text-bg-success">Y</span>
                             {% else %}
                             <span class="text-muted small">—</span>
                             {% endif %}

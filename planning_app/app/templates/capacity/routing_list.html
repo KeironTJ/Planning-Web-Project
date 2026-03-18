@@ -20,7 +20,7 @@
 {% else %}
 <div class="table-responsive">
     <table class="table table-hover align-middle">
-        <thead class="table-light">
+        <thead class="thead-subtle">
             <tr>
                 <th>Name</th>
                 <th>Description</th>
@@ -46,16 +46,16 @@
                 </td>
                 <td class="text-center">
                     {% if tmpl.is_default %}
-                        <span class="badge bg-success">Default</span>
+                        <span class="badge text-bg-success">Default</span>
                     {% else %}
                         <span class="text-muted">—</span>
                     {% endif %}
                 </td>
                 <td class="text-center">
                     {% if tmpl.is_active %}
-                        <span class="badge bg-success">Active</span>
+                        <span class="badge text-bg-success">Active</span>
                     {% else %}
-                        <span class="badge bg-secondary">Inactive</span>
+                        <span class="badge text-bg-secondary">Inactive</span>
                     {% endif %}
                 </td>
                 <td class="text-end">

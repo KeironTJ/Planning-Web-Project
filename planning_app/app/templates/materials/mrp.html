@@ -64,28 +64,28 @@
     <span class="text-muted small">{{ data.material_count }} material{{ 's' if data.material_count != 1 }}</span>
     {% set shortage_count = data.materials | selectattr('has_shortage') | list | length %}
     {% if shortage_count %}
-    <span class="badge bg-danger">{{ shortage_count }} with shortage</span>
+    <span class="badge text-bg-danger">{{ shortage_count }} with shortage</span>
     {% else %}
-    <span class="badge bg-success">All covered</span>
+    <span class="badge text-bg-success">All covered</span>
     {% endif %}
     {% if so_number %}
-    <span class="badge bg-secondary">SO {{ so_number }}</span>
+    <span class="badge text-bg-secondary">SO {{ so_number }}</span>
     {% endif %}
 </div>
 {% endif %}
 
 {% for mat in data.materials %}
 <div class="card border-0 shadow-sm mb-3 {{ 'border-danger border' if mat.has_shortage else '' }}">
-    <div class="card-header py-2 d-flex align-items-center gap-2 {{ 'bg-danger bg-opacity-10' if mat.has_shortage else 'bg-light' }}">
+    <div class="card-header py-2 d-flex align-items-center gap-2 {{ 'bg-danger bg-opacity-10' if mat.has_shortage else '' }}">
         <span class="fw-bold">{{ mat.material_code }}</span>
         {% if mat.description %}
         <span class="text-muted small">{{ mat.description }}</span>
         {% endif %}
         <span class="ms-auto d-flex gap-2 align-items-center">
             {% if mat.has_shortage %}
-            <span class="badge bg-danger">Shortage</span>
+            <span class="badge text-bg-danger">Shortage</span>
             {% else %}
-            <span class="badge bg-success">Covered</span>
+            <span class="badge text-bg-success">Covered</span>
             {% endif %}
             <span class="text-muted small">Opening: {{ mat.opening_stock | round(2) }}</span>
         </span>
@@ -93,7 +93,7 @@
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-sm mb-0 align-middle" style="font-size:.82rem;">
-                <thead class="table-light">
+                <thead class="thead-subtle">
                     <tr>
                         <th style="width:90px">Date</th>
                         <th>Type</th>
@@ -106,19 +106,19 @@
                 </thead>
                 <tbody>
                     {% for ev in mat.events %}
-                    <tr class="{{ 'table-danger fw-semibold' if ev.is_short else ('table-light' if ev.row_type == 'opening') }}">
+                    <tr class="{{ 'table-danger fw-semibold' if ev.is_short else ('table-active' if ev.row_type == 'opening') }}">
                         <td class="text-muted">
                             {{ ev.event_date.strftime('%d %b %y') if ev.event_date else '' }}
                         </td>
                         <td>
                             {% if ev.row_type == 'opening' %}
-                            <span class="badge bg-secondary">Opening</span>
+                            <span class="badge text-bg-secondary">Opening</span>
                             {% elif ev.row_type == 'co' %}
-                            <span class="badge bg-info text-dark">Call-Off</span>
+                            <span class="badge text-bg-info">Call-Off</span>
                             {% elif ev.row_type == 'po' %}
-                            <span class="badge bg-success">PO Receipt</span>
+                            <span class="badge text-bg-success">PO Receipt</span>
                             {% elif ev.row_type == 'requirement' %}
-                            <span class="badge {{ 'bg-primary' if ev.source == 'main' else 'bg-secondary' }}">
+                            <span class="badge {{ 'text-bg-primary' if ev.source == 'main' else 'text-bg-secondary' }}">
                                 {{ 'Req (Main)' if ev.source == 'main' else 'Req (AS)' }}
                             </span>
                             {% endif %}
