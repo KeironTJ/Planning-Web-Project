@@ -5,7 +5,7 @@ Orders blueprint routes — WIP tracker, department order lists, firming queue.
 from datetime import date
 
 from flask import render_template, redirect, url_for, flash, request, jsonify
-from flask_login import login_required
+from flask_login import login_required, current_user
 
 from . import orders_bp
 from .forms import OperationStatusForm
@@ -357,6 +357,75 @@ def releasing_queue():
 
 
 # ---------------------------------------------------------------------------
+# No-Ops Queue
+# ---------------------------------------------------------------------------
+
+@orders_bp.route("/no-ops")
+@login_required
+@permission_required("view_orders")
+def no_ops_queue():
+    page          = request.args.get("page", 1, type=int)
+    per_page      = request.args.get("per_page", 25, type=int)
+    search        = request.args.get("q", "")
+    cust_prod_ref = request.args.get("cpr", "")
+    overdue_only  = request.args.get("overdue", "") == "1"
+    sort          = request.args.get("sort", "due_date")
+    due_from      = _parse_date(request.args.get("due_from", ""))
+    due_to        = _parse_date(request.args.get("due_to", ""))
+    if per_page not in (25, 50, 100):
+        per_page = 25
+
+    pagination, order_groups = services.get_no_ops_queue(
+        page=page, per_page=per_page,
+        search=search or None,
+        cust_prod_ref=cust_prod_ref or None,
+        due_from=due_from,
+        due_to=due_to,
+        overdue_only=overdue_only,
+        sort=sort,
+    )
+    return render_template(
+        "orders/no_ops_queue.html",
+        title="No-Ops Queue",
+        order_groups=order_groups,
+        pagination=pagination,
+        search=search,
+        cust_prod_ref=cust_prod_ref,
+        overdue_only=overdue_only,
+        sort=sort,
+        due_from=due_from,
+        due_to=due_to,
+        per_page=per_page,
+        today=date.today(),
+    )
+
+
+@orders_bp.route("/so/<so_number>/acknowledge-no-ops", methods=["POST"])
+@login_required
+@permission_required("update_order_status")
+def acknowledge_no_ops(so_number: str):
+    """Record an acknowledgement or escalation comment against a no-ops order."""
+    action = request.form.get("action", "acknowledged")
+
+    # Verify the SO exists
+    sol = SalesOrderLine.query.filter_by(so_number=so_number).first()
+    if sol is None:
+        flash(f"Sales order {so_number} not found.", "warning")
+        return redirect(url_for("orders.no_ops_queue"))
+
+    if action == "escalated":
+        body = f"Escalated to ERP team — no works order operations received for SO {so_number}."
+    else:
+        body = f"Acknowledged — no ERP operations yet for SO {so_number}. Under investigation."
+
+    services.add_so_comment(so_number, current_user.id, body)
+    flash(f"SO {so_number} {action}.", "success")
+
+    back_url = request.form.get("back_url") or url_for("orders.no_ops_queue")
+    return redirect(back_url)
+
+
+# ---------------------------------------------------------------------------
 # Operation status update (POST — AJAX or standard form)
 # ---------------------------------------------------------------------------
 
@@ -540,6 +609,18 @@ def reverse_so_all():
 # ---------------------------------------------------------------------------
 # Date Planning
 # ---------------------------------------------------------------------------
+
+@orders_bp.route("/planning/dashboard")
+@login_required
+@permission_required("view_orders")
+def planning_dashboard():
+    data = services.get_planning_dashboard_data()
+    return render_template(
+        "orders/planning_dashboard.html",
+        title="Planning Dashboard",
+        **data,
+    )
+
 
 @orders_bp.route("/planning/")
 @login_required

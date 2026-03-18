@@ -2,7 +2,7 @@
     <div class="position-sticky pt-3 sidebar-sticky">
         <ul class="nav flex-column">
 
-            {# ── Planning ─────────────────────────────────────────── #}
+            {# ── Orders ────────────────────────────────────────────── #}
             {% if current_user.has_permission('view_orders') %}
             <li class="mt-1">
                 <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">Orders</h6>
@@ -19,7 +19,26 @@
                     <i class="bi bi-grid-3x3-gap me-2"></i>WIP Tracker
                 </a>
             </li>
-            
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'orders.overdue_report' %}active{% endif %}"
+                   href="{{ url_for('orders.overdue_report') }}">
+                    <i class="bi bi-exclamation-triangle me-2"></i>Overdue Report
+                </a>
+            </li>
+            {% endif %}
+
+            {# ── Planning ──────────────────────────────────────────── #}
+            {% if current_user.has_permission('view_orders') or current_user.has_permission('manage_orders') or current_user.has_permission('override_capacity') %}
+            <li class="mt-3">
+                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">Planning</h6>
+            </li>
+            {% if current_user.has_permission('view_orders') %}
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'orders.planning_dashboard' %}active{% endif %}"
+                   href="{{ url_for('orders.planning_dashboard') }}">
+                    <i class="bi bi-speedometer2 me-2"></i>Dashboard
+                </a>
+            </li>
             <li class="nav-item">
                 <a class="nav-link {% if request.endpoint == 'orders.firming_queue' %}active{% endif %}"
                    href="{{ url_for('orders.firming_queue') }}">
@@ -33,16 +52,25 @@
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'orders.overdue_report' %}active{% endif %}"
-                   href="{{ url_for('orders.overdue_report') }}">
-                    <i class="bi bi-exclamation-triangle me-2"></i>Overdue Report
+                <a class="nav-link {% if request.endpoint == 'orders.no_ops_queue' %}active{% endif %}"
+                   href="{{ url_for('orders.no_ops_queue') }}">
+                    <i class="bi bi-patch-question me-2"></i>No-Ops Queue
                 </a>
             </li>
+            {% endif %}
             {% if current_user.has_permission('manage_orders') %}
             <li class="nav-item">
                 <a class="nav-link {% if request.endpoint == 'orders.planning' %}active{% endif %}"
                    href="{{ url_for('orders.planning') }}">
                     <i class="bi bi-calendar3 me-2"></i>Date Planning
+                </a>
+            </li>
+            {% endif %}
+            {% if current_user.has_permission('override_capacity') %}
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'capacity.scheduler' %}active{% endif %}"
+                   href="{{ url_for('capacity.scheduler') }}">
+                    <i class="bi bi-calendar-check me-2"></i>Schedule Orders
                 </a>
             </li>
             {% endif %}
@@ -64,12 +92,6 @@
                 <a class="nav-link {% if request.endpoint and 'routing' in request.endpoint %}active{% endif %}"
                    href="{{ url_for('capacity.routing_list') }}">
                     <i class="bi bi-diagram-3 me-2"></i>Routing Templates
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'capacity.scheduler' %}active{% endif %}"
-                   href="{{ url_for('capacity.scheduler') }}">
-                    <i class="bi bi-calendar-check me-2"></i>Schedule Orders
                 </a>
             </li>
             <li class="nav-item">

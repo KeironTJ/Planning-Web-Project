@@ -214,7 +214,7 @@
                 {% if group.dept_status == 'completed' or group.dept_status == 'closed' %}
                 <button type="button"
                         class="btn btn-{{ colour }} btn-sm py-0 px-1 advance-so-dept-btn"
-                        style="font-size:.75rem;"
+                        style="font-size:.75rem; min-width:62px;"
                         data-so="{{ group.so_number }}"
                         data-dept="{{ dept.name }}"
                         data-current-status="{{ group.dept_status }}"
@@ -224,7 +224,7 @@
                 {% else %}
                 <button type="button"
                         class="btn btn-{{ colour }} btn-sm py-0 px-1 advance-so-dept-btn"
-                        style="font-size:.75rem;"
+                        style="font-size:.75rem; min-width:62px;"
                         data-so="{{ group.so_number }}"
                         data-dept="{{ dept.name }}"
                         data-current-status="{{ group.dept_status }}"
@@ -237,11 +237,11 @@
             {% set mat_label, mat_colour = mat_status_meta.get(group.mat_status, ('—', 'secondary')) %}
             <td>
                 {% if group.mat_status == 'no_data' %}
-                    <span class="badge text-bg-success" style="font-size:.72rem;">Mat. OK</span>
+                    <span class="badge text-bg-success" style="font-size:.75rem; min-width:62px; text-align:center; display:inline-block;">Mat. OK</span>
                 {% else %}
                     <a href="{{ url_for('materials.mrp') }}?so={{ group.so_number }}"
                        class="badge text-bg-{{ mat_colour }} text-decoration-none"
-                       style="font-size:.72rem;"
+                       style="font-size:.75rem; min-width:62px; text-align:center; display:inline-block;"
                        title="View material requirements for {{ group.so_number }}"
                        target="_blank">{{ mat_label }}</a>
                 {% endif %}

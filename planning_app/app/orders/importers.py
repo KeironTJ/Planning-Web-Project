@@ -183,6 +183,30 @@ class OobImporter:
                         db.session.add(op)
                         rows_inserted += 1
 
+            # --- 3.5. Set / clear ops_missing flag on every SOL seen in this import ---
+            # Build a set of (so_number, line_number) pairs that have at least one op in this import.
+            sol_keys_with_ops: set[tuple] = {
+                (so_num, line_num)
+                for (so_num, line_num, _wc) in seen_op_keys
+            }
+
+            for (so_number, line_number_str), _rows in groups.items():
+                line_number = parse_int(line_number_str)
+                if not so_number or line_number is None:
+                    continue
+                sol = SalesOrderLine.query.filter_by(
+                    so_number=so_number, line_number=line_number
+                ).first()
+                if sol is None:
+                    continue
+                has_ops = (so_number, line_number) in sol_keys_with_ops
+                if has_ops:
+                    sol.ops_missing = False
+                else:
+                    if not sol.ops_missing:
+                        sol.ops_missing = True
+                        sol.ops_missing_since = now
+
             # --- 4. Mark absent operations as closed ---
             # OOB is the authoritative source — if absent, the order has shipped/cancelled in ERP.
             # Close everything that isn't already in a terminal state.

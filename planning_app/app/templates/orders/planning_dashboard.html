@@ -1,0 +1,314 @@
+{% extends 'base.html' %}
+
+{% block page_actions %}
+<a href="{{ url_for('orders.firming_queue') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-check2-circle me-1"></i>Firming Queue
+</a>
+<a href="{{ url_for('orders.planning') }}" class="btn btn-sm btn-outline-primary">
+    <i class="bi bi-calendar3 me-1"></i>Date Planning
+</a>
+{% endblock %}
+
+{% block content %}
+
+{# ── KPI Row ────────────────────────────────────────────────────────── #}
+<div class="row g-2 mb-4 row-cols-2 row-cols-md-4 row-cols-xl-7">
+
+    <div class="col">
+        <a href="{{ url_for('orders.wip_tracker') }}" class="text-decoration-none">
+            <div class="card border-0 shadow-sm text-center py-3 h-100">
+                <div class="fw-bold fs-3 text-primary">{{ summary.total }}</div>
+                <div class="small text-muted">Active Orders</div>
+            </div>
+        </a>
+    </div>
+
+    <div class="col">
+        <a href="{{ url_for('orders.wip_tracker', overdue=1) }}" class="text-decoration-none">
+            <div class="card border-danger shadow-sm text-center py-3 h-100">
+                <div class="fw-bold fs-3 text-danger">{{ summary.overdue }}</div>
+                <div class="small text-danger">ERP Overdue</div>
+            </div>
+        </a>
+    </div>
+
+    <div class="col">
+        <a href="{{ url_for('orders.planning', filter='planned_overdue') }}" class="text-decoration-none">
+            <div class="card shadow-sm text-center py-3 h-100 {{ 'border-danger' if planned_overdue_count else 'border-0' }}">
+                <div class="fw-bold fs-3 {{ 'text-danger' if planned_overdue_count else 'text-success' }}">{{ planned_overdue_count }}</div>
+                <div class="small text-muted">Plan Overdue</div>
+            </div>
+        </a>
+    </div>
+
+    <div class="col">
+        <a href="{{ url_for('orders.firming_queue') }}" class="text-decoration-none">
+            <div class="card border-0 shadow-sm text-center py-3 h-100">
+                <div class="fw-bold fs-3 text-info">{{ firming_count }}</div>
+                <div class="small text-muted">Firming Queue</div>
+            </div>
+        </a>
+    </div>
+
+    <div class="col">
+        <a href="{{ url_for('orders.releasing_queue') }}" class="text-decoration-none">
+            <div class="card border-0 shadow-sm text-center py-3 h-100">
+                <div class="fw-bold fs-3 text-primary">{{ releasing_count }}</div>
+                <div class="small text-muted">Releasing Queue</div>
+            </div>
+        </a>
+    </div>
+
+    <div class="col">
+        <a href="{{ url_for('orders.planning', filter='no_dates') }}" class="text-decoration-none">
+            <div class="card border-0 shadow-sm text-center py-3 h-100 {{ 'border-warning' if no_dates_count else '' }}">
+                <div class="fw-bold fs-3 {{ 'text-warning' if no_dates_count else 'text-success' }}">{{ no_dates_count }}</div>
+                <div class="small text-muted">No Dates Set</div>
+            </div>
+        </a>
+    </div>
+
+    <div class="col">
+        <a href="{{ url_for('orders.no_ops_queue') }}" class="text-decoration-none">
+            <div class="card border-0 shadow-sm text-center py-3 h-100 {{ 'border-danger' if summary.no_ops_count else '' }}">
+                <div class="fw-bold fs-3 {{ 'text-danger' if summary.no_ops_count else 'text-success' }}">{{ summary.no_ops_count }}</div>
+                <div class="small text-muted">No-Ops Queue</div>
+            </div>
+        </a>
+    </div>
+
+</div>
+
+{# ── Row 1: Status donut + Due Horizon bar ───────────────────────────── #}
+<div class="row g-3 mb-3">
+
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">Orders by Status</h6>
+            </div>
+            <div class="card-body d-flex align-items-center justify-content-center">
+                <div style="max-width:280px; width:100%;">
+                    <canvas id="statusDonut"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">Due Date Horizon</h6>
+                <small class="text-muted">Orders bucketed by ERP required delivery date</small>
+            </div>
+            <div class="card-body">
+                <canvas id="dueHorizonBar" style="height:220px;"></canvas>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+{# ── Row 2: Headroom donut + Dated vs Undated + Dept Load ───────────── #}
+<div class="row g-3 mb-3">
+
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">Plan Headroom</h6>
+                <small class="text-muted">Plan end date vs ERP due date (dated orders)</small>
+            </div>
+            <div class="card-body d-flex align-items-center justify-content-center">
+                <div style="max-width:280px; width:100%;">
+                    <canvas id="headroomDonut"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">Plan Status</h6>
+                <small class="text-muted">Overdue · On track · Unplanned</small>
+            </div>
+            <div class="card-body d-flex flex-column align-items-center justify-content-center gap-3">
+                <div style="max-width:200px; width:100%;">
+                    <canvas id="planStatusDonut"></canvas>
+                </div>
+                <div class="d-flex flex-wrap gap-2 justify-content-center small">
+                    <span><span class="badge bg-danger">{{ planned_overdue_count }}</span> Plan Overdue</span>
+                    <span><span class="badge bg-success">{{ dated_vs_undated.dated - planned_overdue_count if dated_vs_undated.dated > planned_overdue_count else 0 }}</span> On Track</span>
+                    <span><span class="badge bg-secondary">{{ dated_vs_undated.undated }}</span> Unplanned</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-5">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">Dept Load</h6>
+                <small class="text-muted">Open operations per department</small>
+            </div>
+            <div class="card-body">
+                <canvas id="deptLoadBar"></canvas>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+    const gridColor  = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+    const labelColor = isDark ? '#adb5bd' : '#6c757d';
+
+    Chart.defaults.font.family = 'inherit';
+    Chart.defaults.font.size   = 12;
+
+    // ── 1. Orders by Status (donut) ───────────────────────────────────── //
+    const statusMeta = {
+        new_order:    { label: 'New Order',    color: '#adb5bd' },
+        firm_planned: { label: 'Firm Planned', color: '#0dcaf0' },
+        released:     { label: 'Released',     color: '#0d6efd' },
+        wip:          { label: 'WIP',          color: '#ffc107' },
+        completed:    { label: 'Completed',    color: '#198754' },
+    };
+    const byStatus = {{ summary.by_status | tojson }};
+    const statusKeys = Object.keys(statusMeta).filter(k => byStatus[k]);
+    new Chart(document.getElementById('statusDonut'), {
+        type: 'doughnut',
+        data: {
+            labels:   statusKeys.map(k => statusMeta[k].label),
+            datasets: [{
+                data:            statusKeys.map(k => byStatus[k] || 0),
+                backgroundColor: statusKeys.map(k => statusMeta[k].color),
+                borderWidth: 2,
+            }],
+        },
+        options: {
+            cutout: '60%',
+            plugins: {
+                legend: { position: 'bottom', labels: { color: labelColor, boxWidth: 12, padding: 10 } },
+                tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed}` } },
+            },
+        },
+    });
+
+    // ── 2. Due Date Horizon (bar) ─────────────────────────────────────── //
+    const dueHorizon = {{ due_horizon | tojson }};
+    new Chart(document.getElementById('dueHorizonBar'), {
+        type: 'bar',
+        data: {
+            labels:   dueHorizon.labels,
+            datasets: [{
+                label:           'Orders',
+                data:            dueHorizon.counts,
+                backgroundColor: dueHorizon.colors,
+                borderRadius:    4,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y} orders` } },
+            },
+            scales: {
+                x: { ticks: { color: labelColor }, grid: { display: false } },
+                y: {
+                    ticks: { color: labelColor, precision: 0 },
+                    grid:  { color: gridColor },
+                    beginAtZero: true,
+                },
+            },
+        },
+    });
+
+    // ── 3. Plan Headroom (donut) ──────────────────────────────────────── //
+    const headroom = {{ headroom | tojson }};
+    new Chart(document.getElementById('headroomDonut'), {
+        type: 'doughnut',
+        data: {
+            labels:   headroom.labels,
+            datasets: [{
+                data:            headroom.counts,
+                backgroundColor: headroom.colors,
+                borderWidth: 2,
+            }],
+        },
+        options: {
+            cutout: '60%',
+            plugins: {
+                legend: { position: 'bottom', labels: { color: labelColor, boxWidth: 12, padding: 8 } },
+                tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed}` } },
+            },
+        },
+    });
+
+    // ── 4. Plan Status (donut) ────────────────────────────────────────── //
+    const datedData       = {{ dated_vs_undated | tojson }};
+    const planOverdueCount = {{ planned_overdue_count }};
+    const onTrackCount    = Math.max(0, datedData.dated - planOverdueCount);
+    new Chart(document.getElementById('planStatusDonut'), {
+        type: 'doughnut',
+        data: {
+            labels:   ['Plan Overdue', 'On Track', 'Unplanned'],
+            datasets: [{
+                data:            [planOverdueCount, onTrackCount, datedData.undated],
+                backgroundColor: ['#dc3545', '#198754', '#adb5bd'],
+                borderWidth: 2,
+            }],
+        },
+        options: {
+            cutout: '65%',
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed}` } },
+            },
+        },
+    });
+
+    // ── 5. Dept Load (horizontal bar) ────────────────────────────────── //
+    const deptLoad = {{ dept_load | tojson }};
+    new Chart(document.getElementById('deptLoadBar'), {
+        type: 'bar',
+        data: {
+            labels:   deptLoad.map(d => d.dept),
+            datasets: [{
+                label:           'Open Ops',
+                data:            deptLoad.map(d => d.count),
+                backgroundColor: '#0d6efd99',
+                borderColor:     '#0d6efd',
+                borderWidth:     1,
+                borderRadius:    3,
+            }],
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x} open ops` } },
+            },
+            scales: {
+                x: {
+                    ticks: { color: labelColor, precision: 0 },
+                    grid:  { color: gridColor },
+                    beginAtZero: true,
+                },
+                y: { ticks: { color: labelColor, font: { size: 11 } }, grid: { display: false } },
+            },
+        },
+    });
+})();
+</script>
+{% endblock %}

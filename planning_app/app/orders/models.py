@@ -108,6 +108,12 @@ class SalesOrderLine(db.Model):
     # Planner field — set by scheduler for lines that have no operations
     planned_date = db.Column(db.Date, nullable=True, index=True)
 
+    # ERP integrity flag — set by importer when no WorksOrderOperation rows exist for this line.
+    # Cleared automatically when ops appear on a subsequent import.
+    # ops_missing_since is stamped on first detection and retained even after clearing (audit trail).
+    ops_missing       = db.Column(db.Boolean, default=False, nullable=False, server_default="0", index=True)
+    ops_missing_since = db.Column(db.DateTime(timezone=True), nullable=True)
+
     # KPI completion milestones (set once, never cleared by importer)
     despatch_completed_date = db.Column(db.Date, nullable=True, index=True)
     order_completed_date    = db.Column(db.Date, nullable=True, index=True)

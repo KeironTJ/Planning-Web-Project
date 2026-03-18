@@ -9,7 +9,7 @@
 
     {# Filter tabs #}
     <div class="btn-group btn-group-sm" role="group">
-        {% for mode, label in [('all','All'), ('overdue','Overdue'), ('this_week','Due This Week'), ('no_dates','No Dates Set')] %}
+        {% for mode, label in [('all','All'), ('overdue','Overdue'), ('this_week','Due This Week'), ('planned_overdue','Plan Overdue'), ('no_dates','No Dates Set')] %}
         <a href="{{ url_for('orders.planning', filter=mode, q=search, dept=dept_id, per_page=per_page, sort=sort_by, status=status_filter) }}"
            class="btn btn-outline-secondary {% if filter_mode == mode %}active{% endif %}">
             {{ label }}
@@ -69,7 +69,7 @@
 </div>
 
 {# ── Bulk action bar (shown when rows selected) ──────────────────────── #}
-<div class="bulk-bar px-3 py-2" id="bulkBar">
+<div class="bulk-bar px-3 py-2">
     <div class="d-flex align-items-center gap-3 flex-wrap">
         <span class="fw-semibold small" id="bulkCount">0 selected</span>
 
@@ -521,7 +521,7 @@
 
 {% block extra_js %}
 <script>
-const bulkBar   = document.getElementById('bulkBar');
+const bulkBar   = document.querySelector('.bulk-bar');
 const bulkCount = document.getElementById('bulkCount');
 
 function getChecked() {
