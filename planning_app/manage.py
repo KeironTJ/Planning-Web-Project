@@ -217,5 +217,61 @@ def import_csv(import_type, filepath):
             click.echo(f"Error: {batch.error_message}", err=True)
 
 
+@app.cli.command("backfill-despatch-dates")
+def backfill_despatch_dates():
+    """
+    One-off backfill: stamp despatch_completed_date / order_completed_date on
+    SalesOrderLines where all known-dept ops are already in a terminal state
+    (COMPLETED or CLOSED) but the milestone dates were never recorded.
+
+    Safe to run multiple times — only updates rows where the date is NULL.
+    """
+    from datetime import date
+    from app.orders.models import SalesOrderLine, WorksOrderOperation
+
+    _terminal = {WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED}
+    today = date.today()
+
+    with app.app_context():
+        # Find SOLs missing at least one milestone date
+        candidates = SalesOrderLine.query.filter(
+            db.or_(
+                SalesOrderLine.despatch_completed_date.is_(None),
+                SalesOrderLine.order_completed_date.is_(None),
+            )
+        ).all()
+
+        updated = 0
+        for sol in candidates:
+            all_ops = (
+                WorksOrderOperation.query
+                .filter_by(so_number=sol.so_number, line_number=sol.line_number)
+                .filter(WorksOrderOperation.department_id.isnot(None))
+                .all()
+            )
+            if not all_ops:
+                continue
+            if not all(op.status in _terminal for op in all_ops):
+                continue
+            changed = False
+            if sol.despatch_completed_date is None:
+                despatch_op = next(
+                    (op for op in all_ops
+                     if op.work_centre_name.strip().upper() == "DESPATCH"),
+                    None,
+                )
+                if despatch_op:
+                    sol.despatch_completed_date = despatch_op.completed_date or today
+                    changed = True
+            if sol.order_completed_date is None:
+                sol.order_completed_date = today
+                changed = True
+            if changed:
+                updated += 1
+
+        db.session.commit()
+        click.echo(f"Backfill complete: {updated} SalesOrderLine(s) updated.")
+
+
 if __name__ == "__main__":
     app.cli()

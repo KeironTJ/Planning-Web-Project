@@ -7,7 +7,7 @@ Covers:
 - ProductionFlowImporter — ProductionFlowLT_HIDE.csv (full replace)
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from app.extensions import db
 from app.core.csv_utils import (
@@ -218,11 +218,48 @@ class OobImporter:
                 WorksOrderOperation.status.notin_(terminal_statuses)
             ).all()
 
+            closed_sol_keys: set[tuple] = set()
             for op in open_ops:
                 key = (op.so_number, op.line_number, op.work_centre_name)
                 if key not in seen_op_keys:
                     op.status = WorksOrderOperation.STATUS_CLOSED
                     rows_closed += 1
+                    closed_sol_keys.add((op.so_number, op.line_number))
+
+            # --- 4.5. Stamp KPI milestone dates for orders fully closed by this import ---
+            # _update_sol_dates() only fires on manual planner actions; the importer must
+            # set these dates itself for orders that shipped/closed in ERP overnight.
+            # We only stamp dates on SOLs where EVERY known-dept op is now terminal
+            # (COMPLETED or CLOSED), and only if the date isn't already recorded.
+            _terminal = {WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED}
+            today = date.today()
+            for sol_so, sol_ln in closed_sol_keys:
+                sol = SalesOrderLine.query.filter_by(
+                    so_number=sol_so, line_number=sol_ln
+                ).first()
+                if sol is None:
+                    continue
+                all_ops = (
+                    WorksOrderOperation.query
+                    .filter_by(so_number=sol_so, line_number=sol_ln)
+                    .filter(WorksOrderOperation.department_id.isnot(None))
+                    .all()
+                )
+                if not all_ops:
+                    continue
+                if not all(op.status in _terminal for op in all_ops):
+                    continue
+                # All ops are terminal — this order is done
+                if sol.despatch_completed_date is None:
+                    despatch_op = next(
+                        (op for op in all_ops
+                         if op.work_centre_name.strip().upper() == "DESPATCH"),
+                        None,
+                    )
+                    if despatch_op:
+                        sol.despatch_completed_date = despatch_op.completed_date or today
+                if sol.order_completed_date is None:
+                    sol.order_completed_date = today
 
             # --- 5. Finalise batch ---
             batch.rows_inserted = rows_inserted
