@@ -32,6 +32,7 @@ from .models import (
     PurchaseOrder,
     MaterialRequirementMain,
     MaterialRequirementAfterSales,
+    MrpExemptMaterial,
 )
 
 
@@ -85,6 +86,12 @@ class MrpMaterial:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _load_exempt_codes() -> frozenset[str]:
+    """Return the set of material codes exempt from MRP shortage calculations."""
+    rows = db.session.query(MrpExemptMaterial.material_code).all()
+    return frozenset(r.material_code for r in rows)
+
 
 def _load_stock() -> dict[str, Decimal]:
     """Return {product_code: qty_on_hand} for all stock rows."""
@@ -173,9 +180,10 @@ def get_shortage_report(
             "reqs_imported": bool,
         }
     """
-    stock_map  = _load_stock()
-    po_map     = _load_po_coverage()   # actual POs, date-constrained
-    co_qty_map = _load_co_qty()        # CO call-offs, treated as finite pool
+    stock_map    = _load_stock()
+    po_map       = _load_po_coverage()   # actual POs, date-constrained
+    co_qty_map   = _load_co_qty()        # CO call-offs, treated as finite pool
+    exempt_codes = _load_exempt_codes()  # materials excluded from shortage reporting
 
     # ---- Phase 1: collect ALL raw requirements (source filter only) ----
     raw: list[dict] = []
@@ -234,9 +242,12 @@ def get_shortage_report(
             })
 
     # ---- Phase 2: cumulative netting per material ----
+    # Drop exempt materials entirely — they have no POs by design, so reporting
+    # them as shortages would be misleading.
     by_material: dict[str, list[dict]] = defaultdict(list)
     for r in raw:
-        by_material[r["material_code"]].append(r)
+        if r["material_code"] not in exempt_codes:
+            by_material[r["material_code"]].append(r)
 
     all_netted: list[dict] = []
 
@@ -379,6 +390,7 @@ def _apply_coverage(
     co_qty_map: dict,
     po_entries: dict,
     plan_start_map: Optional[dict] = None,
+    exempt_codes: frozenset = frozenset(),
 ) -> None:
     """
     Apply worst-case coverage tier to result dict for a list of requirement rows.
@@ -396,6 +408,11 @@ def _apply_coverage(
             continue
 
         mc = material_code_fn(req) or ""
+        # Exempt materials are treated as fully covered — skip to avoid false positives
+        if mc in exempt_codes:
+            if result[so] == "no_data":
+                result[so] = "ok"
+            continue
         net_req = net_req_fn(req)
 
         if net_req == 0:
@@ -490,6 +507,7 @@ def get_so_material_status(
         return result
 
     # ---- Load stock + PO coverage maps ----
+    exempt_codes = _load_exempt_codes()
     stock_map = _load_stock()
 
     po_rows = (
@@ -532,6 +550,7 @@ def get_so_material_status(
         co_qty_map=co_qty_map,
         po_entries=po_entries,
         plan_start_map=plan_start_map,
+        exempt_codes=exempt_codes,
     )
 
     # ---- Apply coverage — after-sales requirements ----
@@ -545,6 +564,7 @@ def get_so_material_status(
         co_qty_map=co_qty_map,
         po_entries=po_entries,
         plan_start_map=plan_start_map,
+        exempt_codes=exempt_codes,
     )
 
     return result
@@ -796,6 +816,176 @@ def get_mrp_pegging(
 # Weekly availability summary (for dashboard)
 # ---------------------------------------------------------------------------
 
+def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
+    """
+    Aggregate open SOs by ISO week and material status, returning both
+    SO count and total order value per bucket.
+
+    "Open" = has at least one non-closed WorksOrderOperation.
+    no_data status is folded into "ok" (no MRP requirements = no shortage risk).
+
+    Returns:
+        {
+            "weeks":       [{"iso_key", "week_label", "week_start",
+                             "ok", "low_risk", "med_risk", "high_risk",  ← each {"count", "value"}
+                             "total_count", "total_value"}, ...],
+            "totals":      {"ok": {"count", "value"}, ...},
+            "total_value": Decimal,
+            "total_count": int,
+            "has_data":    bool,
+        }
+    """
+    from datetime import date, timedelta
+    from app.orders.models import SalesOrderLine, WorksOrderOperation
+
+    today   = date.today()
+    cutoff  = today + timedelta(weeks=weeks_ahead)
+
+    STATUSES = ("ok", "low_risk", "med_risk", "high_risk")
+
+    open_so_subq = (
+        db.session.query(WorksOrderOperation.so_number)
+        .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
+        .distinct()
+        .subquery()
+    )
+
+    so_rows = (
+        db.session.query(
+            SalesOrderLine.so_number,
+            func.min(SalesOrderLine.due_date).label("due_date"),
+            func.sum(SalesOrderLine.total_value).label("total_value"),
+        )
+        .filter(
+            SalesOrderLine.so_number.in_(db.session.query(open_so_subq.c.so_number)),
+            SalesOrderLine.due_date.isnot(None),
+            SalesOrderLine.due_date <= cutoff,
+        )
+        .group_by(SalesOrderLine.so_number)
+        .all()
+    )
+
+    if not so_rows:
+        return {
+            "weeks": [], "totals": {s: {"count": 0, "value": Decimal(0)} for s in STATUSES},
+            "total_value": Decimal(0), "total_count": 0, "has_data": False,
+        }
+
+    so_numbers  = [r.so_number for r in so_rows]
+    status_map  = get_so_material_status(so_numbers)
+
+    # ---- Group by ISO week ----
+    def _empty_bucket():
+        return {s: {"count": 0, "value": Decimal(0)} for s in STATUSES}
+
+    buckets: dict[str, dict] = {}
+
+    for r in so_rows:
+        d      = r.due_date
+        raw_st = status_map.get(r.so_number, "no_data")
+        status = "ok" if raw_st == "no_data" else raw_st
+        value  = r.total_value or Decimal(0)
+
+        iso_y, iso_w, _ = d.isocalendar()
+        key        = f"{iso_y}-W{iso_w:02d}"
+        week_start = date.fromisocalendar(iso_y, iso_w, 1)
+
+        if key not in buckets:
+            b = _empty_bucket()
+            b["iso_key"]    = key
+            b["week_label"] = f"W{iso_w:02d}  {week_start.strftime('%d %b')}"
+            b["week_start"] = week_start
+            buckets[key]    = b
+
+        buckets[key][status]["count"] += 1
+        buckets[key][status]["value"] += value
+
+    weeks = sorted(buckets.values(), key=lambda b: b["iso_key"])
+    for b in weeks:
+        b["total_count"] = sum(b[s]["count"] for s in STATUSES)
+        b["total_value"] = sum(b[s]["value"] for s in STATUSES)
+
+    # ---- Aggregate totals across all weeks ----
+    totals = {s: {"count": 0, "value": Decimal(0)} for s in STATUSES}
+    for b in weeks:
+        for s in STATUSES:
+            totals[s]["count"] += b[s]["count"]
+            totals[s]["value"] += b[s]["value"]
+
+    total_value = sum(totals[s]["value"] for s in STATUSES)
+    total_count = sum(totals[s]["count"] for s in STATUSES)
+
+    return {
+        "weeks":       weeks,
+        "totals":      totals,
+        "total_value": total_value,
+        "total_count": total_count,
+        "has_data":    bool(weeks),
+    }
+
+
+def get_so_value_by_material_status() -> dict:
+    """
+    Aggregate open SO total_value by material availability status.
+
+    "Open" = has at least one non-closed WorksOrderOperation.
+    Each SO contributes its total_value (sum across all lines for that SO)
+    to the bucket matching its worst-case material status.
+
+    Returns:
+        {
+            "by_status": {
+                status: {"value": Decimal, "count": int},
+                ...
+            },
+            "total_value": Decimal,
+            "has_data": bool,
+        }
+    """
+    from collections import defaultdict
+    from app.orders.models import SalesOrderLine, WorksOrderOperation
+
+    # SOs with at least one non-closed operation
+    open_so_numbers = (
+        db.session.query(WorksOrderOperation.so_number)
+        .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
+        .distinct()
+        .subquery()
+    )
+
+    so_rows = (
+        db.session.query(
+            SalesOrderLine.so_number,
+            func.sum(SalesOrderLine.total_value).label("total_value"),
+        )
+        .filter(SalesOrderLine.so_number.in_(db.session.query(open_so_numbers.c.so_number)))
+        .group_by(SalesOrderLine.so_number)
+        .all()
+    )
+
+    if not so_rows:
+        return {"by_status": {}, "total_value": Decimal(0), "has_data": False}
+
+    so_numbers = [r.so_number for r in so_rows]
+    value_map  = {r.so_number: r.total_value or Decimal(0) for r in so_rows}
+
+    status_map = get_so_material_status(so_numbers)
+
+    by_status: dict = defaultdict(lambda: {"value": Decimal(0), "count": 0})
+    for so, status in status_map.items():
+        # no_data means no MRP requirements exist for this SO — treat as ok
+        bucket = "ok" if status == "no_data" else status
+        by_status[bucket]["value"] += value_map.get(so, Decimal(0))
+        by_status[bucket]["count"] += 1
+
+    total = sum(v["value"] for v in by_status.values())
+    return {
+        "by_status":   dict(by_status),
+        "total_value": total,
+        "has_data":    bool(by_status),
+    }
+
+
 def get_weekly_availability_summary(weeks_ahead: int = 12) -> list[dict]:
     """
     Aggregate netted shortage data by ISO week for the materials dashboard chart.
@@ -869,6 +1059,67 @@ def get_weekly_availability_summary(weeks_ahead: int = 12) -> list[dict]:
         b["shortage_pct"] = round(b["shortage_lines"] / total * 100, 1) if total else 0.0
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# MRP Exempt Materials management
+# ---------------------------------------------------------------------------
+
+def get_exempt_materials(search: Optional[str] = None):
+    """Return all exempt materials, optionally filtered by code/reason."""
+    q = MrpExemptMaterial.query.order_by(MrpExemptMaterial.material_code)
+    if search:
+        term = f"%{search.strip()}%"
+        q = q.filter(
+            db.or_(
+                MrpExemptMaterial.material_code.ilike(term),
+                MrpExemptMaterial.reason.ilike(term),
+            )
+        )
+    return q.all()
+
+
+def add_exemptions(codes: list[str], reason: Optional[str], user_id: Optional[int]) -> dict:
+    """
+    Add material codes to the exempt list. Ignores duplicates.
+
+    Returns {"added": int, "skipped": int}.
+    """
+    from datetime import datetime, timezone
+    added = skipped = 0
+    reason = reason.strip() if reason else None
+    for raw in codes:
+        code = raw.strip().upper()
+        if not code:
+            continue
+        existing = db.session.get(MrpExemptMaterial, code)
+        if existing:
+            skipped += 1
+        else:
+            db.session.add(MrpExemptMaterial(
+                material_code=code,
+                reason=reason,
+                exempted_at=datetime.now(timezone.utc),
+                exempted_by_id=user_id,
+            ))
+            added += 1
+    db.session.commit()
+    return {"added": added, "skipped": skipped}
+
+
+def remove_exemptions(codes: list[str]) -> int:
+    """Remove material codes from the exempt list. Returns count deleted."""
+    deleted = 0
+    for raw in codes:
+        code = raw.strip().upper()
+        if not code:
+            continue
+        obj = db.session.get(MrpExemptMaterial, code)
+        if obj:
+            db.session.delete(obj)
+            deleted += 1
+    db.session.commit()
+    return deleted
 
 
 def _has_reqs(source: str) -> bool:

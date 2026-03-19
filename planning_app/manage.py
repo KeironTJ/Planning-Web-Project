@@ -273,5 +273,48 @@ def backfill_despatch_dates():
         click.echo(f"Backfill complete: {updated} SalesOrderLine(s) updated.")
 
 
+@app.cli.command("backfill-production-ready-date")
+def backfill_production_ready_date():
+    """
+    One-off backfill: stamp production_ready_date on SalesOrderLines where all
+    non-DESPATCH known-dept ops are already in a terminal state (COMPLETED or CLOSED)
+    but production_ready_date was never recorded.
+
+    Safe to run multiple times — only updates rows where the date is NULL.
+    """
+    from datetime import date
+    from app.orders.models import SalesOrderLine, WorksOrderOperation
+
+    _terminal = {WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED}
+    today = date.today()
+
+    with app.app_context():
+        candidates = SalesOrderLine.query.filter(
+            SalesOrderLine.production_ready_date.is_(None)
+        ).all()
+
+        updated = 0
+        for sol in candidates:
+            all_ops = (
+                WorksOrderOperation.query
+                .filter_by(so_number=sol.so_number, line_number=sol.line_number)
+                .filter(WorksOrderOperation.department_id.isnot(None))
+                .all()
+            )
+            prod_ops = [
+                op for op in all_ops
+                if op.work_centre_name.strip().upper() != "DESPATCH"
+            ]
+            if not prod_ops:
+                continue
+            if not all(op.status in _terminal for op in prod_ops):
+                continue
+            sol.production_ready_date = today
+            updated += 1
+
+        db.session.commit()
+        click.echo(f"Backfill complete: {updated} SalesOrderLine(s) updated.")
+
+
 if __name__ == "__main__":
     app.cli()

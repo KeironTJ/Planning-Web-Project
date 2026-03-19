@@ -126,15 +126,14 @@ def _maybe_auto_complete_despatch(so_number: str, line_number: int) -> None:
 
 def _update_sol_dates(so_number: str, line_number: int) -> None:
     """
-    After any operation reaches COMPLETED, set the two KPI milestone dates on
-    the parent SalesOrderLine (first-set-wins — never overwritten once recorded):
+    After any operation status change, set KPI milestone dates on the parent
+    SalesOrderLine (first-set-wins — never overwritten once recorded):
 
-      despatch_completed_date  — when the DESPATCH op was marked complete
-      order_completed_date     — when every known-department op for the line
-                                  reached completed (including DESPATCH)
+      production_ready_date   — when every non-DESPATCH known-dept op is COMPLETED
+      despatch_completed_date — when the DESPATCH op is marked COMPLETED
+      order_completed_date    — when ALL known-dept ops (incl. DESPATCH) are COMPLETED
 
-    Must be called within an open session (after a flush so queries see the
-    latest in-transaction state).  Never raises.
+    Must be called within an open session (after a flush). Never raises.
     """
     try:
         sol = SalesOrderLine.query.filter_by(
@@ -153,18 +152,25 @@ def _update_sol_dates(so_number: str, line_number: int) -> None:
         if not known_ops:
             return
 
-        # Despatch completed date (first time DESPATCH op reaches COMPLETED)
+        prod_ops     = [op for op in known_ops if op.work_centre_name.strip().upper() != "DESPATCH"]
+        despatch_ops = [op for op in known_ops if op.work_centre_name.strip().upper() == "DESPATCH"]
+
+        # Production ready date — all non-DESPATCH ops COMPLETED
+        if sol.production_ready_date is None and prod_ops:
+            if all(op.status == WorksOrderOperation.STATUS_COMPLETED for op in prod_ops):
+                sol.production_ready_date = date.today()
+
+        # Despatch completed date — DESPATCH op COMPLETED
         if sol.despatch_completed_date is None:
             despatch_done = next(
-                (op for op in known_ops
-                 if op.work_centre_name.strip().upper() == "DESPATCH"
-                 and op.status == WorksOrderOperation.STATUS_COMPLETED),
+                (op for op in despatch_ops
+                 if op.status == WorksOrderOperation.STATUS_COMPLETED),
                 None,
             )
             if despatch_done:
                 sol.despatch_completed_date = despatch_done.completed_date or date.today()
 
-        # Order completed date (first time ALL known-dept ops reach COMPLETED)
+        # Order completed date — ALL known-dept ops COMPLETED
         if sol.order_completed_date is None:
             if all(op.status == WorksOrderOperation.STATUS_COMPLETED for op in known_ops):
                 sol.order_completed_date = date.today()
@@ -177,6 +183,63 @@ def _update_sol_dates(so_number: str, line_number: int) -> None:
             )
         except Exception:
             pass
+
+
+def toggle_customer_hold(
+    so_number: str,
+    action: str,
+    note: str | None,
+    user_id: int | None,
+) -> None:
+    """
+    Set or clear the customer_hold flag on every SalesOrderLine for the given
+    SO number.  action must be 'set' or 'clear'.  Automatically appends a
+    timestamped entry to the SO comments log.
+    """
+    sols = SalesOrderLine.query.filter_by(so_number=so_number).all()
+    if not sols:
+        raise ValueError(f"Sales order {so_number!r} not found")
+
+    holding = action == "set"
+    today   = date.today()
+
+    for sol in sols:
+        sol.customer_hold = holding
+        if holding:
+            sol.customer_hold_since = today
+            sol.customer_hold_note  = (note or "")[:255] or None
+        else:
+            sol.customer_hold_note = (note or "")[:255] or None
+
+    # Auto-post a comment so the hold history is visible in the comments panel
+    if holding:
+        comment_body = f"[Customer Hold placed]"
+        if note:
+            comment_body += f" — {note.strip()}"
+    else:
+        comment_body = f"[Customer Hold cleared]"
+        if note:
+            comment_body += f" — {note.strip()}"
+
+    uid = user_id
+    if uid is None:
+        try:
+            uid = current_user.id if current_user and current_user.is_authenticated else None
+        except Exception:
+            pass
+
+    db.session.add(SalesOrderComment(
+        so_number=so_number,
+        user_id=uid,
+        body=comment_body,
+    ))
+
+    db.session.commit()
+    _audit(
+        "customer_hold_set" if holding else "customer_hold_cleared",
+        f"so:{so_number}",
+        {"note": note, "lines": len(sols)},
+    )
 
 
 def _audit(action: str, resource: str, details: dict) -> None:
@@ -554,6 +617,11 @@ def get_wip_grouped(
 
         # Order type — take first line's value (consistent across all lines in an SO)
         entry["order_type"] = lines[0].order_type or "" if lines else ""
+
+        # Customer hold — true if any line is on hold (consistent across SO)
+        entry["customer_hold"] = any(sol.customer_hold for sol in lines)
+        entry["customer_hold_since"] = lines[0].customer_hold_since if lines else None
+        entry["customer_hold_note"] = lines[0].customer_hold_note if lines else None
 
     # Apply plan_date sort after aggregation (can't do this at DB level)
     if order_by == "plan_date":
@@ -2366,6 +2434,461 @@ def get_despatch_kpis() -> dict:
             "on_time":   weekly_on_time,
             "late":      weekly_late,
             "completed": weekly_completed,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# OTIF Report
+# ---------------------------------------------------------------------------
+
+def get_otif_report(
+    weeks: int = 13,
+    customer_name: str | None = None,
+    month: str | None = None,
+) -> dict:
+    """
+    On-Time Despatch report grouped by ISO week and customer.
+
+    'On Time' = despatch_completed_date <= due_date.
+    'In Full' requires ERP ship-qty data not yet available; this metric
+    currently reflects on-time despatch rate only.
+
+    Args:
+        weeks:         number of past ISO weeks to include (4, 8, 13, 26, 52)
+        customer_name: filter to a single customer name (None = all)
+        month:         calendar month to show, format 'YYYY-MM' (overrides weeks)
+
+    Returns dict with:
+        week_rows     — list (newest first) of week dicts, each with a
+                        'customers' breakdown list
+        all_customers — sorted customer names for the filter dropdown
+        totals        — overall summary across the period
+        chart         — Chart.js-ready data (oldest to newest)
+        period_label  — human-readable description of the selected period
+    """
+    import calendar as _cal
+    from collections import defaultdict
+
+    today       = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+
+    if month:
+        # Month mode — fixed calendar month range
+        year, month_num = int(month[:4]), int(month[5:])
+        period_start = date(year, month_num, 1)
+        period_end   = date(year, month_num, _cal.monthrange(year, month_num)[1])
+        cutoff       = period_start
+        date_to      = period_end
+        period_label = period_start.strftime("%B %Y")
+
+        # ISO weeks that overlap with this month
+        first_monday = period_start - timedelta(days=period_start.weekday())
+        week_starts  = []
+        ws = first_monday
+        while ws <= period_end:
+            week_starts.append(ws)
+            ws += timedelta(weeks=1)
+    else:
+        # Rolling-weeks mode
+        cutoff       = this_monday - timedelta(weeks=weeks)
+        date_to      = today
+        period_label = f"Last {weeks} weeks"
+        week_starts  = [this_monday - timedelta(weeks=(weeks - 1 - i)) for i in range(weeks)]
+
+    week_start_set = set(week_starts)
+
+    # Dropdown: all customers with any despatch history (unfiltered)
+    all_customers = [
+        r[0] for r in
+        db.session.query(SalesOrderLine.customer_name)
+        .filter(
+            SalesOrderLine.despatch_completed_date.isnot(None),
+            SalesOrderLine.customer_name.isnot(None),
+        )
+        .distinct()
+        .order_by(SalesOrderLine.customer_name)
+        .all()
+        if r[0]
+    ]
+
+    # Main query — includes customer_hold and production_ready_date for metrics
+    q = (
+        db.session.query(
+            SalesOrderLine.despatch_completed_date,
+            SalesOrderLine.production_ready_date,
+            SalesOrderLine.due_date,
+            SalesOrderLine.customer_name,
+            SalesOrderLine.customer_hold,
+        )
+        .filter(
+            SalesOrderLine.despatch_completed_date.isnot(None),
+            SalesOrderLine.due_date.isnot(None),
+            SalesOrderLine.despatch_completed_date >= cutoff,
+            SalesOrderLine.despatch_completed_date <= date_to,
+        )
+    )
+    if customer_name:
+        q = q.filter(SalesOrderLine.customer_name == customer_name)
+    rows = q.all()
+
+    # week_data[week_start][customer] = {despatched, on_time, on_hold, prod_on_time, prod_total}
+    week_data: dict = {
+        ws: defaultdict(lambda: {
+            "despatched": 0, "on_time": 0, "on_hold": 0,
+            "prod_on_time": 0, "prod_total": 0,
+        })
+        for ws in week_starts
+    }
+
+    for r in rows:
+        d  = r.despatch_completed_date
+        ws = d - timedelta(days=d.weekday())
+        if ws not in week_start_set:
+            continue
+        cust = r.customer_name or "Unknown"
+        counts = week_data[ws][cust]
+
+        if r.customer_hold:
+            counts["on_hold"] += 1
+        else:
+            counts["despatched"] += 1
+            if d <= r.due_date:
+                counts["on_time"] += 1
+
+        # Production on-time: production_ready_date <= due_date (regardless of hold)
+        if r.production_ready_date and r.due_date:
+            counts["prod_total"] += 1
+            if r.production_ready_date <= r.due_date:
+                counts["prod_on_time"] += 1
+
+    # Build week rows — newest first for the table
+    week_rows = []
+    for ws in reversed(week_starts):
+        iso   = ws.isocalendar()
+        label = f"Wk {iso[1]} / {iso[0]}"
+
+        week_total_d  = 0
+        week_total_ot = 0
+        week_on_hold  = 0
+        week_prod_ot  = 0
+        week_prod_tot = 0
+        customers_data = []
+
+        for cust, counts in sorted(week_data[ws].items()):
+            d_count = counts["despatched"]
+            ot      = counts["on_time"]
+            late    = d_count - ot
+            pct     = round(ot / d_count * 100, 1) if d_count else None
+            p_tot   = counts["prod_total"]
+            p_ot    = counts["prod_on_time"]
+            p_pct   = round(p_ot / p_tot * 100, 1) if p_tot else None
+            customers_data.append({
+                "customer_name": cust,
+                "despatched":    d_count,
+                "on_time":       ot,
+                "late":          late,
+                "ot_pct":        pct,
+                "on_hold":       counts["on_hold"],
+                "prod_on_time":  p_ot,
+                "prod_total":    p_tot,
+                "prod_ot_pct":   p_pct,
+            })
+            week_total_d  += d_count
+            week_total_ot += ot
+            week_on_hold  += counts["on_hold"]
+            week_prod_ot  += p_ot
+            week_prod_tot += p_tot
+
+        week_late    = week_total_d - week_total_ot
+        week_pct     = round(week_total_ot / week_total_d * 100, 1) if week_total_d else None
+        week_prod_pct = round(week_prod_ot / week_prod_tot * 100, 1) if week_prod_tot else None
+
+        week_rows.append({
+            "week_start":  ws,
+            "label":       label,
+            "despatched":  week_total_d,
+            "on_time":     week_total_ot,
+            "late":        week_late,
+            "ot_pct":      week_pct,
+            "on_hold":     week_on_hold,
+            "prod_on_time": week_prod_ot,
+            "prod_total":  week_prod_tot,
+            "prod_ot_pct": week_prod_pct,
+            "customers":   customers_data,
+        })
+
+    # Overall totals
+    total_d      = sum(w["despatched"]  for w in week_rows)
+    total_ot     = sum(w["on_time"]     for w in week_rows)
+    total_late   = total_d - total_ot
+    total_pct    = round(total_ot / total_d * 100, 1) if total_d else None
+    total_hold   = sum(w["on_hold"]     for w in week_rows)
+    total_prod_ot  = sum(w["prod_on_time"] for w in week_rows)
+    total_prod_tot = sum(w["prod_total"]   for w in week_rows)
+    total_prod_pct = round(total_prod_ot / total_prod_tot * 100, 1) if total_prod_tot else None
+
+    # Chart data — oldest to newest
+    chart_weeks   = list(reversed(week_rows))
+    chart_labels  = [w["label"]      for w in chart_weeks]
+    chart_on_time = [w["on_time"]    for w in chart_weeks]
+    chart_late    = [w["late"]       for w in chart_weeks]
+    chart_pct     = [w["ot_pct"]     for w in chart_weeks]
+
+    # By-customer pivot (alphabetical; each entry has a week-by-week breakdown)
+    cust_totals: dict = {}
+    for w in week_rows:            # newest-first
+        for cd in w["customers"]:
+            cust = cd["customer_name"]
+            if cust not in cust_totals:
+                cust_totals[cust] = {
+                    "despatched": 0, "on_time": 0, "on_hold": 0,
+                    "prod_on_time": 0, "prod_total": 0, "weeks": {},
+                }
+            cust_totals[cust]["despatched"]  += cd["despatched"]
+            cust_totals[cust]["on_time"]     += cd["on_time"]
+            cust_totals[cust]["on_hold"]     += cd["on_hold"]
+            cust_totals[cust]["prod_on_time"] += cd["prod_on_time"]
+            cust_totals[cust]["prod_total"]  += cd["prod_total"]
+            cust_totals[cust]["weeks"][w["label"]] = cd
+
+    customer_rows = []
+    for cust, data in sorted(cust_totals.items()):
+        c_d    = data["despatched"]
+        c_ot   = data["on_time"]
+        c_late = c_d - c_ot
+        c_pct  = round(c_ot / c_d * 100, 1) if c_d else None
+        c_p_ot = data["prod_on_time"]
+        c_p_tot = data["prod_total"]
+        c_p_pct = round(c_p_ot / c_p_tot * 100, 1) if c_p_tot else None
+        customer_rows.append({
+            "customer_name": cust,
+            "despatched":    c_d,
+            "on_time":       c_ot,
+            "late":          c_late,
+            "ot_pct":        c_pct,
+            "on_hold":       data["on_hold"],
+            "prod_on_time":  c_p_ot,
+            "prod_total":    c_p_tot,
+            "prod_ot_pct":   c_p_pct,
+            # weeks in newest-first order, matching week_rows
+            "weeks": [
+                {"label": w["label"], "data": data["weeks"].get(w["label"])}
+                for w in week_rows
+            ],
+        })
+
+    return {
+        "week_rows":     week_rows,
+        "customer_rows": customer_rows,
+        "all_customers": all_customers,
+        "period_label":  period_label,
+        "totals": {
+            "despatched":   total_d,
+            "on_time":      total_ot,
+            "late":         total_late,
+            "ot_pct":       total_pct,
+            "on_hold_count": total_hold,
+            "prod_on_time": total_prod_ot,
+            "prod_total":   total_prod_tot,
+            "prod_ot_pct":  total_prod_pct,
+        },
+        "chart": {
+            "labels":   chart_labels,
+            "on_time":  chart_on_time,
+            "late":     chart_late,
+            "pct":      chart_pct,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Department OTIF Report
+# ---------------------------------------------------------------------------
+
+def get_dept_otif_report(
+    weeks: int = 13,
+    month: str | None = None,
+    dept_id: int | None = None,
+) -> dict:
+    """
+    On-Time Despatch report grouped by department then ISO week.
+
+    For each department, counts distinct despatched SalesOrderLines that had
+    at least one operation in that department.  'On Time' = despatch_completed_date
+    <= due_date.
+
+    Args:
+        weeks:   rolling weeks to include (4, 8, 13, 26, 52)
+        month:   calendar month 'YYYY-MM' — overrides weeks
+        dept_id: filter to a single department (None = all)
+    """
+    import calendar as _cal
+
+    today       = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+
+    if month:
+        year, month_num = int(month[:4]), int(month[5:])
+        period_start = date(year, month_num, 1)
+        period_end   = date(year, month_num, _cal.monthrange(year, month_num)[1])
+        cutoff       = period_start
+        date_to      = period_end
+        period_label = period_start.strftime("%B %Y")
+        first_monday = period_start - timedelta(days=period_start.weekday())
+        week_starts  = []
+        ws = first_monday
+        while ws <= period_end:
+            week_starts.append(ws)
+            ws += timedelta(weeks=1)
+    else:
+        cutoff       = this_monday - timedelta(weeks=weeks)
+        date_to      = today
+        period_label = f"Last {weeks} weeks"
+        week_starts  = [this_monday - timedelta(weeks=(weeks - 1 - i)) for i in range(weeks)]
+
+    week_start_set = set(week_starts)
+
+    # One row per distinct (department, sales_order_line) pair in the period
+    q = (
+        db.session.query(
+            Department.id,
+            Department.name,
+            SalesOrderLine.despatch_completed_date,
+            SalesOrderLine.production_ready_date,
+            SalesOrderLine.due_date,
+            SalesOrderLine.customer_hold,
+        )
+        .join(WorksOrderOperation, WorksOrderOperation.department_id == Department.id)
+        .join(SalesOrderLine, SalesOrderLine.id == WorksOrderOperation.sales_order_line_id)
+        .filter(
+            SalesOrderLine.despatch_completed_date.isnot(None),
+            SalesOrderLine.due_date.isnot(None),
+            SalesOrderLine.despatch_completed_date >= cutoff,
+            SalesOrderLine.despatch_completed_date <= date_to,
+        )
+        .group_by(Department.id, SalesOrderLine.id)
+    )
+    if dept_id:
+        q = q.filter(Department.id == dept_id)
+    rows = q.all()
+
+    # All active departments for the filter dropdown
+    all_depts = Department.query.filter_by(is_active=True).order_by(Department.name).all()
+
+    # Aggregate into dept_data[dept_id] = {name, despatched, on_time, on_hold, prod_on_time, prod_total, weeks}
+    dept_data: dict = {}
+    for r in rows:
+        d_id, d_name, despatch_date, prod_ready, due, on_hold = r
+        if d_id not in dept_data:
+            dept_data[d_id] = {
+                "name": d_name, "despatched": 0, "on_time": 0,
+                "on_hold": 0, "prod_on_time": 0, "prod_total": 0, "weeks": {},
+            }
+        dd = dept_data[d_id]
+
+        if on_hold:
+            dd["on_hold"] += 1
+        else:
+            dd["despatched"] += 1
+            if despatch_date <= due:
+                dd["on_time"] += 1
+
+        if prod_ready and due:
+            dd["prod_total"] += 1
+            if prod_ready <= due:
+                dd["prod_on_time"] += 1
+
+        ws = despatch_date - timedelta(days=despatch_date.weekday())
+        if ws in week_start_set and not on_hold:
+            if ws not in dd["weeks"]:
+                dd["weeks"][ws] = {"despatched": 0, "on_time": 0}
+            dd["weeks"][ws]["despatched"] += 1
+            if despatch_date <= due:
+                dd["weeks"][ws]["on_time"] += 1
+
+    # Build dept_rows sorted by OT% descending (best first), then alphabetically
+    dept_rows = []
+    for d_id, data in dept_data.items():
+        c_d    = data["despatched"]
+        c_ot   = data["on_time"]
+        c_late = c_d - c_ot
+        c_pct  = round(c_ot / c_d * 100, 1) if c_d else None
+        c_p_ot  = data["prod_on_time"]
+        c_p_tot = data["prod_total"]
+        c_p_pct = round(c_p_ot / c_p_tot * 100, 1) if c_p_tot else None
+
+        # Week entries — newest first, only weeks with data
+        week_entries = []
+        for ws in reversed(week_starts):
+            wd = data["weeks"].get(ws)
+            if wd:
+                wd_late = wd["despatched"] - wd["on_time"]
+                wd_pct  = round(wd["on_time"] / wd["despatched"] * 100, 1) if wd["despatched"] else None
+                iso     = ws.isocalendar()
+                week_entries.append({
+                    "label":      f"Wk {iso[1]} / {iso[0]}",
+                    "despatched": wd["despatched"],
+                    "on_time":    wd["on_time"],
+                    "late":       wd_late,
+                    "ot_pct":     wd_pct,
+                })
+
+        dept_rows.append({
+            "dept_id":    d_id,
+            "dept_name":  data["name"],
+            "despatched": c_d,
+            "on_time":    c_ot,
+            "late":       c_late,
+            "ot_pct":     c_pct,
+            "on_hold":    data["on_hold"],
+            "prod_on_time": c_p_ot,
+            "prod_total":  c_p_tot,
+            "prod_ot_pct": c_p_pct,
+            "weeks":      week_entries,
+        })
+
+    dept_rows.sort(key=lambda r: (-(r["ot_pct"] or -1), r["dept_name"]))
+
+    # Overall totals
+    total_d      = sum(r["despatched"]  for r in dept_rows)
+    total_ot     = sum(r["on_time"]     for r in dept_rows)
+    total_late   = total_d - total_ot
+    total_pct    = round(total_ot / total_d * 100, 1) if total_d else None
+    total_hold   = sum(r["on_hold"]     for r in dept_rows)
+    total_p_ot   = sum(r["prod_on_time"] for r in dept_rows)
+    total_p_tot  = sum(r["prod_total"]  for r in dept_rows)
+    total_p_pct  = round(total_p_ot / total_p_tot * 100, 1) if total_p_tot else None
+
+    # Chart data — horizontal bar, sorted worst→best (reversed for readability)
+    chart_rows   = list(reversed(dept_rows))
+    chart_labels = [r["dept_name"] for r in chart_rows]
+    chart_pct    = [r["ot_pct"]    for r in chart_rows]
+    chart_colours = [
+        "rgba(25,135,84,0.75)"   if (p or 0) >= 90 else
+        "rgba(255,193,7,0.85)"   if (p or 0) >= 70 else
+        "rgba(220,53,69,0.75)"
+        for p in chart_pct
+    ]
+
+    return {
+        "dept_rows":    dept_rows,
+        "all_depts":    all_depts,
+        "period_label": period_label,
+        "totals": {
+            "despatched":    total_d,
+            "on_time":       total_ot,
+            "late":          total_late,
+            "ot_pct":        total_pct,
+            "on_hold_count": total_hold,
+            "prod_on_time":  total_p_ot,
+            "prod_total":    total_p_tot,
+            "prod_ot_pct":   total_p_pct,
+        },
+        "chart": {
+            "labels":  chart_labels,
+            "pct":     chart_pct,
+            "colours": chart_colours,
         },
     }
 

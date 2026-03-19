@@ -3,7 +3,13 @@ Materials availability models.
 
 All tables are full-replace on each daily CSV import (truncate + reload).
 Date fields from ERP CSVs are Excel serial numbers - converted on import.
+
+MrpExemptMaterial is the exception — it is manually maintained and persists
+across imports. Materials on this list are excluded from shortage calculations
+and treated as fully covered in SO material status.
 """
+
+from datetime import datetime, timezone
 
 from app.extensions import db
 
@@ -96,3 +102,28 @@ class MaterialRequirementAfterSales(db.Model):
 
     def __repr__(self):
         return f"<MaterialRequirementAfterSales {self.order_number} {self.product_code}>"
+
+
+class MrpExemptMaterial(db.Model):
+    """
+    Materials excluded from MRP shortage calculations.
+
+    Persists across CSV imports — never truncated. Materials here are not
+    managed via the MRP system (no POs raised), so shortage reporting would
+    produce false positives. They are still visible in MRP pegging.
+    """
+
+    __tablename__ = "mrp_exempt_materials"
+
+    material_code = db.Column(db.String(50), primary_key=True)
+    reason = db.Column(db.Text, nullable=True)
+    exempted_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    exempted_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    exempted_by = db.relationship("User", backref="mrp_exemptions")
+
+    def __repr__(self):
+        return f"<MrpExemptMaterial {self.material_code}>"

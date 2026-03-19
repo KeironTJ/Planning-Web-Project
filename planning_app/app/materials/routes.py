@@ -2,8 +2,8 @@
 
 from datetime import date, timedelta
 
-from flask import render_template, request
-from flask_login import login_required
+from flask import render_template, request, redirect, url_for, flash
+from flask_login import login_required, current_user
 from sqlalchemy import func
 
 from . import materials_bp
@@ -19,13 +19,15 @@ from app.core.decorators import permission_required
 @login_required
 @permission_required("view_materials")
 def index():
-    summary = services.get_stock_summary()
-    weekly = services.get_weekly_availability_summary(weeks_ahead=12)
+    summary      = services.get_stock_summary()
+    weekly       = services.get_weekly_availability_summary(weeks_ahead=12)
+    so_breakdown = services.get_weekly_so_breakdown(weeks_ahead=12)
     return render_template(
         "materials/index.html",
         title="Materials",
         summary=summary,
         weekly=weekly,
+        so_breakdown=so_breakdown,
         timedelta=timedelta,
     )
 
@@ -198,6 +200,69 @@ def aftersales_requirements():
         rows=rows, q=q, total=total,
         last_imported=last.imported_at if last else None,
     )
+
+
+@materials_bp.route("/exempt", methods=["GET"])
+@login_required
+@permission_required("manage_imports")
+def exempt_materials():
+    search = request.args.get("q", "").strip()
+    items = services.get_exempt_materials(search=search or None)
+    return render_template(
+        "materials/exempt_materials.html",
+        title="MRP Exempt Materials",
+        items=items,
+        search=search,
+    )
+
+
+@materials_bp.route("/exempt/add", methods=["POST"])
+@login_required
+@permission_required("manage_imports")
+def exempt_add():
+    raw_codes = request.form.get("codes", "")
+    reason = request.form.get("reason", "")
+    # Accept newline- or comma-separated codes
+    codes = [c for part in raw_codes.replace(",", "\n").splitlines() for c in [part.strip()] if c]
+    if not codes:
+        flash("No material codes entered.", "warning")
+        return redirect(url_for("materials.exempt_materials"))
+    result = services.add_exemptions(codes, reason=reason or None, user_id=current_user.id)
+    flash(
+        f"{result['added']} material{'s' if result['added'] != 1 else ''} added to exempt list"
+        + (f" ({result['skipped']} already exempt)" if result["skipped"] else "") + ".",
+        "success" if result["added"] else "info",
+    )
+    return redirect(url_for("materials.exempt_materials"))
+
+
+@materials_bp.route("/exempt/remove", methods=["POST"])
+@login_required
+@permission_required("manage_imports")
+def exempt_remove_bulk():
+    raw_codes = request.form.get("codes", "")
+    codes = [c for part in raw_codes.replace(",", "\n").splitlines() for c in [part.strip()] if c]
+    if not codes:
+        flash("No material codes entered.", "warning")
+        return redirect(url_for("materials.exempt_materials"))
+    deleted = services.remove_exemptions(codes)
+    flash(
+        f"{deleted} material{'s' if deleted != 1 else ''} removed from exempt list.",
+        "success" if deleted else "info",
+    )
+    return redirect(url_for("materials.exempt_materials"))
+
+
+@materials_bp.route("/exempt/<string:code>/delete", methods=["POST"])
+@login_required
+@permission_required("manage_imports")
+def exempt_delete(code):
+    deleted = services.remove_exemptions([code])
+    if deleted:
+        flash(f"{code} removed from exempt list.", "success")
+    else:
+        flash(f"{code} not found in exempt list.", "warning")
+    return redirect(url_for("materials.exempt_materials"))
 
 
 @materials_bp.route("/mrp")

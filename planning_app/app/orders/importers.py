@@ -218,11 +218,16 @@ class OobImporter:
                 WorksOrderOperation.status.notin_(terminal_statuses)
             ).all()
 
+            _terminal = {WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED}
+            today = date.today()
+
             closed_sol_keys: set[tuple] = set()
             for op in open_ops:
                 key = (op.so_number, op.line_number, op.work_centre_name)
                 if key not in seen_op_keys:
                     op.status = WorksOrderOperation.STATUS_CLOSED
+                    if op.completed_date is None:
+                        op.completed_date = today
                     rows_closed += 1
                     closed_sol_keys.add((op.so_number, op.line_number))
 
@@ -231,8 +236,6 @@ class OobImporter:
             # set these dates itself for orders that shipped/closed in ERP overnight.
             # We only stamp dates on SOLs where EVERY known-dept op is now terminal
             # (COMPLETED or CLOSED), and only if the date isn't already recorded.
-            _terminal = {WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED}
-            today = date.today()
             for sol_so, sol_ln in closed_sol_keys:
                 sol = SalesOrderLine.query.filter_by(
                     so_number=sol_so, line_number=sol_ln
@@ -260,6 +263,14 @@ class OobImporter:
                         sol.despatch_completed_date = despatch_op.completed_date or today
                 if sol.order_completed_date is None:
                     sol.order_completed_date = today
+                # Production ready date — all non-DESPATCH ops terminal
+                if sol.production_ready_date is None:
+                    prod_ops = [
+                        op for op in all_ops
+                        if op.work_centre_name.strip().upper() != "DESPATCH"
+                    ]
+                    if prod_ops and all(op.status in _terminal for op in prod_ops):
+                        sol.production_ready_date = today
 
             # --- 5. Finalise batch ---
             batch.rows_inserted = rows_inserted

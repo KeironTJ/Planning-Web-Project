@@ -85,51 +85,97 @@
     </div>
 </div>
 
-<!-- Weekly availability summary -->
-{% if weekly %}
+<!-- Combined SO breakdown chart -->
+{% if so_breakdown.has_data %}
+{% set status_meta = [('ok','Mat. OK','#198754'), ('low_risk','Low Risk','#0dcaf0'), ('med_risk','Med Risk','#ffc107'), ('high_risk','Shortage','#dc3545')] %}
 <div class="card border-0 shadow-sm mb-4">
-    <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
-        <span class="fw-semibold">Material Availability by Week</span>
-        <span class="text-muted small">Next 12 weeks · requirement lines</span>
+    <div class="card-header bg-transparent">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span class="fw-semibold" id="soChartTitle">Open Orders by Material Status — Value</span>
+            <div class="d-flex align-items-center gap-3">
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-primary active" id="btnValue" onclick="setSoChartMode('value')">
+                        <i class="bi bi-currency-pound me-1"></i>Value
+                    </button>
+                    <button type="button" class="btn btn-outline-primary" id="btnVolume" onclick="setSoChartMode('volume')">
+                        <i class="bi bi-stack me-1"></i>Volume
+                    </button>
+                </div>
+                <span class="text-muted small" id="soChartTotal">
+                    Total: <strong>£{{ '{:,.0f}'.format(so_breakdown.total_value) }}</strong>
+                </span>
+            </div>
+        </div>
+        <!-- Status legend / totals -->
+        <div class="d-flex flex-wrap gap-3 mt-2">
+            {% for key, label, colour in status_meta %}
+            {% set t = so_breakdown.totals.get(key, {}) %}
+            {% if t.get('count', 0) > 0 %}
+            <div class="d-flex align-items-center gap-1 small" data-status="{{ key }}">
+                <div style="width:10px;height:10px;border-radius:2px;background:{{ colour }};flex-shrink:0;"></div>
+                <span class="fw-semibold">{{ label }}</span>
+                <span class="text-muted ms-1 so-legend-value">£{{ '{:,.0f}'.format(t.value) }}</span>
+                <span class="text-muted ms-1 so-legend-vol d-none">{{ t.count }} SO{{ 's' if t.count != 1 }}</span>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
     </div>
     <div class="card-body">
-        <canvas id="weeklyAvailChart" height="90"></canvas>
+        <canvas id="soBreakdownChart" height="90"></canvas>
     </div>
 </div>
+{% endif %}
 
+<!-- Weekly SO status table -->
+{% if so_breakdown.has_data %}
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0 align-middle">
+            <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.83rem;">
                 <thead class="thead-subtle">
                     <tr>
                         <th>Week</th>
-                        <th class="text-end">Total Lines</th>
-                        <th class="text-end text-success">Covered</th>
-                        <th class="text-end text-danger">Short</th>
+                        <th class="text-end">Total SOs</th>
+                        <th class="text-end" style="color:#198754;">Mat. OK</th>
+                        <th class="text-end" style="color:#0dcaf0;">Low Risk</th>
+                        <th class="text-end" style="color:#e6a800;">Med Risk</th>
+                        <th class="text-end text-danger">Shortage</th>
                         <th style="min-width:160px;">Coverage</th>
-                        <th class="text-end">Shortage Qty</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for w in weekly %}
+                    {% for w in so_breakdown.weeks %}
                     {% set week_url = url_for('materials.shortage', due_from=w.week_start.strftime('%Y-%m-%d'), due_before=(w.week_start + timedelta(days=6)).strftime('%Y-%m-%d'), shortages_only='0') %}
-                    <tr class="cursor-pointer {{ 'table-danger' if w.shortage_pct > 50 else ('table-warning' if w.shortage_pct > 0 else '') }}"
-                        onclick="window.location='{{ week_url }}'" style="cursor:pointer;">
-                        <td class="fw-semibold small">{{ w.week_label }}</td>
-                        <td class="text-end small">{{ w.total_lines }}</td>
-                        <td class="text-end small text-success fw-semibold">{{ w.ok_lines }}</td>
-                        <td class="text-end small text-danger fw-semibold">{{ w.shortage_lines or '—' }}</td>
+                    {% set high = w.high_risk.count %}
+                    {% set med  = w.med_risk.count %}
+                    <tr onclick="window.location='{{ week_url }}'" style="cursor:pointer;"
+                        class="{{ 'table-danger' if high > 0 else ('table-warning' if med > 0 else '') }}">
+                        <td class="fw-semibold">{{ w.week_label }}</td>
+                        <td class="text-end">{{ w.total_count }}</td>
+                        <td class="text-end fw-semibold" style="color:#198754;">
+                            {{ w.ok.count or '—' }}
+                        </td>
+                        <td class="text-end fw-semibold" style="color:#0dcaf0;">
+                            {{ w.low_risk.count or '—' }}
+                        </td>
+                        <td class="text-end fw-semibold" style="color:#e6a800;">
+                            {{ w.med_risk.count or '—' }}
+                        </td>
+                        <td class="text-end fw-semibold text-danger">
+                            {{ w.high_risk.count or '—' }}
+                        </td>
                         <td>
-                            {% if w.total_lines %}
+                            {% if w.total_count %}
                             <div class="progress" style="height:8px;">
-                                <div class="progress-bar bg-success" style="width:{{ 100 - w.shortage_pct }}%"></div>
-                                <div class="progress-bar bg-danger" style="width:{{ w.shortage_pct }}%"></div>
+                                {% for key, col in [('ok','#198754'),('low_risk','#0dcaf0'),('med_risk','#ffc107'),('high_risk','#dc3545')] %}
+                                {% set pct = (w[key].count / w.total_count * 100) | round(1) %}
+                                {% if pct > 0 %}
+                                <div class="progress-bar" style="width:{{ pct }}%;background:{{ col }};"></div>
+                                {% endif %}
+                                {% endfor %}
                             </div>
                             {% endif %}
-                        </td>
-                        <td class="text-end small text-muted">
-                            {{ w.total_shortage_qty | round(0) if w.total_shortage_qty else '—' }}
                         </td>
                     </tr>
                     {% endfor %}
@@ -158,54 +204,112 @@
 {% endblock %}
 
 {% block extra_js %}
-{% if weekly %}
+{% if so_breakdown.has_data %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const labels = {{ weekly | map(attribute='week_label') | list | tojson }};
-    const ok     = {{ weekly | map(attribute='ok_lines')       | list | tojson }};
-    const short  = {{ weekly | map(attribute='shortage_lines') | list | tojson }};
+    const STATUSES = ['ok', 'low_risk', 'med_risk', 'high_risk'];
+    const LABELS   = {ok: 'Mat. OK', low_risk: 'Low Risk', med_risk: 'Med Risk', high_risk: 'Shortage'};
+    const COLORS   = {ok: '#198754', low_risk: '#0dcaf0', med_risk: '#ffc107', high_risk: '#dc3545'};
 
-    const ctx = document.getElementById('weeklyAvailChart');
+    const raw    = {{ so_breakdown.weeks | tojson }};
+    const totals = {{ so_breakdown.total_value | float | tojson }};
+    const totCnt = {{ so_breakdown.total_count | tojson }};
+
+    const weekLabels = raw.map(w => w.week_label);
+
+    // Build dataset arrays for each status
+    const valueDatasets = STATUSES.map(s => ({
+        label:           LABELS[s],
+        data:            raw.map(w => parseFloat(w[s].value)),
+        backgroundColor: COLORS[s],
+        borderRadius:    2,
+    }));
+    const countDatasets = STATUSES.map(s => ({
+        label:           LABELS[s],
+        data:            raw.map(w => w[s].count),
+        backgroundColor: COLORS[s],
+        borderRadius:    2,
+    }));
+
+    let mode = 'value';
+
+    const ctx = document.getElementById('soBreakdownChart');
     if (!ctx) return;
 
-    new Chart(ctx, {
+    const chart = new Chart(ctx, {
         type: 'bar',
-        data: {
-            labels,
-            datasets: [
-                {
-                    label: 'Covered',
-                    data: ok,
-                    backgroundColor: 'rgba(25,135,84,0.75)',
-                    borderRadius: 3,
-                },
-                {
-                    label: 'Short',
-                    data: short,
-                    backgroundColor: 'rgba(220,53,69,0.75)',
-                    borderRadius: 3,
-                },
-            ],
-        },
+        data: { labels: weekLabels, datasets: valueDatasets },
         options: {
             responsive: true,
             plugins: {
                 legend: { position: 'top' },
                 tooltip: {
                     callbacks: {
+                        label: (item) => {
+                            if (mode === 'value') {
+                                return ` ${item.dataset.label}: £${item.raw.toLocaleString('en-GB', {maximumFractionDigits: 0})}`;
+                            }
+                            return ` ${item.dataset.label}: ${item.raw} SO${item.raw !== 1 ? 's' : ''}`;
+                        },
                         footer: (items) => {
                             const total = items.reduce((s, i) => s + i.raw, 0);
-                            return `Total: ${total}`;
+                            if (mode === 'value') return `Total: £${total.toLocaleString('en-GB', {maximumFractionDigits: 0})}`;
+                            return `Total: ${total} SOs`;
                         },
                     },
                 },
             },
             scales: {
                 x: { stacked: true, grid: { display: false } },
-                y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Requirement lines' } },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    title: { display: true, text: 'Order value (£)' },
+                    ticks: {
+                        callback: v => mode === 'value'
+                            ? '£' + (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v)
+                            : v,
+                    },
+                },
             },
         },
     });
+
+    window.setSoChartMode = function (newMode) {
+        mode = newMode;
+        const isValue = mode === 'value';
+
+        // Swap datasets
+        chart.data.datasets = isValue ? valueDatasets : countDatasets;
+        chart.options.scales.y.title.text = isValue ? 'Order value (£)' : 'Sales orders';
+
+        // Force y-axis tick recalculation
+        chart.options.scales.y.ticks.callback = v => isValue
+            ? '£' + (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v)
+            : v;
+
+        chart.update();
+
+        // Update header
+        document.getElementById('soChartTitle').textContent =
+            'Open Orders by Material Status — ' + (isValue ? 'Value' : 'Volume');
+        document.getElementById('soChartTotal').innerHTML =
+            'Total: <strong>' + (isValue
+                ? '£' + totals.toLocaleString('en-GB', {maximumFractionDigits: 0})
+                : totCnt + ' SOs') + '</strong>';
+
+        // Toggle legend spans
+        document.querySelectorAll('.so-legend-value').forEach(el => el.classList.toggle('d-none', !isValue));
+        document.querySelectorAll('.so-legend-vol').forEach(el => el.classList.toggle('d-none', isValue));
+
+        // Toggle buttons
+        document.getElementById('btnValue').classList.toggle('active', isValue);
+        document.getElementById('btnValue').classList.toggle('btn-primary', isValue);
+        document.getElementById('btnValue').classList.toggle('btn-outline-primary', !isValue);
+        document.getElementById('btnVolume').classList.toggle('active', !isValue);
+        document.getElementById('btnVolume').classList.toggle('btn-primary', !isValue);
+        document.getElementById('btnVolume').classList.toggle('btn-outline-primary', isValue);
+    };
 });
 </script>
 {% endif %}

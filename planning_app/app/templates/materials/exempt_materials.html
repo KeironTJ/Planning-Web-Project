@@ -1,0 +1,165 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<div class="row g-4">
+
+    {# ── Left: current exemptions ─────────────────────────────── #}
+    <div class="col-lg-8">
+
+        {# Search #}
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body py-2">
+                <form method="GET" class="row g-2 align-items-end">
+                    <div class="col">
+                        <input type="search" name="q" class="form-control form-control-sm"
+                               placeholder="Search code or reason…" value="{{ search }}">
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-primary btn-sm">Search</button>
+                        <a href="{{ url_for('materials.exempt_materials') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {# Table #}
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent py-2 d-flex justify-content-between align-items-center">
+                <span class="fw-semibold">
+                    <i class="bi bi-shield-check me-2 text-secondary"></i>Exempt Materials
+                </span>
+                <span class="badge text-bg-secondary">{{ items | length }}</span>
+            </div>
+            {% if items %}
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.83rem;">
+                        <thead class="thead-subtle">
+                            <tr>
+                                <th>Material Code</th>
+                                <th>Reason</th>
+                                <th>Exempted By</th>
+                                <th class="text-center">Exempted On</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in items %}
+                            <tr>
+                                <td class="fw-semibold font-monospace">{{ item.material_code }}</td>
+                                <td class="text-muted">{{ item.reason or '—' }}</td>
+                                <td class="text-muted small">
+                                    {{ item.exempted_by.username if item.exempted_by else '—' }}
+                                </td>
+                                <td class="text-center text-muted small">
+                                    {{ item.exempted_at.strftime('%d %b %Y') if item.exempted_at else '—' }}
+                                </td>
+                                <td class="text-end">
+                                    <form method="POST"
+                                          action="{{ url_for('materials.exempt_delete', code=item.material_code) }}"
+                                          onsubmit="return confirm('Remove {{ item.material_code }} from exempt list?')">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2"
+                                                title="Remove exemption">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% else %}
+            <div class="card-body text-center text-muted py-4">
+                {% if search %}
+                No exempt materials match <strong>{{ search }}</strong>.
+                {% else %}
+                No materials are currently exempt from MRP shortage reporting.
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+
+        {# Bulk remove #}
+        {% if items %}
+        <div class="card border-0 shadow-sm mt-3">
+            <div class="card-header bg-transparent py-2">
+                <span class="fw-semibold text-danger">
+                    <i class="bi bi-dash-circle me-2"></i>Bulk Remove
+                </span>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('materials.exempt_remove_bulk') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-2">
+                        <label class="form-label form-label-sm fw-semibold">Material codes to remove</label>
+                        <textarea name="codes" class="form-control form-control-sm font-monospace" rows="4"
+                                  placeholder="One code per line, or comma-separated&#10;e.g.&#10;ABC123&#10;DEF456"></textarea>
+                        <div class="form-text">Codes are matched case-insensitively.</div>
+                    </div>
+                    <button type="submit" class="btn btn-danger btn-sm"
+                            onclick="return confirm('Remove these materials from the exempt list?')">
+                        <i class="bi bi-dash-circle me-1"></i>Remove
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+    </div>{# /col-lg-8 #}
+
+    {# ── Right: add exemptions ────────────────────────────────── #}
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent py-2">
+                <span class="fw-semibold text-success">
+                    <i class="bi bi-plus-circle me-2"></i>Add Exemptions
+                </span>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('materials.exempt_add') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label form-label-sm fw-semibold">Material codes</label>
+                        <textarea name="codes" class="form-control form-control-sm font-monospace" rows="6"
+                                  placeholder="One code per line, or comma-separated&#10;e.g.&#10;ABC123&#10;DEF456, GHI789"
+                                  required></textarea>
+                        <div class="form-text">
+                            Paste from Excel or type one per line. Codes are uppercased automatically.
+                            Duplicates are ignored.
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label form-label-sm fw-semibold">Reason <span class="text-muted fw-normal">(optional)</span></label>
+                        <input type="text" name="reason" class="form-control form-control-sm"
+                               placeholder="e.g. Supplied direct — no PO raised">
+                        <div class="form-text">Applied to all codes in this batch.</div>
+                    </div>
+                    <button type="submit" class="btn btn-success btn-sm w-100">
+                        <i class="bi bi-plus-circle me-1"></i>Add to Exempt List
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mt-3">
+            <div class="card-body small text-muted">
+                <p class="mb-2">
+                    <i class="bi bi-info-circle me-1"></i>
+                    <strong>What does this do?</strong>
+                </p>
+                <ul class="ps-3 mb-0">
+                    <li>Exempt materials are <strong>hidden from the Shortage Report</strong> — they will never flag as a shortage.</li>
+                    <li>They still appear in <strong>MRP Pegging</strong> so you can check stock levels if needed.</li>
+                    <li>On the WIP Tracker, SOs with only exempt materials will show <strong>Mat. OK</strong>.</li>
+                    <li>This list <strong>persists across CSV imports</strong> — you only need to set it once.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

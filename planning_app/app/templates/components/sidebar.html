@@ -25,6 +25,18 @@
                     <i class="bi bi-exclamation-triangle me-2"></i>Overdue Report
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'orders.otif_report' %}active{% endif %}"
+                   href="{{ url_for('orders.otif_report') }}">
+                    <i class="bi bi-graph-up-arrow me-2"></i>OTIF by Customer
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'orders.otif_dept_report' %}active{% endif %}"
+                   href="{{ url_for('orders.otif_dept_report') }}">
+                    <i class="bi bi-building-check me-2"></i>OTIF by Department
+                </a>
+            </li>
             {% endif %}
 
             {# ── Planning ──────────────────────────────────────────── #}
@@ -156,6 +168,14 @@
                     <i class="bi bi-arrow-return-left me-2"></i>AfterSales Reqs
                 </a>
             </li>
+            {% if current_user.has_permission('manage_imports') %}
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint and 'exempt' in request.endpoint %}active{% endif %}"
+                   href="{{ url_for('materials.exempt_materials') }}">
+                    <i class="bi bi-shield-check me-2"></i>MRP Exemptions
+                </a>
+            </li>
+            {% endif %}
             {% endif %}
 
             {# ── Department quick links ────────────────────────────── #}

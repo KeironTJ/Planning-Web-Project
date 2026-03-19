@@ -43,6 +43,94 @@ def wip_dashboard():
     )
 
 
+@orders_bp.route("/otif-report")
+@login_required
+@permission_required("view_orders")
+def otif_report():
+    from datetime import timedelta
+    weeks    = request.args.get("weeks", 13, type=int)
+    customer = request.args.get("customer", "")
+    month    = request.args.get("month", "")
+
+    if weeks not in (4, 8, 13, 26, 52):
+        weeks = 13
+
+    # Validate month param (must be YYYY-MM)
+    if month:
+        try:
+            _y, _m = month.split("-")
+            if not (1 <= int(_m) <= 12):
+                month = ""
+        except (ValueError, AttributeError):
+            month = ""
+
+    # Build month options list — last 24 calendar months (newest first)
+    month_options = []
+    d = date.today().replace(day=1)
+    for _ in range(24):
+        month_options.append(d)
+        d = (d - timedelta(days=1)).replace(day=1)
+
+    data = services.get_otif_report(
+        weeks=weeks,
+        customer_name=customer or None,
+        month=month or None,
+    )
+    return render_template(
+        "orders/otif_report.html",
+        title="OTIF Report",
+        weeks=weeks,
+        customer_filter=customer,
+        month_filter=month,
+        month_options=month_options,
+        today=date.today(),
+        **data,
+    )
+
+
+@orders_bp.route("/otif-dept")
+@login_required
+@permission_required("view_orders")
+def otif_dept_report():
+    from datetime import timedelta
+    weeks   = request.args.get("weeks", 13, type=int)
+    month   = request.args.get("month", "")
+    dept_id = request.args.get("dept", None, type=int)
+
+    if weeks not in (4, 8, 13, 26, 52):
+        weeks = 13
+
+    if month:
+        try:
+            _y, _m = month.split("-")
+            if not (1 <= int(_m) <= 12):
+                month = ""
+        except (ValueError, AttributeError):
+            month = ""
+
+    month_options = []
+    d = date.today().replace(day=1)
+    for _ in range(24):
+        month_options.append(d)
+        d = (d - timedelta(days=1)).replace(day=1)
+
+    data = services.get_dept_otif_report(
+        weeks=weeks,
+        month=month or None,
+        dept_id=dept_id,
+    )
+    return render_template(
+        "orders/otif_dept_report.html",
+        title="OTIF by Department",
+        weeks=weeks,
+        month_filter=month,
+        month_options=month_options,
+        dept_filter=dept_id or "",
+        today=date.today(),
+        **data,
+    )
+
+
 @orders_bp.route("/overdue-report")
 @login_required
 @permission_required("view_orders")
@@ -816,3 +904,37 @@ def planning_schedule_from_date():
         flash(str(exc), "danger")
 
     return redirect(back_url)
+
+
+# ---------------------------------------------------------------------------
+# Customer Hold — AJAX toggle
+# ---------------------------------------------------------------------------
+
+@orders_bp.route("/so/<so_number>/hold", methods=["POST"])
+@login_required
+@permission_required("manage_orders")
+def toggle_customer_hold(so_number):
+    """
+    AJAX endpoint — set or clear the customer_hold flag for all lines on an SO.
+
+    Body (JSON): { "action": "set"|"clear", "note": "..." }
+    Returns:     { "ok": true, "held": true|false }
+    """
+    data   = request.get_json(silent=True) or {}
+    action = data.get("action", "")
+    note   = data.get("note", "")
+
+    if action not in ("set", "clear"):
+        return jsonify({"ok": False, "error": "action must be 'set' or 'clear'"}), 400
+
+    try:
+        services.toggle_customer_hold(
+            so_number=so_number,
+            action=action,
+            note=note,
+            user_id=current_user.id,
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+    return jsonify({"ok": True, "held": action == "set"})

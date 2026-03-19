@@ -210,6 +210,9 @@
                 {% endfor %}
                 <th style="min-width:36px;"></th>{# Comments icon #}
                 <th style="min-width:160px;">Latest Note</th>
+                {% if current_user.has_permission('manage_orders') %}
+                <th class="text-center" style="min-width:70px;">Hold</th>
+                {% endif %}
             </tr>
         </thead>
         <tbody>
@@ -232,6 +235,12 @@
                     <br><span class="badge fw-normal"
                           style="font-size:.65rem;background-color:{{ '#0d6efd' if order.order_type == 'MAINLINE' else '#6c757d' }};">
                         {{ order.order_type }}
+                    </span>
+                    {% endif %}
+                    {% if order.customer_hold %}
+                    <br><span class="badge text-bg-warning fw-normal" style="font-size:.65rem;"
+                              title="On hold since {{ order.customer_hold_since.strftime('%d %b %Y') if order.customer_hold_since else 'unknown' }}{% if order.customer_hold_note %}: {{ order.customer_hold_note }}{% endif %}">
+                        <i class="bi bi-pause-circle"></i> On Hold
                     </span>
                     {% endif %}
                 </td>
@@ -357,6 +366,20 @@
                     </div>
                     {% endif %}
                 </td>
+                {# Customer Hold column #}
+                {% if current_user.has_permission('manage_orders') %}
+                <td class="text-center p-1">
+                    <button type="button"
+                            class="btn btn-sm py-0 px-2 hold-toggle-btn {{ 'btn-warning' if order.customer_hold else 'btn-outline-secondary' }}"
+                            style="font-size:.72rem;"
+                            data-so="{{ order.so_number }}"
+                            data-held="{{ 'true' if order.customer_hold else 'false' }}"
+                            title="{{ 'Clear customer hold' if order.customer_hold else 'Place on customer hold' }}">
+                        <i class="bi {{ 'bi-pause-circle-fill' if order.customer_hold else 'bi-pause-circle' }}"></i>
+                        {{ 'Held' if order.customer_hold else 'Hold' }}
+                    </button>
+                </td>
+                {% endif %}
             </tr>
 
             {# ── Per-line detail rows (collapsed by default) ──────────── #}
@@ -428,6 +451,9 @@
                 {% endfor %}
                 <td></td>{# Comments icon — order-level only #}
                 <td></td>{# Latest note — order-level only #}
+                {% if current_user.has_permission('manage_orders') %}
+                <td></td>{# Hold — order-level only #}
+                {% endif %}
             </tr>
             {% endfor %}
 
@@ -1089,6 +1115,42 @@
             if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; }
         }, true);
     }
+})();
+
+// ── Customer Hold toggle ─────────────────────────────────────────────────── //
+(function () {
+    const wipTable = document.getElementById('wipTable');
+    if (!wipTable) return;
+
+    wipTable.addEventListener('click', function (e) {
+        const btn = e.target.closest('.hold-toggle-btn');
+        if (!btn) return;
+
+        const soNumber = btn.dataset.so;
+        const currentlyHeld = btn.dataset.held === 'true';
+        const action = currentlyHeld ? 'clear' : 'set';
+
+        let note = '';
+        if (action === 'set') {
+            note = window.prompt('Optional: reason for customer hold (leave blank to skip)') || '';
+            if (note === null) return; // cancelled
+        }
+
+        btn.disabled = true;
+
+        fetch('{{ url_for("orders.toggle_customer_hold", so_number="__SO__") }}'.replace('__SO__', encodeURIComponent(soNumber)), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}' },
+            body: JSON.stringify({ action: action, note: note }),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.ok) { alert('Error: ' + (data.error || 'unknown')); btn.disabled = false; return; }
+            // Reload to reflect updated badge state
+            window.location.reload();
+        })
+        .catch(() => { alert('Network error placing hold.'); btn.disabled = false; });
+    });
 })();
 
 </script>

@@ -99,7 +99,9 @@
                 </thead>
                 <tbody>
                     {% for row in data.rows %}
-                    <tr class="{{ 'table-danger' if row.shortage > 0 else '' }}">
+                    <tr class="{{ 'table-danger' if row.shortage > 0 else '' }} table-row-link"
+                        style="cursor:pointer;"
+                        onclick="window.location='{{ url_for('materials.mrp') }}?q={{ row.material_code | urlencode }}'">
                         <td>
                             <span class="badge {{ 'bg-primary' if row.source == 'main' else 'bg-secondary' }}">
                                 {{ 'Main' if row.source == 'main' else 'AS' }}

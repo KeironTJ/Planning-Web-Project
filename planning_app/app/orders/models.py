@@ -117,6 +117,12 @@ class SalesOrderLine(db.Model):
     # KPI completion milestones (set once, never cleared by importer)
     despatch_completed_date = db.Column(db.Date, nullable=True, index=True)
     order_completed_date    = db.Column(db.Date, nullable=True, index=True)
+    production_ready_date   = db.Column(db.Date, nullable=True, index=True)
+
+    # Customer hold — order is production-complete but despatch delayed by customer request
+    customer_hold       = db.Column(db.Boolean, default=False, nullable=False, server_default="0", index=True)
+    customer_hold_since = db.Column(db.Date, nullable=True)
+    customer_hold_note  = db.Column(db.String(255), nullable=True)
 
     operations = db.relationship(
         "WorksOrderOperation",

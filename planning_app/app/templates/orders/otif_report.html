@@ -1,0 +1,443 @@
+{% extends 'base.html' %}
+
+{% block page_actions %}
+<a href="{{ url_for('orders.otif_dept_report') }}" class="btn btn-sm btn-outline-secondary no-print">
+    <i class="bi bi-building-check me-1"></i>By Department
+</a>
+<a href="{{ url_for('orders.wip_dashboard') }}" class="btn btn-sm btn-outline-secondary no-print">
+    <i class="bi bi-speedometer2 me-1"></i>Dashboard
+</a>
+<button onclick="window.print()" class="btn btn-sm btn-outline-secondary no-print">
+    <i class="bi bi-printer me-1"></i>Print
+</button>
+{% endblock %}
+
+{% block content %}
+
+{# Print header #}
+<div class="print-header mb-3 pb-2 border-bottom">
+    <h4 class="mb-0">OTIF — On-Time Despatch Report</h4>
+    <p class="text-muted small mb-0">Belfield Furnishings Ltd &mdash; {{ today.strftime('%d %B %Y') }}</p>
+</div>
+
+{# ── Filters ─────────────────────────────────────────────────────────────── #}
+<form method="get" class="row g-2 mb-4 align-items-end no-print">
+    <div class="col-auto">
+        <label class="form-label small mb-1">Rolling Period</label>
+        <select name="weeks" class="form-select form-select-sm" id="weeksSelect"
+                {% if month_filter %}disabled{% endif %}>
+            {% for w, lbl in [(4,'4 weeks'),(8,'8 weeks'),(13,'13 weeks'),(26,'26 weeks'),(52,'52 weeks')] %}
+            <option value="{{ w }}" {% if weeks == w %}selected{% endif %}>{{ lbl }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto align-self-end pb-1 text-muted small">or</div>
+    <div class="col-auto">
+        <label class="form-label small mb-1">Specific Month</label>
+        <select name="month" class="form-select form-select-sm" id="monthSelect">
+            <option value="">— rolling period —</option>
+            {% for m in month_options %}
+            <option value="{{ m.strftime('%Y-%m') }}"
+                    {% if month_filter == m.strftime('%Y-%m') %}selected{% endif %}>
+                {{ m.strftime('%B %Y') }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-1">Customer</label>
+        <select name="customer" class="form-select form-select-sm" style="min-width:220px;">
+            <option value="">All Customers</option>
+            {% for c in all_customers %}
+            <option value="{{ c }}" {% if customer_filter == c %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+        <a href="{{ url_for('orders.otif_report') }}" class="btn btn-sm btn-outline-secondary ms-1">Reset</a>
+    </div>
+</form>
+
+{# ── KPI Summary Cards ───────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-2">
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="fw-bold fs-2">{{ totals.despatched }}</div>
+            <div class="small text-muted">Despatched</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="fw-bold fs-2 text-success">{{ totals.on_time }}</div>
+            <div class="small text-muted">On Time</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="fw-bold fs-2 text-danger">{{ totals.late }}</div>
+            <div class="small text-muted">Late</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        {% if totals.ot_pct is none %}
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="fw-bold fs-2 text-muted">&mdash;</div>
+            <div class="small text-muted">Despatch OT%</div>
+        </div>
+        {% else %}
+        {% set pct_colour = 'success' if totals.ot_pct >= 90 else ('warning' if totals.ot_pct >= 70 else 'danger') %}
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="fw-bold fs-2 text-{{ pct_colour }}">{{ totals.ot_pct }}%</div>
+            <div class="small text-muted">Despatch OT%</div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="col-6 col-md-2">
+        {% if totals.prod_ot_pct is none %}
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="fw-bold fs-2 text-muted">&mdash;</div>
+            <div class="small text-muted">Production OT%</div>
+        </div>
+        {% else %}
+        {% set prod_colour = 'success' if totals.prod_ot_pct >= 90 else ('warning' if totals.prod_ot_pct >= 70 else 'danger') %}
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="fw-bold fs-2 text-{{ prod_colour }}">{{ totals.prod_ot_pct }}%</div>
+            <div class="small text-muted">Production OT%</div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card border-0 shadow-sm h-100 text-center py-3 {{ 'border-warning border-2' if totals.on_hold_count else '' }}">
+            <div class="fw-bold fs-2 {{ 'text-warning' if totals.on_hold_count else 'text-muted' }}">{{ totals.on_hold_count }}</div>
+            <div class="small text-muted">On Hold (excl.)</div>
+        </div>
+    </div>
+</div>
+
+{# ── Chart ───────────────────────────────────────────────────────────────── #}
+{% if totals.despatched > 0 %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-transparent border-bottom-0 pt-3 pb-0">
+        <h6 class="mb-0">Weekly On-Time Despatch Performance</h6>
+    </div>
+    <div class="card-body">
+        <canvas id="otifChart" style="max-height:280px;"></canvas>
+    </div>
+</div>
+
+{# ── View toggle ─────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center gap-2 mb-3 no-print">
+    <span class="small text-muted me-1">View by:</span>
+    <div class="btn-group btn-group-sm" role="group">
+        <button type="button" class="btn btn-primary" id="btnByWeek">Week &rsaquo; Customer</button>
+        <button type="button" class="btn btn-outline-primary" id="btnByCust">Customer &rsaquo; Week</button>
+    </div>
+</div>
+
+{# ── By-Week table ───────────────────────────────────────────────────────── #}
+<div id="viewByWeek">
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-transparent border-bottom-0 pt-3 pb-0">
+        <h6 class="mb-0">Breakdown by Week &amp; Customer</h6>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0 align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:30px;" class="no-print"></th>
+                    <th>Week</th>
+                    <th class="text-end">Despatched</th>
+                    <th class="text-end">On Time</th>
+                    <th class="text-end">Late</th>
+                    <th class="text-end">OT Rate</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for w in week_rows %}
+            {% set row_id = "week-" ~ loop.index %}
+            {% if w.despatched > 0 %}
+                {% if w.customers | length > 1 %}
+                <tr class="fw-semibold table-light" role="button"
+                    data-bs-toggle="collapse" data-bs-target="#{{ row_id }}"
+                    aria-expanded="false">
+                    <td class="no-print text-muted small"><i class="bi bi-chevron-right toggle-icon"></i></td>
+                {% else %}
+                <tr class="fw-semibold table-light">
+                    <td class="no-print"></td>
+                {% endif %}
+                    <td>{{ w.label }}</td>
+                    <td class="text-end">{{ w.despatched }}</td>
+                    <td class="text-end text-success">{{ w.on_time }}</td>
+                    <td class="text-end text-danger">{{ w.late }}</td>
+                    <td class="text-end">
+                        {% if w.ot_pct is none %}&mdash;
+                        {% else %}{% set c = 'success' if w.ot_pct >= 90 else ('warning' if w.ot_pct >= 70 else 'danger') %}
+                        <span class="badge bg-{{ c }}">{{ w.ot_pct }}%</span>{% endif %}
+                    </td>
+                </tr>
+                {% if w.customers | length > 1 %}
+                <tr class="collapse" id="{{ row_id }}">
+                    <td colspan="6" class="p-0">
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                            {% for cust in w.customers %}
+                            <tr class="text-muted small">
+                                <td style="width:46px;"></td>
+                                <td class="ps-4">{{ cust.customer_name }}</td>
+                                <td class="text-end" style="width:100px;">{{ cust.despatched }}</td>
+                                <td class="text-end text-success" style="width:90px;">{{ cust.on_time }}</td>
+                                <td class="text-end text-danger" style="width:70px;">{{ cust.late }}</td>
+                                <td class="text-end" style="width:90px;">
+                                    {% if cust.ot_pct is none %}&mdash;
+                                    {% else %}{% set c = 'success' if cust.ot_pct >= 90 else ('warning' if cust.ot_pct >= 70 else 'danger') %}
+                                    <span class="badge bg-{{ c }}">{{ cust.ot_pct }}%</span>{% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </td>
+                </tr>
+                {% endif %}
+            {% else %}
+                <tr class="text-muted">
+                    <td class="no-print"></td>
+                    <td>{{ w.label }}</td>
+                    <td class="text-end" colspan="4">No despatch data</td>
+                </tr>
+            {% endif %}
+            {% endfor %}
+            </tbody>
+            <tfoot class="table-secondary fw-bold">
+                <tr>
+                    <td class="no-print"></td>
+                    <td>Total ({{ period_label }})</td>
+                    <td class="text-end">{{ totals.despatched }}</td>
+                    <td class="text-end text-success">{{ totals.on_time }}</td>
+                    <td class="text-end text-danger">{{ totals.late }}</td>
+                    <td class="text-end">
+                        {% if totals.ot_pct is none %}&mdash;
+                        {% else %}{% set c = 'success' if totals.ot_pct >= 90 else ('warning' if totals.ot_pct >= 70 else 'danger') %}
+                        <span class="badge bg-{{ c }}">{{ totals.ot_pct }}%</span>{% endif %}
+                    </td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+</div>{# /viewByWeek #}
+
+{# ── By-Customer table ───────────────────────────────────────────────────── #}
+<div id="viewByCust" style="display:none;">
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-transparent border-bottom-0 pt-3 pb-0">
+        <h6 class="mb-0">Breakdown by Customer &amp; Week</h6>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0 align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:30px;" class="no-print"></th>
+                    <th>Customer</th>
+                    <th class="text-end">Despatched</th>
+                    <th class="text-end">On Time</th>
+                    <th class="text-end">Late</th>
+                    <th class="text-end">OT Rate</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for cr in customer_rows %}
+            {% set cid = "cust-" ~ loop.index %}
+            <tr class="fw-semibold table-light" role="button"
+                data-bs-toggle="collapse" data-bs-target="#{{ cid }}"
+                aria-expanded="false">
+                <td class="no-print text-muted small"><i class="bi bi-chevron-right toggle-icon"></i></td>
+                <td>{{ cr.customer_name }}</td>
+                <td class="text-end">{{ cr.despatched }}</td>
+                <td class="text-end text-success">{{ cr.on_time }}</td>
+                <td class="text-end text-danger">{{ cr.late }}</td>
+                <td class="text-end">
+                    {% if cr.ot_pct is none %}&mdash;
+                    {% else %}{% set c = 'success' if cr.ot_pct >= 90 else ('warning' if cr.ot_pct >= 70 else 'danger') %}
+                    <span class="badge bg-{{ c }}">{{ cr.ot_pct }}%</span>{% endif %}
+                </td>
+            </tr>
+            <tr class="collapse" id="{{ cid }}">
+                <td colspan="6" class="p-0">
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                        {% for we in cr.weeks %}
+                        {% if we.data %}
+                        <tr class="text-muted small">
+                            <td style="width:46px;"></td>
+                            <td class="ps-4">{{ we.label }}</td>
+                            <td class="text-end" style="width:100px;">{{ we.data.despatched }}</td>
+                            <td class="text-end text-success" style="width:90px;">{{ we.data.on_time }}</td>
+                            <td class="text-end text-danger" style="width:70px;">{{ we.data.late }}</td>
+                            <td class="text-end" style="width:90px;">
+                                {% if we.data.ot_pct is none %}&mdash;
+                                {% else %}{% set c = 'success' if we.data.ot_pct >= 90 else ('warning' if we.data.ot_pct >= 70 else 'danger') %}
+                                <span class="badge bg-{{ c }}">{{ we.data.ot_pct }}%</span>{% endif %}
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+            <tfoot class="table-secondary fw-bold">
+                <tr>
+                    <td class="no-print"></td>
+                    <td>Total ({{ period_label }})</td>
+                    <td class="text-end">{{ totals.despatched }}</td>
+                    <td class="text-end text-success">{{ totals.on_time }}</td>
+                    <td class="text-end text-danger">{{ totals.late }}</td>
+                    <td class="text-end">
+                        {% if totals.ot_pct is none %}&mdash;
+                        {% else %}{% set c = 'success' if totals.ot_pct >= 90 else ('warning' if totals.ot_pct >= 70 else 'danger') %}
+                        <span class="badge bg-{{ c }}">{{ totals.ot_pct }}%</span>{% endif %}
+                    </td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+
+</div>{# /viewByCust #}
+
+{% else %}
+<div class="alert alert-info">No despatch data found for the selected period.</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+{% if totals.despatched > 0 %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // ── Chart ──────────────────────────────────────────────────────────────
+    const ctx = document.getElementById('otifChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: {{ chart.labels  | tojson }},
+            datasets: [
+                {
+                    label: 'On Time',
+                    data:  {{ chart.on_time | tojson }},
+                    backgroundColor: 'rgba(25, 135, 84, 0.75)',
+                    borderColor: '#198754',
+                    borderWidth: 1,
+                    borderRadius: 2,
+                    stack: 'despatch',
+                },
+                {
+                    label: 'Late',
+                    data:  {{ chart.late | tojson }},
+                    backgroundColor: 'rgba(220, 53, 69, 0.75)',
+                    borderColor: '#dc3545',
+                    borderWidth: 1,
+                    borderRadius: 2,
+                    stack: 'despatch',
+                },
+                {
+                    type: 'line',
+                    label: 'OT Rate %',
+                    data: {{ chart.pct | tojson }},
+                    borderColor: 'rgba(13, 110, 253, 0.9)',
+                    backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    yAxisID: 'yPct',
+                    order: 1,
+                    tension: 0.3,
+                    spanGaps: true,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { position: 'top', labels: { usePointStyle: true, padding: 12 } },
+                tooltip: {
+                    callbacks: {
+                        label: function (c) {
+                            if (c.dataset.label === 'OT Rate %') {
+                                return ' ' + c.dataset.label + ': ' + (c.parsed.y !== null ? c.parsed.y + '%' : '—');
+                            }
+                            const n = c.parsed.y;
+                            return n === 0 ? null : ' ' + c.dataset.label + ': ' + n;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: { stacked: true },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    title: { display: true, text: 'Orders' },
+                    ticks: { precision: 0 },
+                },
+                yPct: {
+                    position: 'right',
+                    beginAtZero: true,
+                    max: 100,
+                    title: { display: true, text: 'OT Rate %' },
+                    grid: { drawOnChartArea: false },
+                    ticks: { callback: v => v + '%' },
+                },
+            },
+        },
+    });
+
+    // ── View toggle ────────────────────────────────────────────────────────
+    const byWeekEl  = document.getElementById('viewByWeek');
+    const byCustEl  = document.getElementById('viewByCust');
+    const btnByWeek = document.getElementById('btnByWeek');
+    const btnByCust = document.getElementById('btnByCust');
+
+    btnByWeek.addEventListener('click', function () {
+        byWeekEl.style.display = '';
+        byCustEl.style.display = 'none';
+        btnByWeek.classList.replace('btn-outline-primary', 'btn-primary');
+        btnByCust.classList.replace('btn-primary', 'btn-outline-primary');
+    });
+    btnByCust.addEventListener('click', function () {
+        byCustEl.style.display = '';
+        byWeekEl.style.display = 'none';
+        btnByCust.classList.replace('btn-outline-primary', 'btn-primary');
+        btnByWeek.classList.replace('btn-primary', 'btn-outline-primary');
+    });
+
+    // ── Month/weeks mutual exclusion ──────────────────────────────────────
+    const monthSel = document.getElementById('monthSelect');
+    const weeksSel = document.getElementById('weeksSelect');
+    if (monthSel && weeksSel) {
+        monthSel.addEventListener('change', function () {
+            weeksSel.disabled = this.value !== '';
+        });
+    }
+
+    // ── Collapse chevron rotation ──────────────────────────────────────────
+    document.querySelectorAll('[data-bs-toggle="collapse"]').forEach(function (trigger) {
+        const target = document.querySelector(trigger.dataset.bsTarget);
+        if (!target) return;
+        const icon = trigger.querySelector('.toggle-icon');
+        target.addEventListener('show.bs.collapse', function () {
+            if (icon) icon.classList.replace('bi-chevron-right', 'bi-chevron-down');
+        });
+        target.addEventListener('hide.bs.collapse', function () {
+            if (icon) icon.classList.replace('bi-chevron-down', 'bi-chevron-right');
+        });
+    });
+});
+</script>
+{% endif %}
+{% endblock %}
