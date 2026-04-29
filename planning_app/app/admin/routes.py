@@ -377,35 +377,6 @@ def _run_importer(import_type: str, stream, filename: str, user_id: int) -> Impo
 
 
 # ---------------------------------------------------------------------------
-# ERP Data Refresh
-# ---------------------------------------------------------------------------
-
-@admin_bp.route("/erp-refresh/start", methods=["POST"])
-@login_required
-@permission_required("manage_imports")
-def erp_refresh_start():
-    """Start a background ERP export + import cycle. Returns {task_id}."""
-    from flask import current_app
-    from app.admin.erp_refresh import start_refresh
-
-    task_id = start_refresh(current_app._get_current_object(), current_user.id)
-    return jsonify({"task_id": task_id})
-
-
-@admin_bp.route("/erp-refresh/status/<task_id>")
-@login_required
-@permission_required("manage_imports")
-def erp_refresh_status(task_id: str):
-    """Poll the status of a running or completed ERP refresh task."""
-    from app.admin.erp_refresh import get_task
-
-    task = get_task(task_id)
-    if task is None:
-        return jsonify({"error": "Task not found"}), 404
-    return jsonify(task)
-
-
-# ---------------------------------------------------------------------------
 # ERP Data Viewers
 # ---------------------------------------------------------------------------
 

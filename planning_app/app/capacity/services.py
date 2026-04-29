@@ -114,13 +114,8 @@ def get_capacity_dashboard(
         dept_q = dept_q.filter(Department.id == dept_id)
     departments = dept_q.all()
 
-    # Only cap overdue orders into week 1 when viewing from the current operating week.
-    # For future-dated views the floor would be a future date, incorrectly pulling in
-    # all historical overdue work.
-    today_week_start = _week_start(date.today())
-    floor = from_dt if from_dt <= today_week_start else None
-
     # For available hours: exclude past days so current week shows remaining capacity.
+    today_week_start = _week_start(date.today())
     # Only apply when the view starts from the current operating week or earlier.
     today = date.today()
     avail_floor = today if from_dt <= today_week_start else None

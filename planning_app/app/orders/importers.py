@@ -171,7 +171,7 @@ class OobImporter:
                             qty=op_qty,
                             due_date=op_due_date,
                             total_value=op_total_value,
-                            status=WorksOrderOperation.STATUS_NOT_STARTED,
+                            status=WorksOrderOperation.STATUS_NEW_ORDER,
                             imported_at=now,
                         )
                         db.session.add(op)

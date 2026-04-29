@@ -235,10 +235,6 @@ class WorksOrderOperation(db.Model):
     STATUS_COMPLETED   = "completed"
     STATUS_CLOSED      = "closed"
 
-    # Legacy aliases â€” keep so any stale references still resolve correctly
-    STATUS_NOT_STARTED = STATUS_NEW_ORDER
-    STATUS_STARTED     = STATUS_RELEASED
-    STATUS_FIRMED      = STATUS_FIRM_PLANNED   # backward-compat alias
 
     VALID_STATUSES = [
         STATUS_NEW_ORDER,
@@ -365,6 +361,9 @@ class ImportBatch(db.Model):
 
     uploaded_by = db.relationship("User", foreign_keys=[uploaded_by_id])
 
+    def __repr__(self) -> str:
+        return f"<ImportBatch {self.import_type} {self.uploaded_at}>"
+
 
 # ---------------------------------------------------------------------------
 # Sales Order Comment
@@ -398,6 +397,3 @@ class SalesOrderComment(db.Model):
 
     def __repr__(self) -> str:
         return f"<SalesOrderComment so={self.so_number} user_id={self.user_id}>"
-
-    def __repr__(self) -> str:
-        return f"<ImportBatch {self.import_type} {self.uploaded_at}>"
