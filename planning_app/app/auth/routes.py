@@ -5,7 +5,7 @@ Routes are thin: they handle HTTP concerns (redirects, flash messages,
 session management) and delegate business logic to AuthService.
 """
 
-from flask import render_template, redirect, url_for, flash, request, current_app
+from flask import render_template, redirect, url_for, flash, request, current_app, session
 from flask_login import login_user, logout_user, login_required, current_user
 
 from . import auth_bp
@@ -159,3 +159,33 @@ def change_password():
         except (AuthorisationError, ValidationError) as e:
             flash(str(e), "danger")
     return render_template("auth/change_password.html", form=form, title="Change Password")
+
+
+# ---------------------------------------------------------------------------
+# Site switcher
+# ---------------------------------------------------------------------------
+
+@auth_bp.route("/switch-site/<int:site_id>", methods=["POST"])
+@login_required
+def switch_site(site_id: int):
+    """
+    Set the active site for the current session.
+
+    Admin users may switch to any active site.
+    All other users may only switch to sites they have been granted access to.
+    """
+    from app.admin.models import Site
+
+    site = Site.query.filter_by(id=site_id, is_active=True).first_or_404()
+
+    if not current_user.is_admin and site not in current_user.sites:
+        flash("You do not have access to that site.", "danger")
+        return redirect(request.referrer or url_for("capacity.dashboard"))
+
+    session["active_site_id"] = site.id
+    session["active_site_name"] = site.name
+    flash(f"Switched to {site.name}.", "success")
+    next_page = request.form.get("next") or request.referrer
+    if next_page and next_page.startswith("/"):
+        return redirect(next_page)
+    return redirect(url_for("capacity.dashboard"))

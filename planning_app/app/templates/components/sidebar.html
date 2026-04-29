@@ -162,12 +162,6 @@
                     <i class="bi bi-list-columns me-2"></i>Main Material Reqs
                 </a>
             </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'materials.aftersales_requirements' %}active{% endif %}"
-                   href="{{ url_for('materials.aftersales_requirements') }}">
-                    <i class="bi bi-arrow-return-left me-2"></i>AfterSales Reqs
-                </a>
-            </li>
             {% if current_user.has_permission('manage_imports') %}
             <li class="nav-item">
                 <a class="nav-link {% if request.endpoint and 'exempt' in request.endpoint %}active{% endif %}"

@@ -188,48 +188,8 @@ def seed():
 @login_required
 @admin_required
 def seed_departments():
-    """Seed the default production departments (idempotent)."""
-    from app.orders.models import Department
-
-    depts = [
-        "WOODMILL",
-        "FURNITURE TIMBER",
-        "CUTTING",
-        "MACHINING",
-        "FILLING",
-        "UPHOLSTERY",
-        "MATTRESS",
-        "TACKING",
-        "CURTAINS",
-        "CURTAIN POLES",
-        "BEDDING",
-        "BLINDS (CTN SECTION)",
-        "DESPATCH",
-        "AFTER SALES",
-        "BELFIELD TEXTILES",
-        "TEK SEATING (CAB SEATS)",
-        "DIVAN",
-        "ENCAPSULATED SPRINGS",
-        "GENERAL",
-    ]
-
-    created = 0
-    for name in depts:
-        code = (
-            name.upper()
-            .replace(" ", "_")
-            .replace("(", "")
-            .replace(")", "")
-        )
-        if not Department.query.filter_by(name=name).first():
-            db.session.add(Department(code=code, name=name, is_active=True))
-            created += 1
-    db.session.commit()
-
-    if created:
-        flash(f"{created} department(s) seeded.", "success")
-    else:
-        flash("All departments already exist — nothing to seed.", "info")
+    """Redirect: departments are now created per-site via Admin → Departments."""
+    flash("Departments are now site-scoped. Create them through Admin → Departments.", "info")
     return redirect(url_for("admin.dept_list"))
 
 
@@ -402,7 +362,7 @@ def _run_importer(import_type: str, stream, filename: str, user_id: int) -> Impo
     """Dispatch to the correct importer class."""
     from app.orders.importers import OobImporter, SmvImporter, ProductionFlowImporter
     from app.materials.importers import (
-        StockImporter, OpenPoImporter, MainMaterialImporter, AsMaterialImporter,
+        StockImporter, OpenPoImporter, MainMaterialImporter,
     )
     from app.capacity.importers import LabourPlanImporter
 
@@ -411,7 +371,6 @@ def _run_importer(import_type: str, stream, filename: str, user_id: int) -> Impo
         "stock":           StockImporter,
         "open_po":         OpenPoImporter,
         "main_material":   MainMaterialImporter,
-        "as_material":     AsMaterialImporter,
         "labour_plan":     LabourPlanImporter,
         "smv":             SmvImporter,
         "production_flow": ProductionFlowImporter,
@@ -480,32 +439,6 @@ def data_main_material():
         "admin/data_main_material.html",
         title="Main Material Requirements",
         rows=rows, q=q, f_dept=f_dept, depts=depts, total=total,
-        last_imported=last.imported_at if last else None,
-    )
-
-
-@admin_bp.route("/data/after-sales")
-@login_required
-@permission_required("view_materials")
-def data_after_sales():
-    from app.materials.models import MaterialRequirementAfterSales
-    q = request.args.get("q", "").strip()
-    page = request.args.get("page", 1, type=int)
-    query = MaterialRequirementAfterSales.query
-    if q:
-        like = f"%{q}%"
-        query = query.filter(db.or_(
-            MaterialRequirementAfterSales.order_number.ilike(like),
-            MaterialRequirementAfterSales.product_code.ilike(like),
-            MaterialRequirementAfterSales.customer.ilike(like),
-        ))
-    rows = query.order_by(MaterialRequirementAfterSales.due_date, MaterialRequirementAfterSales.order_number).paginate(page=page, per_page=50, error_out=False)
-    total = MaterialRequirementAfterSales.query.count()
-    last = MaterialRequirementAfterSales.query.order_by(MaterialRequirementAfterSales.imported_at.desc()).first()
-    return render_template(
-        "admin/data_after_sales.html",
-        title="AfterSales Material Requirements",
-        rows=rows, q=q, total=total,
         last_imported=last.imported_at if last else None,
     )
 

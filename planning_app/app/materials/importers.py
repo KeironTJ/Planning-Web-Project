@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from app.extensions import db
 from app.core.csv_utils import read_csv_rows, excel_serial_to_date, parse_decimal, parse_int
 from app.orders.models import ImportBatch
-from .models import Stock, PurchaseOrder, MaterialRequirementMain, MaterialRequirementAfterSales
+from .models import Stock, PurchaseOrder, MaterialRequirementMain
 
 
 def _start_batch(import_type, filename):
@@ -177,56 +177,6 @@ class MainMaterialImporter:
                     product_group=row.get("PRODGRP") or None,
                     product_group_desc=row.get("PGDESCRIPTION") or None,
                     complete=row.get("COMPLETE") or None,
-                    imported_at=now,
-                )
-                db.session.add(m)
-                rows_inserted += 1
-
-            batch.rows_inserted = rows_inserted
-            batch.status = ImportBatch.STATUS_SUCCESS
-            db.session.commit()
-
-        except Exception as exc:
-            _fail_batch(batch, exc)
-
-        return batch
-
-
-# ---------------------------------------------------------------------------
-# After Sales Material Requirements
-# ---------------------------------------------------------------------------
-
-class AsMaterialImporter:
-    """Import ASMaterialReq_HIDE.csv — full replace."""
-
-    @staticmethod
-    def import_file(source, uploaded_by_id=None, filename=None) -> ImportBatch:
-        batch = _start_batch(ImportBatch.TYPE_AS_MATERIAL, filename or "ASMaterialReq_HIDE.csv")
-        batch.uploaded_by_id = uploaded_by_id
-        now = datetime.now(timezone.utc)
-        rows_inserted = 0
-
-        try:
-            all_rows = list(read_csv_rows(source))
-            batch.row_count = len(all_rows)
-
-            MaterialRequirementAfterSales.query.delete()
-            db.session.flush()
-
-            for row in all_rows:
-                product_code = row.get("PRODCODE", "").strip()
-                if not product_code:
-                    continue
-                m = MaterialRequirementAfterSales(
-                    customer=row.get("CUSTOMER") or None,
-                    customer_product_ref=row.get("CUSPRODREF") or None,
-                    order_number=row.get("ORDERNUMBER") or None,
-                    load_date=excel_serial_to_date(row.get("LOADDATE")),
-                    due_date=excel_serial_to_date(row.get("DUEDATE")),
-                    department=row.get("SECTIONDESC") or None,
-                    product_code=product_code,
-                    description=row.get("DESCRIPTION") or None,
-                    qty_required=parse_decimal(row.get("QTYREQUIRED")),
                     imported_at=now,
                 )
                 db.session.add(m)

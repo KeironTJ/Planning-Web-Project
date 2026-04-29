@@ -2,7 +2,9 @@
 Materials availability models.
 
 All tables are full-replace on each daily CSV import (truncate + reload).
-Date fields from ERP CSVs are Excel serial numbers - converted on import.
+Date fields from ERP CSVs are Excel serial numbers — converted on import.
+
+All data is scoped to a Site via site_id.
 
 MrpExemptMaterial is the exception — it is manually maintained and persists
 across imports. Materials on this list are excluded from shortage calculations
@@ -15,12 +17,21 @@ from app.extensions import db
 
 
 class Stock(db.Model):
-    """Current stock on hand per product. Imported from StockOnHand_HIDE.csv (full replace daily)."""
+    """Current stock on hand per product, per site. Full replace on each daily import."""
 
     __tablename__ = "stock"
+    __table_args__ = (
+        db.UniqueConstraint("site_id", "product_code", name="uq_stock_site_product"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    product_code = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    site_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sites.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    product_code = db.Column(db.String(50), nullable=False, index=True)
     description = db.Column(db.String(200), nullable=True)
     qty_on_hand = db.Column(db.Numeric(12, 3), nullable=False, default=0)
     imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
@@ -31,17 +42,22 @@ class Stock(db.Model):
 
 class PurchaseOrder(db.Model):
     """
-    Open inbound purchase order line.
-    Imported from OpenPO_HIDE.csv (full replace daily).
-    Note: OUSTANDINGQTY is a typo in the ERP export - matched exactly.
+    Open inbound purchase order line, per site. Full replace on each daily import.
+    Note: outstanding_qty may map to 'OUSTANDINGQTY' (ERP typo) in older exports.
     """
 
     __tablename__ = "purchase_orders"
     __table_args__ = (
-        db.UniqueConstraint("po_number", "line_number", name="uq_po_line"),
+        db.UniqueConstraint("site_id", "po_number", "line_number", name="uq_po_site_line"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sites.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     po_number = db.Column(db.String(30), nullable=False, index=True)
     line_number = db.Column(db.Integer, nullable=False)
     product_code = db.Column(db.String(50), nullable=True, index=True)
@@ -58,11 +74,17 @@ class PurchaseOrder(db.Model):
 
 
 class MaterialRequirementMain(db.Model):
-    """MRP material requirements for main line orders. Imported from MainMaterialReq_HIDE.csv."""
+    """MRP material requirements, per site. Full replace on each daily import."""
 
     __tablename__ = "material_requirements_main"
 
     id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sites.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     customer_id = db.Column(db.String(30), nullable=True, index=True)
     batch_id = db.Column(db.String(30), nullable=True)
     works_order = db.Column(db.String(30), nullable=True, index=True)
@@ -81,27 +103,6 @@ class MaterialRequirementMain(db.Model):
 
     def __repr__(self):
         return f"<MaterialRequirementMain {self.works_order} {self.material_code}>"
-
-
-class MaterialRequirementAfterSales(db.Model):
-    """MRP material requirements for after sales orders. Imported from ASMaterialReq_HIDE.csv."""
-
-    __tablename__ = "material_requirements_aftersales"
-
-    id = db.Column(db.Integer, primary_key=True)
-    customer = db.Column(db.String(100), nullable=True)
-    customer_product_ref = db.Column(db.String(50), nullable=True)
-    order_number = db.Column(db.String(30), nullable=True, index=True)
-    load_date = db.Column(db.Date, nullable=True)
-    due_date = db.Column(db.Date, nullable=True, index=True)
-    department = db.Column(db.String(100), nullable=True, index=True)
-    product_code = db.Column(db.String(50), nullable=True, index=True)
-    description = db.Column(db.String(200), nullable=True)
-    qty_required = db.Column(db.Numeric(12, 3), nullable=True)
-    imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
-
-    def __repr__(self):
-        return f"<MaterialRequirementAfterSales {self.order_number} {self.product_code}>"
 
 
 class MrpExemptMaterial(db.Model):

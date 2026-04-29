@@ -31,7 +31,6 @@ from .models import (
     Stock,
     PurchaseOrder,
     MaterialRequirementMain,
-    MaterialRequirementAfterSales,
     MrpExemptMaterial,
 )
 
@@ -42,7 +41,7 @@ from .models import (
 
 @dataclass
 class ShortageRow:
-    source: str              # "main" | "aftersales"
+    source: str              # "main" | "po" | "co" | ""
     material_code: str
     description: str
     department: str
@@ -66,7 +65,7 @@ class MrpEvent:
     event_date: Optional[date]
     row_type: str          # "opening" | "co" | "po" | "requirement"
     reference: str
-    source: str            # "main" | "aftersales" | "po" | "co" | ""
+    source: str            # "main" | "po" | "co" | ""
     department: str
     demand: Optional[Decimal]
     receipt: Optional[Decimal]
@@ -153,7 +152,7 @@ def _load_co_qty() -> dict[str, Decimal]:
 # ---------------------------------------------------------------------------
 
 def get_shortage_report(
-    source: str = "all",          # "main" | "aftersales" | "all"
+    source: str = "all",          # "main" | "all" (both map to main; retained for URL compat)
     dept_filter: Optional[str] = None,
     search: Optional[str] = None,
     shortages_only: bool = True,
@@ -185,61 +184,35 @@ def get_shortage_report(
     co_qty_map   = _load_co_qty()        # CO call-offs, treated as finite pool
     exempt_codes = _load_exempt_codes()  # materials excluded from shortage reporting
 
-    # ---- Phase 1: collect ALL raw requirements (source filter only) ----
+    # ---- Phase 1: collect ALL raw requirements ----
     raw: list[dict] = []
 
-    if source in ("all", "main"):
-        for req in (
-            MaterialRequirementMain.query
-            .filter(MaterialRequirementMain.complete != "Y")
-            .order_by(MaterialRequirementMain.due_date)
-            .all()
-        ):
-            mc = req.material_code or ""
-            qty_req    = req.qty_for_order or Decimal(0)
-            qty_issued = req.qty_issued    or Decimal(0)
-            net_req    = max(Decimal(0), qty_req - qty_issued)
-            raw.append({
-                "source":       "main",
-                "material_code": mc,
-                "description":  req.material_description or "",
-                "department":   req.department or "",
-                "due_date":     req.due_date,
-                "qty_required": qty_req,
-                "qty_issued":   qty_issued,
-                "net_required": net_req,
-                "works_order":  req.works_order,
-                "order_number": None,
-                "customer_id":  req.customer_id,
-                "customer":     None,
-                "complete":     req.complete,
-                "_search_text": f"{mc} {req.material_description or ''} {req.works_order or ''}".lower(),
-            })
-
-    if source in ("all", "aftersales"):
-        for req in (
-            MaterialRequirementAfterSales.query
-            .order_by(MaterialRequirementAfterSales.due_date)
-            .all()
-        ):
-            pc      = req.product_code or ""
-            net_req = req.qty_required or Decimal(0)
-            raw.append({
-                "source":       "aftersales",
-                "material_code": pc,
-                "description":  req.description or "",
-                "department":   req.department or "",
-                "due_date":     req.due_date,
-                "qty_required": net_req,
-                "qty_issued":   Decimal(0),
-                "net_required": net_req,
-                "works_order":  None,
-                "order_number": req.order_number,
-                "customer_id":  None,
-                "customer":     req.customer,
-                "complete":     None,
-                "_search_text": f"{pc} {req.description or ''} {req.order_number or ''}".lower(),
-            })
+    for req in (
+        MaterialRequirementMain.query
+        .filter(MaterialRequirementMain.complete != "Y")
+        .order_by(MaterialRequirementMain.due_date)
+        .all()
+    ):
+        mc = req.material_code or ""
+        qty_req    = req.qty_for_order or Decimal(0)
+        qty_issued = req.qty_issued    or Decimal(0)
+        net_req    = max(Decimal(0), qty_req - qty_issued)
+        raw.append({
+            "source":       "main",
+            "material_code": mc,
+            "description":  req.material_description or "",
+            "department":   req.department or "",
+            "due_date":     req.due_date,
+            "qty_required": qty_req,
+            "qty_issued":   qty_issued,
+            "net_required": net_req,
+            "works_order":  req.works_order,
+            "order_number": None,
+            "customer_id":  req.customer_id,
+            "customer":     None,
+            "complete":     req.complete,
+            "_search_text": f"{mc} {req.material_description or ''} {req.works_order or ''}".lower(),
+        })
 
     # ---- Phase 2: cumulative netting per material ----
     # Drop exempt materials entirely — they have no POs by design, so reporting
@@ -339,7 +312,7 @@ def get_shortage_report(
         "total_rows":     len(rows),
         "shortage_count": shortage_count,
         "stock_imported": bool(stock_map),
-        "reqs_imported":  bool(raw) or _has_reqs(source),
+        "reqs_imported":  bool(raw) or _has_reqs(),
     }
 
 
@@ -488,22 +461,7 @@ def get_so_material_status(
         .all()
     )
 
-    # ---- Query after-sales requirements ----
-    so_col_as = func.substr(
-        MaterialRequirementAfterSales.order_number,
-        1,
-        func.length(MaterialRequirementAfterSales.order_number) - 2,
-    )
-    as_reqs = (
-        MaterialRequirementAfterSales.query
-        .filter(
-            MaterialRequirementAfterSales.order_number.isnot(None),
-            so_col_as.in_(so_numbers),
-        )
-        .all()
-    )
-
-    if not main_reqs and not as_reqs:
+    if not main_reqs:
         return result
 
     # ---- Load stock + PO coverage maps ----
@@ -545,20 +503,6 @@ def get_so_material_status(
             Decimal(0),
             (r.qty_for_order or Decimal(0)) - (r.qty_issued or Decimal(0)),
         ),
-        due_date_fn=lambda r: r.due_date,
-        stock_map=stock_map,
-        co_qty_map=co_qty_map,
-        po_entries=po_entries,
-        plan_start_map=plan_start_map,
-        exempt_codes=exempt_codes,
-    )
-
-    # ---- Apply coverage — after-sales requirements ----
-    _apply_coverage(
-        result, as_reqs,
-        so_key_fn=lambda r: _so_from_works_order(r.order_number),
-        material_code_fn=lambda r: r.product_code,
-        net_req_fn=lambda r: r.qty_required or Decimal(0),
         due_date_fn=lambda r: r.due_date,
         stock_map=stock_map,
         co_qty_map=co_qty_map,
@@ -611,20 +555,6 @@ def get_mrp_pegging(
         )
         material_codes.update(r.material_code for r in rows if r.material_code)
 
-        so_col_as = func.substr(
-            MaterialRequirementAfterSales.order_number, 1,
-            func.length(MaterialRequirementAfterSales.order_number) - 2,
-        )
-        rows = (
-            db.session.query(MaterialRequirementAfterSales.product_code)
-            .filter(
-                MaterialRequirementAfterSales.order_number.isnot(None),
-                so_col_as == so_number,
-            )
-            .distinct().all()
-        )
-        material_codes.update(r.product_code for r in rows if r.product_code)
-
     if search:
         term = f"%{search.strip()}%"
         rows = (
@@ -636,16 +566,6 @@ def get_mrp_pegging(
             .distinct().all()
         )
         material_codes.update(r.material_code for r in rows if r.material_code)
-
-        rows = (
-            db.session.query(MaterialRequirementAfterSales.product_code)
-            .filter(db.or_(
-                MaterialRequirementAfterSales.product_code.ilike(term),
-                MaterialRequirementAfterSales.description.ilike(term),
-            ))
-            .distinct().all()
-        )
-        material_codes.update(r.product_code for r in rows if r.product_code)
 
         rows = (
             db.session.query(Stock.product_code)
@@ -672,12 +592,6 @@ def get_mrp_pegging(
         .order_by(MaterialRequirementMain.due_date)
         .all()
     )
-    as_reqs = (
-        MaterialRequirementAfterSales.query
-        .filter(MaterialRequirementAfterSales.product_code.in_(mc_list))
-        .order_by(MaterialRequirementAfterSales.due_date)
-        .all()
-    )
     po_rows = (
         PurchaseOrder.query
         .filter(
@@ -702,23 +616,6 @@ def get_mrp_pegging(
                 "row_type": "requirement",
                 "reference": req.works_order or "",
                 "source": "main",
-                "department": req.department or "",
-                "demand": net_req,
-                "receipt": None,
-                "_sort": (2, req.due_date or date.max, 1),
-            })
-
-    for req in as_reqs:
-        pc = req.product_code or ""
-        if not descriptions.get(pc):
-            descriptions[pc] = req.description or ""
-        net_req = req.qty_required or Decimal(0)
-        if net_req > 0:
-            raw_events[pc].append({
-                "event_date": req.due_date,
-                "row_type": "requirement",
-                "reference": req.order_number or "",
-                "source": "aftersales",
                 "department": req.department or "",
                 "demand": net_req,
                 "receipt": None,
@@ -1122,14 +1019,8 @@ def remove_exemptions(codes: list[str]) -> int:
     return deleted
 
 
-def _has_reqs(source: str) -> bool:
-    if source in ("all", "main"):
-        if db.session.query(func.count(MaterialRequirementMain.id)).scalar():
-            return True
-    if source in ("all", "aftersales"):
-        if db.session.query(func.count(MaterialRequirementAfterSales.id)).scalar():
-            return True
-    return False
+def _has_reqs() -> bool:
+    return bool(db.session.query(func.count(MaterialRequirementMain.id)).scalar())
 
 
 # ---------------------------------------------------------------------------
@@ -1146,7 +1037,6 @@ def get_stock_summary() -> dict:
     )
     total_po_lines = db.session.query(func.count(PurchaseOrder.id)).scalar() or 0
     main_req_count = db.session.query(func.count(MaterialRequirementMain.id)).scalar() or 0
-    as_req_count   = db.session.query(func.count(MaterialRequirementAfterSales.id)).scalar() or 0
 
     # Quick shortage count (only materials with net_req > 0)
     # Use a lightweight version — just count main reqs where qty_for_order > qty_issued
@@ -1172,7 +1062,6 @@ def get_stock_summary() -> dict:
         "zero_stock":      zero_stock,
         "po_lines":        total_po_lines,
         "main_reqs":       main_req_count,
-        "as_reqs":         as_req_count,
         "shortage_est":    shortage_estimate,
         "last_stock_import": last_stock_import,
     }

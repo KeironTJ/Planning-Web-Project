@@ -21,7 +21,7 @@ from .models import (
 # Columns in the OOB that belong to the parent SalesOrderLine
 _SOL_ERP_FIELDS = {
     "customer_code", "customer_name", "customer_order_ref", "customer_product_ref",
-    "order_type", "caravan_code", "caravan_description",
+    "order_type",
     "product_code", "product_description", "qty_ordered",
     "order_date", "due_date", "unit_price", "total_value",
 }
@@ -114,8 +114,6 @@ class OobImporter:
                     "customer_order_ref": first.get("CUSTORDREF") or None,
                     "customer_product_ref": first.get("CUSPRODREF") or None,
                     "order_type": first.get("ORDERTYPE") or None,
-                    "caravan_code": first.get("CARAVANCODE") or None,
-                    "caravan_description": first.get("CARAVANDESCRIPTION") or None,
                     "product_code": first.get("PRODCODE") or None,
                     "product_description": first.get("DESCRIPTION") or None,
                     "qty_ordered": parse_decimal(first.get("QTY")),

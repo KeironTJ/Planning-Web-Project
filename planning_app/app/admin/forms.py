@@ -14,7 +14,6 @@ class ImportUploadForm(FlaskForm):
             ("stock",           "Stock On Hand"),
             ("open_po",         "Open Purchase Orders"),
             ("main_material",   "Material Requirements — Main Line"),
-            ("as_material",     "Material Requirements — After Sales"),
             ("labour_plan",     "Labour Plan (Capacity)"),
             ("smv",             "SMV Table"),
             ("production_flow", "Production Flow Lead Times"),

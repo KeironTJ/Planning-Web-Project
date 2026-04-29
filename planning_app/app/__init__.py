@@ -124,7 +124,6 @@ def _register_error_handlers(app: Flask) -> None:
 
 def _register_template_globals(app: Flask) -> None:
     """Inject variables and helpers available in all templates."""
-    import datetime
 
     @app.template_filter("hm")
     def hours_minutes_filter(decimal_hours) -> str:
@@ -139,23 +138,47 @@ def _register_template_globals(app: Flask) -> None:
 
     @app.context_processor
     def inject_globals():
+        from flask import session
         from flask_login import current_user
 
         active_departments = []
+        active_site = None
+        available_sites = []
+
         if current_user.is_authenticated:
             try:
                 from .orders.models import Department
-                active_departments = (
-                    Department.query.filter_by(is_active=True)
-                    .order_by(Department.flow_order.asc().nullslast(), Department.name.asc())
-                    .all()
-                )
+                from .admin.models import Site
+
+                # Resolve the active site from the session (or first available)
+                site_id = session.get("active_site_id")
+                if site_id:
+                    active_site = Site.query.filter_by(id=site_id, is_active=True).first()
+
+                if current_user.is_admin:
+                    available_sites = Site.query.filter_by(is_active=True).order_by(Site.name).all()
+                else:
+                    available_sites = [s for s in current_user.sites if s.is_active]
+
+                # Auto-select a site if none is set and one is available
+                if active_site is None and available_sites:
+                    active_site = available_sites[0]
+                    session["active_site_id"] = active_site.id
+                    session["active_site_name"] = active_site.name
+
+                dept_q = Department.query.filter_by(is_active=True)
+                if active_site:
+                    dept_q = dept_q.filter_by(site_id=active_site.id)
+                active_departments = dept_q.order_by(
+                    Department.flow_order.asc().nullslast(), Department.name.asc()
+                ).all()
             except Exception:
                 pass
 
         return {
             "app_name": app.config.get("APP_NAME", "Planning Hub"),
-            "company_name": app.config.get("COMPANY_NAME", ""),
-            "current_year": datetime.datetime.utcnow().year,
+            "current_year": __import__("datetime").datetime.utcnow().year,
             "active_departments": active_departments,
+            "active_site": active_site,
+            "available_sites": available_sites,
         }

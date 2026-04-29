@@ -107,48 +107,53 @@ def create_tables():
         click.echo("All tables created.")
 
 
+@app.cli.command("seed-sites")
+@click.option("--name", prompt=True, help="Full site name (e.g. 'Warehouse North')")
+@click.option("--code", prompt=True, help="Short unique code (e.g. 'WHN')")
+@click.option("--description", default="", help="Optional description")
+def seed_sites(name, code, description):
+    """Create a new site."""
+    from app.admin.models import Site
+    with app.app_context():
+        code = code.upper().strip()
+        if Site.query.filter_by(code=code).first():
+            click.echo(f"Error: Site with code '{code}' already exists.")
+            return
+        site = Site(name=name.strip(), code=code, description=description or None, is_active=True)
+        db.session.add(site)
+        db.session.commit()
+        click.echo(f"Site '{name}' ({code}) created with id={site.id}.")
 
 
 @app.cli.command("seed-departments")
-def seed_departments():
-    """Seed the 18 confirmed production departments if they do not already exist."""
+@click.option("--site", "site_code", required=True, prompt=True, help="Site code to add departments to")
+def seed_departments(site_code):
+    """Seed generic production departments for a site (edit list as needed)."""
     from app.orders.models import Department
+    from app.admin.models import Site
     depts = [
-        "WOODMILL",
-        "FURNITURE TIMBER",
-        "CUTTING",
-        "MACHINING",
-        "FILLING",
-        "UPHOLSTERY",
-        "MATTRESS",
-        "TACKING",
-        "CURTAINS",
-        "CURTAIN POLES",
-        "BEDDING",
-        "BLINDS (CTN SECTION)",
+        "PRODUCTION",
+        "ASSEMBLY",
+        "QUALITY",
         "DESPATCH",
-        "AFTER SALES",
-        "BELFIELD TEXTILES",
-        "TEK SEATING (CAB SEATS)",
-        "DIVAN",
-        "ENCAPSULATED SPRINGS",
+        "WAREHOUSE",
         "GENERAL",
     ]
     with app.app_context():
+        site = Site.query.filter_by(code=site_code.upper()).first()
+        if not site:
+            click.echo(f"Error: Site '{site_code}' not found. Run seed-sites first.")
+            return
         created = 0
         for name in depts:
-            code = (
-                name.upper()
-                .replace(" ", "_")
-                .replace("(", "")
-                .replace(")", "")
-            )
-            if not Department.query.filter_by(name=name).first():
-                dept = Department(code=code, name=name, is_active=True)
+            code = name.upper().replace(" ", "_")
+            if not Department.query.filter_by(site_id=site.id, name=name).first():
+                dept = Department(site_id=site.id, code=code, name=name, is_active=True)
                 db.session.add(dept)
                 created += 1
         db.session.commit()
-        click.echo(f"{created} department(s) created ({len(depts) - created} already existed).")
+        click.echo(f"{created} department(s) created for site '{site.name}'")
+        click.echo("Tip: update department names and add/remove entries in Admin → Departments.")
 
 
 @app.cli.command("clear-oob")
@@ -184,13 +189,13 @@ def import_oob(filepath):
 
 @app.cli.command("import-csv")
 @click.option("--type", "import_type", required=True,
-              type=click.Choice(["stock", "open_po", "main_material", "as_material",
+              type=click.Choice(["stock", "open_po", "main_material",
                                  "labour_plan", "smv", "production_flow"]),
               help="Type of CSV to import")
 @click.option("--file", "filepath", required=True, help="Path to the CSV file")
 def import_csv(import_type, filepath):
     """Import a full-replace CSV file (stock, POs, materials, labour plan, SMV, flows)."""
-    from app.materials.importers import StockImporter, OpenPoImporter, MainMaterialImporter, AsMaterialImporter
+    from app.materials.importers import StockImporter, OpenPoImporter, MainMaterialImporter
     from app.capacity.importers import LabourPlanImporter
     from app.orders.importers import SmvImporter, ProductionFlowImporter
 
@@ -198,7 +203,6 @@ def import_csv(import_type, filepath):
         "stock": StockImporter,
         "open_po": OpenPoImporter,
         "main_material": MainMaterialImporter,
-        "as_material": AsMaterialImporter,
         "labour_plan": LabourPlanImporter,
         "smv": SmvImporter,
         "production_flow": ProductionFlowImporter,

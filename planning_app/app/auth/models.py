@@ -28,6 +28,12 @@ role_permissions = db.Table(
     db.Column("permission_id", db.Integer, db.ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True),
 )
 
+user_sites = db.Table(
+    "user_sites",
+    db.Column("user_id", db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    db.Column("site_id", db.Integer, db.ForeignKey("sites.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 class Permission(db.Model):
     """
@@ -105,6 +111,13 @@ class User(db.Model):
     roles = db.relationship(
         "Role",
         secondary=user_roles,
+        backref=db.backref("users", lazy="dynamic"),
+        lazy="subquery",
+    )
+
+    sites = db.relationship(
+        "Site",
+        secondary=user_sites,
         backref=db.backref("users", lazy="dynamic"),
         lazy="subquery",
     )

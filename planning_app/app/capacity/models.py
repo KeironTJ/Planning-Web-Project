@@ -56,16 +56,21 @@ class CapacityBucket(db.Model):
 
 class RoutingTemplate(db.Model):
     """
-    A named production routing — defines the sequence and parallelism of
-    department stages for backward scheduling.
+    A named production routing, scoped to a Site.
 
-    Only one template should have is_default=True; the scheduler uses the
-    default template unless overridden at run time.
+    Defines the sequence and parallelism of department stages for backward
+    scheduling. Only one template per site should have is_default=True.
     """
 
     __tablename__ = "routing_templates"
 
     id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sites.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
     is_default = db.Column(db.Boolean, default=False, nullable=False)

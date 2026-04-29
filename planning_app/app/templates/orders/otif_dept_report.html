@@ -16,7 +16,7 @@
 
 <div class="print-header mb-3 pb-2 border-bottom">
     <h4 class="mb-0">OTIF — On-Time Despatch by Department</h4>
-    <p class="text-muted small mb-0">Belfield Furnishings Ltd &mdash; {{ today.strftime('%d %B %Y') }}</p>
+    <p class="text-muted small mb-0">{{ active_site.name if active_site else 'Manufacturing Planning' }} &mdash; {{ today.strftime('%d %B %Y') }}</p>
 </div>
 
 {# ── Filters ─────────────────────────────────────────────────────────────── #}

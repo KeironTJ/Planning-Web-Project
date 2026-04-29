@@ -1,11 +1,45 @@
 """
 Admin domain models.
 
+Site:          represents a physical business site (factory/warehouse).
+               All operational data (orders, capacity, materials) is scoped to a site.
 SystemSetting: a simple key/value store for administrator-controlled
-application behaviour toggles and configuration values.
+               application behaviour toggles and configuration values.
 """
 
+from datetime import datetime, timezone
+
 from app.extensions import db
+
+
+# ---------------------------------------------------------------------------
+# Site
+# ---------------------------------------------------------------------------
+
+class Site(db.Model):
+    """
+    A physical business site belonging to the group.
+
+    Every piece of operational data (departments, orders, capacity, materials)
+    is scoped to a site via a site_id foreign key.  Users can be granted access
+    to one or more sites; the active site is stored in their session.
+    """
+
+    __tablename__ = "sites"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    code = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    description = db.Column(db.String(255), nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        return f"<Site {self.code}: {self.name}>"
 
 
 class SystemSetting(db.Model):

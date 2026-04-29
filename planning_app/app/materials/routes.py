@@ -176,32 +176,6 @@ def main_requirements():
     )
 
 
-@materials_bp.route("/aftersales-requirements")
-@login_required
-@permission_required("view_materials")
-def aftersales_requirements():
-    from app.materials.models import MaterialRequirementAfterSales
-    q = request.args.get("q", "").strip()
-    page = request.args.get("page", 1, type=int)
-    query = MaterialRequirementAfterSales.query
-    if q:
-        like = f"%{q}%"
-        query = query.filter(db.or_(
-            MaterialRequirementAfterSales.order_number.ilike(like),
-            MaterialRequirementAfterSales.product_code.ilike(like),
-            MaterialRequirementAfterSales.customer.ilike(like),
-        ))
-    rows = query.order_by(MaterialRequirementAfterSales.due_date, MaterialRequirementAfterSales.order_number).paginate(page=page, per_page=50, error_out=False)
-    total = MaterialRequirementAfterSales.query.count()
-    last = MaterialRequirementAfterSales.query.order_by(MaterialRequirementAfterSales.imported_at.desc()).first()
-    return render_template(
-        "materials/aftersales_requirements.html",
-        title="AfterSales Material Requirements",
-        rows=rows, q=q, total=total,
-        last_imported=last.imported_at if last else None,
-    )
-
-
 @materials_bp.route("/exempt", methods=["GET"])
 @login_required
 @permission_required("manage_imports")

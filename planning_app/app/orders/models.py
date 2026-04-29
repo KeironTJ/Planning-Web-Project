@@ -21,16 +21,25 @@ from app.extensions import db
 
 class Department(db.Model):
     """
-    A production department / work centre.
+    A production department / work centre, scoped to a Site.
 
-    The 18 confirmed departments are seeded via `python manage.py seed-departments`.
-    Each department maps 1:1 to a work centre in the ERP OOB.
+    Department codes are unique within a site. Departments are created via
+    Admin → Departments; there are no hardcoded defaults.
     """
 
     __tablename__ = "departments"
+    __table_args__ = (
+        db.UniqueConstraint("site_id", "code", name="uq_dept_site_code"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    site_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sites.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    code = db.Column(db.String(50), nullable=False, index=True)
     name = db.Column(db.String(100), nullable=False, index=True)
     target_hours_per_day = db.Column(db.Numeric(5, 2), nullable=True)
     default_lead_time_days = db.Column(db.Integer, default=2, nullable=False, server_default="2")
@@ -65,7 +74,7 @@ class SalesOrderLine(db.Model):
 
     __tablename__ = "sales_order_lines"
     __table_args__ = (
-        db.UniqueConstraint("so_number", "line_number", name="uq_sol_so_line"),
+        db.UniqueConstraint("site_id", "so_number", "line_number", name="uq_sol_site_so_line"),
     )
 
     # ── Line-level aggregate status constants ─────────────────────────── #
@@ -85,6 +94,12 @@ class SalesOrderLine(db.Model):
     }
 
     id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sites.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
 
     # ERP fields (updated on every import)
     so_number = db.Column(db.String(20), nullable=False, index=True)        # SOPNO
@@ -93,9 +108,7 @@ class SalesOrderLine(db.Model):
     customer_name = db.Column(db.String(150), nullable=True)                 # NAME
     customer_order_ref = db.Column(db.String(50), nullable=True)             # CUSTORDREF
     customer_product_ref = db.Column(db.String(50), nullable=True)           # CUSPRODREF
-    order_type = db.Column(db.String(30), nullable=True, index=True)         # ORDERTYPE (e.g. MAINLINE)
-    caravan_code = db.Column(db.String(30), nullable=True, index=True)       # CARAVANCODE (product programme)
-    caravan_description = db.Column(db.String(200), nullable=True)           # CARAVANDESCRIPTION
+    order_type = db.Column(db.String(30), nullable=True, index=True)         # ORDERTYPE
     product_code = db.Column(db.String(50), nullable=True, index=True)       # PRODCODE
     product_description = db.Column(db.String(200), nullable=True)           # DESCRIPTION
     qty_ordered = db.Column(db.Numeric(10, 2), nullable=True)                # QTY
@@ -408,7 +421,6 @@ class ImportBatch(db.Model):
     TYPE_STOCK = "stock"
     TYPE_OPEN_PO = "open_po"
     TYPE_MAIN_MATERIAL = "main_material"
-    TYPE_AS_MATERIAL = "as_material"
     TYPE_LABOUR_PLAN = "labour_plan"
     TYPE_SMV = "smv"
     TYPE_PRODUCTION_FLOW = "production_flow"
@@ -419,6 +431,12 @@ class ImportBatch(db.Model):
     STATUS_PARTIAL = "partial"
 
     id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sites.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     import_type = db.Column(db.String(30), nullable=False, index=True)
     filename = db.Column(db.String(255), nullable=True)
     uploaded_by_id = db.Column(
