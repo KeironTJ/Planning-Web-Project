@@ -87,7 +87,8 @@ class MaterialRequirementMain(db.Model):
     )
     customer_id = db.Column(db.String(30), nullable=True, index=True)
     batch_id = db.Column(db.String(30), nullable=True)
-    works_order = db.Column(db.String(30), nullable=True, index=True)
+    so_number = db.Column(db.String(20), nullable=True, index=True)  # Direct SO number for pegging
+    works_order = db.Column(db.String(50), nullable=True, index=True)
     load_date = db.Column(db.Date, nullable=True)
     due_date = db.Column(db.Date, nullable=True, index=True)
     department = db.Column(db.String(100), nullable=True, index=True)

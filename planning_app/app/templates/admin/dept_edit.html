@@ -24,15 +24,6 @@
                         </div>
                     </div>
                     <div class="mb-3">
-                        {{ form.default_lead_time_days.label(class="form-label") }}
-                        {{ form.default_lead_time_days(class="form-control", placeholder="e.g. 2") }}
-                        <div class="form-text">
-                            Minimum working days this department needs to complete its work.
-                            Used by the backward scheduler when no stage override is set.
-                            Despatch is typically 1; most departments 2.
-                        </div>
-                    </div>
-                    <div class="mb-3">
                         {{ form.flow_order.label(class="form-label") }}
                         {{ form.flow_order(class="form-control", placeholder="e.g. 1, 2, 3…") }}
                         <div class="form-text">

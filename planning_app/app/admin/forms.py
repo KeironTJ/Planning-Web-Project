@@ -2,7 +2,7 @@
 
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired, FileAllowed
-from wtforms import SelectField, HiddenField, DecimalField, IntegerField, BooleanField
+from wtforms import SelectField, DecimalField, IntegerField, BooleanField
 from wtforms.validators import Optional, NumberRange
 
 
@@ -10,13 +10,13 @@ class ImportUploadForm(FlaskForm):
     import_type = SelectField(
         "Import Type",
         choices=[
-            ("oob",             "Open Order Book (OOB)"),
-            ("stock",           "Stock On Hand"),
-            ("open_po",         "Open Purchase Orders"),
-            ("main_material",   "Material Requirements — Main Line"),
-            ("labour_plan",     "Labour Plan (Capacity)"),
-            ("smv",             "SMV Table"),
-            ("production_flow", "Production Flow Lead Times"),
+            ("sales",          "Sales Orders (sales_HIDE.csv)"),
+            ("coois",          "Production / Works Orders (COOIS_HIDE.csv)"),
+            ("stock",          "Stock On Hand (SOH_HIDE.csv)"),
+            ("open_po",        "Open Purchase Orders (OpenPO_HIDE.csv)"),
+            ("main_material",  "Material Requirements (MatReq_HIDE.csv)"),
+            ("labour_plan",    "Labour Plan (Capacity)"),
+            ("oob",            "Open Order Book (legacy OOB format)"),
         ],
     )
     file = FileField(
@@ -43,11 +43,6 @@ class DeptHoursForm(FlaskForm):
         "Target Hours / Day",
         places=2,
         validators=[Optional()],
-    )
-    default_lead_time_days = IntegerField(
-        "Default Lead Time (working days)",
-        default=2,
-        validators=[Optional(), NumberRange(min=0, max=30)],
     )
     flow_order = IntegerField(
         "Flow Order",

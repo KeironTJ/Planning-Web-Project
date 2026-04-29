@@ -1,12 +1,10 @@
-"""
+﻿"""
 Orders domain models.
 
 Covers the core planning entities derived from ERP CSV exports:
 - Department: the 18 production work centres
 - SalesOrderLine: one parent record per SO + line (from OpenOrderBook CSV)
 - WorksOrderOperation: one child record per SO + line + work centre (from OOB CSV)
-- SmvMatrix: standard minute values per product per department (from SMVTable CSV)
-- ProductionFlow: routing flow + lead times per stage (from ProductionFlowLT CSV)
 - ImportBatch: audit log of all CSV uploads
 """
 
@@ -24,7 +22,7 @@ class Department(db.Model):
     A production department / work centre, scoped to a Site.
 
     Department codes are unique within a site. Departments are created via
-    Admin → Departments; there are no hardcoded defaults.
+    Admin â†’ Departments; there are no hardcoded defaults.
     """
 
     __tablename__ = "departments"
@@ -42,13 +40,11 @@ class Department(db.Model):
     code = db.Column(db.String(50), nullable=False, index=True)
     name = db.Column(db.String(100), nullable=False, index=True)
     target_hours_per_day = db.Column(db.Numeric(5, 2), nullable=True)
-    default_lead_time_days = db.Column(db.Integer, default=2, nullable=False, server_default="2")
     flow_order = db.Column(db.Integer, nullable=True)   # Position in production flow (1 = first); NULL = unset
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
     capacity_buckets = db.relationship("CapacityBucket", back_populates="department", cascade="all, delete-orphan")
     works_order_operations = db.relationship("WorksOrderOperation", back_populates="department")
-    smv_entries = db.relationship("SmvMatrix", back_populates="department", cascade="all, delete-orphan")
 
     @classmethod
     def get_by_name(cls, name: str):
@@ -65,7 +61,7 @@ class Department(db.Model):
 
 class SalesOrderLine(db.Model):
     """
-    Parent record — one per Sales Order + line number combination.
+    Parent record â€” one per Sales Order + line number combination.
 
     Imported from OpenOrderBook_HIDE.csv (UPSERT on each daily import).
     ERP fields are updated on every import; planner fields are never touched
@@ -77,7 +73,7 @@ class SalesOrderLine(db.Model):
         db.UniqueConstraint("site_id", "so_number", "line_number", name="uq_sol_site_so_line"),
     )
 
-    # ── Line-level aggregate status constants ─────────────────────────── #
+    # â”€â”€ Line-level aggregate status constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
     LINE_STATUS_NEW          = "new_order"
     LINE_STATUS_FIRM_PLANNED = "firm_planned"
     LINE_STATUS_RELEASED     = "released"
@@ -118,10 +114,10 @@ class SalesOrderLine(db.Model):
     total_value = db.Column(db.Numeric(12, 2), nullable=True)                # TOTALVALUE
     imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
-    # Planner field — set by scheduler for lines that have no operations
+    # Planner field â€” set by scheduler for lines that have no operations
     planned_date = db.Column(db.Date, nullable=True, index=True)
 
-    # ERP integrity flag — set by importer when no WorksOrderOperation rows exist for this line.
+    # ERP integrity flag â€” set by importer when no WorksOrderOperation rows exist for this line.
     # Cleared automatically when ops appear on a subsequent import.
     # ops_missing_since is stamped on first detection and retained even after clearing (audit trail).
     ops_missing       = db.Column(db.Boolean, default=False, nullable=False, server_default="0", index=True)
@@ -132,7 +128,7 @@ class SalesOrderLine(db.Model):
     order_completed_date    = db.Column(db.Date, nullable=True, index=True)
     production_ready_date   = db.Column(db.Date, nullable=True, index=True)
 
-    # Customer hold — order is production-complete but despatch delayed by customer request
+    # Customer hold â€” order is production-complete but despatch delayed by customer request
     customer_hold       = db.Column(db.Boolean, default=False, nullable=False, server_default="0", index=True)
     customer_hold_since = db.Column(db.Date, nullable=True)
     customer_hold_note  = db.Column(db.String(255), nullable=True)
@@ -150,11 +146,11 @@ class SalesOrderLine(db.Model):
         Derive a line-level status from the collection of operations.
 
         Priority (highest wins):
-          completed    — all operations are completed or closed
-          wip          — any operation is in wip or completed
+          completed    â€” all operations are completed or closed
+          wip          â€” any operation is in wip or completed
                          (production has begun on at least one department)
-          firm_planned — any open operation has a planned_date set or is firm_planned/released
-          new_order    — no planned dates, all operations new_order
+          firm_planned â€” any open operation has a planned_date set or is firm_planned/released
+          new_order    â€” no planned dates, all operations new_order
         """
         ops = self.operations
         if not ops:
@@ -172,15 +168,15 @@ class SalesOrderLine(db.Model):
         if open_statuses == {WorksOrderOperation.STATUS_COMPLETED}:
             return self.LINE_STATUS_COMPLETED
 
-        # Any wip or completed ops → WIP
+        # Any wip or completed ops â†’ WIP
         if open_statuses & {WorksOrderOperation.STATUS_WIP, WorksOrderOperation.STATUS_COMPLETED}:
             return self.LINE_STATUS_WIP
 
-        # All open ops are released (none still at new_order or firm_planned) → Released
+        # All open ops are released (none still at new_order or firm_planned) â†’ Released
         if open_statuses <= {WorksOrderOperation.STATUS_RELEASED}:
             return self.LINE_STATUS_RELEASED
 
-        # Mix of released+firm_planned, firm_planned only, or any planned dates → Firm Planned
+        # Mix of released+firm_planned, firm_planned only, or any planned dates â†’ Firm Planned
         if any(
             op.status in (WorksOrderOperation.STATUS_FIRM_PLANNED, WorksOrderOperation.STATUS_RELEASED)
             or op.planned_date is not None
@@ -192,7 +188,7 @@ class SalesOrderLine(db.Model):
 
     @property
     def final_planned_date(self):
-        """Latest planned_date across open operations — represents expected completion.
+        """Latest planned_date across open operations â€” represents expected completion.
         Falls back to the line-level planned_date for lines with no operations."""
         dates = [
             op.planned_date for op in self.operations
@@ -212,10 +208,10 @@ class SalesOrderLine(db.Model):
 
 class WorksOrderOperation(db.Model):
     """
-    Child record — one per Sales Order + line + work centre.
+    Child record â€” one per Sales Order + line + work centre.
 
     These are the rows from OpenOrderBook_HIDE.csv.
-    The ERP has already broken each order down by work centre — these ARE the
+    The ERP has already broken each order down by work centre â€” these ARE the
     works order operations.
 
     ERP fields are updated on every OOB import.
@@ -239,7 +235,7 @@ class WorksOrderOperation(db.Model):
     STATUS_COMPLETED   = "completed"
     STATUS_CLOSED      = "closed"
 
-    # Legacy aliases — keep so any stale references still resolve correctly
+    # Legacy aliases â€” keep so any stale references still resolve correctly
     STATUS_NOT_STARTED = STATUS_NEW_ORDER
     STATUS_STARTED     = STATUS_RELEASED
     STATUS_FIRMED      = STATUS_FIRM_PLANNED   # backward-compat alias
@@ -315,96 +311,6 @@ class WorksOrderOperation(db.Model):
 
     def __repr__(self) -> str:
         return f"<WorksOrderOperation {self.so_number}/{self.line_number} {self.work_centre_name}>"
-
-
-# ---------------------------------------------------------------------------
-# SMV Matrix
-# ---------------------------------------------------------------------------
-
-class SmvMatrix(db.Model):
-    """
-    Standard Minute Values — minutes per unit per department per product.
-
-    Imported from SMVTable_HIDE.csv (wide format, unpivoted to long on import).
-    UPSERT on import: preserves planner-set confidence level.
-
-    Used for capacity load calculation:
-        load_hours = SUM(operation.qty * smv_minutes / 60)
-    """
-
-    __tablename__ = "smv_matrix"
-    __table_args__ = (
-        db.UniqueConstraint("component_id", "department_id", name="uq_smv_comp_dept"),
-    )
-
-    CONFIDENCE_ESTIMATED = "estimated"
-    CONFIDENCE_TIMED = "timed_study"
-    CONFIDENCE_MOST = "most_study"
-
-    id = db.Column(db.Integer, primary_key=True)
-    component_id = db.Column(db.String(100), nullable=False, index=True)  # COMPONENT ID
-    timing_code = db.Column(db.String(100), nullable=True)                # TIMING CODE (product category)
-    description = db.Column(db.String(200), nullable=True)                # DESCRIPTION
-    department_id = db.Column(
-        db.Integer,
-        db.ForeignKey("departments.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    smv_minutes = db.Column(db.Numeric(8, 3), nullable=True)              # SMV in minutes
-    ops = db.Column(db.Integer, nullable=True)                            # OPS
-    date_updated = db.Column(db.Date, nullable=True)                      # Date Updated
-    confidence = db.Column(db.String(20), default=CONFIDENCE_ESTIMATED, nullable=False)
-
-    last_modified_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    last_modified_by_id = db.Column(
-        db.Integer,
-        db.ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
-    department = db.relationship("Department", back_populates="smv_entries")
-    last_modified_by = db.relationship("User", foreign_keys=[last_modified_by_id])
-
-    def __repr__(self) -> str:
-        return f"<SmvMatrix {self.component_id} dept={self.department_id}>"
-
-
-# ---------------------------------------------------------------------------
-# Production Flow
-# ---------------------------------------------------------------------------
-
-class ProductionFlow(db.Model):
-    """
-    A production routing flow and its lead times per department stage.
-
-    Imported from ProductionFlowLT_HIDE.csv (full replace).
-
-    UNIQUE FLOW is a binary-encoded string identifying which departments a
-    product passes through. dept_lead_times stores a JSON dict mapping
-    department name to lead time in days.
-
-    Used for backward scheduling:
-        planned_date = due_date - sum(lead times for stages before this dept)
-    """
-
-    __tablename__ = "production_flows"
-
-    id = db.Column(db.Integer, primary_key=True)
-    unique_flow = db.Column(db.String(50), unique=True, nullable=False, index=True)  # UNIQUE FLOW
-    flow_description = db.Column(db.String(500), nullable=True)                       # Production Flow
-    ops = db.Column(db.Integer, nullable=True)                                        # Ops
-    total_lead_time_days = db.Column(db.Integer, nullable=True)                       # Lead Time Q
-    firmed = db.Column(db.Boolean, default=False, nullable=False)                     # Firmed? (Y/N)
-    dept_lead_times = db.Column(db.JSON, nullable=True)                               # {dept_name: days}
-    imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
-
-    def __repr__(self) -> str:
-        return f"<ProductionFlow {self.unique_flow}>"
-
-
-# ---------------------------------------------------------------------------
-# Import Batch (audit log)
 # ---------------------------------------------------------------------------
 
 class ImportBatch(db.Model):
@@ -417,13 +323,13 @@ class ImportBatch(db.Model):
     __tablename__ = "import_batches"
 
     # Import type constants
-    TYPE_OOB = "oob"
+    TYPE_OOB = "oob"                       # legacy open order book (old format)
+    TYPE_SALES = "sales"                   # Epicor SALES CSV â†’ SalesOrderLine
+    TYPE_COOIS = "coois"                   # Epicor COOIS CSV â†’ WorksOrderOperation
     TYPE_STOCK = "stock"
     TYPE_OPEN_PO = "open_po"
     TYPE_MAIN_MATERIAL = "main_material"
     TYPE_LABOUR_PLAN = "labour_plan"
-    TYPE_SMV = "smv"
-    TYPE_PRODUCTION_FLOW = "production_flow"
 
     STATUS_PENDING = "pending"
     STATUS_SUCCESS = "success"
@@ -467,7 +373,7 @@ class ImportBatch(db.Model):
 class SalesOrderComment(db.Model):
     """
     Free-text comment left by a user against a sales order number.
-    Append-only — comments are never edited or deleted.
+    Append-only â€” comments are never edited or deleted.
     """
 
     __tablename__ = "so_comments"

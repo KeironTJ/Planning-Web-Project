@@ -18,7 +18,6 @@ from app.auth.models import User, Role, AuditLog
 from app.auth.services import RoleService
 from app.extensions import db
 from app.core.decorators import admin_required, permission_required
-from app.core.exceptions import NotFoundError
 from app.orders.models import Department, ImportBatch
 
 
@@ -275,8 +274,6 @@ def dept_edit(dept_id: int):
             flash(f"Department '{dept.name}' {status}.", "success")
         else:
             dept.target_hours_per_day = form.target_hours_per_day.data
-            if form.default_lead_time_days.data is not None:
-                dept.default_lead_time_days = form.default_lead_time_days.data
             dept.flow_order = form.flow_order.data  # None clears it
             db.session.commit()
             flash(f"Settings updated for {dept.name}.", "success")
@@ -360,20 +357,20 @@ def import_upload():
 
 def _run_importer(import_type: str, stream, filename: str, user_id: int) -> ImportBatch:
     """Dispatch to the correct importer class."""
-    from app.orders.importers import OobImporter, SmvImporter, ProductionFlowImporter
+    from app.orders.importers import OobImporter, SalesImporter, CooisImporter
     from app.materials.importers import (
         StockImporter, OpenPoImporter, MainMaterialImporter,
     )
     from app.capacity.importers import LabourPlanImporter
 
     dispatch = {
+        "sales":           SalesImporter,
+        "coois":           CooisImporter,
         "oob":             OobImporter,
         "stock":           StockImporter,
         "open_po":         OpenPoImporter,
         "main_material":   MainMaterialImporter,
         "labour_plan":     LabourPlanImporter,
-        "smv":             SmvImporter,
-        "production_flow": ProductionFlowImporter,
     }
     importer_cls = dispatch[import_type]
     return importer_cls.import_file(stream, uploaded_by_id=user_id, filename=filename)

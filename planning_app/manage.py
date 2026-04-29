@@ -189,23 +189,24 @@ def import_oob(filepath):
 
 @app.cli.command("import-csv")
 @click.option("--type", "import_type", required=True,
-              type=click.Choice(["stock", "open_po", "main_material",
-                                 "labour_plan", "smv", "production_flow"]),
+              type=click.Choice(["sales", "coois", "stock", "open_po", "main_material",
+                                 "labour_plan", "oob"]),
               help="Type of CSV to import")
 @click.option("--file", "filepath", required=True, help="Path to the CSV file")
 def import_csv(import_type, filepath):
-    """Import a full-replace CSV file (stock, POs, materials, labour plan, SMV, flows)."""
+    """Import a CSV file. Use sales/coois/stock/open_po/main_material for daily Epicor exports."""
     from app.materials.importers import StockImporter, OpenPoImporter, MainMaterialImporter
     from app.capacity.importers import LabourPlanImporter
-    from app.orders.importers import SmvImporter, ProductionFlowImporter
+    from app.orders.importers import OobImporter, SalesImporter, CooisImporter
 
     importers = {
-        "stock": StockImporter,
-        "open_po": OpenPoImporter,
-        "main_material": MainMaterialImporter,
-        "labour_plan": LabourPlanImporter,
-        "smv": SmvImporter,
-        "production_flow": ProductionFlowImporter,
+        "sales":           SalesImporter,
+        "coois":           CooisImporter,
+        "oob":             OobImporter,
+        "stock":           StockImporter,
+        "open_po":         OpenPoImporter,
+        "main_material":   MainMaterialImporter,
+        "labour_plan":     LabourPlanImporter,
     }
 
     with app.app_context():

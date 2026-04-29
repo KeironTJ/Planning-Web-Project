@@ -76,14 +76,6 @@
 </div>
 {% endif %}
 
-{% if not data.has_smv %}
-<div class="alert alert-warning">
-    <i class="bi bi-exclamation-triangle me-2"></i>
-    No SMV data — load hours cannot be calculated.
-    <a href="{{ url_for('admin.import_upload') }}" class="alert-link">Upload SMVTable_HIDE.csv</a> to enable load vs capacity comparison.
-</div>
-{% endif %}
-
 {% if selected_dept %}
 <div class="d-flex justify-content-end mb-3">
     <a href="{{ url_for('capacity.dept_calendar', dept_id=selected_dept.id) }}" class="btn btn-sm btn-outline-primary">

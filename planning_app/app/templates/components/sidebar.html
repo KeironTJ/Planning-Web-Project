@@ -25,67 +25,6 @@
                     <i class="bi bi-exclamation-triangle me-2"></i>Overdue Report
                 </a>
             </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'orders.otif_report' %}active{% endif %}"
-                   href="{{ url_for('orders.otif_report') }}">
-                    <i class="bi bi-graph-up-arrow me-2"></i>OTIF by Customer
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'orders.otif_dept_report' %}active{% endif %}"
-                   href="{{ url_for('orders.otif_dept_report') }}">
-                    <i class="bi bi-building-check me-2"></i>OTIF by Department
-                </a>
-            </li>
-            {% endif %}
-
-            {# ── Planning ──────────────────────────────────────────── #}
-            {% if current_user.has_permission('view_orders') or current_user.has_permission('manage_orders') or current_user.has_permission('override_capacity') %}
-            <li class="mt-3">
-                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">Planning</h6>
-            </li>
-            {% if current_user.has_permission('view_orders') %}
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'orders.planning_dashboard' %}active{% endif %}"
-                   href="{{ url_for('orders.planning_dashboard') }}">
-                    <i class="bi bi-speedometer2 me-2"></i>Dashboard
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'orders.firming_queue' %}active{% endif %}"
-                   href="{{ url_for('orders.firming_queue') }}">
-                    <i class="bi bi-check2-circle me-2"></i>Firming Queue
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'orders.releasing_queue' %}active{% endif %}"
-                   href="{{ url_for('orders.releasing_queue') }}">
-                    <i class="bi bi-play-circle me-2"></i>Releasing Queue
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'orders.no_ops_queue' %}active{% endif %}"
-                   href="{{ url_for('orders.no_ops_queue') }}">
-                    <i class="bi bi-patch-question me-2"></i>No-Ops Queue
-                </a>
-            </li>
-            {% endif %}
-            {% if current_user.has_permission('manage_orders') %}
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'orders.planning' %}active{% endif %}"
-                   href="{{ url_for('orders.planning') }}">
-                    <i class="bi bi-calendar3 me-2"></i>Date Planning
-                </a>
-            </li>
-            {% endif %}
-            {% if current_user.has_permission('override_capacity') %}
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'capacity.scheduler' %}active{% endif %}"
-                   href="{{ url_for('capacity.scheduler') }}">
-                    <i class="bi bi-calendar-check me-2"></i>Schedule Orders
-                </a>
-            </li>
-            {% endif %}
             {% endif %}
 
             {# ── Capacity ──────────────────────────────────────────── #}
@@ -101,21 +40,9 @@
             </li>
             {% if current_user.has_permission('override_capacity') %}
             <li class="nav-item">
-                <a class="nav-link {% if request.endpoint and 'routing' in request.endpoint %}active{% endif %}"
-                   href="{{ url_for('capacity.routing_list') }}">
-                    <i class="bi bi-diagram-3 me-2"></i>Routing Templates
-                </a>
-            </li>
-            <li class="nav-item">
                 <a class="nav-link {% if request.endpoint == 'capacity.labour_plan_list' or request.endpoint == 'capacity.labour_plan_save' %}active{% endif %}"
                    href="{{ url_for('capacity.labour_plan_list') }}">
                     <i class="bi bi-people me-2"></i>Labour Plan
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'capacity.smv_list' or request.endpoint == 'capacity.smv_edit' %}active{% endif %}"
-                   href="{{ url_for('capacity.smv_list') }}">
-                    <i class="bi bi-stopwatch me-2"></i>SMV Matrix
                 </a>
             </li>
             {% endif %}

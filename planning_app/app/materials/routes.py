@@ -8,10 +8,8 @@ from sqlalchemy import func
 
 from . import materials_bp
 from . import services
-from .services import _so_from_works_order
 from app.extensions import db
 from app.orders.models import Department, SalesOrderLine, WorksOrderOperation
-from app.extensions import db
 from app.core.decorators import permission_required
 
 
@@ -72,11 +70,10 @@ def shortage():
     departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
 
     # Build plan_start_map: SO number -> earliest planned op date from our system.
-    # Extract SO numbers from works_order / order_number (strip 2-char line suffix).
+    # Use so_number field directly (populated from 'Order' column during import).
     so_numbers = list({
-        so for r in data["rows"]
-        for so in [_so_from_works_order(r.works_order or r.order_number)]
-        if so
+        r.so_number for r in data["rows"]
+        if r.so_number
     })
     plan_start_map: dict = {}
     if so_numbers:
@@ -108,7 +105,6 @@ def shortage():
         due_before=due_before_str,
         due_from=due_from_str,
         plan_start_map=plan_start_map,
-        so_from_wo=_so_from_works_order,
         today=date.today(),
     )
 

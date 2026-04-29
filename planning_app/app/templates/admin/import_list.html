@@ -11,9 +11,10 @@
 <!-- Type filter -->
 <div class="mb-3">
     {% set type_filters = [
-        ('', 'All'), ('oob', 'OOB'), ('stock', 'Stock'), ('open_po', 'Open PO'),
-        ('main_material', 'Main Material'),
-        ('labour_plan', 'Labour Plan'), ('smv', 'SMV'), ('production_flow', 'Prod Flow'),
+        ('', 'All'), ('sales', 'Sales'), ('coois', 'COOIS'),
+        ('stock', 'Stock'), ('open_po', 'Open PO'),
+        ('main_material', 'Mat Reqs'),
+        ('labour_plan', 'Labour Plan'),
     ] %}
     <div class="btn-group btn-group-sm flex-wrap">
         {% for t, l in type_filters %}

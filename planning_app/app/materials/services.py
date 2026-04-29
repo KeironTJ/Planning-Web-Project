@@ -54,7 +54,7 @@ class ShortageRow:
     shortage: Decimal
     # Source record identifiers
     works_order: Optional[str] = None
-    order_number: Optional[str] = None
+    so_number: Optional[str] = None
     customer_id: Optional[str] = None
     customer: Optional[str] = None
     complete: Optional[str] = None
@@ -207,7 +207,7 @@ def get_shortage_report(
             "qty_issued":   qty_issued,
             "net_required": net_req,
             "works_order":  req.works_order,
-            "order_number": None,
+            "so_number":    req.so_number,
             "customer_id":  req.customer_id,
             "customer":     None,
             "complete":     req.complete,
@@ -296,7 +296,7 @@ def get_shortage_report(
             po_coverage=r["_po_coverage"],
             shortage=r["_shortage"],
             works_order=r["works_order"],
-            order_number=r["order_number"],
+            so_number=r.get("so_number"),
             customer_id=r["customer_id"],
             customer=r["customer"],
             complete=r["complete"],
@@ -337,19 +337,6 @@ MAT_STATUS_META: dict[str, tuple[str, str]] = {
     "high_risk": ("Shortage",   "danger"),
     "no_data":   ("—",          "secondary"),
 }
-
-
-def _so_from_works_order(works_order: Optional[str]) -> Optional[str]:
-    """
-    Extract the SO number from a works order reference.
-
-    The ERP encodes works orders as SOPNO + zero-padded ORDITEM suffix
-    (e.g. works_order "53054801" = SO "530548" + line "01").
-    We strip the last 2 characters to recover the SO number.
-    """
-    if works_order and len(works_order) > 2:
-        return works_order[:-2]
-    return None
 
 
 def _apply_coverage(
@@ -444,19 +431,12 @@ def get_so_material_status(
 
     result: dict[str, str] = {so: "no_data" for so in so_numbers}
 
-    # ---- Query main production requirements ----
-    # works_order = SOPNO + 2-digit suffix; strip suffix to match SO number
-    so_col_main = func.substr(
-        MaterialRequirementMain.works_order,
-        1,
-        func.length(MaterialRequirementMain.works_order) - 2,
-    )
+    # ---- Query main production requirements via direct so_number field ----
     main_reqs = (
         MaterialRequirementMain.query
         .filter(
             MaterialRequirementMain.complete != "Y",
-            MaterialRequirementMain.works_order.isnot(None),
-            so_col_main.in_(so_numbers),
+            MaterialRequirementMain.so_number.in_(so_numbers),
         )
         .all()
     )
@@ -497,7 +477,7 @@ def get_so_material_status(
     # ---- Apply coverage — main requirements ----
     _apply_coverage(
         result, main_reqs,
-        so_key_fn=lambda r: _so_from_works_order(r.works_order),
+        so_key_fn=lambda r: r.so_number or "",
         material_code_fn=lambda r: r.material_code,
         net_req_fn=lambda r: max(
             Decimal(0),
@@ -540,16 +520,11 @@ def get_mrp_pegging(
     material_codes: set[str] = set()
 
     if so_number:
-        so_col_main = func.substr(
-            MaterialRequirementMain.works_order, 1,
-            func.length(MaterialRequirementMain.works_order) - 2,
-        )
         rows = (
             db.session.query(MaterialRequirementMain.material_code)
             .filter(
                 MaterialRequirementMain.complete != "Y",
-                MaterialRequirementMain.works_order.isnot(None),
-                so_col_main == so_number,
+                MaterialRequirementMain.so_number == so_number,
             )
             .distinct().all()
         )
@@ -818,68 +793,6 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
         "total_value": total_value,
         "total_count": total_count,
         "has_data":    bool(weeks),
-    }
-
-
-def get_so_value_by_material_status() -> dict:
-    """
-    Aggregate open SO total_value by material availability status.
-
-    "Open" = has at least one non-closed WorksOrderOperation.
-    Each SO contributes its total_value (sum across all lines for that SO)
-    to the bucket matching its worst-case material status.
-
-    Returns:
-        {
-            "by_status": {
-                status: {"value": Decimal, "count": int},
-                ...
-            },
-            "total_value": Decimal,
-            "has_data": bool,
-        }
-    """
-    from collections import defaultdict
-    from app.orders.models import SalesOrderLine, WorksOrderOperation
-
-    # SOs with at least one non-closed operation
-    open_so_numbers = (
-        db.session.query(WorksOrderOperation.so_number)
-        .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
-        .distinct()
-        .subquery()
-    )
-
-    so_rows = (
-        db.session.query(
-            SalesOrderLine.so_number,
-            func.sum(SalesOrderLine.total_value).label("total_value"),
-        )
-        .filter(SalesOrderLine.so_number.in_(db.session.query(open_so_numbers.c.so_number)))
-        .group_by(SalesOrderLine.so_number)
-        .all()
-    )
-
-    if not so_rows:
-        return {"by_status": {}, "total_value": Decimal(0), "has_data": False}
-
-    so_numbers = [r.so_number for r in so_rows]
-    value_map  = {r.so_number: r.total_value or Decimal(0) for r in so_rows}
-
-    status_map = get_so_material_status(so_numbers)
-
-    by_status: dict = defaultdict(lambda: {"value": Decimal(0), "count": 0})
-    for so, status in status_map.items():
-        # no_data means no MRP requirements exist for this SO — treat as ok
-        bucket = "ok" if status == "no_data" else status
-        by_status[bucket]["value"] += value_map.get(so, Decimal(0))
-        by_status[bucket]["count"] += 1
-
-    total = sum(v["value"] for v in by_status.values())
-    return {
-        "by_status":   dict(by_status),
-        "total_value": total,
-        "has_data":    bool(by_status),
     }
 
 

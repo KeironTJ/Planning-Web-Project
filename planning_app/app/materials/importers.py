@@ -2,10 +2,9 @@
 Materials CSV importers — all full replace (truncate + reload daily).
 
 Covers:
-- StockImporter            — StockOnHand_HIDE.csv
-- OpenPoImporter           — OpenPO_HIDE.csv
-- MainMaterialImporter     — MainMaterialReq_HIDE.csv
-- AsMaterialImporter       — ASMaterialReq_HIDE.csv
+- StockImporter          — SOH_HIDE.csv            (Part, TotalOnHand, ...)
+- OpenPoImporter         — OpenPO_HIDE.csv          (PO, Line, Part Num, ...)
+- MainMaterialImporter   — MatReq_HIDE.csv          (Material, RequiredQty, ...)
 """
 
 from datetime import datetime, timezone
@@ -44,11 +43,18 @@ def _fail_batch(batch, exc):
 # ---------------------------------------------------------------------------
 
 class StockImporter:
-    """Import StockOnHand_HIDE.csv — full replace."""
+    """
+    Import SOH_HIDE.csv — full replace.
+
+    Column mapping (Epicor Kinetic export):
+        Part          → product_code
+        Description   → description
+        TotalOnHand   → qty_on_hand
+    """
 
     @staticmethod
     def import_file(source, uploaded_by_id=None, filename=None) -> ImportBatch:
-        batch = _start_batch(ImportBatch.TYPE_STOCK, filename or "StockOnHand_HIDE.csv")
+        batch = _start_batch(ImportBatch.TYPE_STOCK, filename or "SOH_HIDE.csv")
         batch.uploaded_by_id = uploaded_by_id
         now = datetime.now(timezone.utc)
         rows_inserted = 0
@@ -61,13 +67,13 @@ class StockImporter:
             db.session.flush()
 
             for row in all_rows:
-                product_code = row.get("PRODCODE", "").strip()
+                product_code = row.get("Part", "").strip()
                 if not product_code:
                     continue
                 s = Stock(
                     product_code=product_code,
-                    description=row.get("DESCRIPTION") or None,
-                    qty_on_hand=parse_decimal(row.get("STKQTY"), default=0),
+                    description=row.get("Description") or None,
+                    qty_on_hand=parse_decimal(row.get("TotalOnHand"), default=0),
                     imported_at=now,
                 )
                 db.session.add(s)
@@ -91,7 +97,16 @@ class OpenPoImporter:
     """
     Import OpenPO_HIDE.csv — full replace.
 
-    Note: the ERP exports the column as 'OUSTANDINGQTY' (typo) — matched exactly.
+    Column mapping (Epicor Kinetic export):
+        PO           → po_number
+        Line         → line_number
+        Part Num     → product_code
+        Description  → description
+        OutstandingQty → outstanding_qty
+        Due Date     → due_date  (Excel serial; may be blank)
+        Supplier ID  → supplier_code
+        Name         → supplier_name
+    Note: no CO/PO type column in this export; all rows treated as type PO.
     """
 
     @staticmethod
@@ -109,19 +124,19 @@ class OpenPoImporter:
             db.session.flush()
 
             for row in all_rows:
-                po_number = row.get("POPNO", "").strip()
+                po_number = row.get("PO", "").strip()
                 if not po_number:
                     continue
                 po = PurchaseOrder(
                     po_number=po_number,
-                    line_number=parse_int(row.get("ORDITEM"), default=0),
-                    product_code=row.get("PRODCODE") or None,
-                    description=row.get("PLDESCRIPTION") or None,
-                    outstanding_qty=parse_decimal(row.get("OUSTANDINGQTY")),  # ERP typo — exact match
-                    due_date=excel_serial_to_date(row.get("DUEDATE")),
-                    supplier_code=row.get("SUPPLIER") or None,
-                    supplier_name=row.get("NAME") or None,
-                    po_type=row.get("Type") or None,
+                    line_number=parse_int(row.get("Line"), default=0),
+                    product_code=row.get("Part Num") or None,
+                    description=row.get("Description") or None,
+                    outstanding_qty=parse_decimal(row.get("OutstandingQty")),
+                    due_date=excel_serial_to_date(row.get("Due Date")),
+                    supplier_code=row.get("Supplier ID") or None,
+                    supplier_name=row.get("Name") or None,
+                    po_type="PO",
                     imported_at=now,
                 )
                 db.session.add(po)
@@ -142,11 +157,28 @@ class OpenPoImporter:
 # ---------------------------------------------------------------------------
 
 class MainMaterialImporter:
-    """Import MainMaterialReq_HIDE.csv — full replace."""
+    """
+    Import MatReq_HIDE.csv — full replace.
+
+    Column mapping (Epicor Kinetic export):
+        Order         → so_number    (direct SO number for pegging)
+        JobNum        → works_order
+        Material      → material_code
+        Description   → material_description
+        RequiredQty   → qty_for_order
+        Issued Qty    → qty_issued
+        IssuedComplete→ complete (TRUE→'Y', FALSE→'N')
+        Req. By       → due_date  (Excel serial)
+        QtyPer        → qty_required_per_set
+        Warehouse     → department
+        Site          → (site identifier, used if multi-site mapping configured)
+
+    Rows where Closed=TRUE are skipped (job already closed in ERP).
+    """
 
     @staticmethod
     def import_file(source, uploaded_by_id=None, filename=None) -> ImportBatch:
-        batch = _start_batch(ImportBatch.TYPE_MAIN_MATERIAL, filename or "MainMaterialReq_HIDE.csv")
+        batch = _start_batch(ImportBatch.TYPE_MAIN_MATERIAL, filename or "MatReq_HIDE.csv")
         batch.uploaded_by_id = uploaded_by_id
         now = datetime.now(timezone.utc)
         rows_inserted = 0
@@ -159,24 +191,27 @@ class MainMaterialImporter:
             db.session.flush()
 
             for row in all_rows:
-                material_code = row.get("MATERIALCODE", "").strip()
+                # Skip closed jobs — they have no open requirements
+                if row.get("Closed", "").strip().upper() == "TRUE":
+                    continue
+
+                material_code = row.get("Material", "").strip()
                 if not material_code:
                     continue
+
+                is_issued_complete = row.get("IssuedComplete", "").strip().upper() == "TRUE"
+
                 m = MaterialRequirementMain(
-                    customer_id=row.get("CUSTID") or None,
-                    batch_id=row.get("BATCHID") or None,
-                    works_order=row.get("WORKSORDER") or None,
-                    load_date=excel_serial_to_date(row.get("LOADDATE")),
-                    due_date=excel_serial_to_date(row.get("DUEDATE")),
-                    department=row.get("SECTIONDESC") or None,
+                    so_number=row.get("Order", "").strip() or None,
+                    works_order=row.get("JobNum") or None,
+                    due_date=excel_serial_to_date(row.get("Req. By")),
+                    department=row.get("Warehouse") or None,
                     material_code=material_code,
-                    material_description=row.get("MATERIALDESC") or None,
-                    qty_required_per_set=parse_decimal(row.get("QTYREQUIREDFORSETS")),
-                    qty_for_order=parse_decimal(row.get("QTYFORORDER")),
-                    qty_issued=parse_decimal(row.get("QTYISSUED"), default=0),
-                    product_group=row.get("PRODGRP") or None,
-                    product_group_desc=row.get("PGDESCRIPTION") or None,
-                    complete=row.get("COMPLETE") or None,
+                    material_description=row.get("Description") or None,
+                    qty_required_per_set=parse_decimal(row.get("QtyPer")),
+                    qty_for_order=parse_decimal(row.get("RequiredQty")),
+                    qty_issued=parse_decimal(row.get("Issued Qty"), default=0),
+                    complete="Y" if is_issued_complete else "N",
                     imported_at=now,
                 )
                 db.session.add(m)

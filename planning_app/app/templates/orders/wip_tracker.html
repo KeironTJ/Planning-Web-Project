@@ -156,9 +156,7 @@
         <strong>{{ pagination.total }}</strong> order{{ 's' if pagination.total != 1 }} found
         {% if pagination.pages > 1 %}&nbsp;·&nbsp; page {{ pagination.page }}/{{ pagination.pages }}{% endif %}
     </small>
-    <a href="{{ url_for('orders.firming_queue') }}" class="btn btn-outline-primary btn-sm">
-        <i class="bi bi-check2-circle me-1"></i>Firming Queue
-    </a>
+
 </div>
 
 <!-- Key: order-level buttons advance ALL lines; line-level buttons open detail modal -->

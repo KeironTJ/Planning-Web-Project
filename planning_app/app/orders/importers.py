@@ -1,13 +1,14 @@
-"""
+﻿"""
 Orders CSV importers.
 
 Covers:
-- OobImporter       — OpenOrderBook_HIDE.csv (UPSERT, preserves planner fields)
-- SmvImporter       — SMVTable_HIDE.csv (wide→long unpivot, UPSERT)
-- ProductionFlowImporter — ProductionFlowLT_HIDE.csv (full replace)
+- OobImporter            â€” OpenOrderBook_HIDE.csv (legacy, UPSERT, preserves planner fields)
+- SalesImporter          â€” sales_HIDE.csv (Epicor SALES export â†’ SalesOrderLine)
+- CooisImporter          â€” COOIS_HIDE.csv (Epicor COOIS export â†’ WorksOrderOperation)
 """
 
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from app.extensions import db
 from app.core.csv_utils import (
@@ -15,7 +16,7 @@ from app.core.csv_utils import (
 )
 from .models import (
     Department, SalesOrderLine, WorksOrderOperation,
-    SmvMatrix, ProductionFlow, ImportBatch,
+    ImportBatch,
 )
 
 # Columns in the OOB that belong to the parent SalesOrderLine
@@ -26,11 +27,6 @@ _SOL_ERP_FIELDS = {
     "order_date", "due_date", "unit_price", "total_value",
 }
 
-# Columns in the SMV CSV that are NOT department SMV values
-_SMV_NON_DEPT_COLS = {"COMPONENT ID", "TIMING CODE", "DESCRIPTION", "OPS", "Date Updated"}
-
-# Columns in the ProductionFlow CSV that are NOT department lead-time values
-_FLOW_NON_DEPT_COLS = {"UNIQUE FLOW", "Production Flow", "Ops", "Lead Time Q", "Firmed?"}
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +154,7 @@ class OobImporter:
                     ).first()
 
                     if op:
-                        # Update ERP fields only — never touch planner fields
+                        # Update ERP fields only â€” never touch planner fields
                         op.qty = op_qty
                         op.due_date = op_due_date
                         op.total_value = op_total_value
@@ -206,7 +202,7 @@ class OobImporter:
                         sol.ops_missing_since = now
 
             # --- 4. Mark absent operations as closed ---
-            # OOB is the authoritative source — if absent, the order has shipped/cancelled in ERP.
+            # OOB is the authoritative source â€” if absent, the order has shipped/cancelled in ERP.
             # Close everything that isn't already in a terminal state.
             terminal_statuses = [
                 WorksOrderOperation.STATUS_COMPLETED,
@@ -250,7 +246,7 @@ class OobImporter:
                     continue
                 if not all(op.status in _terminal for op in all_ops):
                     continue
-                # All ops are terminal — this order is done
+                # All ops are terminal â€” this order is done
                 if sol.despatch_completed_date is None:
                     despatch_op = next(
                         (op for op in all_ops
@@ -261,7 +257,7 @@ class OobImporter:
                         sol.despatch_completed_date = despatch_op.completed_date or today
                 if sol.order_completed_date is None:
                     sol.order_completed_date = today
-                # Production ready date — all non-DESPATCH ops terminal
+                # Production ready date â€” all non-DESPATCH ops terminal
                 if sol.production_ready_date is None:
                     prod_ops = [
                         op for op in all_ops
@@ -292,25 +288,38 @@ class OobImporter:
 
 
 # ---------------------------------------------------------------------------
-# SMV Importer
+# Sales Importer  (sales_HIDE.csv â†’ SalesOrderLine)
 # ---------------------------------------------------------------------------
 
-class SmvImporter:
+class SalesImporter:
     """
-    Import SMVTable_HIDE.csv into smv_matrix.
+    Import sales_HIDE.csv into sales_order_lines.
 
-    The CSV is wide format: one row per component, one column per department.
-    We unpivot to long format: one row per component × department.
+    Strategy: UPSERT on (so_number, line_number).
+    Only rows with AsmSeq=0 are processed (main assemblies, not sub-assemblies/scatters).
+    Voided orders are skipped.
+    ERP fields are updated on every import; planner fields are never touched.
 
-    Strategy: UPSERT on (component_id, department_id).
-    Planner-set confidence is preserved on update.
+    Column mapping:
+        Order           â†’ so_number
+        Line            â†’ line_number
+        CustID          â†’ customer_code
+        Customer Name   â†’ customer_name
+        Cust PONum      â†’ customer_order_ref
+        SOType_c        â†’ order_type
+        PartNum         â†’ product_code
+        PartDesc        â†’ product_description
+        Selling Qty     â†’ qty_ordered
+        Order Date      â†’ order_date  (Excel serial)
+        Ship By         â†’ due_date    (Excel serial)
+        ReleasePriceGBP â†’ unit_price
     """
 
     @staticmethod
     def import_file(source, uploaded_by_id=None, filename=None) -> ImportBatch:
         batch = ImportBatch(
-            import_type=ImportBatch.TYPE_SMV,
-            filename=filename or "SMVTable_HIDE.csv",
+            import_type=ImportBatch.TYPE_SALES,
+            filename=filename or "sales_HIDE.csv",
             uploaded_by_id=uploaded_by_id,
             status=ImportBatch.STATUS_PENDING,
         )
@@ -325,72 +334,58 @@ class SmvImporter:
             all_rows = list(read_csv_rows(source))
             batch.row_count = len(all_rows)
 
-            if not all_rows:
-                batch.status = ImportBatch.STATUS_SUCCESS
-                db.session.commit()
-                return batch
-
-            # Identify department columns from the header
-            header_cols = list(all_rows[0].keys())
-            dept_cols = [c for c in header_cols if c not in _SMV_NON_DEPT_COLS]
-
-            # Pre-load department lookup by name (case-insensitive)
-            dept_lookup: dict[str, Department] = {
-                d.name.lower(): d for d in Department.query.all()
-            }
-
+            # Only main assemblies (AsmSeq=0); skip voided orders
+            # Deduplicate on (Order, Line) â€” first AsmSeq=0 row wins for parent data
+            parent_rows: dict[tuple, dict] = {}
             for row in all_rows:
-                component_id = row.get("COMPONENT ID", "").strip()
-                if not component_id:
+                if str(row.get("AsmSeq", "0")).strip() != "0":
+                    continue
+                if str(row.get("Void", "FALSE")).strip().upper() == "TRUE":
+                    continue
+                key = (str(row.get("Order", "")).strip(), str(row.get("Line", "")).strip())
+                if key[0] and key[1] and key not in parent_rows:
+                    parent_rows[key] = row
+
+            for (so_number, line_number_str), row in parent_rows.items():
+                line_number = parse_int(line_number_str)
+                if line_number is None:
                     continue
 
-                timing_code = row.get("TIMING CODE") or None
-                description = row.get("DESCRIPTION") or None
-                ops = parse_int(row.get("OPS"))
-                date_updated_str = row.get("Date Updated") or None
-                date_updated = None
-                if date_updated_str:
-                    date_updated = excel_serial_to_date(date_updated_str)
+                selling_qty = parse_decimal(row.get("Selling Qty"))
+                unit_price = parse_decimal(row.get("ReleasePriceGBP"))
+                total_value = (
+                    (selling_qty or Decimal(0)) * (unit_price or Decimal(0))
+                    if selling_qty and unit_price else None
+                )
 
-                for col in dept_cols:
-                    raw_val = row.get(col, "").strip()
-                    smv_val = parse_decimal(raw_val)
+                sol_data = {
+                    "customer_code":        row.get("CustID") or None,
+                    "customer_name":        row.get("Customer Name") or None,
+                    "customer_order_ref":   row.get("Cust PONum") or None,
+                    "order_type":           row.get("SOType_c") or None,
+                    "product_code":         row.get("PartNum") or None,
+                    "product_description":  row.get("PartDesc") or None,
+                    "qty_ordered":          selling_qty,
+                    "order_date":           excel_serial_to_date(row.get("Order Date")),
+                    "due_date":             excel_serial_to_date(row.get("Ship By")),
+                    "unit_price":           unit_price,
+                    "total_value":          total_value,
+                    "imported_at":          now,
+                }
 
-                    # Skip if no department match in DB
-                    dept = dept_lookup.get(col.lower())
-                    if dept is None:
-                        continue
-
-                    existing = SmvMatrix.query.filter_by(
-                        component_id=component_id,
-                        department_id=dept.id,
-                    ).first()
-
-                    if existing:
-                        existing.timing_code = timing_code
-                        existing.description = description
-                        existing.smv_minutes = smv_val
-                        existing.ops = ops
-                        existing.date_updated = date_updated
-                        # confidence is NOT overwritten — planner controls it
-                        existing.last_modified_at = now
-                        existing.last_modified_by_id = uploaded_by_id
-                        rows_updated += 1
-                    else:
-                        entry = SmvMatrix(
-                            component_id=component_id,
-                            timing_code=timing_code,
-                            description=description,
-                            department_id=dept.id,
-                            smv_minutes=smv_val,
-                            ops=ops,
-                            date_updated=date_updated,
-                            confidence=SmvMatrix.CONFIDENCE_ESTIMATED,
-                            last_modified_at=now,
-                            last_modified_by_id=uploaded_by_id,
-                        )
-                        db.session.add(entry)
-                        rows_inserted += 1
+                sol = SalesOrderLine.query.filter_by(
+                    so_number=so_number, line_number=line_number
+                ).first()
+                if sol:
+                    for k, v in sol_data.items():
+                        setattr(sol, k, v)
+                    rows_updated += 1
+                else:
+                    sol = SalesOrderLine(
+                        so_number=so_number, line_number=line_number, **sol_data
+                    )
+                    db.session.add(sol)
+                    rows_inserted += 1
 
             batch.rows_inserted = rows_inserted
             batch.rows_updated = rows_updated
@@ -412,22 +407,45 @@ class SmvImporter:
 
 
 # ---------------------------------------------------------------------------
-# Production Flow Importer
+# COOIS Importer  (COOIS_HIDE.csv â†’ WorksOrderOperation)
 # ---------------------------------------------------------------------------
 
-class ProductionFlowImporter:
+class CooisImporter:
     """
-    Import ProductionFlowLT_HIDE.csv into production_flows.
+    Import COOIS_HIDE.csv into works_order_operations.
 
-    Strategy: full replace (truncate + reload).
-    dept_lead_times stored as JSON {dept_name: days}.
+    COOIS (Component Operations Information System) provides a snapshot of
+    each job's current operation. One row per job assembly; AsmSeq=0 rows
+    represent the main production jobs.
+
+    Strategy: UPSERT on (so_number, line_number, work_centre_name).
+    Operations absent from the current COOIS export and not already in a
+    terminal state are marked as closed (job has shipped or been cancelled).
+
+    Planner fields (planned_date, notes) are NEVER overwritten.
+    Status is set on INSERT from ERP data; on UPDATE it is only changed to
+    COMPLETED when the ERP reports Job Complete = TRUE.
+
+    Column mapping:
+        Order Num           â†’ so_number
+        Line Num            â†’ line_number
+        Current Op          â†’ work_centre_name
+        Order Ship By       â†’ due_date    (Excel serial)
+        Selling Qty         â†’ qty
+        Firm                â†’ used for status derivation
+        Released            â†’ used for status derivation
+        Complete Qty        â†’ used for status derivation (> 0 = WIP)
+        Job Complete        â†’ used for status derivation (TRUE = COMPLETED)
+
+    If a SalesOrderLine for (so_number, line_number) does not already exist,
+    a minimal one is created from COOIS data so the operation can be linked.
     """
 
     @staticmethod
     def import_file(source, uploaded_by_id=None, filename=None) -> ImportBatch:
         batch = ImportBatch(
-            import_type=ImportBatch.TYPE_PRODUCTION_FLOW,
-            filename=filename or "ProductionFlowLT_HIDE.csv",
+            import_type=ImportBatch.TYPE_COOIS,
+            filename=filename or "COOIS_HIDE.csv",
             uploaded_by_id=uploaded_by_id,
             status=ImportBatch.STATUS_PENDING,
         )
@@ -436,48 +454,206 @@ class ProductionFlowImporter:
 
         now = datetime.now(timezone.utc)
         rows_inserted = 0
+        rows_updated = 0
+        rows_closed = 0
 
         try:
             all_rows = list(read_csv_rows(source))
             batch.row_count = len(all_rows)
 
-            if not all_rows:
-                batch.status = ImportBatch.STATUS_SUCCESS
-                db.session.commit()
-                return batch
+            # Filter: main assemblies only (AsmSeq=0)
+            main_rows = [
+                r for r in all_rows
+                if str(r.get("AsmSeq", "0")).strip() == "0"
+            ]
 
-            # Identify department lead-time columns
-            header_cols = list(all_rows[0].keys())
-            dept_cols = [c for c in header_cols if c not in _FLOW_NON_DEPT_COLS]
+            # Group by (Order Num, Line Num)
+            groups: dict[tuple, list] = {}
+            for row in main_rows:
+                key = (
+                    str(row.get("Order Num", "")).strip(),
+                    str(row.get("Line Num", "")).strip(),
+                )
+                if key[0] and key[1]:
+                    groups.setdefault(key, []).append(row)
 
-            # Full replace
-            ProductionFlow.query.delete()
-            db.session.flush()
+            dept_lookup: dict[str, int] = {
+                d.name.lower(): d.id for d in Department.query.all()
+            }
+            seen_op_keys: set[tuple] = set()
 
-            for row in all_rows:
-                unique_flow = row.get("UNIQUE FLOW", "").strip()
-                if not unique_flow:
+            for (so_number, line_number_str), rows in groups.items():
+                line_number = parse_int(line_number_str)
+                if line_number is None:
                     continue
 
-                dept_lead_times = {}
-                for col in dept_cols:
-                    days = parse_int(row.get(col))
-                    if days is not None and days > 0:
-                        dept_lead_times[col] = days
-
-                flow = ProductionFlow(
-                    unique_flow=unique_flow,
-                    flow_description=row.get("Production Flow") or None,
-                    ops=parse_int(row.get("Ops")),
-                    total_lead_time_days=parse_int(row.get("Lead Time Q")),
-                    firmed=parse_bool_yn(row.get("Firmed?"), default=False),
-                    dept_lead_times=dept_lead_times if dept_lead_times else None,
-                    imported_at=now,
+                first = rows[0]
+                due_date = excel_serial_to_date(first.get("Order Ship By"))
+                unit_price = parse_decimal(first.get("Net Unit Price GBP"))
+                selling_qty = parse_decimal(first.get("Selling Qty"))
+                total_value = (
+                    (selling_qty or Decimal(0)) * (unit_price or Decimal(0))
+                    if selling_qty and unit_price else None
                 )
-                db.session.add(flow)
-                rows_inserted += 1
+
+                # Ensure parent SalesOrderLine exists
+                sol = SalesOrderLine.query.filter_by(
+                    so_number=so_number, line_number=line_number
+                ).first()
+                if not sol:
+                    sol = SalesOrderLine(
+                        so_number=so_number,
+                        line_number=line_number,
+                        customer_code=first.get("Customer ID") or None,
+                        customer_name=first.get("Customer Name") or None,
+                        order_type=first.get("SO Type") or None,
+                        product_code=first.get("Asm Part Number") or None,
+                        product_description=first.get("Asm Part Description") or None,
+                        qty_ordered=selling_qty,
+                        due_date=due_date,
+                        unit_price=unit_price,
+                        total_value=total_value,
+                        imported_at=now,
+                    )
+                    db.session.add(sol)
+                    db.session.flush()
+
+                # Process each row as one WorksOrderOperation
+                for row in rows:
+                    wc_name = str(row.get("Current Op", "")).strip()
+                    if not wc_name:
+                        continue
+
+                    op_key = (so_number, line_number, wc_name)
+                    seen_op_keys.add(op_key)
+
+                    dept_id = dept_lookup.get(wc_name.lower())
+                    op_due_date = excel_serial_to_date(row.get("Order Ship By"))
+                    op_qty = parse_decimal(row.get("Selling Qty"))
+
+                    # Derive ERP status from flags
+                    is_complete = str(row.get("Job Complete", "")).strip().upper() == "TRUE"
+                    is_released = str(row.get("Released", "")).strip().upper() == "TRUE"
+                    is_firm     = str(row.get("Firm", "")).strip().upper() == "TRUE"
+                    complete_qty = parse_decimal(row.get("Complete Qty")) or Decimal(0)
+
+                    if is_complete:
+                        erp_status = WorksOrderOperation.STATUS_COMPLETED
+                    elif is_released and complete_qty > 0:
+                        erp_status = WorksOrderOperation.STATUS_WIP
+                    elif is_released:
+                        erp_status = WorksOrderOperation.STATUS_RELEASED
+                    elif is_firm:
+                        erp_status = WorksOrderOperation.STATUS_FIRM_PLANNED
+                    else:
+                        erp_status = WorksOrderOperation.STATUS_NEW_ORDER
+
+                    op = WorksOrderOperation.query.filter_by(
+                        so_number=so_number,
+                        line_number=line_number,
+                        work_centre_name=wc_name,
+                    ).first()
+
+                    if op:
+                        # Update ERP fields; only force status when ERP says completed
+                        op.qty = op_qty
+                        op.due_date = op_due_date
+                        op.department_id = dept_id
+                        op.imported_at = now
+                        if erp_status == WorksOrderOperation.STATUS_COMPLETED:
+                            op.status = WorksOrderOperation.STATUS_COMPLETED
+                            if op.completed_date is None:
+                                op.completed_date = date.today()
+                        rows_updated += 1
+                    else:
+                        op = WorksOrderOperation(
+                            sales_order_line_id=sol.id,
+                            department_id=dept_id,
+                            so_number=so_number,
+                            line_number=line_number,
+                            work_centre_name=wc_name,
+                            qty=op_qty,
+                            due_date=op_due_date,
+                            status=erp_status,
+                            imported_at=now,
+                        )
+                        db.session.add(op)
+                        rows_inserted += 1
+
+            # â”€â”€ ops_missing flag â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+            sol_keys_with_ops: set[tuple] = {
+                (so_num, ln) for (so_num, ln, _wc) in seen_op_keys
+            }
+            for (so_number, line_number_str), _rows in groups.items():
+                line_number = parse_int(line_number_str)
+                if not so_number or line_number is None:
+                    continue
+                sol = SalesOrderLine.query.filter_by(
+                    so_number=so_number, line_number=line_number
+                ).first()
+                if sol is None:
+                    continue
+                has_ops = (so_number, line_number) in sol_keys_with_ops
+                if has_ops:
+                    sol.ops_missing = False
+                else:
+                    if not sol.ops_missing:
+                        sol.ops_missing = True
+                        sol.ops_missing_since = now
+
+            # â”€â”€ Close absent non-terminal operations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+            terminal = {WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED}
+            today = date.today()
+            closed_sol_keys: set[tuple] = set()
+
+            open_ops = WorksOrderOperation.query.filter(
+                WorksOrderOperation.status.notin_(list(terminal))
+            ).all()
+            for op in open_ops:
+                key = (op.so_number, op.line_number, op.work_centre_name)
+                if key not in seen_op_keys:
+                    op.status = WorksOrderOperation.STATUS_CLOSED
+                    if op.completed_date is None:
+                        op.completed_date = today
+                    rows_closed += 1
+                    closed_sol_keys.add((op.so_number, op.line_number))
+
+            # â”€â”€ Stamp KPI milestone dates for fully-closed orders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+            for sol_so, sol_ln in closed_sol_keys:
+                sol = SalesOrderLine.query.filter_by(
+                    so_number=sol_so, line_number=sol_ln
+                ).first()
+                if sol is None:
+                    continue
+                all_ops = (
+                    WorksOrderOperation.query
+                    .filter_by(so_number=sol_so, line_number=sol_ln)
+                    .filter(WorksOrderOperation.department_id.isnot(None))
+                    .all()
+                )
+                if not all_ops or not all(op.status in terminal for op in all_ops):
+                    continue
+                if sol.despatch_completed_date is None:
+                    despatch_op = next(
+                        (op for op in all_ops
+                         if op.work_centre_name.strip().upper() == "DESPATCH"),
+                        None,
+                    )
+                    if despatch_op:
+                        sol.despatch_completed_date = despatch_op.completed_date or today
+                if sol.order_completed_date is None:
+                    sol.order_completed_date = today
+                if sol.production_ready_date is None:
+                    prod_ops = [
+                        op for op in all_ops
+                        if op.work_centre_name.strip().upper() != "DESPATCH"
+                    ]
+                    if prod_ops and all(op.status in terminal for op in prod_ops):
+                        sol.production_ready_date = today
 
             batch.rows_inserted = rows_inserted
+            batch.rows_updated = rows_updated
+            batch.rows_closed = rows_closed
             batch.status = ImportBatch.STATUS_SUCCESS
             db.session.commit()
 
@@ -493,3 +669,389 @@ class ProductionFlowImporter:
             raise
 
         return batch
+
+
+# ---------------------------------------------------------------------------
+# Sales Importer  (sales_HIDE.csv â†’ SalesOrderLine)
+# ---------------------------------------------------------------------------
+
+class SalesImporter:
+    """
+    Import sales_HIDE.csv into sales_order_lines.
+
+    Strategy: UPSERT on (so_number, line_number).
+    Only rows with AsmSeq=0 are processed (main assemblies, not sub-assemblies/scatters).
+    Voided orders are skipped.
+    ERP fields are updated on every import; planner fields are never touched.
+
+    Column mapping:
+        Order           â†’ so_number
+        Line            â†’ line_number
+        CustID          â†’ customer_code
+        Customer Name   â†’ customer_name
+        Cust PONum      â†’ customer_order_ref
+        SOType_c        â†’ order_type
+        PartNum         â†’ product_code
+        PartDesc        â†’ product_description
+        Selling Qty     â†’ qty_ordered
+        Order Date      â†’ order_date  (Excel serial)
+        Ship By         â†’ due_date    (Excel serial)
+        ReleasePriceGBP â†’ unit_price
+    """
+
+    @staticmethod
+    def import_file(source, uploaded_by_id=None, filename=None) -> ImportBatch:
+        batch = ImportBatch(
+            import_type=ImportBatch.TYPE_SALES,
+            filename=filename or "sales_HIDE.csv",
+            uploaded_by_id=uploaded_by_id,
+            status=ImportBatch.STATUS_PENDING,
+        )
+        db.session.add(batch)
+        db.session.flush()
+
+        now = datetime.now(timezone.utc)
+        rows_inserted = 0
+        rows_updated = 0
+
+        try:
+            all_rows = list(read_csv_rows(source))
+            batch.row_count = len(all_rows)
+
+            # Only main assemblies (AsmSeq=0); skip voided orders
+            # Deduplicate on (Order, Line) â€” first AsmSeq=0 row wins for parent data
+            parent_rows: dict[tuple, dict] = {}
+            for row in all_rows:
+                if str(row.get("AsmSeq", "0")).strip() != "0":
+                    continue
+                if str(row.get("Void", "FALSE")).strip().upper() == "TRUE":
+                    continue
+                key = (str(row.get("Order", "")).strip(), str(row.get("Line", "")).strip())
+                if key[0] and key[1] and key not in parent_rows:
+                    parent_rows[key] = row
+
+            for (so_number, line_number_str), row in parent_rows.items():
+                line_number = parse_int(line_number_str)
+                if line_number is None:
+                    continue
+
+                selling_qty = parse_decimal(row.get("Selling Qty"))
+                unit_price = parse_decimal(row.get("ReleasePriceGBP"))
+                total_value = (
+                    (selling_qty or Decimal(0)) * (unit_price or Decimal(0))
+                    if selling_qty and unit_price else None
+                )
+
+                sol_data = {
+                    "customer_code":        row.get("CustID") or None,
+                    "customer_name":        row.get("Customer Name") or None,
+                    "customer_order_ref":   row.get("Cust PONum") or None,
+                    "order_type":           row.get("SOType_c") or None,
+                    "product_code":         row.get("PartNum") or None,
+                    "product_description":  row.get("PartDesc") or None,
+                    "qty_ordered":          selling_qty,
+                    "order_date":           excel_serial_to_date(row.get("Order Date")),
+                    "due_date":             excel_serial_to_date(row.get("Ship By")),
+                    "unit_price":           unit_price,
+                    "total_value":          total_value,
+                    "imported_at":          now,
+                }
+
+                sol = SalesOrderLine.query.filter_by(
+                    so_number=so_number, line_number=line_number
+                ).first()
+                if sol:
+                    for k, v in sol_data.items():
+                        setattr(sol, k, v)
+                    rows_updated += 1
+                else:
+                    sol = SalesOrderLine(
+                        so_number=so_number, line_number=line_number, **sol_data
+                    )
+                    db.session.add(sol)
+                    rows_inserted += 1
+
+            batch.rows_inserted = rows_inserted
+            batch.rows_updated = rows_updated
+            batch.status = ImportBatch.STATUS_SUCCESS
+            db.session.commit()
+
+        except Exception as exc:
+            db.session.rollback()
+            batch.status = ImportBatch.STATUS_FAILED
+            batch.error_message = str(exc)
+            try:
+                db.session.add(batch)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            raise
+
+        return batch
+
+
+# ---------------------------------------------------------------------------
+# COOIS Importer  (COOIS_HIDE.csv â†’ WorksOrderOperation)
+# ---------------------------------------------------------------------------
+
+class CooisImporter:
+    """
+    Import COOIS_HIDE.csv into works_order_operations.
+
+    COOIS (Component Operations Information System) provides a snapshot of
+    each job's current operation. One row per job assembly; AsmSeq=0 rows
+    represent the main production jobs.
+
+    Strategy: UPSERT on (so_number, line_number, work_centre_name).
+    Operations absent from the current COOIS export and not already in a
+    terminal state are marked as closed (job has shipped or been cancelled).
+
+    Planner fields (planned_date, notes) are NEVER overwritten.
+    Status is set on INSERT from ERP data; on UPDATE it is only changed to
+    COMPLETED when the ERP reports Job Complete = TRUE.
+
+    Column mapping:
+        Order Num           â†’ so_number
+        Line Num            â†’ line_number
+        Current Op          â†’ work_centre_name
+        Order Ship By       â†’ due_date    (Excel serial)
+        Selling Qty         â†’ qty
+        Firm                â†’ used for status derivation
+        Released            â†’ used for status derivation
+        Complete Qty        â†’ used for status derivation (> 0 = WIP)
+        Job Complete        â†’ used for status derivation (TRUE = COMPLETED)
+
+    If a SalesOrderLine for (so_number, line_number) does not already exist,
+    a minimal one is created from COOIS data so the operation can be linked.
+    """
+
+    @staticmethod
+    def import_file(source, uploaded_by_id=None, filename=None) -> ImportBatch:
+        batch = ImportBatch(
+            import_type=ImportBatch.TYPE_COOIS,
+            filename=filename or "COOIS_HIDE.csv",
+            uploaded_by_id=uploaded_by_id,
+            status=ImportBatch.STATUS_PENDING,
+        )
+        db.session.add(batch)
+        db.session.flush()
+
+        now = datetime.now(timezone.utc)
+        rows_inserted = 0
+        rows_updated = 0
+        rows_closed = 0
+
+        try:
+            all_rows = list(read_csv_rows(source))
+            batch.row_count = len(all_rows)
+
+            # Filter: main assemblies only (AsmSeq=0)
+            main_rows = [
+                r for r in all_rows
+                if str(r.get("AsmSeq", "0")).strip() == "0"
+            ]
+
+            # Group by (Order Num, Line Num)
+            groups: dict[tuple, list] = {}
+            for row in main_rows:
+                key = (
+                    str(row.get("Order Num", "")).strip(),
+                    str(row.get("Line Num", "")).strip(),
+                )
+                if key[0] and key[1]:
+                    groups.setdefault(key, []).append(row)
+
+            dept_lookup: dict[str, int] = {
+                d.name.lower(): d.id for d in Department.query.all()
+            }
+            seen_op_keys: set[tuple] = set()
+
+            for (so_number, line_number_str), rows in groups.items():
+                line_number = parse_int(line_number_str)
+                if line_number is None:
+                    continue
+
+                first = rows[0]
+                due_date = excel_serial_to_date(first.get("Order Ship By"))
+                unit_price = parse_decimal(first.get("Net Unit Price GBP"))
+                selling_qty = parse_decimal(first.get("Selling Qty"))
+                total_value = (
+                    (selling_qty or Decimal(0)) * (unit_price or Decimal(0))
+                    if selling_qty and unit_price else None
+                )
+
+                # Ensure parent SalesOrderLine exists
+                sol = SalesOrderLine.query.filter_by(
+                    so_number=so_number, line_number=line_number
+                ).first()
+                if not sol:
+                    sol = SalesOrderLine(
+                        so_number=so_number,
+                        line_number=line_number,
+                        customer_code=first.get("Customer ID") or None,
+                        customer_name=first.get("Customer Name") or None,
+                        order_type=first.get("SO Type") or None,
+                        product_code=first.get("Asm Part Number") or None,
+                        product_description=first.get("Asm Part Description") or None,
+                        qty_ordered=selling_qty,
+                        due_date=due_date,
+                        unit_price=unit_price,
+                        total_value=total_value,
+                        imported_at=now,
+                    )
+                    db.session.add(sol)
+                    db.session.flush()
+
+                # Process each row as one WorksOrderOperation
+                for row in rows:
+                    wc_name = str(row.get("Current Op", "")).strip()
+                    if not wc_name:
+                        continue
+
+                    op_key = (so_number, line_number, wc_name)
+                    seen_op_keys.add(op_key)
+
+                    dept_id = dept_lookup.get(wc_name.lower())
+                    op_due_date = excel_serial_to_date(row.get("Order Ship By"))
+                    op_qty = parse_decimal(row.get("Selling Qty"))
+
+                    # Derive ERP status from flags
+                    is_complete = str(row.get("Job Complete", "")).strip().upper() == "TRUE"
+                    is_released = str(row.get("Released", "")).strip().upper() == "TRUE"
+                    is_firm     = str(row.get("Firm", "")).strip().upper() == "TRUE"
+                    complete_qty = parse_decimal(row.get("Complete Qty")) or Decimal(0)
+
+                    if is_complete:
+                        erp_status = WorksOrderOperation.STATUS_COMPLETED
+                    elif is_released and complete_qty > 0:
+                        erp_status = WorksOrderOperation.STATUS_WIP
+                    elif is_released:
+                        erp_status = WorksOrderOperation.STATUS_RELEASED
+                    elif is_firm:
+                        erp_status = WorksOrderOperation.STATUS_FIRM_PLANNED
+                    else:
+                        erp_status = WorksOrderOperation.STATUS_NEW_ORDER
+
+                    op = WorksOrderOperation.query.filter_by(
+                        so_number=so_number,
+                        line_number=line_number,
+                        work_centre_name=wc_name,
+                    ).first()
+
+                    if op:
+                        # Update ERP fields; only force status when ERP says completed
+                        op.qty = op_qty
+                        op.due_date = op_due_date
+                        op.department_id = dept_id
+                        op.imported_at = now
+                        if erp_status == WorksOrderOperation.STATUS_COMPLETED:
+                            op.status = WorksOrderOperation.STATUS_COMPLETED
+                            if op.completed_date is None:
+                                op.completed_date = date.today()
+                        rows_updated += 1
+                    else:
+                        op = WorksOrderOperation(
+                            sales_order_line_id=sol.id,
+                            department_id=dept_id,
+                            so_number=so_number,
+                            line_number=line_number,
+                            work_centre_name=wc_name,
+                            qty=op_qty,
+                            due_date=op_due_date,
+                            status=erp_status,
+                            imported_at=now,
+                        )
+                        db.session.add(op)
+                        rows_inserted += 1
+
+            # â”€â”€ ops_missing flag â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+            sol_keys_with_ops: set[tuple] = {
+                (so_num, ln) for (so_num, ln, _wc) in seen_op_keys
+            }
+            for (so_number, line_number_str), _rows in groups.items():
+                line_number = parse_int(line_number_str)
+                if not so_number or line_number is None:
+                    continue
+                sol = SalesOrderLine.query.filter_by(
+                    so_number=so_number, line_number=line_number
+                ).first()
+                if sol is None:
+                    continue
+                has_ops = (so_number, line_number) in sol_keys_with_ops
+                if has_ops:
+                    sol.ops_missing = False
+                else:
+                    if not sol.ops_missing:
+                        sol.ops_missing = True
+                        sol.ops_missing_since = now
+
+            # â”€â”€ Close absent non-terminal operations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+            terminal = {WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED}
+            today = date.today()
+            closed_sol_keys: set[tuple] = set()
+
+            open_ops = WorksOrderOperation.query.filter(
+                WorksOrderOperation.status.notin_(list(terminal))
+            ).all()
+            for op in open_ops:
+                key = (op.so_number, op.line_number, op.work_centre_name)
+                if key not in seen_op_keys:
+                    op.status = WorksOrderOperation.STATUS_CLOSED
+                    if op.completed_date is None:
+                        op.completed_date = today
+                    rows_closed += 1
+                    closed_sol_keys.add((op.so_number, op.line_number))
+
+            # â”€â”€ Stamp KPI milestone dates for fully-closed orders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
+            for sol_so, sol_ln in closed_sol_keys:
+                sol = SalesOrderLine.query.filter_by(
+                    so_number=sol_so, line_number=sol_ln
+                ).first()
+                if sol is None:
+                    continue
+                all_ops = (
+                    WorksOrderOperation.query
+                    .filter_by(so_number=sol_so, line_number=sol_ln)
+                    .filter(WorksOrderOperation.department_id.isnot(None))
+                    .all()
+                )
+                if not all_ops or not all(op.status in terminal for op in all_ops):
+                    continue
+                if sol.despatch_completed_date is None:
+                    despatch_op = next(
+                        (op for op in all_ops
+                         if op.work_centre_name.strip().upper() == "DESPATCH"),
+                        None,
+                    )
+                    if despatch_op:
+                        sol.despatch_completed_date = despatch_op.completed_date or today
+                if sol.order_completed_date is None:
+                    sol.order_completed_date = today
+                if sol.production_ready_date is None:
+                    prod_ops = [
+                        op for op in all_ops
+                        if op.work_centre_name.strip().upper() != "DESPATCH"
+                    ]
+                    if prod_ops and all(op.status in terminal for op in prod_ops):
+                        sol.production_ready_date = today
+
+            batch.rows_inserted = rows_inserted
+            batch.rows_updated = rows_updated
+            batch.rows_closed = rows_closed
+            batch.status = ImportBatch.STATUS_SUCCESS
+            db.session.commit()
+
+        except Exception as exc:
+            db.session.rollback()
+            batch.status = ImportBatch.STATUS_FAILED
+            batch.error_message = str(exc)
+            try:
+                db.session.add(batch)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            raise
+
+        return batch
+
+

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Orders service layer.
 
 Contains all query and business logic for the WIP tracker and related views.
@@ -15,7 +15,7 @@ from sqlalchemy import func, case, and_
 
 from app.extensions import db
 from app.core.exceptions import NotFoundError, ValidationError
-from .models import Department, SalesOrderLine, WorksOrderOperation, SalesOrderComment, SmvMatrix
+from .models import Department, SalesOrderLine, WorksOrderOperation, SalesOrderComment
 
 # Product descriptions that represent non-production lines (e.g. invoice/admin lines).
 # These are excluded from all planning views, queues, and counts.
@@ -35,10 +35,10 @@ def _is_production_line():
 
 
 def _add_working_days(d: date, n: int) -> date:
-    """Add n working days (Mon–Fri) to date d, skipping weekends."""
+    """Add n working days (Monâ€“Fri) to date d, skipping weekends."""
     while n > 0:
         d += timedelta(days=1)
-        if d.weekday() < 5:  # Mon=0 … Fri=4
+        if d.weekday() < 5:  # Mon=0 â€¦ Fri=4
             n -= 1
     return d
 
@@ -63,7 +63,7 @@ def _maybe_auto_complete_despatch(so_number: str, line_number: int) -> None:
         db.session.flush()
 
         # Only consider ops that belong to a known active department
-        # (mirrors what the WIP tracker shows — unmatched ERP work centres
+        # (mirrors what the WIP tracker shows â€” unmatched ERP work centres
         #  like STORES have department_id=None and are intentionally excluded)
         all_ops = (
             WorksOrderOperation.query
@@ -90,12 +90,12 @@ def _maybe_auto_complete_despatch(so_number: str, line_number: int) -> None:
             if op.work_centre_name.strip().upper() != "DESPATCH"
         ]
         if not other_ops:
-            return  # No other ops — nothing to trigger on
+            return  # No other ops â€” nothing to trigger on
 
         not_done = [op for op in other_ops if op.status != WorksOrderOperation.STATUS_COMPLETED]
         if not_done:
             current_app.logger.debug(
-                "auto_complete_despatch: SO %s line %s — %d ops still not completed: %s",
+                "auto_complete_despatch: SO %s line %s â€” %d ops still not completed: %s",
                 so_number, line_number, len(not_done),
                 [(op.work_centre_name, op.status) for op in not_done],
             )
@@ -127,11 +127,11 @@ def _maybe_auto_complete_despatch(so_number: str, line_number: int) -> None:
 def _update_sol_dates(so_number: str, line_number: int) -> None:
     """
     After any operation status change, set KPI milestone dates on the parent
-    SalesOrderLine (first-set-wins — never overwritten once recorded):
+    SalesOrderLine (first-set-wins â€” never overwritten once recorded):
 
-      production_ready_date   — when every non-DESPATCH known-dept op is COMPLETED
-      despatch_completed_date — when the DESPATCH op is marked COMPLETED
-      order_completed_date    — when ALL known-dept ops (incl. DESPATCH) are COMPLETED
+      production_ready_date   â€” when every non-DESPATCH known-dept op is COMPLETED
+      despatch_completed_date â€” when the DESPATCH op is marked COMPLETED
+      order_completed_date    â€” when ALL known-dept ops (incl. DESPATCH) are COMPLETED
 
     Must be called within an open session (after a flush). Never raises.
     """
@@ -155,12 +155,12 @@ def _update_sol_dates(so_number: str, line_number: int) -> None:
         prod_ops     = [op for op in known_ops if op.work_centre_name.strip().upper() != "DESPATCH"]
         despatch_ops = [op for op in known_ops if op.work_centre_name.strip().upper() == "DESPATCH"]
 
-        # Production ready date — all non-DESPATCH ops COMPLETED
+        # Production ready date â€” all non-DESPATCH ops COMPLETED
         if sol.production_ready_date is None and prod_ops:
             if all(op.status == WorksOrderOperation.STATUS_COMPLETED for op in prod_ops):
                 sol.production_ready_date = date.today()
 
-        # Despatch completed date — DESPATCH op COMPLETED
+        # Despatch completed date â€” DESPATCH op COMPLETED
         if sol.despatch_completed_date is None:
             despatch_done = next(
                 (op for op in despatch_ops
@@ -170,7 +170,7 @@ def _update_sol_dates(so_number: str, line_number: int) -> None:
             if despatch_done:
                 sol.despatch_completed_date = despatch_done.completed_date or date.today()
 
-        # Order completed date — ALL known-dept ops COMPLETED
+        # Order completed date â€” ALL known-dept ops COMPLETED
         if sol.order_completed_date is None:
             if all(op.status == WorksOrderOperation.STATUS_COMPLETED for op in known_ops):
                 sol.order_completed_date = date.today()
@@ -215,11 +215,11 @@ def toggle_customer_hold(
     if holding:
         comment_body = f"[Customer Hold placed]"
         if note:
-            comment_body += f" — {note.strip()}"
+            comment_body += f" â€” {note.strip()}"
     else:
         comment_body = f"[Customer Hold cleared]"
         if note:
-            comment_body += f" — {note.strip()}"
+            comment_body += f" â€” {note.strip()}"
 
     uid = user_id
     if uid is None:
@@ -317,90 +317,6 @@ class SimplePagination:
 # WIP Tracker queries
 # ---------------------------------------------------------------------------
 
-def get_wip_page(
-    *,
-    page: int = 1,
-    per_page: int = 50,
-    dept_filter: Optional[str] = None,
-    status_filter: Optional[str] = None,
-    search: Optional[str] = None,
-    overdue_only: bool = False,
-    order_by: str = "due_date",
-):
-    """
-    Return paginated SalesOrderLines for the WIP tracker.
-
-    Each line has its operations eager-loaded so the template can render the
-    per-department status grid without N+1 queries.
-    """
-    from sqlalchemy.orm import joinedload
-
-    q = SalesOrderLine.query.options(
-        joinedload(SalesOrderLine.operations).joinedload(WorksOrderOperation.department)
-    ).filter(_is_production_line())
-
-    if search:
-        term = f"%{search.strip()}%"
-        q = q.filter(
-            db.or_(
-                SalesOrderLine.so_number.ilike(term),
-                SalesOrderLine.customer_name.ilike(term),
-                SalesOrderLine.product_code.ilike(term),
-                SalesOrderLine.product_description.ilike(term),
-                SalesOrderLine.customer_order_ref.ilike(term),
-                SalesOrderLine.customer_product_ref.ilike(term),
-            )
-        )
-
-    if status_filter:
-        # Filter to lines that have at least one operation with the given status
-        q = q.filter(
-            SalesOrderLine.operations.any(
-                WorksOrderOperation.status == status_filter
-            )
-        )
-
-    if dept_filter:
-        q = q.filter(
-            SalesOrderLine.operations.any(
-                WorksOrderOperation.work_centre_name == dept_filter
-            )
-        )
-
-    if overdue_only:
-        today = date.today()
-        q = q.filter(
-            SalesOrderLine.due_date < today,
-            SalesOrderLine.operations.any(
-                and_(
-                    WorksOrderOperation.status.notin_([
-                        WorksOrderOperation.STATUS_COMPLETED,
-                        WorksOrderOperation.STATUS_CLOSED,
-                    ]),
-                    WorksOrderOperation.due_date < today,
-                )
-            ),
-        )
-
-    # Exclude fully-closed lines by default
-    q = q.filter(
-        SalesOrderLine.operations.any(
-            WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED
-        )
-    )
-
-    if order_by == "due_date":
-        q = q.order_by(SalesOrderLine.due_date.asc().nullslast(), SalesOrderLine.so_number)
-    elif order_by == "so_number":
-        q = q.order_by(SalesOrderLine.so_number, SalesOrderLine.line_number)
-    elif order_by == "customer":
-        q = q.order_by(SalesOrderLine.customer_name, SalesOrderLine.due_date)
-    else:
-        q = q.order_by(SalesOrderLine.due_date.asc().nullslast(), SalesOrderLine.so_number)
-
-    return q.paginate(page=page, per_page=per_page, error_out=False)
-
-
 def get_wip_grouped(
     *,
     page: int = 1,
@@ -423,11 +339,11 @@ def get_wip_grouped(
     Each item in the returned list is a dict:
         so_number      str
         customer_name  str
-        due_date       date | None   — earliest due date across lines
-        total_qty      Decimal       — sum of qty_ordered across lines
+        due_date       date | None   â€” earliest due date across lines
+        total_qty      Decimal       â€” sum of qty_ordered across lines
         line_count     int
-        agg_status     str           — worst line-level status across lines
-        dept_status    dict[str, str] — dept_name → min op status (worst first)
+        agg_status     str           â€” worst line-level status across lines
+        dept_status    dict[str, str] â€” dept_name â†’ min op status (worst first)
         lines          list[SalesOrderLine]
     """
     from sqlalchemy.orm import joinedload
@@ -578,7 +494,7 @@ def get_wip_grouped(
             key=lambda s: _line_status_priority.get(s, 99),
         )
 
-        # Dept status: dept_name → min op status across all lines for this SO
+        # Dept status: dept_name â†’ min op status across all lines for this SO
         dept_ops: dict[str, list] = {}
         for sol in lines:
             for op in sol.operations:
@@ -590,7 +506,7 @@ def get_wip_grouped(
             for dept_name, ops in dept_ops.items()
         }
 
-        # Dept planned: dept_name → earliest planned_date across all lines for this SO
+        # Dept planned: dept_name â†’ earliest planned_date across all lines for this SO
         entry["dept_planned"] = {
             dept_name: min(
                 (op.planned_date for op in ops if op.planned_date),
@@ -599,7 +515,7 @@ def get_wip_grouped(
             for dept_name, ops in dept_ops.items()
         }
 
-        # Latest planned date across all open ops — represents expected completion
+        # Latest planned date across all open ops â€” represents expected completion
         all_planned = [
             op.planned_date
             for sol in lines
@@ -615,10 +531,10 @@ def get_wip_grouped(
             if sol.customer_product_ref
         ))
 
-        # Order type — take first line's value (consistent across all lines in an SO)
+        # Order type â€” take first line's value (consistent across all lines in an SO)
         entry["order_type"] = lines[0].order_type or "" if lines else ""
 
-        # Customer hold — true if any line is on hold (consistent across SO)
+        # Customer hold â€” true if any line is on hold (consistent across SO)
         entry["customer_hold"] = any(sol.customer_hold for sol in lines)
         entry["customer_hold_since"] = lines[0].customer_hold_since if lines else None
         entry["customer_hold_note"] = lines[0].customer_hold_note if lines else None
@@ -685,7 +601,7 @@ def advance_so_dept_status(so_number: str, work_centre_name: str) -> dict:
 def reverse_so_dept_status(so_number: str, work_centre_name: str) -> dict:
     """
     Step every open operation for a given SO + work centre back one status.
-    not_started is the floor — operations there are left unchanged.
+    not_started is the floor â€” operations there are left unchanged.
     Returns the new aggregate status for that SO + dept cell.
     """
     ops = (
@@ -817,21 +733,21 @@ def get_dept_orders_grouped(
 ):
     """
     Return (dept, SimplePagination, order_list) for a single department,
-    grouped by SO number — same pattern as get_wip_grouped but dept-scoped.
+    grouped by SO number â€” same pattern as get_wip_grouped but dept-scoped.
 
     Each item in order_list:
         so_number    str
         customer_name str
-        due_date     date | None   — earliest across lines
+        due_date     date | None   â€” earliest across lines
         days_delta   int | None
         total_qty    Decimal
         line_count   int
-        dept_status  str           — worst op status in this dept
-        dept_planned date | None   — earliest planned_date in this dept
+        dept_status  str           â€” worst op status in this dept
+        dept_planned date | None   â€” earliest planned_date in this dept
         cpr_list     list[str]
         order_type   str
         lines        list[SalesOrderLine]
-        dept_ops     list[WorksOrderOperation]  — non-closed ops in this dept
+        dept_ops     list[WorksOrderOperation]  â€” non-closed ops in this dept
     """
     from sqlalchemy.orm import joinedload
 
@@ -983,23 +899,10 @@ def get_dept_orders_grouped(
     if order_by == "plan_date":
         order_list.sort(key=lambda e: e["dept_planned"] or date.max)
 
-    # SMV: pre-load {component_id: smv_minutes} for this dept, then annotate groups
-    smv_dict = {
-        row.component_id: float(row.smv_minutes)
-        for row in SmvMatrix.query.filter_by(department_id=dept_id).all()
-        if row.smv_minutes is not None
-    }
+    # Annotate each entry with empty SMV placeholders (SMV removed)
     for entry in order_list:
-        op_smv: dict[int, float] = {}
-        total_smv = 0.0
-        for op in entry["dept_ops"]:
-            sol = op.sales_order_line
-            mins = smv_dict.get(sol.product_description or "", 0.0)
-            hrs  = round(float(op.qty or 0) * mins / 60, 2)
-            op_smv[op.id] = hrs
-            total_smv += hrs
-        entry["op_smv_hours"]   = op_smv
-        entry["dept_smv_hours"] = round(total_smv, 2)
+        entry["op_smv_hours"]   = {}
+        entry["dept_smv_hours"] = 0.0
 
     total = len(order_list)
     start = (page - 1) * per_page
@@ -1007,303 +910,6 @@ def get_dept_orders_grouped(
 
     return dept, SimplePagination(page_items, total, page, per_page), page_items
 
-
-def get_dept_operations(
-    dept_id: int,
-    *,
-    page: int = 1,
-    per_page: int = 50,
-    status_filter: Optional[str] = None,
-    search: Optional[str] = None,
-):
-    """
-    Return paginated WorksOrderOperations for a single department.
-    Used by the department-level order list view.
-    """
-    from sqlalchemy.orm import joinedload
-
-    dept = Department.query.get(dept_id)
-    if dept is None:
-        raise NotFoundError(f"Department {dept_id} not found")
-
-    q = (
-        WorksOrderOperation.query
-        .filter_by(department_id=dept_id)
-        .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
-        .options(joinedload(WorksOrderOperation.sales_order_line))
-        .order_by(WorksOrderOperation.due_date.asc().nullslast(), WorksOrderOperation.so_number)
-    )
-
-    if status_filter:
-        q = q.filter(WorksOrderOperation.status == status_filter)
-
-    if search:
-        term = f"%{search.strip()}%"
-        q = q.filter(
-            db.or_(
-                WorksOrderOperation.so_number.ilike(term),
-                WorksOrderOperation.work_centre_name.ilike(term),
-            )
-        )
-
-    return dept, q.paginate(page=page, per_page=per_page, error_out=False)
-
-
-def _build_queue_groups(all_lines: list, page: int, per_page: int, sort: str = "due_date") -> tuple:
-    """Shared grouping/aggregation logic for firming and releasing queues."""
-    today = date.today()
-
-    _line_status_priority = {
-        SalesOrderLine.LINE_STATUS_NEW:          0,
-        SalesOrderLine.LINE_STATUS_FIRM_PLANNED: 1,
-        SalesOrderLine.LINE_STATUS_RELEASED:     2,
-        SalesOrderLine.LINE_STATUS_WIP:          3,
-        SalesOrderLine.LINE_STATUS_COMPLETED:    4,
-    }
-
-    seen: dict[str, dict] = {}
-    order_list: list[dict] = []
-
-    for sol in all_lines:
-        if sol.so_number not in seen:
-            entry: dict = {"so_number": sol.so_number, "customer_name": sol.customer_name or "", "lines": []}
-            seen[sol.so_number] = entry
-            order_list.append(entry)
-        seen[sol.so_number]["lines"].append(sol)
-
-    for entry in order_list:
-        lines = entry["lines"]
-        due_dates = [s.due_date for s in lines if s.due_date]
-        entry["due_date"]    = min(due_dates) if due_dates else None
-        entry["total_qty"]   = sum((s.qty_ordered or 0) for s in lines)
-        entry["total_value"] = sum((s.total_value or 0) for s in lines)
-        entry["line_count"]  = len(lines)
-        entry["op_count"]    = sum(
-            1 for s in lines
-            for op in s.operations
-            if op.status != WorksOrderOperation.STATUS_CLOSED
-        )
-        entry["days_delta"]  = (entry["due_date"] - today).days if entry["due_date"] else None
-        entry["agg_status"]  = min(
-            [s.aggregate_status for s in lines],
-            key=lambda s: _line_status_priority.get(s, 99),
-        )
-        entry["cpr_list"] = list(dict.fromkeys(
-            s.customer_product_ref for s in lines if s.customer_product_ref
-        ))
-        all_planned = [
-            op.planned_date
-            for s in lines for op in s.operations
-            if op.planned_date and op.status != WorksOrderOperation.STATUS_CLOSED
-        ]
-        entry["plan_start"] = min(all_planned) if all_planned else None
-        entry["plan_end"]   = _add_working_days(max(all_planned), 1) if all_planned else None
-        entry["new_order_op_ids"] = [
-            op.id for s in lines for op in s.operations
-            if op.status == WorksOrderOperation.STATUS_NEW_ORDER
-        ]
-        entry["firm_planned_op_ids"] = [
-            op.id for s in lines for op in s.operations
-            if op.status == WorksOrderOperation.STATUS_FIRM_PLANNED
-        ]
-
-    # Post-grouping sort
-    if sort == "customer":
-        order_list.sort(key=lambda e: e["customer_name"].lower())
-    elif sort == "so_number":
-        order_list.sort(key=lambda e: e["so_number"])
-    elif sort == "overdue":
-        order_list.sort(key=lambda e: (e["days_delta"] is None, e["days_delta"] if e["days_delta"] is not None else 0))
-    # default "due_date" is already ordered by the SQL query
-
-    total = len(order_list)
-    start = (page - 1) * per_page
-    return SimplePagination(order_list[start: start + per_page], total, page, per_page), order_list[start: start + per_page]
-
-
-def _queue_query(
-    status_filter: list,
-    search: Optional[str],
-    cust_prod_ref: Optional[str],
-    due_from: Optional[date] = None,
-    due_to: Optional[date] = None,
-    overdue_only: bool = False,
-):
-    """Base query for queue views — filters by op status, excludes production."""
-    from sqlalchemy.orm import joinedload
-
-    production_statuses = [
-        WorksOrderOperation.STATUS_RELEASED,
-        WorksOrderOperation.STATUS_WIP,
-        WorksOrderOperation.STATUS_COMPLETED,
-    ]
-    q = (
-        SalesOrderLine.query
-        .filter(_is_production_line())
-        .filter(SalesOrderLine.operations.any(WorksOrderOperation.status.in_(status_filter)))
-        .filter(~SalesOrderLine.operations.any(WorksOrderOperation.status.in_(production_statuses)))
-        .options(joinedload(SalesOrderLine.operations).joinedload(WorksOrderOperation.department))
-        .order_by(SalesOrderLine.due_date.asc().nullslast(), SalesOrderLine.so_number, SalesOrderLine.line_number)
-    )
-    if search:
-        term = f"%{search.strip()}%"
-        q = q.filter(db.or_(
-            SalesOrderLine.so_number.ilike(term),
-            SalesOrderLine.customer_name.ilike(term),
-            SalesOrderLine.product_description.ilike(term),
-            SalesOrderLine.customer_product_ref.ilike(term),
-        ))
-    if cust_prod_ref:
-        q = q.filter(SalesOrderLine.customer_product_ref.ilike(f"%{cust_prod_ref.strip()}%"))
-    if due_from:
-        q = q.filter(SalesOrderLine.due_date >= due_from)
-    if due_to:
-        q = q.filter(SalesOrderLine.due_date <= due_to)
-    if overdue_only:
-        q = q.filter(SalesOrderLine.due_date < date.today())
-    return q
-
-
-def get_firming_queue(
-    page: int = 1,
-    per_page: int = 25,
-    search: Optional[str] = None,
-    cust_prod_ref: Optional[str] = None,
-    due_from: Optional[date] = None,
-    due_to: Optional[date] = None,
-    overdue_only: bool = False,
-    sort: str = "due_date",
-):
-    """Orders with new_order operations and no firm_planned/higher ops yet."""
-    q = _queue_query([WorksOrderOperation.STATUS_NEW_ORDER], search, cust_prod_ref, due_from, due_to, overdue_only)
-    q = q.filter(
-        ~SalesOrderLine.operations.any(WorksOrderOperation.status == WorksOrderOperation.STATUS_FIRM_PLANNED)
-    )
-    return _build_queue_groups(q.all(), page, per_page, sort)
-
-
-def get_releasing_queue(
-    page: int = 1,
-    per_page: int = 25,
-    search: Optional[str] = None,
-    cust_prod_ref: Optional[str] = None,
-    due_from: Optional[date] = None,
-    due_to: Optional[date] = None,
-    overdue_only: bool = False,
-    sort: str = "due_date",
-):
-    """
-    Orders that are fully firm planned (no new_order ops remain) and ready for release.
-    An order graduates here once all its ops are firm_planned.
-    """
-    q = _queue_query([WorksOrderOperation.STATUS_FIRM_PLANNED], search, cust_prod_ref, due_from, due_to, overdue_only)
-    q = q.filter(
-        ~SalesOrderLine.operations.any(WorksOrderOperation.status == WorksOrderOperation.STATUS_NEW_ORDER)
-    )
-    return _build_queue_groups(q.all(), page, per_page, sort)
-
-
-# ---------------------------------------------------------------------------
-# No-Ops Queue
-# ---------------------------------------------------------------------------
-
-def get_no_ops_queue(
-    page: int = 1,
-    per_page: int = 25,
-    search: Optional[str] = None,
-    cust_prod_ref: Optional[str] = None,
-    due_from: Optional[date] = None,
-    due_to: Optional[date] = None,
-    overdue_only: bool = False,
-    sort: str = "due_date",
-):
-    """
-    Return (SimplePagination, order_groups) for SalesOrderLines that have no
-    WorksOrderOperation rows (ops_missing = True).
-
-    These orders arrived from the ERP but have not been broken down into work
-    centre operations — likely an ERP setup issue that needs investigation.
-    """
-    from sqlalchemy.orm import joinedload
-
-    today = date.today()
-
-    q = (
-        SalesOrderLine.query
-        .filter(_is_production_line())
-        .filter(SalesOrderLine.ops_missing == True)  # noqa: E712
-        .filter(
-            ~SalesOrderLine.operations.any(
-                WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED
-            )
-        )
-        .options(joinedload(SalesOrderLine.operations))
-        .order_by(SalesOrderLine.due_date.asc().nullslast(), SalesOrderLine.so_number, SalesOrderLine.line_number)
-    )
-
-    if search:
-        term = f"%{search.strip()}%"
-        q = q.filter(db.or_(
-            SalesOrderLine.so_number.ilike(term),
-            SalesOrderLine.customer_name.ilike(term),
-            SalesOrderLine.product_description.ilike(term),
-            SalesOrderLine.customer_product_ref.ilike(term),
-        ))
-    if cust_prod_ref:
-        q = q.filter(SalesOrderLine.customer_product_ref.ilike(f"%{cust_prod_ref.strip()}%"))
-    if due_from:
-        q = q.filter(SalesOrderLine.due_date >= due_from)
-    if due_to:
-        q = q.filter(SalesOrderLine.due_date <= due_to)
-    if overdue_only:
-        q = q.filter(SalesOrderLine.due_date < today)
-
-    all_lines = q.all()
-
-    # Group by SO number
-    seen: dict[str, dict] = {}
-    order_list: list[dict] = []
-
-    for sol in all_lines:
-        if sol.so_number not in seen:
-            entry: dict = {
-                "so_number": sol.so_number,
-                "customer_name": sol.customer_name or "",
-                "lines": [],
-            }
-            seen[sol.so_number] = entry
-            order_list.append(entry)
-        seen[sol.so_number]["lines"].append(sol)
-
-    for entry in order_list:
-        lines = entry["lines"]
-        due_dates = [s.due_date for s in lines if s.due_date]
-        entry["due_date"]    = min(due_dates) if due_dates else None
-        entry["total_qty"]   = sum((s.qty_ordered or 0) for s in lines)
-        entry["total_value"] = sum((s.total_value or 0) for s in lines)
-        entry["line_count"]  = len(lines)
-        entry["days_delta"]  = (entry["due_date"] - today).days if entry["due_date"] else None
-        entry["cpr_list"]    = list(dict.fromkeys(
-            s.customer_product_ref for s in lines if s.customer_product_ref
-        ))
-        # Earliest timestamp when ops_missing was first flagged across the group's lines
-        since_values = [s.ops_missing_since for s in lines if s.ops_missing_since]
-        entry["ops_missing_since"] = min(since_values) if since_values else None
-
-    # Post-grouping sort
-    if sort == "customer":
-        order_list.sort(key=lambda e: e["customer_name"].lower())
-    elif sort == "so_number":
-        order_list.sort(key=lambda e: e["so_number"])
-    elif sort == "overdue":
-        order_list.sort(key=lambda e: (e["days_delta"] is None, e["days_delta"] if e["days_delta"] is not None else 0))
-    elif sort == "missing_since":
-        order_list.sort(key=lambda e: (e["ops_missing_since"] is None, e["ops_missing_since"]))
-    # default "due_date" is already ordered by the SQL query
-
-    total = len(order_list)
-    start = (page - 1) * per_page
-    return SimplePagination(order_list[start: start + per_page], total, page, per_page), order_list[start: start + per_page]
 
 
 # ---------------------------------------------------------------------------
@@ -1393,12 +999,12 @@ def get_wip_summary() -> dict:
     Return SO-level counts and values for the WIP tracker summary banner.
 
     Counts distinct Sales Orders (SO numbers):
-      total         — SOs with at least one non-closed op
-      overdue       — SOs with at least one overdue open op
-      by_status     — for each status, SOs that have at least one op in that status
-      total_value   — sum of total_value for all active SOs
-      overdue_value — sum of total_value for overdue SOs
-      value_by_status — dict of status → sum of total_value
+      total         â€” SOs with at least one non-closed op
+      overdue       â€” SOs with at least one overdue open op
+      by_status     â€” for each status, SOs that have at least one op in that status
+      total_value   â€” sum of total_value for all active SOs
+      overdue_value â€” sum of total_value for overdue SOs
+      value_by_status â€” dict of status â†’ sum of total_value
     """
     today = date.today()
 
@@ -1491,428 +1097,6 @@ def get_order_types() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Date Planning
-# ---------------------------------------------------------------------------
-
-def get_planning_list(
-    *,
-    page: int = 1,
-    per_page: int = 50,
-    filter_mode: str = "all",
-    search: Optional[str] = None,
-    dept_id: Optional[int] = None,
-):
-    """
-    Return paginated SO lines enriched with computed planning dates.
-
-    filter_mode:
-        'all'       — all open lines
-        'overdue'   — ERP due_date < today
-        'this_week' — due within next 7 days
-        'no_dates'  — open operations with no planned_date set
-
-    Returns (pagination_object, enriched_list) where each enriched item is:
-        {
-            sol:         SalesOrderLine,
-            open_ops:    list[WorksOrderOperation] sorted by dept name,
-            plan_start:  date | None  — earliest planned_date across open ops,
-            plan_end:    date | None  — latest planned_date across open ops,
-            days_delta:  int | None   — due_date − today (negative = overdue),
-            headroom:    int | None   — due_date − plan_end (negative = late plan),
-        }
-    """
-    from sqlalchemy.orm import joinedload
-
-    today = date.today()
-    week_end = today + timedelta(days=7)
-
-    q = SalesOrderLine.query.options(
-        joinedload(SalesOrderLine.operations).joinedload(WorksOrderOperation.department)
-    ).filter(_is_production_line())
-
-    # Always exclude fully-closed lines
-    q = q.filter(
-        SalesOrderLine.operations.any(
-            WorksOrderOperation.status.notin_([
-                WorksOrderOperation.STATUS_COMPLETED,
-                WorksOrderOperation.STATUS_CLOSED,
-            ])
-        )
-    )
-
-    if filter_mode == "overdue":
-        q = q.filter(SalesOrderLine.due_date < today)
-    elif filter_mode == "this_week":
-        q = q.filter(
-            SalesOrderLine.due_date >= today,
-            SalesOrderLine.due_date <= week_end,
-        )
-    elif filter_mode == "no_dates":
-        q = q.filter(
-            ~SalesOrderLine.operations.any(
-                and_(
-                    WorksOrderOperation.planned_date.isnot(None),
-                    WorksOrderOperation.status.notin_([
-                        WorksOrderOperation.STATUS_COMPLETED,
-                        WorksOrderOperation.STATUS_CLOSED,
-                    ]),
-                )
-            )
-        )
-    elif filter_mode == "planned_overdue":
-        # Has at least one dated open op, and every dated open op is before today
-        # (i.e. max planned_date < today → plan_end is overdue)
-        q = q.filter(
-            SalesOrderLine.operations.any(
-                and_(
-                    WorksOrderOperation.planned_date.isnot(None),
-                    WorksOrderOperation.status.notin_([
-                        WorksOrderOperation.STATUS_COMPLETED,
-                        WorksOrderOperation.STATUS_CLOSED,
-                    ]),
-                )
-            )
-        ).filter(
-            ~SalesOrderLine.operations.any(
-                and_(
-                    WorksOrderOperation.planned_date >= today,
-                    WorksOrderOperation.status.notin_([
-                        WorksOrderOperation.STATUS_COMPLETED,
-                        WorksOrderOperation.STATUS_CLOSED,
-                    ]),
-                )
-            )
-        )
-
-    if search:
-        term = f"%{search.strip()}%"
-        q = q.filter(db.or_(
-            SalesOrderLine.so_number.ilike(term),
-            SalesOrderLine.customer_name.ilike(term),
-            SalesOrderLine.product_description.ilike(term),
-            SalesOrderLine.customer_order_ref.ilike(term),
-            SalesOrderLine.customer_product_ref.ilike(term),
-        ))
-
-    if dept_id:
-        q = q.filter(
-            SalesOrderLine.operations.any(
-                WorksOrderOperation.department_id == dept_id
-            )
-        )
-
-    q = q.order_by(SalesOrderLine.due_date.asc().nullslast(), SalesOrderLine.so_number)
-    pagination = q.paginate(page=page, per_page=per_page, error_out=False)
-
-    enriched = []
-    for sol in pagination.items:
-        open_ops = [
-            op for op in sol.operations
-            if op.status not in (
-                WorksOrderOperation.STATUS_COMPLETED,
-                WorksOrderOperation.STATUS_CLOSED,
-            )
-        ]
-        open_ops.sort(key=lambda op: (op.department.name if op.department else ""))
-
-        planned_dates = [op.planned_date for op in open_ops if op.planned_date]
-        plan_start = min(planned_dates) if planned_dates else None
-        plan_end   = _add_working_days(max(planned_dates), 1) if planned_dates else None
-
-        days_delta = (sol.due_date - today).days if sol.due_date else None
-        headroom   = (sol.due_date - plan_end).days if (sol.due_date and plan_end) else None
-
-        enriched.append({
-            "sol":        sol,
-            "open_ops":   open_ops,
-            "plan_start": plan_start,
-            "plan_end":   plan_end,
-            "days_delta": days_delta,
-            "headroom":   headroom,
-        })
-
-    return pagination, enriched
-
-
-def get_planning_grouped(
-    *,
-    page: int = 1,
-    per_page: int = 25,
-    filter_mode: str = "all",
-    search: Optional[str] = None,
-    cust_prod_ref: Optional[str] = None,
-    dept_id: Optional[int] = None,
-    sort_by: str = "due_date",
-    status_filter: Optional[str] = None,
-):
-    """
-    Return planning data grouped by SO number.
-
-    Each item is a dict:
-        so_number      str
-        customer_name  str
-        due_date       date | None   — earliest across lines
-        plan_start     date | None   — earliest planned_date across all open ops
-        plan_end       date | None   — latest planned_date across all open ops
-        days_delta     int | None
-        headroom       int | None
-        agg_status     str
-        line_count     int
-        rows           list[dict]   — same structure as get_planning_list rows
-    """
-    from sqlalchemy.orm import joinedload
-
-    today = date.today()
-    week_end = today + timedelta(days=7)
-
-    q = SalesOrderLine.query.options(
-        joinedload(SalesOrderLine.operations).joinedload(WorksOrderOperation.department)
-    ).filter(_is_production_line())
-
-    q = q.filter(
-        SalesOrderLine.operations.any(
-            WorksOrderOperation.status.notin_([
-                WorksOrderOperation.STATUS_COMPLETED,
-                WorksOrderOperation.STATUS_CLOSED,
-            ])
-        )
-    )
-
-    if filter_mode == "overdue":
-        q = q.filter(SalesOrderLine.due_date < today)
-    elif filter_mode == "this_week":
-        q = q.filter(
-            SalesOrderLine.due_date >= today,
-            SalesOrderLine.due_date <= week_end,
-        )
-    elif filter_mode == "no_dates":
-        q = q.filter(
-            ~SalesOrderLine.operations.any(
-                and_(
-                    WorksOrderOperation.planned_date.isnot(None),
-                    WorksOrderOperation.status.notin_([
-                        WorksOrderOperation.STATUS_COMPLETED,
-                        WorksOrderOperation.STATUS_CLOSED,
-                    ]),
-                )
-            )
-        )
-    elif filter_mode == "planned_overdue":
-        # Has at least one dated open op, and every dated open op is before today
-        # (i.e. max planned_date < today → plan_end is overdue)
-        q = q.filter(
-            SalesOrderLine.operations.any(
-                and_(
-                    WorksOrderOperation.planned_date.isnot(None),
-                    WorksOrderOperation.status.notin_([
-                        WorksOrderOperation.STATUS_COMPLETED,
-                        WorksOrderOperation.STATUS_CLOSED,
-                    ]),
-                )
-            )
-        ).filter(
-            ~SalesOrderLine.operations.any(
-                and_(
-                    WorksOrderOperation.planned_date >= today,
-                    WorksOrderOperation.status.notin_([
-                        WorksOrderOperation.STATUS_COMPLETED,
-                        WorksOrderOperation.STATUS_CLOSED,
-                    ]),
-                )
-            )
-        )
-
-    if search:
-        term = f"%{search.strip()}%"
-        q = q.filter(db.or_(
-            SalesOrderLine.so_number.ilike(term),
-            SalesOrderLine.customer_name.ilike(term),
-            SalesOrderLine.product_description.ilike(term),
-            SalesOrderLine.customer_order_ref.ilike(term),
-            SalesOrderLine.customer_product_ref.ilike(term),
-        ))
-
-    if cust_prod_ref:
-        q = q.filter(SalesOrderLine.customer_product_ref.ilike(f"%{cust_prod_ref.strip()}%"))
-
-    if dept_id:
-        q = q.filter(
-            SalesOrderLine.operations.any(
-                WorksOrderOperation.department_id == dept_id
-            )
-        )
-
-    q = q.order_by(
-        SalesOrderLine.due_date.asc().nullslast(),
-        SalesOrderLine.so_number,
-        SalesOrderLine.line_number,
-    )
-    all_lines = q.all()
-
-    _line_status_priority = {
-        SalesOrderLine.LINE_STATUS_NEW:          0,
-        SalesOrderLine.LINE_STATUS_FIRM_PLANNED: 1,
-        SalesOrderLine.LINE_STATUS_RELEASED:     2,
-        SalesOrderLine.LINE_STATUS_WIP:          3,
-        SalesOrderLine.LINE_STATUS_COMPLETED:    4,
-    }
-
-    # Group by so_number
-    seen: dict[str, dict] = {}
-    order_list: list[dict] = []
-
-    for sol in all_lines:
-        if sol.so_number not in seen:
-            entry: dict = {
-                "so_number":     sol.so_number,
-                "customer_name": sol.customer_name or "",
-                "rows":          [],
-            }
-            seen[sol.so_number] = entry
-            order_list.append(entry)
-
-        open_ops = [
-            op for op in sol.operations
-            if op.status not in (
-                WorksOrderOperation.STATUS_COMPLETED,
-                WorksOrderOperation.STATUS_CLOSED,
-            )
-        ]
-        open_ops.sort(key=lambda op: (op.department.name if op.department else ""))
-
-        planned_dates = [op.planned_date for op in open_ops if op.planned_date]
-        plan_start = min(planned_dates) if planned_dates else None
-        plan_end   = _add_working_days(max(planned_dates), 1) if planned_dates else None
-        days_delta = (sol.due_date - today).days if sol.due_date else None
-        headroom   = (sol.due_date - plan_end).days if (sol.due_date and plan_end) else None
-
-        seen[sol.so_number]["rows"].append({
-            "sol":        sol,
-            "open_ops":   open_ops,
-            "plan_start": plan_start,
-            "plan_end":   plan_end,
-            "days_delta": days_delta,
-            "headroom":   headroom,
-        })
-
-    # Order-level aggregates
-    for entry in order_list:
-        rows = entry["rows"]
-        due_dates      = [r["sol"].due_date for r in rows if r["sol"].due_date]
-        all_starts     = [r["plan_start"] for r in rows if r["plan_start"]]
-        all_ends       = [r["plan_end"]   for r in rows if r["plan_end"]]
-        line_statuses  = [r["sol"].aggregate_status for r in rows]
-
-        entry["due_date"]   = min(due_dates) if due_dates else None
-        entry["plan_start"] = min(all_starts) if all_starts else None
-        entry["plan_end"]   = max(all_ends)   if all_ends   else None
-        entry["line_count"] = len(rows)
-        entry["op_count"]   = sum(len(r["open_ops"]) for r in rows)
-        entry["days_delta"] = (entry["due_date"] - today).days if entry["due_date"] else None
-        entry["headroom"]   = (
-            (entry["due_date"] - entry["plan_end"]).days
-            if entry["due_date"] and entry["plan_end"] else None
-        )
-        entry["agg_status"] = min(
-            line_statuses,
-            key=lambda s: _line_status_priority.get(s, 99),
-        )
-
-        # Unique CPRs across all lines (preserving order, excluding nulls)
-        entry["cpr_list"] = list(dict.fromkeys(
-            r["sol"].customer_product_ref for r in rows
-            if r["sol"].customer_product_ref
-        ))
-
-    # Apply status filter (post-aggregation, on agg_status)
-    if status_filter:
-        order_list = [e for e in order_list if e["agg_status"] == status_filter]
-
-    # Sort the grouped list
-    _far_future = date(9999, 12, 31)
-    if sort_by == "customer":
-        order_list.sort(key=lambda e: e["customer_name"].lower())
-    elif sort_by == "plan_end":
-        order_list.sort(key=lambda e: (e["plan_end"] is None, e["plan_end"] or _far_future))
-    elif sort_by == "headroom":
-        order_list.sort(key=lambda e: (e["headroom"] is None, e["headroom"] if e["headroom"] is not None else 9999))
-    elif sort_by == "status":
-        order_list.sort(key=lambda e: _line_status_priority.get(e["agg_status"], 99))
-    else:  # due_date (default)
-        order_list.sort(key=lambda e: (e["due_date"] is None, e["due_date"] or _far_future))
-
-    total = len(order_list)
-    start = (page - 1) * per_page
-    return SimplePagination(order_list[start: start + per_page], total, page, per_page), order_list[start: start + per_page]
-
-
-def count_planning_filters() -> dict:
-    """Return distinct SO counts for each filter tab on the planning view."""
-    today = date.today()
-    week_end = today + timedelta(days=7)
-
-    excluded = [WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED]
-
-    def _count(*extra_filters):
-        q = (
-            db.session.query(func.count(func.distinct(WorksOrderOperation.so_number)))
-            .join(SalesOrderLine, WorksOrderOperation.sales_order_line_id == SalesOrderLine.id)
-            .filter(WorksOrderOperation.status.notin_(excluded))
-            .filter(_is_production_line())
-        )
-        for f in extra_filters:
-            q = q.filter(f)
-        return q.scalar() or 0
-
-    def _count_so(*extra_filters):
-        """Count distinct SOs from SalesOrderLine level (for NOT-ANY subqueries)."""
-        q = (
-            db.session.query(func.count(func.distinct(SalesOrderLine.so_number)))
-            .filter(_is_production_line())
-            .filter(
-                SalesOrderLine.operations.any(
-                    WorksOrderOperation.status.notin_(excluded)
-                )
-            )
-        )
-        for f in extra_filters:
-            q = q.filter(f)
-        return q.scalar() or 0
-
-    no_dates_count = _count_so(
-        ~SalesOrderLine.operations.any(
-            and_(
-                WorksOrderOperation.planned_date.isnot(None),
-                WorksOrderOperation.status.notin_(excluded),
-            )
-        )
-    )
-
-    planned_overdue_count = _count_so(
-        SalesOrderLine.operations.any(
-            and_(
-                WorksOrderOperation.planned_date.isnot(None),
-                WorksOrderOperation.status.notin_(excluded),
-            )
-        ),
-        ~SalesOrderLine.operations.any(
-            and_(
-                WorksOrderOperation.planned_date >= today,
-                WorksOrderOperation.status.notin_(excluded),
-            )
-        ),
-    )
-
-    return {
-        "all":             _count(),
-        "overdue":         _count(SalesOrderLine.due_date < today),
-        "this_week":       _count(SalesOrderLine.due_date >= today, SalesOrderLine.due_date <= week_end),
-        "no_dates":        no_dates_count,
-        "planned_overdue": planned_overdue_count,
-    }
-
-
-# ---------------------------------------------------------------------------
 # Sales Order Comments
 # ---------------------------------------------------------------------------
 
@@ -1996,11 +1180,11 @@ def get_wip_dashboard_data() -> dict:
     Return aggregated data for the WIP Dashboard charts and KPIs.
 
     Returns a dict with keys:
-      summary        — from get_wip_summary()
-      dept_status    — {depts, statuses, data, colors, labels} for stacked bar
-      due_by_week    — {labels, counts} for next 10 weeks + overdue bucket
-      throughput     — {labels, counts} completed ops per week, last 8 weeks
-      overdue_by_dept — {depts, counts} top depts with overdue ops
+      summary        â€” from get_wip_summary()
+      dept_status    â€” {depts, statuses, data, colors, labels} for stacked bar
+      due_by_week    â€” {labels, counts} for next 10 weeks + overdue bucket
+      throughput     â€” {labels, counts} completed ops per week, last 8 weeks
+      overdue_by_dept â€” {depts, counts} top depts with overdue ops
     """
     today = date.today()
     this_monday = today - timedelta(days=today.weekday())
@@ -2063,7 +1247,7 @@ def get_wip_dashboard_data() -> dict:
         .all()
     )
 
-    # Best (most advanced) status per SO (excl. closed) — for stacked week chart
+    # Best (most advanced) status per SO (excl. closed) â€” for stacked week chart
     so_status_rows = (
         db.session.query(
             WorksOrderOperation.so_number,
@@ -2080,7 +1264,7 @@ def get_wip_dashboard_data() -> dict:
         elif _STATUS_PRIORITY.get(status, 99) > _STATUS_PRIORITY.get(so_status_map[so_num], 99):
             so_status_map[so_num] = status
 
-    # Total value per SO (excl. closed) — separate query to avoid join multiplication
+    # Total value per SO (excl. closed) â€” separate query to avoid join multiplication
     so_value_rows = (
         db.session.query(
             SalesOrderLine.so_number,
@@ -2295,27 +1479,27 @@ def get_wip_dashboard_data() -> dict:
 def get_despatch_kpis() -> dict:
     """
     Aggregate KPI data driven by the two milestone dates on SalesOrderLine:
-      despatch_completed_date — when the DESPATCH op was marked complete
-      order_completed_date    — when every known-dept op for the line was completed
+      despatch_completed_date â€” when the DESPATCH op was marked complete
+      order_completed_date    â€” when every known-dept op for the line was completed
 
     Returns:
-      despatched_30d       — orders despatched in the last 30 days
-      on_time_30d          — of those, despatched on or before due_date
-      late_30d             — despatched after due_date
-      on_time_rate_30d     — percentage (float) or None if no data
-      avg_variance_30d     — avg calendar days from due_date (negative = early,
+      despatched_30d       â€” orders despatched in the last 30 days
+      on_time_30d          â€” of those, despatched on or before due_date
+      late_30d             â€” despatched after due_date
+      on_time_rate_30d     â€” percentage (float) or None if no data
+      avg_variance_30d     â€” avg calendar days from due_date (negative = early,
                              positive = late), rounded to 1dp, or None if no data
-      completed_30d        — orders fully completed in the last 30 days
-      all_time_despatched  — total orders ever despatched (for "no data" guard)
-      all_time_on_time_rate — all-time on-time % or None
-      weekly               — {labels, on_time, late, completed} last 12 ISO weeks
+      completed_30d        â€” orders fully completed in the last 30 days
+      all_time_despatched  â€” total orders ever despatched (for "no data" guard)
+      all_time_on_time_rate â€” all-time on-time % or None
+      weekly               â€” {labels, on_time, late, completed} last 12 ISO weeks
     """
     today = date.today()
     thirty_days_ago  = today - timedelta(days=30)
     this_monday      = today - timedelta(days=today.weekday())
     twelve_weeks_ago = this_monday - timedelta(weeks=12)
 
-    # ── Last-30-days summary ─────────────────────────────────────────────
+    # â”€â”€ Last-30-days summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     recent_rows = (
         db.session.query(
             SalesOrderLine.despatch_completed_date,
@@ -2351,7 +1535,7 @@ def get_despatch_kpis() -> dict:
         .count()
     )
 
-    # ── All-time stats ───────────────────────────────────────────────────
+    # â”€â”€ All-time stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     all_time_despatched = (
         SalesOrderLine.query
         .filter(
@@ -2374,7 +1558,7 @@ def get_despatch_kpis() -> dict:
         if all_time_despatched else None
     )
 
-    # ── Weekly chart data (last 12 weeks) ────────────────────────────────
+    # â”€â”€ Weekly chart data (last 12 weeks) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     week_starts = [this_monday - timedelta(weeks=(11 - i)) for i in range(12)]
     week_labels  = [f"Wk {ws.isocalendar()[1]}" for ws in week_starts]
     weekly_on_time  = [0] * 12
@@ -2439,670 +1623,6 @@ def get_despatch_kpis() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# OTIF Report
-# ---------------------------------------------------------------------------
-
-def get_otif_report(
-    weeks: int = 13,
-    customer_name: str | None = None,
-    month: str | None = None,
-) -> dict:
-    """
-    On-Time Despatch report grouped by ISO week and customer.
-
-    'On Time' = despatch_completed_date <= due_date.
-    'In Full' requires ERP ship-qty data not yet available; this metric
-    currently reflects on-time despatch rate only.
-
-    Args:
-        weeks:         number of past ISO weeks to include (4, 8, 13, 26, 52)
-        customer_name: filter to a single customer name (None = all)
-        month:         calendar month to show, format 'YYYY-MM' (overrides weeks)
-
-    Returns dict with:
-        week_rows     — list (newest first) of week dicts, each with a
-                        'customers' breakdown list
-        all_customers — sorted customer names for the filter dropdown
-        totals        — overall summary across the period
-        chart         — Chart.js-ready data (oldest to newest)
-        period_label  — human-readable description of the selected period
-    """
-    import calendar as _cal
-    from collections import defaultdict
-
-    today       = date.today()
-    this_monday = today - timedelta(days=today.weekday())
-
-    if month:
-        # Month mode — fixed calendar month range
-        year, month_num = int(month[:4]), int(month[5:])
-        period_start = date(year, month_num, 1)
-        period_end   = date(year, month_num, _cal.monthrange(year, month_num)[1])
-        cutoff       = period_start
-        date_to      = period_end
-        period_label = period_start.strftime("%B %Y")
-
-        # ISO weeks that overlap with this month
-        first_monday = period_start - timedelta(days=period_start.weekday())
-        week_starts  = []
-        ws = first_monday
-        while ws <= period_end:
-            week_starts.append(ws)
-            ws += timedelta(weeks=1)
-    else:
-        # Rolling-weeks mode
-        cutoff       = this_monday - timedelta(weeks=weeks)
-        date_to      = today
-        period_label = f"Last {weeks} weeks"
-        week_starts  = [this_monday - timedelta(weeks=(weeks - 1 - i)) for i in range(weeks)]
-
-    week_start_set = set(week_starts)
-
-    # Dropdown: all customers with any despatch history (unfiltered)
-    all_customers = [
-        r[0] for r in
-        db.session.query(SalesOrderLine.customer_name)
-        .filter(
-            SalesOrderLine.despatch_completed_date.isnot(None),
-            SalesOrderLine.customer_name.isnot(None),
-        )
-        .distinct()
-        .order_by(SalesOrderLine.customer_name)
-        .all()
-        if r[0]
-    ]
-
-    # Main query — includes customer_hold and production_ready_date for metrics
-    q = (
-        db.session.query(
-            SalesOrderLine.despatch_completed_date,
-            SalesOrderLine.production_ready_date,
-            SalesOrderLine.due_date,
-            SalesOrderLine.customer_name,
-            SalesOrderLine.customer_hold,
-        )
-        .filter(
-            SalesOrderLine.despatch_completed_date.isnot(None),
-            SalesOrderLine.due_date.isnot(None),
-            SalesOrderLine.despatch_completed_date >= cutoff,
-            SalesOrderLine.despatch_completed_date <= date_to,
-        )
-    )
-    if customer_name:
-        q = q.filter(SalesOrderLine.customer_name == customer_name)
-    rows = q.all()
-
-    # week_data[week_start][customer] = {despatched, on_time, on_hold, prod_on_time, prod_total}
-    week_data: dict = {
-        ws: defaultdict(lambda: {
-            "despatched": 0, "on_time": 0, "on_hold": 0,
-            "prod_on_time": 0, "prod_total": 0,
-        })
-        for ws in week_starts
-    }
-
-    for r in rows:
-        d  = r.despatch_completed_date
-        ws = d - timedelta(days=d.weekday())
-        if ws not in week_start_set:
-            continue
-        cust = r.customer_name or "Unknown"
-        counts = week_data[ws][cust]
-
-        if r.customer_hold:
-            counts["on_hold"] += 1
-        else:
-            counts["despatched"] += 1
-            if d <= r.due_date:
-                counts["on_time"] += 1
-
-        # Production on-time: production_ready_date <= due_date (regardless of hold)
-        if r.production_ready_date and r.due_date:
-            counts["prod_total"] += 1
-            if r.production_ready_date <= r.due_date:
-                counts["prod_on_time"] += 1
-
-    # Build week rows — newest first for the table
-    week_rows = []
-    for ws in reversed(week_starts):
-        iso   = ws.isocalendar()
-        label = f"Wk {iso[1]} / {iso[0]}"
-
-        week_total_d  = 0
-        week_total_ot = 0
-        week_on_hold  = 0
-        week_prod_ot  = 0
-        week_prod_tot = 0
-        customers_data = []
-
-        for cust, counts in sorted(week_data[ws].items()):
-            d_count = counts["despatched"]
-            ot      = counts["on_time"]
-            late    = d_count - ot
-            pct     = round(ot / d_count * 100, 1) if d_count else None
-            p_tot   = counts["prod_total"]
-            p_ot    = counts["prod_on_time"]
-            p_pct   = round(p_ot / p_tot * 100, 1) if p_tot else None
-            customers_data.append({
-                "customer_name": cust,
-                "despatched":    d_count,
-                "on_time":       ot,
-                "late":          late,
-                "ot_pct":        pct,
-                "on_hold":       counts["on_hold"],
-                "prod_on_time":  p_ot,
-                "prod_total":    p_tot,
-                "prod_ot_pct":   p_pct,
-            })
-            week_total_d  += d_count
-            week_total_ot += ot
-            week_on_hold  += counts["on_hold"]
-            week_prod_ot  += p_ot
-            week_prod_tot += p_tot
-
-        week_late    = week_total_d - week_total_ot
-        week_pct     = round(week_total_ot / week_total_d * 100, 1) if week_total_d else None
-        week_prod_pct = round(week_prod_ot / week_prod_tot * 100, 1) if week_prod_tot else None
-
-        week_rows.append({
-            "week_start":  ws,
-            "label":       label,
-            "despatched":  week_total_d,
-            "on_time":     week_total_ot,
-            "late":        week_late,
-            "ot_pct":      week_pct,
-            "on_hold":     week_on_hold,
-            "prod_on_time": week_prod_ot,
-            "prod_total":  week_prod_tot,
-            "prod_ot_pct": week_prod_pct,
-            "customers":   customers_data,
-        })
-
-    # Overall totals
-    total_d      = sum(w["despatched"]  for w in week_rows)
-    total_ot     = sum(w["on_time"]     for w in week_rows)
-    total_late   = total_d - total_ot
-    total_pct    = round(total_ot / total_d * 100, 1) if total_d else None
-    total_hold   = sum(w["on_hold"]     for w in week_rows)
-    total_prod_ot  = sum(w["prod_on_time"] for w in week_rows)
-    total_prod_tot = sum(w["prod_total"]   for w in week_rows)
-    total_prod_pct = round(total_prod_ot / total_prod_tot * 100, 1) if total_prod_tot else None
-
-    # Chart data — oldest to newest
-    chart_weeks   = list(reversed(week_rows))
-    chart_labels  = [w["label"]      for w in chart_weeks]
-    chart_on_time = [w["on_time"]    for w in chart_weeks]
-    chart_late    = [w["late"]       for w in chart_weeks]
-    chart_pct     = [w["ot_pct"]     for w in chart_weeks]
-
-    # By-customer pivot (alphabetical; each entry has a week-by-week breakdown)
-    cust_totals: dict = {}
-    for w in week_rows:            # newest-first
-        for cd in w["customers"]:
-            cust = cd["customer_name"]
-            if cust not in cust_totals:
-                cust_totals[cust] = {
-                    "despatched": 0, "on_time": 0, "on_hold": 0,
-                    "prod_on_time": 0, "prod_total": 0, "weeks": {},
-                }
-            cust_totals[cust]["despatched"]  += cd["despatched"]
-            cust_totals[cust]["on_time"]     += cd["on_time"]
-            cust_totals[cust]["on_hold"]     += cd["on_hold"]
-            cust_totals[cust]["prod_on_time"] += cd["prod_on_time"]
-            cust_totals[cust]["prod_total"]  += cd["prod_total"]
-            cust_totals[cust]["weeks"][w["label"]] = cd
-
-    customer_rows = []
-    for cust, data in sorted(cust_totals.items()):
-        c_d    = data["despatched"]
-        c_ot   = data["on_time"]
-        c_late = c_d - c_ot
-        c_pct  = round(c_ot / c_d * 100, 1) if c_d else None
-        c_p_ot = data["prod_on_time"]
-        c_p_tot = data["prod_total"]
-        c_p_pct = round(c_p_ot / c_p_tot * 100, 1) if c_p_tot else None
-        customer_rows.append({
-            "customer_name": cust,
-            "despatched":    c_d,
-            "on_time":       c_ot,
-            "late":          c_late,
-            "ot_pct":        c_pct,
-            "on_hold":       data["on_hold"],
-            "prod_on_time":  c_p_ot,
-            "prod_total":    c_p_tot,
-            "prod_ot_pct":   c_p_pct,
-            # weeks in newest-first order, matching week_rows
-            "weeks": [
-                {"label": w["label"], "data": data["weeks"].get(w["label"])}
-                for w in week_rows
-            ],
-        })
-
-    return {
-        "week_rows":     week_rows,
-        "customer_rows": customer_rows,
-        "all_customers": all_customers,
-        "period_label":  period_label,
-        "totals": {
-            "despatched":   total_d,
-            "on_time":      total_ot,
-            "late":         total_late,
-            "ot_pct":       total_pct,
-            "on_hold_count": total_hold,
-            "prod_on_time": total_prod_ot,
-            "prod_total":   total_prod_tot,
-            "prod_ot_pct":  total_prod_pct,
-        },
-        "chart": {
-            "labels":   chart_labels,
-            "on_time":  chart_on_time,
-            "late":     chart_late,
-            "pct":      chart_pct,
-        },
-    }
-
-
-# ---------------------------------------------------------------------------
-# Department OTIF Report
-# ---------------------------------------------------------------------------
-
-def get_dept_otif_report(
-    weeks: int = 13,
-    month: str | None = None,
-    dept_id: int | None = None,
-) -> dict:
-    """
-    On-Time Despatch report grouped by department then ISO week.
-
-    For each department, counts distinct despatched SalesOrderLines that had
-    at least one operation in that department.  'On Time' = despatch_completed_date
-    <= due_date.
-
-    Args:
-        weeks:   rolling weeks to include (4, 8, 13, 26, 52)
-        month:   calendar month 'YYYY-MM' — overrides weeks
-        dept_id: filter to a single department (None = all)
-    """
-    import calendar as _cal
-
-    today       = date.today()
-    this_monday = today - timedelta(days=today.weekday())
-
-    if month:
-        year, month_num = int(month[:4]), int(month[5:])
-        period_start = date(year, month_num, 1)
-        period_end   = date(year, month_num, _cal.monthrange(year, month_num)[1])
-        cutoff       = period_start
-        date_to      = period_end
-        period_label = period_start.strftime("%B %Y")
-        first_monday = period_start - timedelta(days=period_start.weekday())
-        week_starts  = []
-        ws = first_monday
-        while ws <= period_end:
-            week_starts.append(ws)
-            ws += timedelta(weeks=1)
-    else:
-        cutoff       = this_monday - timedelta(weeks=weeks)
-        date_to      = today
-        period_label = f"Last {weeks} weeks"
-        week_starts  = [this_monday - timedelta(weeks=(weeks - 1 - i)) for i in range(weeks)]
-
-    week_start_set = set(week_starts)
-
-    # One row per distinct (department, sales_order_line) pair in the period
-    q = (
-        db.session.query(
-            Department.id,
-            Department.name,
-            SalesOrderLine.despatch_completed_date,
-            SalesOrderLine.production_ready_date,
-            SalesOrderLine.due_date,
-            SalesOrderLine.customer_hold,
-        )
-        .join(WorksOrderOperation, WorksOrderOperation.department_id == Department.id)
-        .join(SalesOrderLine, SalesOrderLine.id == WorksOrderOperation.sales_order_line_id)
-        .filter(
-            SalesOrderLine.despatch_completed_date.isnot(None),
-            SalesOrderLine.due_date.isnot(None),
-            SalesOrderLine.despatch_completed_date >= cutoff,
-            SalesOrderLine.despatch_completed_date <= date_to,
-        )
-        .group_by(Department.id, SalesOrderLine.id)
-    )
-    if dept_id:
-        q = q.filter(Department.id == dept_id)
-    rows = q.all()
-
-    # All active departments for the filter dropdown
-    all_depts = Department.query.filter_by(is_active=True).order_by(Department.name).all()
-
-    # Aggregate into dept_data[dept_id] = {name, despatched, on_time, on_hold, prod_on_time, prod_total, weeks}
-    dept_data: dict = {}
-    for r in rows:
-        d_id, d_name, despatch_date, prod_ready, due, on_hold = r
-        if d_id not in dept_data:
-            dept_data[d_id] = {
-                "name": d_name, "despatched": 0, "on_time": 0,
-                "on_hold": 0, "prod_on_time": 0, "prod_total": 0, "weeks": {},
-            }
-        dd = dept_data[d_id]
-
-        if on_hold:
-            dd["on_hold"] += 1
-        else:
-            dd["despatched"] += 1
-            if despatch_date <= due:
-                dd["on_time"] += 1
-
-        if prod_ready and due:
-            dd["prod_total"] += 1
-            if prod_ready <= due:
-                dd["prod_on_time"] += 1
-
-        ws = despatch_date - timedelta(days=despatch_date.weekday())
-        if ws in week_start_set and not on_hold:
-            if ws not in dd["weeks"]:
-                dd["weeks"][ws] = {"despatched": 0, "on_time": 0}
-            dd["weeks"][ws]["despatched"] += 1
-            if despatch_date <= due:
-                dd["weeks"][ws]["on_time"] += 1
-
-    # Build dept_rows sorted by OT% descending (best first), then alphabetically
-    dept_rows = []
-    for d_id, data in dept_data.items():
-        c_d    = data["despatched"]
-        c_ot   = data["on_time"]
-        c_late = c_d - c_ot
-        c_pct  = round(c_ot / c_d * 100, 1) if c_d else None
-        c_p_ot  = data["prod_on_time"]
-        c_p_tot = data["prod_total"]
-        c_p_pct = round(c_p_ot / c_p_tot * 100, 1) if c_p_tot else None
-
-        # Week entries — newest first, only weeks with data
-        week_entries = []
-        for ws in reversed(week_starts):
-            wd = data["weeks"].get(ws)
-            if wd:
-                wd_late = wd["despatched"] - wd["on_time"]
-                wd_pct  = round(wd["on_time"] / wd["despatched"] * 100, 1) if wd["despatched"] else None
-                iso     = ws.isocalendar()
-                week_entries.append({
-                    "label":      f"Wk {iso[1]} / {iso[0]}",
-                    "despatched": wd["despatched"],
-                    "on_time":    wd["on_time"],
-                    "late":       wd_late,
-                    "ot_pct":     wd_pct,
-                })
-
-        dept_rows.append({
-            "dept_id":    d_id,
-            "dept_name":  data["name"],
-            "despatched": c_d,
-            "on_time":    c_ot,
-            "late":       c_late,
-            "ot_pct":     c_pct,
-            "on_hold":    data["on_hold"],
-            "prod_on_time": c_p_ot,
-            "prod_total":  c_p_tot,
-            "prod_ot_pct": c_p_pct,
-            "weeks":      week_entries,
-        })
-
-    dept_rows.sort(key=lambda r: (-(r["ot_pct"] or -1), r["dept_name"]))
-
-    # Overall totals
-    total_d      = sum(r["despatched"]  for r in dept_rows)
-    total_ot     = sum(r["on_time"]     for r in dept_rows)
-    total_late   = total_d - total_ot
-    total_pct    = round(total_ot / total_d * 100, 1) if total_d else None
-    total_hold   = sum(r["on_hold"]     for r in dept_rows)
-    total_p_ot   = sum(r["prod_on_time"] for r in dept_rows)
-    total_p_tot  = sum(r["prod_total"]  for r in dept_rows)
-    total_p_pct  = round(total_p_ot / total_p_tot * 100, 1) if total_p_tot else None
-
-    # Chart data — horizontal bar, sorted worst→best (reversed for readability)
-    chart_rows   = list(reversed(dept_rows))
-    chart_labels = [r["dept_name"] for r in chart_rows]
-    chart_pct    = [r["ot_pct"]    for r in chart_rows]
-    chart_colours = [
-        "rgba(25,135,84,0.75)"   if (p or 0) >= 90 else
-        "rgba(255,193,7,0.85)"   if (p or 0) >= 70 else
-        "rgba(220,53,69,0.75)"
-        for p in chart_pct
-    ]
-
-    return {
-        "dept_rows":    dept_rows,
-        "all_depts":    all_depts,
-        "period_label": period_label,
-        "totals": {
-            "despatched":    total_d,
-            "on_time":       total_ot,
-            "late":          total_late,
-            "ot_pct":        total_pct,
-            "on_hold_count": total_hold,
-            "prod_on_time":  total_p_ot,
-            "prod_total":    total_p_tot,
-            "prod_ot_pct":   total_p_pct,
-        },
-        "chart": {
-            "labels":  chart_labels,
-            "pct":     chart_pct,
-            "colours": chart_colours,
-        },
-    }
-
-
-# ---------------------------------------------------------------------------
-# Planning Dashboard
-# ---------------------------------------------------------------------------
-
-def get_planning_dashboard_data() -> dict:
-    """
-    Return aggregated data for the Planning Dashboard charts and KPIs.
-
-    Returns:
-      summary         — from get_wip_summary()
-      firming_count   — SOs in firming queue
-      releasing_count — SOs in releasing queue
-      no_dates_count  — SOs with any open op missing a planned_date
-      dated_vs_undated — {dated, undated} SO counts
-      due_horizon     — {labels, counts} SOs bucketed by ERP due date
-      headroom        — {labels, counts, colors} plan_end vs due_date buckets
-      dept_load       — [{dept, count}] open ops per dept (flow order)
-    """
-    today = date.today()
-    this_monday = today - timedelta(days=today.weekday())
-    excluded = [WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED]
-
-    # 1. Summary KPIs
-    summary = get_wip_summary()
-
-    # 2. Firming queue count (new_order ops, no firm_planned ops on same SO)
-    firming_count = (
-        db.session.query(func.count(func.distinct(SalesOrderLine.so_number)))
-        .join(WorksOrderOperation, WorksOrderOperation.sales_order_line_id == SalesOrderLine.id)
-        .filter(WorksOrderOperation.status == WorksOrderOperation.STATUS_NEW_ORDER)
-        .filter(
-            ~SalesOrderLine.operations.any(
-                WorksOrderOperation.status == WorksOrderOperation.STATUS_FIRM_PLANNED
-            )
-        )
-        .filter(_is_production_line())
-        .scalar()
-    ) or 0
-
-    # 3. Releasing queue count (firm_planned ops, no new_order ops remaining)
-    releasing_count = (
-        db.session.query(func.count(func.distinct(SalesOrderLine.so_number)))
-        .join(WorksOrderOperation, WorksOrderOperation.sales_order_line_id == SalesOrderLine.id)
-        .filter(WorksOrderOperation.status == WorksOrderOperation.STATUS_FIRM_PLANNED)
-        .filter(
-            ~SalesOrderLine.operations.any(
-                WorksOrderOperation.status == WorksOrderOperation.STATUS_NEW_ORDER
-            )
-        )
-        .filter(_is_production_line())
-        .scalar()
-    ) or 0
-
-    # 4. No-dates count
-    no_dates_count = (
-        db.session.query(func.count(func.distinct(WorksOrderOperation.so_number)))
-        .join(SalesOrderLine, WorksOrderOperation.sales_order_line_id == SalesOrderLine.id)
-        .filter(WorksOrderOperation.status.notin_(excluded))
-        .filter(WorksOrderOperation.planned_date.is_(None))
-        .filter(_is_production_line())
-        .scalar()
-    ) or 0
-
-    # 5. Dated vs undated — per SO, does any open op lack a planned_date?
-    so_date_rows = (
-        db.session.query(
-            WorksOrderOperation.so_number,
-            func.count(
-                case((WorksOrderOperation.planned_date.is_(None), 1))
-            ).label("unset_count"),
-        )
-        .join(SalesOrderLine, WorksOrderOperation.sales_order_line_id == SalesOrderLine.id)
-        .filter(WorksOrderOperation.status.notin_(excluded))
-        .filter(_is_production_line())
-        .group_by(WorksOrderOperation.so_number)
-        .all()
-    )
-    dated_count   = sum(1 for r in so_date_rows if r.unset_count == 0)
-    undated_count = sum(1 for r in so_date_rows if r.unset_count > 0)
-
-    # 6. Due date horizon — bucket SOs by min ERP due_date
-    active_so_due = (
-        db.session.query(
-            SalesOrderLine.so_number,
-            func.min(SalesOrderLine.due_date).label("min_due"),
-        )
-        .join(WorksOrderOperation, WorksOrderOperation.sales_order_line_id == SalesOrderLine.id)
-        .filter(WorksOrderOperation.status.notin_(excluded))
-        .filter(_is_production_line())
-        .group_by(SalesOrderLine.so_number)
-        .all()
-    )
-
-    next_week_start = this_monday + timedelta(weeks=1)
-    two_weeks_end   = this_monday + timedelta(weeks=3) - timedelta(days=1)
-    four_weeks_end  = this_monday + timedelta(weeks=5) - timedelta(days=1)
-
-    horizon = {"overdue": 0, "this_week": 0, "next_week": 0, "2_4_weeks": 0, "later": 0, "no_date": 0}
-    for _so, min_due in active_so_due:
-        if min_due is None:
-            horizon["no_date"] += 1
-        elif min_due < today:
-            horizon["overdue"] += 1
-        elif min_due < next_week_start:
-            horizon["this_week"] += 1
-        elif min_due <= two_weeks_end:
-            horizon["next_week"] += 1
-        elif min_due <= four_weeks_end:
-            horizon["2_4_weeks"] += 1
-        else:
-            horizon["later"] += 1
-
-    # 7. Headroom — max planned_date vs min due_date per SO (only dated orders)
-    headroom_rows = (
-        db.session.query(
-            WorksOrderOperation.so_number,
-            func.max(WorksOrderOperation.planned_date).label("plan_end"),
-            func.min(SalesOrderLine.due_date).label("min_due"),
-        )
-        .join(SalesOrderLine, WorksOrderOperation.sales_order_line_id == SalesOrderLine.id)
-        .filter(WorksOrderOperation.status.notin_(excluded))
-        .filter(WorksOrderOperation.planned_date.isnot(None))
-        .filter(_is_production_line())
-        .group_by(WorksOrderOperation.so_number)
-        .all()
-    )
-    headroom = {"late": 0, "urgent": 0, "tight": 0, "ok": 0}
-    for _so, plan_end, min_due in headroom_rows:
-        if min_due is None or plan_end is None:
-            continue
-        diff = (min_due - plan_end).days
-        if diff < 0:
-            headroom["late"] += 1
-        elif diff <= 3:
-            headroom["urgent"] += 1
-        elif diff <= 7:
-            headroom["tight"] += 1
-        else:
-            headroom["ok"] += 1
-
-    # 8. Open operations per dept (flow order)
-    dept_load_rows = (
-        db.session.query(
-            Department.name,
-            Department.flow_order,
-            func.count(WorksOrderOperation.id).label("cnt"),
-        )
-        .join(Department, WorksOrderOperation.department_id == Department.id)
-        .filter(WorksOrderOperation.status.notin_(excluded))
-        .group_by(Department.name, Department.flow_order)
-        .order_by(
-            case((Department.flow_order.is_(None), 1), else_=0),
-            Department.flow_order.asc(),
-            Department.name.asc(),
-        )
-        .all()
-    )
-    dept_load = [{"dept": r.name, "count": r.cnt} for r in dept_load_rows]
-
-    # 9. Planned overdue count — SOs with dates but max planned_date < today
-    planned_overdue_count = (
-        db.session.query(func.count(func.distinct(SalesOrderLine.so_number)))
-        .filter(_is_production_line())
-        .filter(
-            SalesOrderLine.operations.any(
-                and_(
-                    WorksOrderOperation.planned_date.isnot(None),
-                    WorksOrderOperation.status.notin_(excluded),
-                )
-            )
-        )
-        .filter(
-            ~SalesOrderLine.operations.any(
-                and_(
-                    WorksOrderOperation.planned_date >= today,
-                    WorksOrderOperation.status.notin_(excluded),
-                )
-            )
-        )
-        .scalar()
-    ) or 0
-
-    return {
-        "summary":               summary,
-        "firming_count":         firming_count,
-        "releasing_count":       releasing_count,
-        "no_dates_count":        no_dates_count,
-        "planned_overdue_count": planned_overdue_count,
-        "dated_vs_undated": {"dated": dated_count, "undated": undated_count},
-        "due_horizon": {
-            "labels": ["Overdue", "This Week", "Next Week", "2–3 Wks", "4+ Wks", "No Date"],
-            "counts": [
-                horizon["overdue"], horizon["this_week"], horizon["next_week"],
-                horizon["2_4_weeks"], horizon["later"], horizon["no_date"],
-            ],
-            "colors": ["#dc3545", "#ffc107", "#fd7e14", "#0d6efd", "#198754", "#adb5bd"],
-        },
-        "headroom": {
-            "labels": ["Late", "Urgent ≤3d", "Tight 4–7d", "OK 8+d", "Unplanned"],
-            "counts": [
-                headroom["late"], headroom["urgent"], headroom["tight"],
-                headroom["ok"], undated_count,
-            ],
-            "colors": ["#dc3545", "#ffc107", "#fd7e14", "#198754", "#adb5bd"],
-        },
-        "dept_load": dept_load,
-    }
-
-
-# ---------------------------------------------------------------------------
 # Overdue Orders Report
 # ---------------------------------------------------------------------------
 
@@ -3127,7 +1647,7 @@ def get_overdue_report_data(
         WorksOrderOperation.STATUS_CLOSED,
     ]
 
-    # ── Chart / KPI queries (unfiltered — full overdue picture) ────────────
+    # â”€â”€ Chart / KPI queries (unfiltered â€” full overdue picture) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     chart_filter = [
         WorksOrderOperation.due_date < today,
         WorksOrderOperation.status.notin_(_OVERDUE_EXCLUDED),
@@ -3172,7 +1692,7 @@ def get_overdue_report_data(
     max_days_overdue = max(days_list) if days_list else 0
 
     # Age distribution (orders, not ops)
-    age_labels = ["1–7 days", "8–14 days", "15–30 days", "31–60 days", "60+ days"]
+    age_labels = ["1â€“7 days", "8â€“14 days", "15â€“30 days", "31â€“60 days", "60+ days"]
     age_counts = [0, 0, 0, 0, 0]
     for d in days_list:
         if d <= 7:
@@ -3225,7 +1745,7 @@ def get_overdue_report_data(
         .all()
     )
 
-    # ── Detail table (dept + status + search filters apply) ────────────────
+    # â”€â”€ Detail table (dept + status + search filters apply) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     detail_filter = list(chart_filter)
     if status_filter:
         detail_filter.append(WorksOrderOperation.status == status_filter)
@@ -3289,7 +1809,7 @@ def get_overdue_report_data(
         meta = so_meta.get(so_num)
         if not meta:
             continue
-        customer = meta.customer_name or "—"
+        customer = meta.customer_name or "â€”"
         if search_lower and search_lower not in so_num.lower() and search_lower not in customer.lower():
             continue
         min_due = op_data["min_due"]
@@ -3355,7 +1875,7 @@ def get_overdue_report_data(
             "colors": _chart_status_colors,
         },
         "value_by_customer": [
-            {"customer": r.customer_name or "—", "value": float(r.val or 0), "count": r.cnt}
+            {"customer": r.customer_name or "â€”", "value": float(r.val or 0), "count": r.cnt}
             for r in value_by_cust_rows
         ],
         # Table

@@ -1,5 +1,5 @@
-"""
-Orders blueprint routes — WIP tracker, department order lists, firming queue.
+﻿"""
+Orders blueprint routes — WIP tracker, department order lists.
 """
 
 from datetime import date
@@ -17,7 +17,7 @@ from app.materials.services import get_so_material_status, MAT_STATUS_META
 
 
 # ---------------------------------------------------------------------------
-# WIP Tracker — main view
+# WIP Tracker â€” main view
 # ---------------------------------------------------------------------------
 
 @orders_bp.route("/")
@@ -39,94 +39,6 @@ def wip_dashboard():
     return render_template(
         "orders/wip_dashboard.html",
         title="WIP Dashboard",
-        **data,
-    )
-
-
-@orders_bp.route("/otif-report")
-@login_required
-@permission_required("view_orders")
-def otif_report():
-    from datetime import timedelta
-    weeks    = request.args.get("weeks", 13, type=int)
-    customer = request.args.get("customer", "")
-    month    = request.args.get("month", "")
-
-    if weeks not in (4, 8, 13, 26, 52):
-        weeks = 13
-
-    # Validate month param (must be YYYY-MM)
-    if month:
-        try:
-            _y, _m = month.split("-")
-            if not (1 <= int(_m) <= 12):
-                month = ""
-        except (ValueError, AttributeError):
-            month = ""
-
-    # Build month options list — last 24 calendar months (newest first)
-    month_options = []
-    d = date.today().replace(day=1)
-    for _ in range(24):
-        month_options.append(d)
-        d = (d - timedelta(days=1)).replace(day=1)
-
-    data = services.get_otif_report(
-        weeks=weeks,
-        customer_name=customer or None,
-        month=month or None,
-    )
-    return render_template(
-        "orders/otif_report.html",
-        title="OTIF Report",
-        weeks=weeks,
-        customer_filter=customer,
-        month_filter=month,
-        month_options=month_options,
-        today=date.today(),
-        **data,
-    )
-
-
-@orders_bp.route("/otif-dept")
-@login_required
-@permission_required("view_orders")
-def otif_dept_report():
-    from datetime import timedelta
-    weeks   = request.args.get("weeks", 13, type=int)
-    month   = request.args.get("month", "")
-    dept_id = request.args.get("dept", None, type=int)
-
-    if weeks not in (4, 8, 13, 26, 52):
-        weeks = 13
-
-    if month:
-        try:
-            _y, _m = month.split("-")
-            if not (1 <= int(_m) <= 12):
-                month = ""
-        except (ValueError, AttributeError):
-            month = ""
-
-    month_options = []
-    d = date.today().replace(day=1)
-    for _ in range(24):
-        month_options.append(d)
-        d = (d - timedelta(days=1)).replace(day=1)
-
-    data = services.get_dept_otif_report(
-        weeks=weeks,
-        month=month or None,
-        dept_id=dept_id,
-    )
-    return render_template(
-        "orders/otif_dept_report.html",
-        title="OTIF by Department",
-        weeks=weeks,
-        month_filter=month,
-        month_options=month_options,
-        dept_filter=dept_id or "",
-        today=date.today(),
         **data,
     )
 
@@ -222,7 +134,7 @@ def wip_tracker():
     status_meta  = WorksOrderOperation.STATUS_META
 
     # Attach material status to each order on the current page.
-    # Use our planned start dates where set — materials must arrive by when
+    # Use our planned start dates where set â€” materials must arrive by when
     # we actually plan to start the order, not the ERP's MRP date.
     plan_start_map = {
         o["so_number"]: o["plan_start"]
@@ -322,7 +234,7 @@ def dept_orders(dept_id: int):
 
     return render_template(
         "orders/dept_orders.html",
-        title=f"{dept.name} — Orders",
+        title=f"{dept.name} â€” Orders",
         dept=dept,
         order_groups=order_groups,
         pagination=pagination,
@@ -345,176 +257,7 @@ def dept_orders(dept_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Firming queue
-# ---------------------------------------------------------------------------
-
-@orders_bp.route("/firming")
-@login_required
-@permission_required("view_orders")
-def firming_queue():
-    page          = request.args.get("page", 1, type=int)
-    per_page      = request.args.get("per_page", 25, type=int)
-    search        = request.args.get("q", "")
-    cust_prod_ref = request.args.get("cpr", "")
-    overdue_only  = request.args.get("overdue", "") == "1"
-    sort          = request.args.get("sort", "due_date")
-    due_from      = _parse_date(request.args.get("due_from", ""))
-    due_to        = _parse_date(request.args.get("due_to", ""))
-    if per_page not in (25, 50, 100):
-        per_page = 25
-
-    pagination, order_groups = services.get_firming_queue(
-        page=page, per_page=per_page,
-        search=search or None,
-        cust_prod_ref=cust_prod_ref or None,
-        due_from=due_from,
-        due_to=due_to,
-        overdue_only=overdue_only,
-        sort=sort,
-    )
-
-    plan_start_map = {g["so_number"]: g["plan_start"] for g in order_groups if g.get("plan_start")}
-    mat_status_map = get_so_material_status([g["so_number"] for g in order_groups], plan_start_map=plan_start_map)
-    for g in order_groups:
-        g["mat_status"] = mat_status_map.get(g["so_number"], "no_data")
-
-    return render_template(
-        "orders/firming_queue.html",
-        title="Firming Queue",
-        order_groups=order_groups,
-        pagination=pagination,
-        search=search,
-        cust_prod_ref=cust_prod_ref,
-        overdue_only=overdue_only,
-        sort=sort,
-        due_from=due_from,
-        due_to=due_to,
-        per_page=per_page,
-        line_status_meta=SalesOrderLine.LINE_STATUS_META,
-        mat_status_meta=MAT_STATUS_META,
-        today=date.today(),
-    )
-
-
-@orders_bp.route("/releasing")
-@login_required
-@permission_required("view_orders")
-def releasing_queue():
-    page          = request.args.get("page", 1, type=int)
-    per_page      = request.args.get("per_page", 25, type=int)
-    search        = request.args.get("q", "")
-    cust_prod_ref = request.args.get("cpr", "")
-    overdue_only  = request.args.get("overdue", "") == "1"
-    sort          = request.args.get("sort", "due_date")
-    due_from      = _parse_date(request.args.get("due_from", ""))
-    due_to        = _parse_date(request.args.get("due_to", ""))
-    if per_page not in (25, 50, 100):
-        per_page = 25
-
-    pagination, order_groups = services.get_releasing_queue(
-        page=page, per_page=per_page,
-        search=search or None,
-        cust_prod_ref=cust_prod_ref or None,
-        due_from=due_from,
-        due_to=due_to,
-        overdue_only=overdue_only,
-        sort=sort,
-    )
-
-    plan_start_map = {g["so_number"]: g["plan_start"] for g in order_groups if g.get("plan_start")}
-    mat_status_map = get_so_material_status([g["so_number"] for g in order_groups], plan_start_map=plan_start_map)
-    for g in order_groups:
-        g["mat_status"] = mat_status_map.get(g["so_number"], "no_data")
-
-    return render_template(
-        "orders/releasing_queue.html",
-        title="Releasing Queue",
-        order_groups=order_groups,
-        pagination=pagination,
-        search=search,
-        cust_prod_ref=cust_prod_ref,
-        overdue_only=overdue_only,
-        sort=sort,
-        due_from=due_from,
-        due_to=due_to,
-        per_page=per_page,
-        line_status_meta=SalesOrderLine.LINE_STATUS_META,
-        mat_status_meta=MAT_STATUS_META,
-        today=date.today(),
-    )
-
-
-# ---------------------------------------------------------------------------
-# No-Ops Queue
-# ---------------------------------------------------------------------------
-
-@orders_bp.route("/no-ops")
-@login_required
-@permission_required("view_orders")
-def no_ops_queue():
-    page          = request.args.get("page", 1, type=int)
-    per_page      = request.args.get("per_page", 25, type=int)
-    search        = request.args.get("q", "")
-    cust_prod_ref = request.args.get("cpr", "")
-    overdue_only  = request.args.get("overdue", "") == "1"
-    sort          = request.args.get("sort", "due_date")
-    due_from      = _parse_date(request.args.get("due_from", ""))
-    due_to        = _parse_date(request.args.get("due_to", ""))
-    if per_page not in (25, 50, 100):
-        per_page = 25
-
-    pagination, order_groups = services.get_no_ops_queue(
-        page=page, per_page=per_page,
-        search=search or None,
-        cust_prod_ref=cust_prod_ref or None,
-        due_from=due_from,
-        due_to=due_to,
-        overdue_only=overdue_only,
-        sort=sort,
-    )
-    return render_template(
-        "orders/no_ops_queue.html",
-        title="No-Ops Queue",
-        order_groups=order_groups,
-        pagination=pagination,
-        search=search,
-        cust_prod_ref=cust_prod_ref,
-        overdue_only=overdue_only,
-        sort=sort,
-        due_from=due_from,
-        due_to=due_to,
-        per_page=per_page,
-        today=date.today(),
-    )
-
-
-@orders_bp.route("/so/<so_number>/acknowledge-no-ops", methods=["POST"])
-@login_required
-@permission_required("update_order_status")
-def acknowledge_no_ops(so_number: str):
-    """Record an acknowledgement or escalation comment against a no-ops order."""
-    action = request.form.get("action", "acknowledged")
-
-    # Verify the SO exists
-    sol = SalesOrderLine.query.filter_by(so_number=so_number).first()
-    if sol is None:
-        flash(f"Sales order {so_number} not found.", "warning")
-        return redirect(url_for("orders.no_ops_queue"))
-
-    if action == "escalated":
-        body = f"Escalated to ERP team — no works order operations received for SO {so_number}."
-    else:
-        body = f"Acknowledged — no ERP operations yet for SO {so_number}. Under investigation."
-
-    services.add_so_comment(so_number, current_user.id, body)
-    flash(f"SO {so_number} {action}.", "success")
-
-    back_url = request.form.get("back_url") or url_for("orders.no_ops_queue")
-    return redirect(back_url)
-
-
-# ---------------------------------------------------------------------------
-# Operation status update (POST — AJAX or standard form)
+# Operation status update (POST â€” AJAX or standard form)
 # ---------------------------------------------------------------------------
 
 @orders_bp.route("/operations/<int:op_id>/update", methods=["POST"])
@@ -597,7 +340,7 @@ def bulk_update_operations():
 @login_required
 @permission_required("update_order_status")
 def advance_so_dept():
-    """AJAX — advance every open op for a given SO + work centre to next status."""
+    """AJAX â€” advance every open op for a given SO + work centre to next status."""
     so_number        = request.form.get("so_number", "").strip()
     work_centre_name = request.form.get("work_centre_name", "").strip()
 
@@ -613,7 +356,7 @@ def advance_so_dept():
 @login_required
 @permission_required("update_order_status")
 def reverse_so_dept():
-    """AJAX — step every op for a given SO + work centre back one status."""
+    """AJAX â€” step every op for a given SO + work centre back one status."""
     so_number        = request.form.get("so_number", "").strip()
     work_centre_name = request.form.get("work_centre_name", "").strip()
 
@@ -629,7 +372,7 @@ def reverse_so_dept():
 @login_required
 @permission_required("view_orders")
 def so_comments(so_number: str):
-    """AJAX — return comments for an SO as JSON."""
+    """AJAX â€” return comments for an SO as JSON."""
     comments = services.get_so_comments(so_number)
     return jsonify({
         "ok": True,
@@ -649,7 +392,7 @@ def so_comments(so_number: str):
 @login_required
 @permission_required("update_order_status")
 def add_so_comment(so_number: str):
-    """AJAX — add a comment to an SO."""
+    """AJAX â€” add a comment to an SO."""
     from flask_login import current_user
     body = request.form.get("body", "").strip()
     try:
@@ -672,7 +415,7 @@ def add_so_comment(so_number: str):
 @login_required
 @permission_required("update_order_status")
 def advance_so_all():
-    """AJAX — advance every open op for a given SO (all depts) to next status."""
+    """AJAX â€” advance every open op for a given SO (all depts) to next status."""
     so_number = request.form.get("so_number", "").strip()
     if not so_number:
         return jsonify({"ok": False, "error": "Missing parameters"}), 400
@@ -685,7 +428,7 @@ def advance_so_all():
 @login_required
 @permission_required("update_order_status")
 def reverse_so_all():
-    """AJAX — step every op for a given SO (all depts) back one status."""
+    """AJAX â€” step every op for a given SO (all depts) back one status."""
     so_number = request.form.get("so_number", "").strip()
     if not so_number:
         return jsonify({"ok": False, "error": "Missing parameters"}), 400
@@ -695,219 +438,7 @@ def reverse_so_all():
 
 
 # ---------------------------------------------------------------------------
-# Date Planning
-# ---------------------------------------------------------------------------
-
-@orders_bp.route("/planning/dashboard")
-@login_required
-@permission_required("view_orders")
-def planning_dashboard():
-    data = services.get_planning_dashboard_data()
-    return render_template(
-        "orders/planning_dashboard.html",
-        title="Planning Dashboard",
-        **data,
-    )
-
-
-@orders_bp.route("/planning/")
-@login_required
-@permission_required("manage_orders")
-def planning():
-    filter_mode   = request.args.get("filter", "all")
-    search        = request.args.get("q", "")
-    dept_id       = request.args.get("dept", None, type=int)
-    page          = request.args.get("page", 1, type=int)
-    cust_prod_ref = request.args.get("cpr", "")
-    sort_by       = request.args.get("sort", "due_date")
-    status_filter = request.args.get("status", "")
-
-    if sort_by not in ("due_date", "plan_end", "headroom", "customer", "status"):
-        sort_by = "due_date"
-
-    per_page    = request.args.get("per_page", 25, type=int)
-    if per_page not in (25, 50, 100):
-        per_page = 25
-
-    pagination, order_groups = services.get_planning_grouped(
-        page=page,
-        per_page=per_page,
-        filter_mode=filter_mode,
-        search=search or None,
-        cust_prod_ref=cust_prod_ref or None,
-        dept_id=dept_id,
-        sort_by=sort_by,
-        status_filter=status_filter or None,
-    )
-    counts      = services.count_planning_filters()
-    departments = services.get_active_departments()
-
-    plan_start_map = {g["so_number"]: g["plan_start"] for g in order_groups if g.get("plan_start")}
-    mat_status_map = get_so_material_status([g["so_number"] for g in order_groups], plan_start_map=plan_start_map)
-    for g in order_groups:
-        g["mat_status"] = mat_status_map.get(g["so_number"], "no_data")
-
-    comment_summaries = services.get_comment_summaries([g["so_number"] for g in order_groups])
-    for g in order_groups:
-        cs = comment_summaries.get(g["so_number"], {})
-        g["comment_count"]  = cs.get("count", 0)
-        g["latest_comment"] = cs.get("latest_body")
-        g["latest_user"]    = cs.get("latest_user")
-        g["latest_at"]      = cs.get("latest_at")
-
-    return render_template(
-        "orders/planning.html",
-        title="Date Planning",
-        order_groups=order_groups,
-        pagination=pagination,
-        filter_mode=filter_mode,
-        counts=counts,
-        search=search,
-        cust_prod_ref=cust_prod_ref,
-        dept_id=dept_id or "",
-        per_page=per_page,
-        departments=departments,
-        today=date.today(),
-        valid_statuses=WorksOrderOperation.VALID_STATUSES,
-        STATUS_META=WorksOrderOperation.STATUS_META,
-        LINE_STATUS_META=SalesOrderLine.LINE_STATUS_META,
-        LINE_STATUS_META_ITEMS=list(SalesOrderLine.LINE_STATUS_META.items()),
-        mat_status_meta=MAT_STATUS_META,
-        sort_by=sort_by,
-        status_filter=status_filter,
-    )
-
-
-@orders_bp.route("/planning/reschedule", methods=["POST"])
-@login_required
-@permission_required("manage_orders")
-def planning_reschedule():
-    """Bulk reschedule selected SO lines using the backward scheduler."""
-    from app.capacity.scheduler import schedule_orders
-
-    raw_ids     = request.form.get("sol_ids", "")
-    today_floor = request.form.get("today_floor") == "1"
-    template_id = request.form.get("template_id", None, type=int)
-    back_url    = request.form.get("back_url") or url_for("orders.planning")
-
-    try:
-        sol_ids = [int(x) for x in raw_ids.split(",") if x.strip()]
-    except ValueError:
-        flash("Invalid order selection.", "danger")
-        return redirect(back_url)
-
-    if not sol_ids:
-        flash("No orders selected.", "warning")
-        return redirect(back_url)
-
-    try:
-        result = schedule_orders(
-            overwrite_manual=True,
-            template_id=template_id,
-            sol_ids=sol_ids,
-            floor_date=date.today() if today_floor else None,
-        )
-        msg = f"{result['scheduled']} operations rescheduled"
-        if result["skipped"]:
-            msg += f" ({result['skipped']} skipped)"
-        if result["no_due_date"]:
-            msg += f"; {result['no_due_date']} orders skipped (no ERP due date)"
-        flash(msg + ".", "success")
-    except ValueError as exc:
-        flash(str(exc), "danger")
-
-    return redirect(back_url)
-
-
-@orders_bp.route("/planning/clear", methods=["POST"])
-@login_required
-@permission_required("manage_orders")
-def planning_clear_dates():
-    """Clear planned_date from all open operations on selected SO lines."""
-    raw_ids  = request.form.get("sol_ids", "")
-    back_url = request.form.get("back_url") or url_for("orders.planning")
-
-    try:
-        sol_ids = [int(x) for x in raw_ids.split(",") if x.strip()]
-    except ValueError:
-        flash("Invalid order selection.", "danger")
-        return redirect(back_url)
-
-    if not sol_ids:
-        flash("No orders selected.", "warning")
-        return redirect(back_url)
-
-    sols = SalesOrderLine.query.filter(SalesOrderLine.id.in_(sol_ids)).all()
-    count = 0
-    for sol in sols:
-        for op in sol.operations:
-            if op.planned_date is not None and op.status not in (
-                WorksOrderOperation.STATUS_COMPLETED,
-                WorksOrderOperation.STATUS_CLOSED,
-            ):
-                op.planned_date = None
-                count += 1
-    from app.extensions import db
-    db.session.commit()
-    flash(f"Cleared planned dates from {count} operation(s).", "success")
-    return redirect(back_url)
-
-
-@orders_bp.route("/planning/schedule-from-date", methods=["POST"])
-@login_required
-@permission_required("manage_orders")
-def planning_schedule_from_date():
-    """
-    Schedule selected SO lines from a specific start date.
-    Runs the backward scheduler floored to the given date — no operation
-    will be planned earlier than floor_date.
-    """
-    from app.capacity.scheduler import schedule_orders
-
-    raw_ids     = request.form.get("sol_ids", "")
-    floor_str   = request.form.get("floor_date", "")
-    template_id = request.form.get("template_id", None, type=int)
-    back_url    = request.form.get("back_url") or url_for("orders.planning")
-
-    try:
-        sol_ids = [int(x) for x in raw_ids.split(",") if x.strip()]
-    except ValueError:
-        flash("Invalid order selection.", "danger")
-        return redirect(back_url)
-
-    if not sol_ids:
-        flash("No orders selected.", "warning")
-        return redirect(back_url)
-
-    floor_date = None
-    if floor_str:
-        try:
-            floor_date = date.fromisoformat(floor_str)
-        except ValueError:
-            flash("Invalid date.", "danger")
-            return redirect(back_url)
-
-    try:
-        result = schedule_orders(
-            overwrite_manual=True,
-            template_id=template_id,
-            sol_ids=sol_ids,
-            floor_date=floor_date,
-        )
-        msg = f"{result['scheduled']} operation(s) scheduled"
-        if result["skipped"]:
-            msg += f" ({result['skipped']} skipped)"
-        if result["no_due_date"]:
-            msg += f"; {result['no_due_date']} order(s) skipped (no ERP due date)"
-        flash(msg + ".", "success")
-    except ValueError as exc:
-        flash(str(exc), "danger")
-
-    return redirect(back_url)
-
-
-# ---------------------------------------------------------------------------
-# Customer Hold — AJAX toggle
+# Customer Hold â€” AJAX toggle
 # ---------------------------------------------------------------------------
 
 @orders_bp.route("/so/<so_number>/hold", methods=["POST"])
@@ -915,7 +446,7 @@ def planning_schedule_from_date():
 @permission_required("manage_orders")
 def toggle_customer_hold(so_number):
     """
-    AJAX endpoint — set or clear the customer_hold flag for all lines on an SO.
+    AJAX endpoint â€” set or clear the customer_hold flag for all lines on an SO.
 
     Body (JSON): { "action": "set"|"clear", "note": "..." }
     Returns:     { "ok": true, "held": true|false }

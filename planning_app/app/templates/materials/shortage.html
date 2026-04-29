@@ -9,9 +9,8 @@
             <div class="col-sm-3 col-md-2">
                 <label class="form-label form-label-sm fw-semibold mb-1">Source</label>
                 <select name="source" class="form-select form-select-sm">
-                    <option value="all"       {{ 'selected' if source == 'all' }}>All</option>
-                    <option value="main"      {{ 'selected' if source == 'main' }}>Main Line</option>
-                    <option value="aftersales"{{ 'selected' if source == 'aftersales' }}>After Sales</option>
+                    <option value="all"  {{ 'selected' if source == 'all' }}>All</option>
+                    <option value="main" {{ 'selected' if source == 'main' }}>Main Line</option>
                 </select>
             </div>
             <div class="col-sm-3 col-md-2">
@@ -117,7 +116,7 @@
                         </td>
                         <td class="text-muted small">{{ row.department or '—' }}</td>
                         <td class="text-muted small">
-                            {{ row.works_order or row.order_number or '—' }}
+                            {{ row.works_order or '—' }}
                             {% if row.customer_id or row.customer %}
                             <div class="text-muted" style="font-size:.7rem;">{{ row.customer_id or row.customer }}</div>
                             {% endif %}
@@ -125,8 +124,7 @@
                         <td class="text-center {{ 'text-danger fw-semibold' if row.due_date and row.due_date < today else '' }}">
                             {{ row.due_date.strftime('%d %b %y') if row.due_date else '—' }}
                         </td>
-                        {% set _so = so_from_wo(row.works_order or row.order_number) %}
-                        {% set _ps = plan_start_map.get(_so) if _so else none %}
+                        {% set _ps = plan_start_map.get(row.so_number) if row.so_number else none %}
                         <td class="text-center {{ 'text-warning fw-semibold' if _ps and row.due_date and _ps < row.due_date else '' }}"
                             title="{{ 'Plan start is earlier than ERP due date' if _ps and row.due_date and _ps < row.due_date else '' }}">
                             {{ _ps.strftime('%d %b %y') if _ps else '—' }}
