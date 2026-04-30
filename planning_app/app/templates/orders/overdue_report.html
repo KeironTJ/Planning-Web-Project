@@ -6,11 +6,11 @@
 {% endblock %}
 
 {% block page_actions %}
-<a href="{{ url_for('orders.wip_dashboard') }}" class="btn btn-sm btn-outline-secondary no-print">
+<a href="{{ url_for('orders.order_book_dashboard') }}" class="btn btn-sm btn-outline-secondary no-print">
     <i class="bi bi-speedometer2 me-1"></i>Dashboard
 </a>
-<a href="{{ url_for('orders.wip_tracker', overdue=1) }}" class="btn btn-sm btn-outline-danger no-print">
-    <i class="bi bi-grid-3x3-gap me-1"></i>WIP Tracker (overdue)
+<a href="{{ url_for('orders.order_book', overdue=1) }}" class="btn btn-sm btn-outline-danger no-print">
+    <i class="bi bi-grid-3x3-gap me-1"></i>Order Book (overdue)
 </a>
 <button onclick="window.print()" class="btn btn-sm btn-outline-secondary no-print">
     <i class="bi bi-printer me-1"></i>Print
@@ -46,11 +46,11 @@
         <div class="card border-0 shadow-sm h-100 text-center py-3">
             {% set val = total_overdue_value %}
             {% if val >= 1000000 %}
-                {% set val_fmt = "£%.2fm" | format(val / 1000000) %}
+                {% set val_fmt = "&pound;%.2fm" | format(val / 1000000) %}
             {% elif val >= 1000 %}
-                {% set val_fmt = "£%.0fk" | format(val / 1000) %}
+                {% set val_fmt = "&pound;%.0fk" | format(val / 1000) %}
             {% else %}
-                {% set val_fmt = "£%.0f" | format(val) %}
+                {% set val_fmt = "&pound;%.0f" | format(val) %}
             {% endif %}
             <div class="fw-bold fs-2 text-danger">{{ val_fmt }}</div>
             <div class="small text-muted">Overdue Order Value</div>
@@ -96,7 +96,7 @@
 
 {# ── Row 1: Age Distribution | Status Doughnut ─────────────────────────── #}
 <div class="row g-3 mb-4">
-    <div class="col-lg-7">
+    <div class="col-12">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-transparent border-0 pb-0">
                 <h6 class="mb-0 fw-semibold">
@@ -109,39 +109,9 @@
             </div>
         </div>
     </div>
-    <div class="col-lg-5">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-transparent border-0 pb-0">
-                <h6 class="mb-0 fw-semibold">
-                    <i class="bi bi-pie-chart me-2 text-danger"></i>Overdue Ops by Status
-                </h6>
-                <p class="text-muted small mb-0">Operations past due date, broken down by planning status</p>
-            </div>
-            <div class="card-body d-flex align-items-center justify-content-center">
-                <canvas id="chartStatusDoughnut" style="max-height:240px;max-width:240px;"></canvas>
-            </div>
-        </div>
-    </div>
 </div>
 
-{# ── Row 2: By Department | Value by Customer ──────────────────────────── #}
-<div class="row g-3 mb-4">
-    <div class="col-lg-6">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-transparent border-0 pb-0">
-                <h6 class="mb-0 fw-semibold">
-                    <i class="bi bi-building me-2 text-danger"></i>Overdue Operations by Department
-                </h6>
-                <p class="text-muted small mb-0">Number of overdue operations per work centre</p>
-            </div>
-            <div class="card-body">
-                {% set dept_count = by_dept.depts | length %}
-                <canvas id="chartByDept"
-                        style="height:{{ [dept_count * 34 + 40, 160] | max }}px;"></canvas>
-            </div>
-        </div>
-    </div>
-    <div class="col-lg-6">
+    <div class="col-12">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-transparent border-0 pb-0">
                 <h6 class="mb-0 fw-semibold">
@@ -197,8 +167,9 @@
                         <label class="form-label small mb-1">Status</label>
                         <select name="status" class="form-select form-select-sm">
                             <option value="">All statuses</option>
+                            {% set _sm = {'new_order': ('New Order','secondary'), 'firm_planned': ('Firm Planned','info'), 'released': ('Released','primary'), 'wip': ('WIP','warning')} %}
                             {% for s in ['new_order', 'firm_planned', 'released', 'wip'] %}
-                            {% set label, colour = status_meta.get(s, (s, 'secondary')) %}
+                            {% set label, colour = _sm.get(s, (s, 'secondary')) %}
                             <option value="{{ s }}" {% if s == status_filter %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
                         </select>
@@ -264,10 +235,10 @@
                         <td>
                             {% if o.order_type %}
                             <span class="badge text-bg-secondary border small">{{ o.order_type }}</span>
-                            {% else %}—{% endif %}
+                            {% else %}&mdash;{% endif %}
                         </td>
                         <td class="text-nowrap text-danger small">
-                            {{ o.min_due.strftime('%d %b %Y') if o.min_due else '—' }}
+                            {{ o.min_due.strftime('%d %b %Y') if o.min_due else '&mdash;' | safe }}
                         </td>
                         <td class="text-center">
                             {% set d = o.days_overdue %}
@@ -279,7 +250,7 @@
                             </span>
                         </td>
                         <td class="text-end small">
-                            {{ '£{:,.0f}'.format(o.total_value) if o.total_value else '—' }}
+                            {% if o.total_value %}&pound;{{ '{:,.0f}'.format(o.total_value) }}{% else %}&mdash;{% endif %}
                         </td>
                         <td class="small text-body-secondary" style="max-width:200px;">
                             {% if o.depts %}
@@ -291,17 +262,18 @@
                                         <span class="badge text-bg-secondary ms-1">+{{ o.depts | length - 3 }}</span>
                                     </span>
                                 {% endif %}
-                            {% else %}—{% endif %}
+                            {% else %}&mdash;{% endif %}
                         </td>
                         <td>
-                            {% set s = o.worst_status %}
-                            {% set label, colour = status_meta.get(s, (s, 'secondary')) %}
+                            {% set _sm = {'new_order': ('New Order','secondary'), 'firm_planned': ('Firm Planned','info'), 'released': ('Released','primary'), 'wip': ('WIP','warning')} %}
+                            {% set s = o.get('worst_status') or o.get('order_type') or '' %}
+                            {% set label, colour = _sm.get(s, (s or '–', 'secondary')) %}
                             <span class="badge text-bg-{{ colour }}">{{ label }}</span>
                         </td>
                         <td class="small" style="max-width:220px;">
                             {% if o.latest_comment %}
                             <span class="text-body-secondary"
-                                  title="{{ o.latest_comment }} — {{ o.latest_user }}{% if o.latest_at %}, {{ o.latest_at.strftime('%d %b %Y') }}{% endif %}"
+                                  title="{{ o.latest_comment }} &mdash; {{ o.latest_user }}{% if o.latest_at %}, {{ o.latest_at.strftime('%d %b %Y') }}{% endif %}"
                                   style="cursor:help;">
                                 <i class="bi bi-chat-left-text me-1 text-info"></i>{% if o.latest_comment | length > 55 %}{{ o.latest_comment[:55] }}&hellip;{% else %}{{ o.latest_comment }}{% endif %}
                             </span>
@@ -312,13 +284,13 @@
                                 {% endif %}
                             </div>
                             {% else %}
-                            <span class="text-muted">—</span>
+                            <span class="text-muted">&mdash;</span>
                             {% endif %}
                         </td>
                         <td class="text-end pe-3">
-                            <a href="{{ url_for('orders.wip_tracker', q=o.so_number) }}"
+                            <a href="{{ url_for('orders.order_book', q=o.so_number) }}"
                                class="btn btn-sm btn-outline-secondary py-0 px-1 no-print"
-                               title="View in WIP Tracker">
+                               title="View in Order Book">
                                 <i class="bi bi-arrow-up-right-square"></i>
                             </a>
                         </td>
@@ -389,15 +361,13 @@ document.addEventListener('DOMContentLoaded', function () {
     Chart.defaults.font.family = style.getPropertyValue('--bs-body-font-family').trim() || 'system-ui, sans-serif';
 
     const ageData  = {{ age_chart         | tojson }};
-    const byDept   = {{ by_dept           | tojson }};
-    const byStatus = {{ by_status         | tojson }};
     const custData = {{ value_by_customer | tojson }};
 
     // ── Helpers ──────────────────────────────────────────────────────────
     function fmtGbp(v) {
-        return v >= 1000000 ? `£${(v/1000000).toFixed(1)}m`
-             : v >= 1000    ? `£${(v/1000).toFixed(0)}k`
-             : `£${Math.round(v).toLocaleString('en-GB')}`;
+        return v >= 1000000 ? `\u00a3${(v/1000000).toFixed(1)}m`
+             : v >= 1000    ? `\u00a3${(v/1000).toFixed(0)}k`
+             : `\u00a3${Math.round(v).toLocaleString('en-GB')}`;
     }
 
     // ── 1. Age Distribution (vertical bar, no datalabels needed — values readable on axis) ──
@@ -441,80 +411,6 @@ document.addEventListener('DOMContentLoaded', function () {
                         grid: { color: gridColor },
                         title: { display: true, text: 'Orders' },
                     },
-                },
-            },
-        });
-    }
-
-    // ── 2. Status Doughnut ───────────────────────────────────────────────
-    {
-        const statuses = byStatus.statuses;
-        new Chart(document.getElementById('chartStatusDoughnut').getContext('2d'), {
-            type: 'doughnut',
-            data: {
-                labels:   statuses.map(s => byStatus.labels[s] || s),
-                datasets: [{
-                    data:            byStatus.counts,
-                    backgroundColor: statuses.map(s => byStatus.colors[s] || '#888'),
-                    borderWidth: 2,
-                    hoverOffset: 6,
-                }],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                cutout: '60%',
-                plugins: {
-                    legend: { position: 'bottom', labels: { padding: 12, usePointStyle: true } },
-                    tooltip: {
-                        callbacks: {
-                            label: ctx => ` ${ctx.label}: ${ctx.parsed} op${ctx.parsed !== 1 ? 's' : ''}`,
-                        },
-                    },
-                },
-            },
-        });
-    }
-
-    // ── 3. By Department — horizontal bar with count labels ─────────────
-    {
-        new Chart(document.getElementById('chartByDept').getContext('2d'), {
-            type: 'bar',
-            plugins: [ChartDataLabels],
-            data: {
-                labels:   byDept.depts,
-                datasets: [{
-                    label:           'Overdue Ops',
-                    data:            byDept.counts,
-                    backgroundColor: 'rgba(220,53,69,0.65)',
-                    borderColor:     '#dc3545',
-                    borderWidth: 1,
-                    borderRadius: 3,
-                }],
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                layout: { padding: { right: 36 } },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: ctx => ` ${ctx.parsed.x} overdue op${ctx.parsed.x !== 1 ? 's' : ''}`,
-                        },
-                    },
-                    datalabels: {
-                        anchor: 'end',
-                        align:  'end',
-                        formatter: v => v > 0 ? v : null,
-                        font:   { size: 11, weight: 'bold' },
-                        color:  textColor,
-                    },
-                },
-                scales: {
-                    x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: gridColor } },
-                    y: { grid: { display: false }, ticks: { font: { size: 11 } } },
                 },
             },
         });

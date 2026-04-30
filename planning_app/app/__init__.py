@@ -102,7 +102,7 @@ def _register_blueprints(app: Flask) -> None:
 
     @app.route("/")
     def index():
-        return redirect(url_for("orders.wip_tracker"))
+        return redirect(url_for("orders.order_book"))
 
 
 def _register_error_handlers(app: Flask) -> None:

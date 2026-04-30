@@ -182,7 +182,7 @@ class RoleService:
         """
         permissions_data = [
             # Orders / WIP
-            ("view_orders", "View WIP tracker and order lists", "orders"),
+            ("view_orders", "View order book and order lists", "orders"),
             ("update_order_status", "Update works order operation status", "orders"),
             ("manage_orders", "Edit planned dates and notes on operations", "orders"),
             # Capacity

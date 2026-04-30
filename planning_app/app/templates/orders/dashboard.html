@@ -1,0 +1,675 @@
+﻿{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('orders.overdue_report') }}" class="btn btn-sm btn-outline-danger">
+    <i class="bi bi-exclamation-triangle me-1"></i>Overdue Report
+</a>
+<a href="{{ url_for('orders.order_book') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-list-ul me-1"></i>Order Book
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   KPI Banner
+═══════════════════════════════════════════════════════════════════════════ #}
+{% macro fmt_val(v) %}{% if v >= 1000000 %}£{{ "%.2f"|format(v/1000000) }}m{% elif v >= 1000 %}£{{ "%.0f"|format(v/1000) }}k{% else %}£{{ "%.0f"|format(v) }}{% endif %}{% endmacro %}
+
+<div class="row g-3 mb-2">
+  <div class="col-12 col-md-5 col-lg-4">
+    <div class="card border-0 shadow-sm h-100 py-3 px-4">
+      <div class="d-flex align-items-center gap-3">
+        <i class="bi bi-currency-pound fs-1 text-success opacity-75"></i>
+        <div>
+          <div class="fw-bold fs-2 lh-1">{{ fmt_val(summary.total_value) }}</div>
+          <div class="small text-muted mt-1">Total Open Order Value</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md col-lg">
+    <div class="card h-100 border-0 shadow-sm text-center py-3">
+      <div class="fw-bold fs-2 text-primary">{{ summary.total }}</div>
+      <div class="small text-muted">Open Orders</div>
+    </div>
+  </div>
+  <div class="col-6 col-md col-lg">
+    <div class="card h-100 border-0 shadow-sm text-center py-3">
+      <div class="fw-bold fs-2 text-primary">{{ summary.total_units | int }}</div>
+      <div class="small text-muted">Open Units</div>
+    </div>
+  </div>
+  <div class="col-6 col-md col-lg">
+    <a href="{{ url_for('orders.order_book', overdue=1) }}" class="text-decoration-none">
+      <div class="card h-100 border-danger shadow-sm text-center py-3">
+        <div class="fw-bold fs-2 text-danger">{{ summary.overdue }}</div>
+        <div class="small text-danger">Overdue Orders</div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md col-lg">
+    <a href="{{ url_for('orders.order_book', overdue=1) }}" class="text-decoration-none">
+      <div class="card h-100 border-danger shadow-sm text-center py-3">
+        <div class="fw-bold fs-2 text-danger">{{ fmt_val(summary.overdue_value) }}</div>
+        <div class="small text-danger">Overdue Value</div>
+      </div>
+    </a>
+  </div>
+</div>
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   SECTION 1 — FORWARD DEMAND
+═══════════════════════════════════════════════════════════════════════════ #}
+<div class="d-flex align-items-center mt-4 mb-3">
+  <span class="text-uppercase fw-semibold small text-primary me-3" style="white-space:nowrap">Forward Demand</span>
+  <hr class="flex-grow-1 my-0 opacity-25">
+</div>
+
+{# Due by week #}
+<div class="row g-3 mb-3">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start">
+        <div>
+          <h6 class="mb-0 fw-semibold"><i class="bi bi-calendar-week me-2 text-primary"></i>Open Orders Due by Week</h6>
+          <p class="text-muted small mb-0">Open orders grouped by ERP ship-by week</p>
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary active" id="btnWeeklyValue">Value</button>
+          <button class="btn btn-outline-secondary" id="btnWeeklyUnits">Units</button>
+        </div>
+      </div>
+      <div class="card-body"><canvas id="chartWeekly" style="max-height:220px;"></canvas></div>
+    </div>
+  </div>
+</div>
+
+{# 4-week horizon grid #}
+{% if horizon_grid.rows %}
+<div class="row g-3 mb-3">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold"><i class="bi bi-grid-3x3 me-2 text-primary"></i>4-Week Horizon (Units by Model)</h6>
+        <p class="text-muted small mb-0">Open units due in next 4 weeks — top models by volume</p>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Model</th>
+                {% for wk in horizon_grid.week_labels %}
+                <th class="text-center">{{ wk }}</th>
+                {% endfor %}
+                <th class="text-center fw-semibold">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in horizon_grid.rows %}
+              <tr>
+                <td>{{ row.model }}</td>
+                {% for q in row.weeks %}
+                <td class="text-center {% if q > 0 %}fw-semibold{% else %}text-muted{% endif %}">{{ q | int if q > 0 else '–' }}</td>
+                {% endfor %}
+                <td class="text-center fw-bold">{{ row.total | int }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   SECTION 2 — ORDER INTAKE
+═══════════════════════════════════════════════════════════════════════════ #}
+<div class="d-flex align-items-center mt-4 mb-3">
+  <span class="text-uppercase fw-semibold small text-success me-3" style="white-space:nowrap">Order Intake</span>
+  <hr class="flex-grow-1 my-0 opacity-25">
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+          <h6 class="mb-0 fw-semibold"><i class="bi bi-graph-up-arrow me-2 text-success"></i>Order Intake over Time</h6>
+          <p class="text-muted small mb-0">All orders (open &amp; closed, excludes void) — orders entered per month</p>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <div class="btn-group btn-group-sm" role="group" aria-label="Year">
+            {% for yr in intake_over_time.years | reverse %}
+            <button class="btn btn-outline-secondary btn-intake-year{% if yr == intake_over_time.current_year %} active{% endif %}" data-year="{{ yr }}">{{ yr }}</button>
+            {% endfor %}
+          </div>
+          <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-secondary active" id="btnIntakeValue">Value</button>
+            <button class="btn btn-outline-secondary" id="btnIntakeUnits">Units</button>
+            <button class="btn btn-outline-secondary" id="btnIntakeAvg">Avg £/unit</button>
+          </div>
+        </div>
+      </div>
+      <div class="card-body"><canvas id="chartIntake" style="max-height:220px;"></canvas></div>
+    </div>
+  </div>
+</div>
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   SECTION 3 — CUSTOMERS
+═══════════════════════════════════════════════════════════════════════════ #}
+<div class="d-flex align-items-center mt-4 mb-3">
+  <span class="text-uppercase fw-semibold small text-info me-3" style="white-space:nowrap">Customers</span>
+  <hr class="flex-grow-1 my-0 opacity-25">
+</div>
+
+{# By Customer + Customer Group #}
+<div class="row g-3 mb-3">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start">
+        <div>
+          <h6 class="mb-0 fw-semibold"><i class="bi bi-people me-2 text-info"></i>Top 15 Customers</h6>
+          <p class="text-muted small mb-0">Open orders by customer account</p>
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary active" id="btnCustomerValue">Value</button>
+          <button class="btn btn-outline-secondary" id="btnCustomerUnits">Units</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <canvas id="chartCustomerValue" style="height:{{ [value_by_customer|length * 26, 160]|max }}px;"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start">
+        <div>
+          <h6 class="mb-0 fw-semibold"><i class="bi bi-building me-2 text-info"></i>Customer Group</h6>
+          <p class="text-muted small mb-0">Open orders by account group</p>
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary active" id="btnCustGrpValue">Value</button>
+          <button class="btn btn-outline-secondary" id="btnCustGrpUnits">Units</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <canvas id="chartCustomerGroup" style="height:{{ [by_customer_group|length * 28, 160]|max }}px;"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Country + Channel #}
+<div class="row g-3 mb-3">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start">
+        <div>
+          <h6 class="mb-0 fw-semibold"><i class="bi bi-globe me-2 text-info"></i>Top 15 Countries</h6>
+          <p class="text-muted small mb-0">Open orders by destination country</p>
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary active" id="btnCountryValue">Value</button>
+          <button class="btn btn-outline-secondary" id="btnCountryUnits">Units</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <canvas id="chartCountry" style="height:{{ [by_country|length * 26, 160]|max }}px;"></canvas>
+      </div>
+    </div>
+  </div>
+  {% if by_channel %}
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold"><i class="bi bi-signpost-2 me-2 text-info"></i>Channel Split</h6>
+        <p class="text-muted small mb-0">Home / Export / Contracts</p>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm table-hover mb-0">
+          <thead class="table-light"><tr><th>Channel</th><th class="text-center">Units</th><th class="text-end">Value</th></tr></thead>
+          <tbody>
+            {% for c in by_channel %}
+            <tr>
+              <td>{{ c.channel }}</td>
+              <td class="text-center">{{ c.units | int }}</td>
+              <td class="text-end">£{{ "{:,.0f}".format(c.value) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   SECTION 4 — PRODUCTS
+═══════════════════════════════════════════════════════════════════════════ #}
+<div class="d-flex align-items-center mt-4 mb-3">
+  <span class="text-uppercase fw-semibold small text-warning me-3" style="white-space:nowrap">Products</span>
+  <hr class="flex-grow-1 my-0 opacity-25">
+</div>
+
+{# Top Models + Product Group #}
+<div class="row g-3 mb-3">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start">
+        <div>
+          <h6 class="mb-0 fw-semibold"><i class="bi bi-star me-2 text-warning"></i>Top Models</h6>
+          <p class="text-muted small mb-0">Open orders by model (Scatter excluded)</p>
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary active" id="btnModelsValue">Value</button>
+          <button class="btn btn-outline-secondary" id="btnModelsUnits">Units</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <canvas id="chartModels" style="height:{{ [by_model|length * 26, 160]|max }}px;"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start">
+        <div>
+          <h6 class="mb-0 fw-semibold"><i class="bi bi-pie-chart me-2 text-warning"></i>Product Group</h6>
+          <p class="text-muted small mb-0">Open orders by product group</p>
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary active" id="btnPGValue">Value</button>
+          <button class="btn btn-outline-secondary" id="btnPGUnits">Units</button>
+        </div>
+      </div>
+      <div class="card-body d-flex align-items-center justify-content-center">
+        <canvas id="chartProductGroup" style="max-height:240px;max-width:240px;"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Order Type + Lead Time #}
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start">
+        <div>
+          <h6 class="mb-0 fw-semibold"><i class="bi bi-tags me-2 text-warning"></i>Order Type</h6>
+          <p class="text-muted small mb-0">Open orders by ERP order type</p>
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary active" id="btnOTValue">Value</button>
+          <button class="btn btn-outline-secondary" id="btnOTUnits">Units</button>
+        </div>
+      </div>
+      <div class="card-body d-flex align-items-center justify-content-center">
+        <canvas id="chartOrderType" style="max-height:240px;max-width:240px;"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold"><i class="bi bi-hourglass-split me-2 text-warning"></i>Customer Lead Time Distribution</h6>
+        <p class="text-muted small mb-0">Days between order entry date and requested ship date (open orders)</p>
+      </div>
+      <div class="card-body"><canvas id="chartLeadTime" style="max-height:220px;"></canvas></div>
+    </div>
+  </div>
+</div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+// Colour palette
+const PALETTE = [
+  'rgba(13,110,253,.75)','rgba(25,135,84,.75)','rgba(255,193,7,.75)',
+  'rgba(220,53,69,.75)','rgba(13,202,240,.75)','rgba(111,66,193,.75)',
+  'rgba(253,126,20,.75)','rgba(32,201,151,.75)','rgba(102,16,242,.75)',
+  'rgba(214,51,132,.75)','rgba(0,128,128,.75)','rgba(165,42,42,.75)',
+  'rgba(70,130,180,.75)','rgba(240,128,128,.75)','rgba(144,238,144,.75)',
+];
+
+// ── Due by week bar ──────────────────────────────────────────────────────────
+const WEEK_LABELS  = {{ due_by_week.labels  | tojson }};
+const WEEK_AMOUNTS = {{ due_by_week.amounts | tojson }};
+const WEEK_UNITS   = {{ due_by_week.units   | tojson }};
+const WEEK_BG = WEEK_LABELS.map(l => l === 'Overdue' ? 'rgba(220,53,69,.7)' : 'rgba(13,110,253,.6)');
+const weeklyChart = new Chart(document.getElementById('chartWeekly'), {
+  type: 'bar',
+  data: {
+    labels: WEEK_LABELS,
+    datasets: [{ label: 'Value (£)', data: WEEK_AMOUNTS, backgroundColor: WEEK_BG, borderRadius: 4 }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '£' + ctx.parsed.y.toLocaleString() } } },
+    scales: { y: { beginAtZero: true } }
+  }
+});
+document.getElementById('btnWeeklyValue').addEventListener('click', function () {
+  weeklyChart.data.datasets[0].data  = WEEK_AMOUNTS;
+  weeklyChart.data.datasets[0].label = 'Value (£)';
+  weeklyChart.options.plugins.tooltip = { callbacks: { label: ctx => '£' + ctx.parsed.y.toLocaleString() } };
+  weeklyChart.update();
+  this.classList.add('active');
+  document.getElementById('btnWeeklyUnits').classList.remove('active');
+});
+document.getElementById('btnWeeklyUnits').addEventListener('click', function () {
+  weeklyChart.data.datasets[0].data  = WEEK_UNITS;
+  weeklyChart.data.datasets[0].label = 'Units';
+  weeklyChart.options.plugins.tooltip = { callbacks: { label: ctx => ctx.parsed.y.toLocaleString() + ' units' } };
+  weeklyChart.update();
+  this.classList.add('active');
+  document.getElementById('btnWeeklyValue').classList.remove('active');
+});
+
+// ── Order intake over time (by year) ─────────────────────────────────────────
+const INTAKE_BY_YEAR = {{ intake_over_time.by_year | tojson }};
+const INTAKE_MONTHS  = {{ intake_over_time.month_labels | tojson }};
+let intakeYear = '{{ intake_over_time.current_year }}';
+let intakeMode = 'value';
+
+function intakeData()  {
+  const yr = INTAKE_BY_YEAR[intakeYear] || {amounts:[],units:[],avg:[]};
+  return intakeMode === 'value' ? yr.amounts : intakeMode === 'units' ? yr.units : yr.avg;
+}
+function intakeLabel() {
+  return intakeMode === 'value' ? 'Order value (£)' : intakeMode === 'units' ? 'Units' : 'Avg £ / unit';
+}
+function intakeTip() {
+  if (intakeMode === 'value')  return { callbacks: { label: ctx => '£' + (ctx.parsed.y || 0).toLocaleString() } };
+  if (intakeMode === 'units')  return { callbacks: { label: ctx => (ctx.parsed.y || 0).toLocaleString() + ' units' } };
+  return { callbacks: { label: ctx => '£' + (ctx.parsed.y || 0).toLocaleString() + ' / unit' } };
+}
+function intakeType() { return intakeMode === 'avg' ? 'line' : 'bar'; }
+
+const intakeChart = new Chart(document.getElementById('chartIntake'), {
+  type: 'bar',
+  data: {
+    labels: INTAKE_MONTHS,
+    datasets: [{ label: intakeLabel(), data: intakeData(), backgroundColor: 'rgba(25,135,84,.65)', borderColor: 'rgba(25,135,84,.9)', borderRadius: 3, tension: 0.3, fill: false, pointRadius: 4 }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false }, tooltip: intakeTip() },
+    scales: { y: { beginAtZero: false } }
+  }
+});
+
+function intakeRefresh() {
+  const isLine = intakeMode === 'avg';
+  intakeChart.config.type = isLine ? 'line' : 'bar';
+  intakeChart.data.datasets[0].data  = intakeData();
+  intakeChart.data.datasets[0].label = intakeLabel();
+  intakeChart.options.scales.y.beginAtZero = !isLine;
+  intakeChart.options.plugins.tooltip = intakeTip();
+  intakeChart.update();
+}
+
+document.querySelectorAll('.btn-intake-year').forEach(btn => {
+  btn.addEventListener('click', function () {
+    intakeYear = this.dataset.year;
+    document.querySelectorAll('.btn-intake-year').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    intakeRefresh();
+  });
+});
+document.getElementById('btnIntakeValue').addEventListener('click', function () {
+  intakeMode = 'value';
+  this.classList.add('active');
+  document.getElementById('btnIntakeUnits').classList.remove('active');
+  document.getElementById('btnIntakeAvg').classList.remove('active');
+  intakeRefresh();
+});
+document.getElementById('btnIntakeUnits').addEventListener('click', function () {
+  intakeMode = 'units';
+  this.classList.add('active');
+  document.getElementById('btnIntakeValue').classList.remove('active');
+  document.getElementById('btnIntakeAvg').classList.remove('active');
+  intakeRefresh();
+});
+document.getElementById('btnIntakeAvg').addEventListener('click', function () {
+  intakeMode = 'avg';
+  this.classList.add('active');
+  document.getElementById('btnIntakeValue').classList.remove('active');
+  document.getElementById('btnIntakeUnits').classList.remove('active');
+  intakeRefresh();
+});
+
+// ── By customer horizontal bar (fixed: CUST_ constants + toggle) ────────────
+const CUST_LABELS = {{ value_by_customer | map(attribute='customer') | list | tojson }};
+const CUST_VALUES = {{ value_by_customer | map(attribute='value')    | list | tojson }};
+const CUST_UNITS  = {{ value_by_customer | map(attribute='units')    | list | tojson }};
+const custChart = new Chart(document.getElementById('chartCustomerValue'), {
+  type: 'bar',
+  data: {
+    labels: CUST_LABELS,
+    datasets: [{ label: 'Value (£)', data: CUST_VALUES, backgroundColor: 'rgba(13,202,240,.65)', borderRadius: 4 }]
+  },
+  options: {
+    indexAxis: 'y', responsive: true,
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '£' + ctx.parsed.x.toLocaleString() } } },
+    scales: { x: { beginAtZero: true } }
+  }
+});
+document.getElementById('btnCustomerValue').addEventListener('click', function () {
+  custChart.data.datasets[0].data  = CUST_VALUES;
+  custChart.data.datasets[0].label = 'Value (£)';
+  custChart.options.plugins.tooltip = { callbacks: { label: ctx => '£' + ctx.parsed.x.toLocaleString() } };
+  custChart.update();
+  this.classList.add('active');
+  document.getElementById('btnCustomerUnits').classList.remove('active');
+});
+document.getElementById('btnCustomerUnits').addEventListener('click', function () {
+  custChart.data.datasets[0].data  = CUST_UNITS;
+  custChart.data.datasets[0].label = 'Units';
+  custChart.options.plugins.tooltip = { callbacks: { label: ctx => ctx.parsed.x.toLocaleString() + ' units' } };
+  custChart.update();
+  this.classList.add('active');
+  document.getElementById('btnCustomerValue').classList.remove('active');
+});
+
+// ── Customer group bar ───────────────────────────────────────────────────────
+const CG_LABELS = {{ by_customer_group | map(attribute='group') | list | tojson }};
+const CG_VALUES = {{ by_customer_group | map(attribute='value') | list | tojson }};
+const CG_UNITS  = {{ by_customer_group | map(attribute='units') | list | tojson }};
+const cgChart = new Chart(document.getElementById('chartCustomerGroup'), {
+  type: 'bar',
+  data: {
+    labels: CG_LABELS,
+    datasets: [{ label: 'Value (£)', data: CG_VALUES, backgroundColor: PALETTE, borderRadius: 4 }]
+  },
+  options: {
+    indexAxis: 'y', responsive: true,
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '£' + ctx.parsed.x.toLocaleString() } } },
+    scales: { x: { beginAtZero: true } }
+  }
+});
+document.getElementById('btnCustGrpValue').addEventListener('click', function () {
+  cgChart.data.datasets[0].data  = CG_VALUES;
+  cgChart.data.datasets[0].label = 'Value (£)';
+  cgChart.options.plugins.tooltip = { callbacks: { label: ctx => '£' + ctx.parsed.x.toLocaleString() } };
+  cgChart.update();
+  this.classList.add('active');
+  document.getElementById('btnCustGrpUnits').classList.remove('active');
+});
+document.getElementById('btnCustGrpUnits').addEventListener('click', function () {
+  cgChart.data.datasets[0].data  = CG_UNITS;
+  cgChart.data.datasets[0].label = 'Units';
+  cgChart.options.plugins.tooltip = { callbacks: { label: ctx => ctx.parsed.x.toLocaleString() + ' units' } };
+  cgChart.update();
+  this.classList.add('active');
+  document.getElementById('btnCustGrpValue').classList.remove('active');
+});
+
+// ── By country horizontal bar ────────────────────────────────────────────────
+const COUNTRY_LABELS = {{ by_country | map(attribute='country') | list | tojson }};
+const COUNTRY_VALUES = {{ by_country | map(attribute='value')   | list | tojson }};
+const COUNTRY_UNITS  = {{ by_country | map(attribute='units')   | list | tojson }};
+const countryChart = new Chart(document.getElementById('chartCountry'), {
+  type: 'bar',
+  data: {
+    labels: COUNTRY_LABELS,
+    datasets: [{ label: 'Value (£)', data: COUNTRY_VALUES, backgroundColor: 'rgba(13,202,240,.5)', borderRadius: 4 }]
+  },
+  options: {
+    indexAxis: 'y', responsive: true,
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '£' + ctx.parsed.x.toLocaleString() } } },
+    scales: { x: { beginAtZero: true } }
+  }
+});
+document.getElementById('btnCountryValue').addEventListener('click', function () {
+  countryChart.data.datasets[0].data  = COUNTRY_VALUES;
+  countryChart.data.datasets[0].label = 'Value (£)';
+  countryChart.options.plugins.tooltip = { callbacks: { label: ctx => '£' + ctx.parsed.x.toLocaleString() } };
+  countryChart.update();
+  this.classList.add('active');
+  document.getElementById('btnCountryUnits').classList.remove('active');
+});
+document.getElementById('btnCountryUnits').addEventListener('click', function () {
+  countryChart.data.datasets[0].data  = COUNTRY_UNITS;
+  countryChart.data.datasets[0].label = 'Units';
+  countryChart.options.plugins.tooltip = { callbacks: { label: ctx => ctx.parsed.x.toLocaleString() + ' units' } };
+  countryChart.update();
+  this.classList.add('active');
+  document.getElementById('btnCountryValue').classList.remove('active');
+});
+
+// ── Product group doughnut ───────────────────────────────────────────────────
+const PG_LABELS = {{ by_product_group | map(attribute='group') | list | tojson }};
+const PG_VALUES = {{ by_product_group | map(attribute='value') | list | tojson }};
+const PG_UNITS  = {{ by_product_group | map(attribute='units') | list | tojson }};
+const pgChart = new Chart(document.getElementById('chartProductGroup'), {
+  type: 'doughnut',
+  data: {
+    labels: PG_LABELS,
+    datasets: [{ data: PG_VALUES, backgroundColor: PALETTE, borderWidth: 1 }]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { position: 'bottom' },
+      tooltip: { callbacks: { label: ctx => ctx.label + ': £' + ctx.parsed.toLocaleString() } }
+    }
+  }
+});
+document.getElementById('btnPGValue').addEventListener('click', function () {
+  pgChart.data.datasets[0].data = PG_VALUES;
+  pgChart.options.plugins.tooltip = { callbacks: { label: ctx => ctx.label + ': £' + ctx.parsed.toLocaleString() } };
+  pgChart.update();
+  this.classList.add('active');
+  document.getElementById('btnPGUnits').classList.remove('active');
+});
+document.getElementById('btnPGUnits').addEventListener('click', function () {
+  pgChart.data.datasets[0].data = PG_UNITS;
+  pgChart.options.plugins.tooltip = { callbacks: { label: ctx => ctx.label + ': ' + ctx.parsed.toLocaleString() + ' units' } };
+  pgChart.update();
+  this.classList.add('active');
+  document.getElementById('btnPGValue').classList.remove('active');
+});
+
+// ── Top models horizontal bar ────────────────────────────────────────────────
+const MODELS_LABELS = {{ by_model | map(attribute='model') | list | tojson }};
+const MODELS_VALUES = {{ by_model | map(attribute='value') | list | tojson }};
+const MODELS_UNITS  = {{ by_model | map(attribute='units') | list | tojson }};
+const modelsChart = new Chart(document.getElementById('chartModels'), {
+  type: 'bar',
+  data: {
+    labels: MODELS_LABELS,
+    datasets: [{ label: 'Value (£)', data: MODELS_VALUES, backgroundColor: 'rgba(255,193,7,.75)', borderRadius: 4 }]
+  },
+  options: {
+    indexAxis: 'y', responsive: true,
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '£' + ctx.parsed.x.toLocaleString() } } },
+    scales: { x: { beginAtZero: true } }
+  }
+});
+document.getElementById('btnModelsValue').addEventListener('click', function () {
+  modelsChart.data.datasets[0].data  = MODELS_VALUES;
+  modelsChart.data.datasets[0].label = 'Value (£)';
+  modelsChart.options.plugins.tooltip = { callbacks: { label: ctx => '£' + ctx.parsed.x.toLocaleString() } };
+  modelsChart.update();
+  this.classList.add('active');
+  document.getElementById('btnModelsUnits').classList.remove('active');
+});
+document.getElementById('btnModelsUnits').addEventListener('click', function () {
+  modelsChart.data.datasets[0].data  = MODELS_UNITS;
+  modelsChart.data.datasets[0].label = 'Units';
+  modelsChart.options.plugins.tooltip = { callbacks: { label: ctx => ctx.parsed.x.toLocaleString() + ' units' } };
+  modelsChart.update();
+  this.classList.add('active');
+  document.getElementById('btnModelsValue').classList.remove('active');
+});
+
+// ── Order type doughnut ───────────────────────────────────────────────────────
+const OT_LABELS = {{ by_order_type | map(attribute='order_type') | list | tojson }};
+const OT_VALUES = {{ by_order_type | map(attribute='value')      | list | tojson }};
+const OT_UNITS  = {{ by_order_type | map(attribute='units')      | list | tojson }};
+const otChart = new Chart(document.getElementById('chartOrderType'), {
+  type: 'doughnut',
+  data: {
+    labels: OT_LABELS,
+    datasets: [{ data: OT_VALUES, backgroundColor: PALETTE, borderWidth: 1 }]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { position: 'bottom' },
+      tooltip: { callbacks: { label: ctx => ctx.label + ': £' + ctx.parsed.toLocaleString() } }
+    }
+  }
+});
+document.getElementById('btnOTValue').addEventListener('click', function () {
+  otChart.data.datasets[0].data = OT_VALUES;
+  otChart.options.plugins.tooltip = { callbacks: { label: ctx => ctx.label + ': £' + ctx.parsed.toLocaleString() } };
+  otChart.update();
+  this.classList.add('active');
+  document.getElementById('btnOTUnits').classList.remove('active');
+});
+document.getElementById('btnOTUnits').addEventListener('click', function () {
+  otChart.data.datasets[0].data = OT_UNITS;
+  otChart.options.plugins.tooltip = { callbacks: { label: ctx => ctx.label + ': ' + ctx.parsed.toLocaleString() + ' units' } };
+  otChart.update();
+  this.classList.add('active');
+  document.getElementById('btnOTValue').classList.remove('active');
+});
+
+// ── Lead time histogram ───────────────────────────────────────────────────────
+new Chart(document.getElementById('chartLeadTime'), {
+  type: 'bar',
+  data: {
+    labels: {{ lead_time.labels | tojson }},
+    datasets: [{
+      label: 'Orders',
+      data: {{ lead_time.counts | tojson }},
+      backgroundColor: 'rgba(255,193,7,.75)',
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ctx.parsed.y.toLocaleString() + ' orders' } }
+    },
+    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+  }
+});
+
+}); // end DOMContentLoaded
+</script>
+{% endblock %}

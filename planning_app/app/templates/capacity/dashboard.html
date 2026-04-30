@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+﻿{% extends 'base.html' %}
 
 {% block content %}
 
@@ -27,7 +27,7 @@
                     <i class="bi bi-chevron-left"></i>
                 </a>
                 <span class="small text-muted text-nowrap">
-                    {{ data.from_date.strftime('%d %b') }} – {{ data.to_date.strftime('%d %b %Y') }}
+                    {{ data.from_date.strftime('%d %b') }} â€“ {{ data.to_date.strftime('%d %b %Y') }}
                 </span>
                 <a href="{{ url_for('capacity.dashboard', **{'from': next_from, 'weeks': num_weeks, 'dept': dept_id}) }}"
                    class="btn btn-outline-secondary btn-sm" title="Next period">
@@ -59,8 +59,8 @@
             {% set has_data = d.id in ns.data_dept_ids %}
             <a href="{{ url_for('capacity.dashboard', **{'from': from_date.isoformat(), 'weeks': num_weeks, 'dept': d.id}) }}"
                class="btn btn-sm {{ 'btn-primary' if dept_id == d.id else 'btn-outline-secondary' }}{{ ' opacity-50' if not has_data }}"
-               title="{{ d.name }}{{ ' — no data for this period' if not has_data }}">
-                {{ d.name | truncate(18, True, '…') }}
+               title="{{ d.name }}{{ ' â€” no data for this period' if not has_data }}">
+                {{ d.name | truncate(18, True, 'â€¦') }}
             </a>
             {% endfor %}
         </div>
@@ -88,8 +88,8 @@
     {% if selected_dept %}
     <div class="card border-0 shadow-sm mb-3">
         <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center">
-            <span>{{ data.departments[0].dept.name }} — Load vs Available</span>
-            <small class="text-muted fw-normal">Hours per week · Utilisation %</small>
+            <span>{{ data.departments[0].dept.name }} â€” Load vs Available</span>
+            <small class="text-muted fw-normal">Hours per week Â· Utilisation %</small>
         </div>
         <div class="card-body">
             <canvas id="deptChart" style="height:300px;" aria-label="Dept capacity chart"></canvas>
@@ -98,8 +98,8 @@
     {% else %}
     <div class="card border-0 shadow-sm mb-3">
         <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center">
-            <span>All Departments — Load vs Available</span>
-            <small class="text-muted fw-normal">{{ num_weeks }}-week totals · Hover for detail</small>
+            <span>All Departments â€” Load vs Available</span>
+            <small class="text-muted fw-normal">{{ num_weeks }}-week totals Â· Hover for detail</small>
         </div>
         <div class="card-body">
             <canvas id="allDeptsChart" style="height:320px;" aria-label="All depts capacity chart"></canvas>
@@ -112,7 +112,7 @@
 <div class="card border-0 shadow-sm">
     <div class="card-header bg-transparent fw-semibold">
         Department Summary
-        <small class="text-muted fw-normal ms-2">{{ data.from_date.strftime('%d %b') }} – {{ data.to_date.strftime('%d %b %Y') }}</small>
+        <small class="text-muted fw-normal ms-2">{{ data.from_date.strftime('%d %b') }} â€“ {{ data.to_date.strftime('%d %b %Y') }}</small>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -132,15 +132,15 @@
                     {% if row.avail_total or row.load_total %}
                     <tr>
                         <td class="fw-semibold">
-                            <a href="{{ url_for('orders.dept_orders', dept_id=row.dept.id, plan_from=data.from_date.isoformat(), plan_to=data.to_date.isoformat()) }}"
-                               class="text-decoration-none text-body" title="View orders with planned operations in this period ({{ data.from_date.strftime('%d %b') }} – {{ data.to_date.strftime('%d %b') }})">
+                            <a href="{{ url_for('orders.order_book', dept_id=row.dept.id, plan_from=data.from_date.isoformat(), plan_to=data.to_date.isoformat()) }}"
+                               class="text-decoration-none text-body" title="View orders with planned operations in this period ({{ data.from_date.strftime('%d %b') }} â€“ {{ data.to_date.strftime('%d %b') }})">
                                 {{ row.dept.name }}
                             </a>
                         </td>
-                        <td class="text-end">{{ row.avail_total if row.avail_total else '—' }}</td>
-                        <td class="text-end">{{ row.load_total if row.load_total else '—' }}</td>
+                        <td class="text-end">{{ row.avail_total if row.avail_total else 'â€”' }}</td>
+                        <td class="text-end">{{ row.load_total if row.load_total else 'â€”' }}</td>
                         <td class="text-end {{ 'text-danger fw-semibold' if row.headroom < 0 else '' }}">
-                            {{ row.headroom if row.avail_total else '—' }}
+                            {{ row.headroom if row.avail_total else 'â€”' }}
                         </td>
                         <td>
                             {% if row.avail_total and row.util_pct %}
@@ -214,8 +214,8 @@
                     {% if has_any.val %}
                     <tr class="table-group-row">
                         <td class="fw-semibold border-end border-2" rowspan="3" style="vertical-align:middle; width:150px; max-width:150px; overflow:hidden; word-break:break-word;">
-                            <a href="{{ url_for('orders.dept_orders', dept_id=d.dept.id) }}"
-                               class="text-decoration-none text-body" title="View orders with planned operations in this period ({{ data.from_date.strftime('%d %b') }} – {{ data.to_date.strftime('%d %b') }})">
+                            <a href="{{ url_for('orders.order_book', dept_id=d.dept.id) }}"
+                               class="text-decoration-none text-body" title="View orders with planned operations in this period ({{ data.from_date.strftime('%d %b') }} â€“ {{ data.to_date.strftime('%d %b') }})">
                                 {{ d.dept.name }}
                             </a>
                             <br>
@@ -226,13 +226,13 @@
                         </td>
                         <td class="text-muted text-nowrap">Avail hrs</td>
                         {% for row in d.rows %}
-                        <td class="text-center">{{ row.avail if row.avail else '—' }}</td>
+                        <td class="text-center">{{ row.avail if row.avail else 'â€”' }}</td>
                         {% endfor %}
                     </tr>
                     <tr>
                         <td class="text-nowrap text-primary" title="Hours for operations with a planned date set">Planned load</td>
                         {% for row in d.rows %}
-                        <td class="text-center">{{ row.load if row.load else '—' }}</td>
+                        <td class="text-center">{{ row.load if row.load else 'â€”' }}</td>
                         {% endfor %}
                     </tr>
                     <tr class="border-bottom border-2">
@@ -243,7 +243,7 @@
                             {% elif row.avail and row.util > 85 %}bg-warning
                             {% elif row.avail and row.util > 0 %}bg-primary bg-opacity-25
                             {% endif %}">
-                            {{ row.util ~ '%' if row.avail and row.util else '—' }}
+                            {{ row.util ~ '%' if row.avail and row.util else 'â€”' }}
                         </td>
                         {% endfor %}
                     </tr>
@@ -270,25 +270,25 @@ document.addEventListener('DOMContentLoaded', function () {
     function isoWeekMonday(iso) {
         const [year, week] = iso.split('-W').map(Number);
         const jan4    = new Date(year, 0, 4);
-        const jan4dow = jan4.getDay() || 7;          // Mon=1 … Sun=7
+        const jan4dow = jan4.getDay() || 7;          // Mon=1 â€¦ Sun=7
         const monday  = new Date(jan4);
         monday.setDate(jan4.getDate() - (jan4dow - 1) + (week - 1) * 7);
         return monday;
     }
 
-    // Two-line label: ["W12", "23 Mar"] — Chart.js renders each element as a separate line
+    // Two-line label: ["W12", "23 Mar"] â€” Chart.js renders each element as a separate line
     function weekLabel(iso) {
         const [, week] = iso.split('-W');
         const d = isoWeekMonday(iso);
         return [`W${week}`, `${d.getDate()} ${MONTHS[d.getMonth()]}`];
     }
 
-    // Full human-readable week string for tooltips: "W12 · 23 Mar – 29 Mar"
+    // Full human-readable week string for tooltips: "W12 Â· 23 Mar â€“ 29 Mar"
     function weekTitle(iso) {
         const mon = isoWeekMonday(iso);
         const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
         const [, week] = iso.split('-W');
-        return `W${week}  ·  ${mon.getDate()} ${MONTHS[mon.getMonth()]} – ${sun.getDate()} ${MONTHS[sun.getMonth()]}`;
+        return `W${week}  Â·  ${mon.getDate()} ${MONTHS[mon.getMonth()]} â€“ ${sun.getDate()} ${MONTHS[sun.getMonth()]}`;
     }
 
     // Wrap a department name into a two-line label at a sensible split point
@@ -312,7 +312,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const gridColour = 'rgba(0,0,0,0.06)';
 
     {% if selected_dept and data.departments %}
-    // ── Single department chart ───────────────────────────────────────────────
+    // â”€â”€ Single department chart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const d   = chartData[0];
     const ctx = document.getElementById('deptChart');
     if (ctx) {
@@ -379,7 +379,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             },
                             footer: (items) => {
                                 const u = utils[items[0].dataIndex];
-                                return u > 100 ? '⚠ Over capacity' : u > 85 ? '⚠ High utilisation' : '';
+                                return u > 100 ? 'âš  Over capacity' : u > 85 ? 'âš  High utilisation' : '';
                             }
                         }
                     }
@@ -411,7 +411,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
     {% else %}
-    // ── All departments chart ─────────────────────────────────────────────────
+    // â”€â”€ All departments chart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const ctx2 = document.getElementById('allDeptsChart');
     if (ctx2 && chartData.length) {
         // Strip departments that have no avail and no load across all weeks
@@ -465,10 +465,10 @@ document.addEventListener('DOMContentLoaded', function () {
                             },
                             footer: (items) => {
                                 const i = items[0].dataIndex;
-                                const flag = utils[i] > 100 ? '  ⚠ OVER CAPACITY'
-                                           : utils[i] > 85  ? '  ⚠ High utilisation'
+                                const flag = utils[i] > 100 ? '  âš  OVER CAPACITY'
+                                           : utils[i] > 85  ? '  âš  High utilisation'
                                            : '';
-                                return `Available: ${avails[i]} hrs  ·  Utilisation: ${utils[i]}%${flag}`;
+                                return `Available: ${avails[i]} hrs  Â·  Utilisation: ${utils[i]}%${flag}`;
                             }
                         }
                     }

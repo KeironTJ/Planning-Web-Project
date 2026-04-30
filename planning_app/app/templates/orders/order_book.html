@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{# ── URL helper macro: carries all current filter state into any page link ── #}
+{% macro furl(page=pagination.page, sort=order_by) -%}
+?page={{ page }}&sort={{ sort }}&q={{ search | urlencode }}&customer={{ customer_filter | urlencode }}&cpo={{ customer_po_filter | urlencode }}&order_type={{ order_type_filter | urlencode }}&country={{ country_filter | urlencode }}&cgroup={{ customer_group_filter | urlencode }}&due_from={{ due_date_from.isoformat() if due_date_from else '' }}&due_to={{ due_date_to.isoformat() if due_date_to else '' }}&overdue={{ '1' if overdue_only else '' }}&per_page={{ per_page }}
+{%- endmacro %}
+
+{% macro sort_link(label, key) %}
+  <a href="{{ furl(page=1, sort=key) }}" class="text-reset text-decoration-none d-flex align-items-center gap-1">
+    {{ label }}{% if order_by == key %} <i class="bi bi-caret-down-fill small text-primary"></i>{% else %} <i class="bi bi-caret-down small text-muted opacity-50"></i>{% endif %}
+  </a>
+{% endmacro %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+{# ── KPI banner ──────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-3">
+  <div class="col-sm-3">
+    <div class="card border-0 shadow-sm text-center py-2">
+      <div class="fw-bold fs-4">{{ summary.total }}</div>
+      <div class="text-muted small">Open Orders</div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card border-0 shadow-sm text-center py-2">
+      <div class="fw-bold fs-4 text-primary">{{ summary.total_units | int }}</div>
+      <div class="text-muted small">Open Units</div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card border-0 shadow-sm text-center py-2">
+      <div class="fw-bold fs-4 text-danger">{{ summary.overdue }}</div>
+      <div class="text-muted small">Overdue</div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card border-0 shadow-sm text-center py-2">
+      {% set v = summary.total_value %}
+      <div class="fw-bold fs-4">{% if v >= 1000000 %}£{{ "%.2f"|format(v/1000000) }}m{% elif v >= 1000 %}£{{ "%.0f"|format(v/1000) }}k{% else %}£{{ "%.0f"|format(v) }}{% endif %}</div>
+      <div class="text-muted small">Total Value</div>
+    </div>
+  </div>
+</div>
+
+{# ── Filters ─────────────────────────────────────────────────────────────── #}
+<form method="get" class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2 px-3">
+    <div class="row g-2 align-items-end">
+
+      <div class="col-12 col-md-4 col-lg-3">
+        <label class="form-label small mb-1 fw-semibold">Search <span class="fw-normal text-muted">(SO, product, ref…)</span></label>
+        <input type="text" name="q" value="{{ search }}"
+               class="form-control form-control-sm" placeholder="SO-12345, product code…">
+      </div>
+      <div class="col-12 col-md-4 col-lg-3">
+        <label class="form-label small mb-1 fw-semibold">Customer name</label>
+        <input type="text" name="customer" value="{{ customer_filter }}"
+               class="form-control form-control-sm" placeholder="Customer name contains…">
+      </div>
+      <div class="col-12 col-md-4 col-lg-3">
+        <label class="form-label small mb-1 fw-semibold">Customer PO number</label>
+        <input type="text" name="cpo" value="{{ customer_po_filter }}"
+               class="form-control form-control-sm" placeholder="PO number contains…">
+      </div>
+
+      <div class="col-6 col-md-3 col-lg-2">
+        <label class="form-label small mb-1 fw-semibold">Order type</label>
+        <select name="order_type" class="form-select form-select-sm">
+          <option value="">All types</option>
+          {% for ot in order_types %}
+          <option value="{{ ot }}" {% if ot == order_type_filter %}selected{% endif %}>{{ ot }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-3 col-lg-2">
+        <label class="form-label small mb-1 fw-semibold">Customer group</label>
+        <select name="cgroup" class="form-select form-select-sm">
+          <option value="">All groups</option>
+          {% for cg in customer_groups %}
+          <option value="{{ cg }}" {% if cg == customer_group_filter %}selected{% endif %}>{{ cg }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-3 col-lg-2">
+        <label class="form-label small mb-1 fw-semibold">Country / region</label>
+        <select name="country" class="form-select form-select-sm">
+          <option value="">All countries</option>
+          {% for c in countries %}
+          <option value="{{ c }}" {% if c == country_filter %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-3 col-lg-2">
+        <label class="form-label small mb-1 fw-semibold">Due from</label>
+        <input type="date" name="due_from"
+               value="{{ due_date_from.isoformat() if due_date_from else '' }}"
+               class="form-control form-control-sm">
+      </div>
+      <div class="col-6 col-md-3 col-lg-2">
+        <label class="form-label small mb-1 fw-semibold">Due to</label>
+        <input type="date" name="due_to"
+               value="{{ due_date_to.isoformat() if due_date_to else '' }}"
+               class="form-control form-control-sm">
+      </div>
+      <div class="col-6 col-md-auto d-flex align-items-end pb-1">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="overdue" value="1"
+                 id="overdueCheck" {% if overdue_only %}checked{% endif %}>
+          <label class="form-check-label small" for="overdueCheck">Overdue only</label>
+        </div>
+      </div>
+
+      <div class="col-12 d-flex align-items-center gap-2 flex-wrap mt-1">
+        <button type="submit" class="btn btn-primary btn-sm px-3">
+          <i class="bi bi-search me-1"></i>Filter
+        </button>
+        <a href="{{ url_for('orders.order_book') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-x-circle me-1"></i>Clear
+        </a>
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <label class="small text-muted mb-0">Per page</label>
+          <select name="per_page" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+            {% for n in [25, 50, 100] %}
+            <option value="{{ n }}" {% if n == per_page %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+          <input type="hidden" name="sort" value="{{ order_by }}">
+        </div>
+      </div>
+
+    </div>
+  </div>
+</form>
+
+{# ── Results count ───────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <span class="small text-muted">
+    {% if pagination.total > 0 %}
+    Showing <strong>{{ ((pagination.page - 1) * per_page) + 1 }}–{{ [pagination.page * per_page, pagination.total] | min }}</strong>
+    of <strong>{{ pagination.total }}</strong> orders
+    {% else %}
+    <strong>0</strong> orders
+    {% endif %}
+    {% if search or customer_filter or customer_po_filter or order_type_filter or country_filter or customer_group_filter or overdue_only or due_date_from or due_date_to %}
+    <span class="badge text-bg-warning ms-1">filtered</span>
+    {% endif %}
+  </span>
+</div>
+
+{# ── Table ───────────────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle" style="font-size:0.85rem;">
+      <thead class="table-light">
+        <tr>
+          <th style="white-space:nowrap;">{{ sort_link('SO #', 'so_number') }}</th>
+          <th style="min-width:160px;">{{ sort_link('Customer', 'customer') }}</th>
+          <th style="min-width:120px;">Customer PO</th>
+          <th>Type</th>
+          <th style="min-width:110px;">Country</th>
+          <th style="min-width:110px;">Cust. Group</th>
+          <th>Channel</th>
+          <th style="white-space:nowrap;">Order Date</th>
+          <th style="white-space:nowrap;">{{ sort_link('Due Date', 'due_date') }}</th>
+          <th class="text-center">Lines</th>
+          <th class="text-end">Qty</th>
+          <th class="text-end" style="white-space:nowrap;">{{ sort_link('Value (£)', 'value') }}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in orders %}
+        {% set is_overdue = o.due_date and o.due_date < today %}
+        {% set due_soon   = o.due_date and not is_overdue and o.days_delta is not none and o.days_delta <= 7 %}
+        <tr class="{{ 'table-danger' if is_overdue else '' }}">
+          <td class="fw-semibold text-nowrap">{{ o.so_number }}</td>
+          <td>
+            <div class="fw-semibold lh-sm">{{ o.customer_name }}</div>
+            {% if o.customer_code %}<div class="text-muted" style="font-size:0.75rem;">{{ o.customer_code }}</div>{% endif %}
+          </td>
+          <td class="text-muted small text-nowrap">{{ o.customer_order_ref or '–' }}</td>
+          <td>
+            <span class="badge {% if o.order_type.startswith('Z') %}text-bg-info{% else %}text-bg-secondary{% endif %}">
+              {{ o.order_type or '–' }}
+            </span>
+          </td>
+          <td class="small">{{ o.country or '–' }}</td>
+          <td class="small">{{ o.customer_group or '–' }}</td>
+          <td class="small text-muted">{{ o.channel or '–' }}</td>
+          <td class="small text-muted text-nowrap">
+            {{ o.order_date.strftime('%d %b %Y') if o.order_date else '–' }}
+          </td>
+          <td class="text-nowrap {% if is_overdue %}text-danger fw-semibold{% elif due_soon %}text-warning fw-semibold{% endif %}">
+            {% if o.due_date %}
+              {{ o.due_date.strftime('%d %b %Y') }}
+              {% if is_overdue %}
+                <span class="badge text-bg-danger ms-1">{{ (-o.days_delta) | int }}d late</span>
+              {% elif due_soon %}
+                <span class="badge text-bg-warning text-dark ms-1">{{ o.days_delta }}d</span>
+              {% endif %}
+            {% else %}–{% endif %}
+          </td>
+          <td class="text-center text-muted">{{ o.line_count }}</td>
+          <td class="text-end">{{ "%.0f" | format(o.total_qty) }}</td>
+          <td class="text-end text-nowrap fw-semibold">£{{ "{:,.0f}".format(o.total_value) }}</td>
+          <td class="text-end text-nowrap">
+            {% if o.comment_count %}
+            <span class="badge bg-light text-dark border small"
+                  title="{{ o.latest_comment }}{% if o.latest_user %} — {{ o.latest_user }}{% endif %}{% if o.latest_at %} ({{ o.latest_at.strftime('%d %b %Y') }}){% endif %}">
+              <i class="bi bi-chat-left-text me-1 text-info"></i>{{ o.comment_count }}
+            </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="13" class="text-center text-muted py-5">
+            <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
+            No orders match the current filters.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Pagination ───────────────────────────────────────────────────────────── #}
+{% if pagination.pages > 1 %}
+<nav class="mt-3">
+  <ul class="pagination pagination-sm justify-content-center mb-1">
+    {% if pagination.has_prev %}
+    <li class="page-item">
+      <a class="page-link" href="{{ furl(page=pagination.page - 1) }}">‹ Prev</a>
+    </li>
+    {% endif %}
+    {% for p in pagination.iter_pages() %}
+      {% if p %}
+        <li class="page-item {% if p == pagination.page %}active{% endif %}">
+          <a class="page-link" href="{{ furl(page=p) }}">{{ p }}</a>
+        </li>
+      {% else %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+    {% if pagination.has_next %}
+    <li class="page-item">
+      <a class="page-link" href="{{ furl(page=pagination.page + 1) }}">Next ›</a>
+    </li>
+    {% endif %}
+  </ul>
+  <p class="text-center text-muted small">{{ pagination.total }} orders total</p>
+</nav>
+{% endif %}
+
+</div>
+{% endblock %}

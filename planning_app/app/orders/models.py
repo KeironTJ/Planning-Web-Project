@@ -61,11 +61,10 @@ class Department(db.Model):
 
 class SalesOrderLine(db.Model):
     """
-    Parent record â€” one per Sales Order + line number combination.
+    One record per Sales Order + line number combination.
 
-    Imported from OpenOrderBook_HIDE.csv (UPSERT on each daily import).
-    ERP fields are updated on every import; planner fields are never touched
-    by the importer.
+    Imported from the Epicor Sales CSV export (UPSERT on each import).
+    ERP fields are updated on every import. Epicor handles all processing.
     """
 
     __tablename__ = "sales_order_lines"
@@ -73,21 +72,6 @@ class SalesOrderLine(db.Model):
         db.UniqueConstraint("site_id", "so_number", "line_number", name="uq_sol_site_so_line"),
     )
 
-    # â”€â”€ Line-level aggregate status constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #
-    LINE_STATUS_NEW          = "new_order"
-    LINE_STATUS_FIRM_PLANNED = "firm_planned"
-    LINE_STATUS_RELEASED     = "released"
-    LINE_STATUS_WIP          = "wip"
-    LINE_STATUS_COMPLETED    = "completed"
-    LINE_STATUS_COMPLETE     = LINE_STATUS_COMPLETED   # backward-compat alias
-
-    LINE_STATUS_META = {
-        "new_order":    ("New Order",    "secondary"),
-        "firm_planned": ("Firm Planned", "info"),
-        "released":     ("Released",     "primary"),
-        "wip":          ("WIP",          "warning"),
-        "completed":    ("Completed",    "success"),
-    }
 
     id = db.Column(db.Integer, primary_key=True)
     site_id = db.Column(
@@ -112,26 +96,17 @@ class SalesOrderLine(db.Model):
     due_date = db.Column(db.Date, nullable=True, index=True)                 # DUEDATE (converted from Excel serial)
     unit_price = db.Column(db.Numeric(10, 2), nullable=True)                 # SELLPRICE
     total_value = db.Column(db.Numeric(12, 2), nullable=True)                # TOTALVALUE
+    # Open/closed flag — False means line has shipped/closed (ERP Open Line = FALSE)
+    is_open = db.Column(db.Boolean, nullable=True, index=True, default=True) # Open Line
+
+    # Product / order context (populated from Sales CSV)
+    model = db.Column(db.String(100), nullable=True, index=True)             # Model
+    product_size = db.Column(db.String(50), nullable=True)                   # ProdSize
+    product_group = db.Column(db.String(50), nullable=True, index=True)      # Product Group
+    customer_group = db.Column(db.String(50), nullable=True, index=True)     # Customer Group
+    channel = db.Column(db.String(50), nullable=True)                        # IC Description (Home/Export/etc.)
+    country = db.Column(db.String(100), nullable=True)                       # Country
     imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
-
-    # Planner field â€” set by scheduler for lines that have no operations
-    planned_date = db.Column(db.Date, nullable=True, index=True)
-
-    # ERP integrity flag â€” set by importer when no WorksOrderOperation rows exist for this line.
-    # Cleared automatically when ops appear on a subsequent import.
-    # ops_missing_since is stamped on first detection and retained even after clearing (audit trail).
-    ops_missing       = db.Column(db.Boolean, default=False, nullable=False, server_default="0", index=True)
-    ops_missing_since = db.Column(db.DateTime(timezone=True), nullable=True)
-
-    # KPI completion milestones (set once, never cleared by importer)
-    despatch_completed_date = db.Column(db.Date, nullable=True, index=True)
-    order_completed_date    = db.Column(db.Date, nullable=True, index=True)
-    production_ready_date   = db.Column(db.Date, nullable=True, index=True)
-
-    # Customer hold â€” order is production-complete but despatch delayed by customer request
-    customer_hold       = db.Column(db.Boolean, default=False, nullable=False, server_default="0", index=True)
-    customer_hold_since = db.Column(db.Date, nullable=True)
-    customer_hold_note  = db.Column(db.String(255), nullable=True)
 
     operations = db.relationship(
         "WorksOrderOperation",
@@ -141,62 +116,11 @@ class SalesOrderLine(db.Model):
     )
 
     @property
-    def aggregate_status(self) -> str:
-        """
-        Derive a line-level status from the collection of operations.
-
-        Priority (highest wins):
-          completed    â€” all operations are completed or closed
-          wip          â€” any operation is in wip or completed
-                         (production has begun on at least one department)
-          firm_planned â€” any open operation has a planned_date set or is firm_planned/released
-          new_order    â€” no planned dates, all operations new_order
-        """
-        ops = self.operations
-        if not ops:
-            return self.LINE_STATUS_FIRM_PLANNED if self.planned_date else self.LINE_STATUS_NEW
-
-        open_ops = [op for op in ops if op.status != WorksOrderOperation.STATUS_CLOSED]
-
-        # All closed (shipped / cancelled in ERP)
-        if not open_ops:
-            return self.LINE_STATUS_COMPLETED
-
-        open_statuses = {op.status for op in open_ops}
-
-        # All remaining open operations are completed
-        if open_statuses == {WorksOrderOperation.STATUS_COMPLETED}:
-            return self.LINE_STATUS_COMPLETED
-
-        # Any wip or completed ops â†’ WIP
-        if open_statuses & {WorksOrderOperation.STATUS_WIP, WorksOrderOperation.STATUS_COMPLETED}:
-            return self.LINE_STATUS_WIP
-
-        # All open ops are released (none still at new_order or firm_planned) â†’ Released
-        if open_statuses <= {WorksOrderOperation.STATUS_RELEASED}:
-            return self.LINE_STATUS_RELEASED
-
-        # Mix of released+firm_planned, firm_planned only, or any planned dates â†’ Firm Planned
-        if any(
-            op.status in (WorksOrderOperation.STATUS_FIRM_PLANNED, WorksOrderOperation.STATUS_RELEASED)
-            or op.planned_date is not None
-            for op in open_ops
-        ):
-            return self.LINE_STATUS_FIRM_PLANNED
-
-        return self.LINE_STATUS_NEW
-
-    @property
-    def final_planned_date(self):
-        """Latest planned_date across open operations â€” represents expected completion.
-        Falls back to the line-level planned_date for lines with no operations."""
-        dates = [
-            op.planned_date for op in self.operations
-            if op.planned_date and op.status != WorksOrderOperation.STATUS_CLOSED
-        ]
-        if dates:
-            return max(dates)
-        return self.planned_date
+    def is_overdue(self) -> bool:
+        return (
+            self.due_date is not None
+            and self.due_date < date.today()
+        )
 
     def __repr__(self) -> str:
         return f"<SalesOrderLine {self.so_number}/{self.line_number}>"
@@ -397,3 +321,4 @@ class SalesOrderComment(db.Model):
 
     def __repr__(self) -> str:
         return f"<SalesOrderComment so={self.so_number} user_id={self.user_id}>"
+

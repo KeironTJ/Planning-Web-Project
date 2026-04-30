@@ -1,10 +1,10 @@
-{% extends 'base.html' %}
+﻿{% extends 'base.html' %}
 
 {% block content %}
 <!-- Dept navigation -->
 <div class="mb-3 d-flex flex-wrap gap-1">
     {% for d in all_depts %}
-    <a href="{{ url_for('orders.dept_orders', dept_id=d.id) }}"
+    <a href="{{ url_for('orders.order_book', dept_id=d.id) }}"
        class="btn btn-sm {{ 'btn-primary' if d.id == dept.id else 'btn-outline-secondary' }}">
         {{ d.name }}
     </a>
@@ -17,7 +17,7 @@
         <form method="GET" class="row g-2 align-items-end" id="filterForm">
             <div class="col-sm-3 col-md-2">
                 <input type="search" name="q" class="form-control form-control-sm"
-                       placeholder="SO, customer, product…" value="{{ search }}">
+                       placeholder="SO, customer, productâ€¦" value="{{ search }}">
             </div>
             <div class="col-sm-3 col-md-2">
                 <select name="status" class="form-select form-select-sm">
@@ -52,7 +52,7 @@
             </div>
             <div class="col-auto">
                 <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-                <a href="{{ url_for('orders.dept_orders', dept_id=dept.id) }}"
+                <a href="{{ url_for('orders.order_book', dept_id=dept.id) }}"
                    class="btn btn-outline-secondary btn-sm">Clear</a>
             </div>
 
@@ -102,7 +102,7 @@
 <div class="d-flex justify-content-between align-items-center mb-2">
     <small class="text-muted">
         {{ pagination.total }} order{{ 's' if pagination.total != 1 }}
-        &nbsp;·&nbsp;
+        &nbsp;Â·&nbsp;
         page {{ pagination.page }} of {{ pagination.pages or 1 }}
     </small>
     <!-- Bulk action -->
@@ -138,14 +138,14 @@
                 <th style="min-width:130px;">Customer</th>
                 <th style="min-width:70px;">Lines / Qty</th>
                 <th class="text-center" style="min-width:80px;"
-                    title="Requested Delivery Date — from ERP">Req. Delivery</th>
-                <th class="text-center" style="min-width:55px;">±Days</th>
+                    title="Requested Delivery Date â€” from ERP">Req. Delivery</th>
+                <th class="text-center" style="min-width:55px;">Â±Days</th>
                 <th class="text-center" style="min-width:80px;"
-                    title="Planned Delivery Date — set by planner">Planned Date</th>
+                    title="Planned Delivery Date â€” set by planner">Planned Date</th>
                 <th style="min-width:100px;">Status</th>
                 <th style="min-width:80px;">Materials</th>
                 <th class="text-end" style="min-width:70px;"
-                    title="Total planned hours for this department (qty × SMV)">SMV hrs</th>
+                    title="Total planned hours for this department (qty Ã— SMV)">SMV hrs</th>
             </tr>
         </thead>
         <tbody>
@@ -156,7 +156,7 @@
         {% set plan_late  = group.dept_planned and group.due_date and group.dept_planned > group.due_date %}
         {% set label, colour = status_meta.get(group.dept_status, ('Unknown', 'secondary')) %}
 
-        {# ── Order header row ───────────────────────────────── #}
+        {# â”€â”€ Order header row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #}
         <tr class="table-group-row fw-semibold order-row" id="dept-order-{{ gi }}">
             <td class="text-center p-1">
                 <button class="btn btn-link btn-sm p-0 text-secondary toggle-row-btn"
@@ -192,7 +192,7 @@
                 &nbsp;/&nbsp;{{ group.total_qty | int }} units
             </td>
             <td class="text-center text-nowrap {{ 'text-danger' if is_overdue else ('text-warning' if is_urgent else '') }}">
-                {{ group.due_date.strftime('%d %b %Y') if group.due_date else '—' }}
+                {{ group.due_date.strftime('%d %b %Y') if group.due_date else 'â€”' }}
             </td>
             <td class="text-center">
                 {% if group.days_delta is not none %}
@@ -204,11 +204,11 @@
                         <span class="badge text-bg-success">+{{ group.days_delta }}d</span>
                     {% endif %}
                 {% else %}
-                    <span class="text-muted">—</span>
+                    <span class="text-muted">â€”</span>
                 {% endif %}
             </td>
             <td class="text-center fw-normal small {{ 'text-danger fw-semibold' if plan_late else '' }}">
-                {{ group.dept_planned.strftime('%d %b') if group.dept_planned else '—' }}
+                {{ group.dept_planned.strftime('%d %b') if group.dept_planned else 'â€”' }}
             </td>
             <td>
                 {% if group.dept_status == 'completed' or group.dept_status == 'closed' %}
@@ -218,7 +218,7 @@
                         data-so="{{ group.so_number }}"
                         data-dept="{{ dept.name }}"
                         data-current-status="{{ group.dept_status }}"
-                        title="{{ label }} — right-click to step back">
+                        title="{{ label }} â€” right-click to step back">
                     <i class="bi bi-check-circle" style="font-size:.65rem;"></i> {{ label[:6] }}
                 </button>
                 {% else %}
@@ -228,13 +228,13 @@
                         data-so="{{ group.so_number }}"
                         data-dept="{{ dept.name }}"
                         data-current-status="{{ group.dept_status }}"
-                        title="Click to advance · Right-click to step back">
+                        title="Click to advance Â· Right-click to step back">
                     <i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> {{ label[:6] }}
                 </button>
                 {% endif %}
             </td>
             {# Material status #}
-            {% set mat_label, mat_colour = mat_status_meta.get(group.mat_status, ('—', 'secondary')) %}
+            {% set mat_label, mat_colour = mat_status_meta.get(group.mat_status, ('â€”', 'secondary')) %}
             <td>
                 {% if group.mat_status == 'no_data' %}
                     <span class="badge text-bg-success" style="font-size:.75rem; min-width:62px; text-align:center; display:inline-block;">Mat. OK</span>
@@ -252,12 +252,12 @@
                     {{ group.dept_smv_hours | hm }}
                 </span>
                 {% else %}
-                <span class="text-muted">—</span>
+                <span class="text-muted">â€”</span>
                 {% endif %}
             </td>
         </tr>
 
-        {# ── Line rows (collapsed) ──────────────────────────── #}
+        {# â”€â”€ Line rows (collapsed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ #}
         {% for op in group.dept_ops %}
         {% set sol = op.sales_order_line %}
         {% set op_label, op_colour = status_meta.get(op.status, ('?', 'secondary')) %}
@@ -269,15 +269,15 @@
             <td colspan="2" class="small">
                 <span class="text-muted">{{ sol.product_code }}</span>
                 {% if sol.product_description %}
-                <span class="text-muted"> — {{ sol.product_description | truncate(40) }}</span>
+                <span class="text-muted"> â€” {{ sol.product_description | truncate(40) }}</span>
                 {% endif %}
             </td>
             <td class="text-center text-muted small">
-                {{ op.due_date.strftime('%d %b') if op.due_date else '—' }}
+                {{ op.due_date.strftime('%d %b') if op.due_date else 'â€”' }}
             </td>
             <td></td>
             <td class="text-center text-muted small">
-                {{ op.planned_date.strftime('%d %b') if op.planned_date else '—' }}
+                {{ op.planned_date.strftime('%d %b') if op.planned_date else 'â€”' }}
             </td>
             <td>
                 <div class="d-flex align-items-center gap-2">
@@ -286,7 +286,7 @@
                             style="font-size:.72rem;"
                             data-op-id="{{ op.id }}"
                             data-status="{{ op.status }}"
-                            title="Click to advance · Right-click to step back">
+                            title="Click to advance Â· Right-click to step back">
                         {% if op.status == 'completed' or op.status == 'closed' %}
                         <i class="bi bi-check-circle" style="font-size:.65rem;"></i>
                         {% else %}
@@ -317,10 +317,10 @@
                     {% endif %}
                 </div>
             </td>
-            <td></td>{# Materials — order-level only #}
+            <td></td>{# Materials â€” order-level only #}
             <td class="text-end text-muted small text-nowrap">
                 {% set op_hrs = group.op_smv_hours.get(op.id, 0) %}
-                {{ op_hrs | hm if op_hrs else '—' }}
+                {{ op_hrs | hm if op_hrs else 'â€”' }}
             </td>
         </tr>
         {% endfor %}
@@ -338,17 +338,17 @@
     <ul class="pagination pagination-sm justify-content-center">
         {% if pagination.has_prev %}
         <li class="page-item">
-            <a class="page-link" href="{{ url_for('orders.dept_orders', dept_id=dept.id, page=pagination.page-1, q=search, status=status_filter, sort=order_by, per_page=per_page, overdue='1' if overdue_only else '') }}">«</a>
+            <a class="page-link" href="{{ url_for('orders.order_book', dept_id=dept.id, page=pagination.page-1, q=search, status=status_filter, sort=order_by, per_page=per_page, overdue='1' if overdue_only else '') }}">Â«</a>
         </li>
         {% endif %}
         {% for p in range(1, pagination.pages + 1) %}
         <li class="page-item {{ 'active' if p == pagination.page }}">
-            <a class="page-link" href="{{ url_for('orders.dept_orders', dept_id=dept.id, page=p, q=search, status=status_filter, sort=order_by, per_page=per_page, overdue='1' if overdue_only else '') }}">{{ p }}</a>
+            <a class="page-link" href="{{ url_for('orders.order_book', dept_id=dept.id, page=p, q=search, status=status_filter, sort=order_by, per_page=per_page, overdue='1' if overdue_only else '') }}">{{ p }}</a>
         </li>
         {% endfor %}
         {% if pagination.has_next %}
         <li class="page-item">
-            <a class="page-link" href="{{ url_for('orders.dept_orders', dept_id=dept.id, page=pagination.page+1, q=search, status=status_filter, sort=order_by, per_page=per_page, overdue='1' if overdue_only else '') }}">»</a>
+            <a class="page-link" href="{{ url_for('orders.order_book', dept_id=dept.id, page=pagination.page+1, q=search, status=status_filter, sort=order_by, per_page=per_page, overdue='1' if overdue_only else '') }}">Â»</a>
         </li>
         {% endif %}
     </ul>
@@ -400,7 +400,7 @@
 (function () {
     const csrfToken = '{{ csrf_token() }}';
 
-    // ── Expand / collapse order rows ───────────────────────────────────── //
+    // â”€â”€ Expand / collapse order rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ //
     document.querySelectorAll('.toggle-row-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const target = btn.dataset.target;
@@ -413,7 +413,7 @@
         });
     });
 
-    // ── Status metadata ────────────────────────────────────────────────── //
+    // â”€â”€ Status metadata â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ //
     const STATUS_META = {
         'new_order':    { label: 'New Order',    colour: 'light'   },
         'firm_planned': { label: 'Firm Planned', colour: 'info'    },
@@ -436,7 +436,7 @@
         'completed':    'wip',
     };
 
-    // ── AJAX call to advance or reverse an SO+dept ─────────────────────── //
+    // â”€â”€ AJAX call to advance or reverse an SO+dept â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ //
     function callSoDeptEndpoint(url, soNumber, deptName, btn) {
         btn.disabled = true;
         const originalHTML = btn.innerHTML;
@@ -466,10 +466,10 @@
             btn.dataset.currentStatus = newStatus;
             btn.className = 'btn btn-' + newColour + ' btn-sm py-0 px-1 advance-so-dept-btn';
             if (newStatus === 'completed' || newStatus === 'closed') {
-                btn.title = newLabel + ' — right-click to step back';
+                btn.title = newLabel + ' â€” right-click to step back';
                 btn.innerHTML = '<i class="bi bi-check-circle" style="font-size:.65rem;"></i> ' + newLabel.substring(0, 6);
             } else {
-                btn.title = 'Click to advance · Right-click to step back';
+                btn.title = 'Click to advance Â· Right-click to step back';
                 btn.innerHTML = '<i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> ' + newLabel.substring(0, 6);
             }
         })
@@ -479,7 +479,7 @@
         });
     }
 
-    // ── Wire click (advance) and contextmenu (step back) on deptTable ─── //
+    // â”€â”€ Wire click (advance) and contextmenu (step back) on deptTable â”€â”€â”€ //
     const deptTable = document.getElementById('deptTable');
     if (deptTable) {
         deptTable.addEventListener('click', function (e) {
@@ -503,7 +503,7 @@
         });
     }
 
-    // ── Operation-level advance/step-back ─────────────────────────────── //
+    // â”€â”€ Operation-level advance/step-back â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ //
     function callOpEndpoint(opId, newStatus, btn) {
         btn.disabled = true;
         const originalHTML = btn.innerHTML;
@@ -555,7 +555,7 @@
         });
     }
 
-    // ── Bulk select helpers ────────────────────────────────────────────── //
+    // â”€â”€ Bulk select helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ //
     function updateSelCount() {
         const sel = document.querySelectorAll('.op-check:checked');
         const el = document.getElementById('selCount');
@@ -575,14 +575,14 @@
         document.getElementById('bulkForm').submit();
     };
 
-    // ── Modal population ───────────────────────────────────────────────── //
+    // â”€â”€ Modal population â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ //
     const modal = document.getElementById('opModal');
     const opForm = document.getElementById('opForm');
     modal.addEventListener('show.bs.modal', function (e) {
         const btn = e.relatedTarget && e.relatedTarget.closest('[data-op-id]');
         if (!btn) return;
         opForm.action = '/orders/operations/' + btn.dataset.opId + '/update';
-        document.getElementById('opModalLabel').textContent = btn.dataset.so + ' — ' + btn.dataset.dept;
+        document.getElementById('opModalLabel').textContent = btn.dataset.so + ' â€” ' + btn.dataset.dept;
         document.getElementById('modalStatus').value  = btn.dataset.status;
         document.getElementById('modalPlanned').value = btn.dataset.planned;
         document.getElementById('modalNotes').value   = btn.dataset.notes;
