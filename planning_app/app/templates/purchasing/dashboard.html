@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+  <div class="d-flex align-items-center mb-4 gap-3">
+    <div class="rounded-3 p-3 bg-warning bg-opacity-10">
+      <i class="bi bi-box-seam fs-2 text-warning"></i>
+    </div>
+    <div>
+      <h4 class="mb-0 fw-semibold">Purchasing</h4>
+      <p class="text-muted mb-0 small">Stock, materials planning, and purchase orders</p>
+    </div>
+  </div>
+
+  <div class="row g-3">
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.index') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-warning bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-speedometer2 fs-4 text-warning"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Dashboard</h6>
+              <p class="text-muted small mb-0">Stock summary and weekly availability</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-danger bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-exclamation-triangle fs-4 text-danger"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Shortage Report</h6>
+              <p class="text-muted small mb-0">Materials with insufficient stock to fulfil demand</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.mrp') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-success bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-diagram-2 fs-4 text-success"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">MRP Pegging</h6>
+              <p class="text-muted small mb-0">Material requirements and order pegging</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.stock_list') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-primary bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-boxes fs-4 text-primary"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Stock on Hand</h6>
+              <p class="text-muted small mb-0">Current inventory levels by part number</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.po_list') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-secondary bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-cart fs-4 text-secondary"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Open Purchase Orders</h6>
+              <p class="text-muted small mb-0">Outstanding POs and expected delivery dates</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.main_requirements') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-info bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-list-columns fs-4 text-info"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Main Material Reqs</h6>
+              <p class="text-muted small mb-0">Consolidated material requirements report</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

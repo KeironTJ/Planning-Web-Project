@@ -41,8 +41,8 @@ class TestLogin:
     def test_login_success(self, client, planner_user):
         response = login(client, "planner@test.com", "Planner!Pass1234")
         assert response.status_code == 200
-        # Should have been redirected to the dashboard
-        assert b"Capacity" in response.data or b"dashboard" in response.data.lower()
+        # Should have been redirected to the Sales department portal
+        assert b"Sales" in response.data or b"dashboard" in response.data.lower()
 
     def test_login_wrong_password(self, client, planner_user):
         response = login(client, "planner@test.com", "WrongPassword!")
@@ -101,7 +101,7 @@ class TestRegistration:
 
 class TestAccessControl:
     def test_protected_route_redirects_anonymous(self, client):
-        response = client.get("/capacity/", follow_redirects=False)
+        response = client.get("/planning/capacity/", follow_redirects=False)
         assert response.status_code == 302
         assert "/auth/login" in response.headers["Location"]
 

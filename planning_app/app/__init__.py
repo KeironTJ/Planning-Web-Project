@@ -78,31 +78,51 @@ def _configure_sqlite(app: Flask) -> None:
 def _register_blueprints(app: Flask) -> None:
     """Register all feature blueprints."""
     # Import all model modules so Flask-Migrate can detect them
-    from .orders import models as _orders_models  # noqa: F401
-    from .capacity import models as _capacity_models  # noqa: F401
-    from .materials import models as _materials_models  # noqa: F401
+    from .sales.orders import models as _orders_models  # noqa: F401
+    from .planning.capacity import models as _capacity_models  # noqa: F401
+    from .purchasing.materials import models as _materials_models  # noqa: F401
     from .admin import models as _admin_models  # noqa: F401
 
     from .auth import auth_bp
     from .admin import admin_bp
-    from .orders import orders_bp
-    from .capacity import capacity_bp
-    from .materials import materials_bp
     from .api.v1 import api_v1_bp
+
+    # --- Department portal blueprints ---
+    from .sales import sales_bp
+    from .planning import planning_bp
+    from .purchasing import purchasing_bp
+    from .operations import operations_bp
+    from .transport import transport_bp
+    from .it import it_bp
+
+    # --- Feature blueprints (nested under their department) ---
+    from .sales.orders import orders_bp
+    from .planning.capacity import capacity_bp
+    from .purchasing.materials import materials_bp
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(admin_bp, url_prefix="/admin")
-    app.register_blueprint(orders_bp, url_prefix="/orders")
-    app.register_blueprint(capacity_bp, url_prefix="/capacity")
-    app.register_blueprint(materials_bp, url_prefix="/materials")
     app.register_blueprint(api_v1_bp, url_prefix="/api/v1")
+
+    # Department portals
+    app.register_blueprint(sales_bp, url_prefix="/sales")
+    app.register_blueprint(planning_bp, url_prefix="/planning")
+    app.register_blueprint(purchasing_bp, url_prefix="/purchasing")
+    app.register_blueprint(operations_bp, url_prefix="/operations")
+    app.register_blueprint(transport_bp, url_prefix="/transport")
+    app.register_blueprint(it_bp, url_prefix="/it")
+
+    # Feature modules nested under their department
+    app.register_blueprint(orders_bp, url_prefix="/sales/orders")
+    app.register_blueprint(capacity_bp, url_prefix="/planning/capacity")
+    app.register_blueprint(materials_bp, url_prefix="/purchasing/materials")
 
     # Root redirect
     from flask import redirect, url_for
 
     @app.route("/")
     def index():
-        return redirect(url_for("orders.order_book"))
+        return redirect(url_for("sales.dashboard"))
 
 
 def _register_error_handlers(app: Flask) -> None:

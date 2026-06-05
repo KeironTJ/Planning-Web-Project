@@ -8,7 +8,7 @@ from flask_login import login_required, current_user
 from . import capacity_bp
 from . import services
 from .models import CapacityBucket
-from app.orders.models import Department
+from app.sales.orders.models import Department
 from app.extensions import db
 from app.core.decorators import permission_required
 from app.core.exceptions import NotFoundError

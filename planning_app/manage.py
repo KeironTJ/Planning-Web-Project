@@ -1,4 +1,4 @@
-"""
+﻿"""
 CLI management commands for the Planning application.
 
 Usage:
@@ -129,7 +129,7 @@ def seed_sites(name, code, description):
 @click.option("--site", "site_code", required=True, prompt=True, help="Site code to add departments to")
 def seed_departments(site_code):
     """Seed generic production departments for a site (edit list as needed)."""
-    from app.orders.models import Department
+    from app.sales.orders.models import Department
     from app.admin.models import Site
     depts = [
         "PRODUCTION",
@@ -159,7 +159,7 @@ def seed_departments(site_code):
 @app.cli.command("clear-oob")
 def clear_oob():
     """Delete all OOB sales order lines and their operations."""
-    from app.orders.models import SalesOrderLine, WorksOrderOperation
+    from app.sales.orders.models import SalesOrderLine, WorksOrderOperation
     with app.app_context():
         ops = WorksOrderOperation.query.delete()
         lines = SalesOrderLine.query.delete()
@@ -175,7 +175,7 @@ def clear_oob():
 @click.option("--file", "filepath", required=True, help="Path to OpenOrderBook_HIDE.csv")
 def import_oob(filepath):
     """Import Open Order Book CSV (UPSERT — preserves planner fields)."""
-    from app.orders.importers import OobImporter
+    from app.sales.orders.importers import OobImporter
     with app.app_context():
         click.echo(f"Importing OOB from {filepath} ...")
         batch = OobImporter.import_file(filepath, filename=filepath.split("/")[-1].split("\\")[-1])
@@ -195,9 +195,9 @@ def import_oob(filepath):
 @click.option("--file", "filepath", required=True, help="Path to the CSV file")
 def import_csv(import_type, filepath):
     """Import a CSV file. Use sales/coois/stock/open_po/main_material for daily Epicor exports."""
-    from app.materials.importers import StockImporter, OpenPoImporter, MainMaterialImporter
-    from app.capacity.importers import LabourPlanImporter
-    from app.orders.importers import OobImporter, SalesImporter, CooisImporter
+    from app.purchasing.materials.importers import StockImporter, OpenPoImporter, MainMaterialImporter
+    from app.planning.capacity.importers import LabourPlanImporter
+    from app.sales.orders.importers import OobImporter, SalesImporter, CooisImporter
 
     importers = {
         "sales":           SalesImporter,
@@ -232,7 +232,7 @@ def backfill_despatch_dates():
     Safe to run multiple times — only updates rows where the date is NULL.
     """
     from datetime import date
-    from app.orders.models import SalesOrderLine, WorksOrderOperation
+    from app.sales.orders.models import SalesOrderLine, WorksOrderOperation
 
     _terminal = {WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED}
     today = date.today()
@@ -288,7 +288,7 @@ def backfill_production_ready_date():
     Safe to run multiple times — only updates rows where the date is NULL.
     """
     from datetime import date
-    from app.orders.models import SalesOrderLine, WorksOrderOperation
+    from app.sales.orders.models import SalesOrderLine, WorksOrderOperation
 
     _terminal = {WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED}
     today = date.today()

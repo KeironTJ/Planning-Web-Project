@@ -1,4 +1,4 @@
-"""
+﻿"""
 Materials service layer.
 
 Shortage calculation (cumulative MRP netting):
@@ -708,7 +708,7 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
         }
     """
     from datetime import date, timedelta
-    from app.orders.models import SalesOrderLine, WorksOrderOperation
+    from app.sales.orders.models import SalesOrderLine, WorksOrderOperation
 
     today   = date.today()
     cutoff  = today + timedelta(weeks=weeks_ahead)
@@ -962,7 +962,7 @@ def get_stock_summary() -> dict:
         .scalar() or 0
     )
 
-    from app.orders.models import ImportBatch
+    from app.sales.orders.models import ImportBatch
     last_stock_import = (
         ImportBatch.query
         .filter_by(import_type=ImportBatch.TYPE_STOCK, status="success")

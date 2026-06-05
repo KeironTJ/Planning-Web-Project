@@ -1,4 +1,4 @@
-"""
+﻿"""
 Materials CSV importers — all full replace (truncate + reload daily).
 
 Covers:
@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from app.extensions import db
 from app.core.csv_utils import read_csv_rows, excel_serial_to_date, parse_decimal, parse_int
-from app.orders.models import ImportBatch
+from app.sales.orders.models import ImportBatch
 from .models import Stock, PurchaseOrder, MaterialRequirementMain
 
 

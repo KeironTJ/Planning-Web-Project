@@ -13,7 +13,7 @@ from typing import Optional
 from sqlalchemy import func, and_
 
 from app.extensions import db
-from app.orders.models import Department, WorksOrderOperation, SalesOrderLine
+from app.sales.orders.models import Department, WorksOrderOperation, SalesOrderLine
 from .models import CapacityBucket
 
 
