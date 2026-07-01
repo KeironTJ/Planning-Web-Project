@@ -10,8 +10,8 @@
             <i class="bi bi-exclamation-triangle me-1"></i>Shortage Report
         </a>
     </div>
-    <a href="{{ url_for('admin.import_upload') }}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-upload me-1"></i>Update POs
+    <a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-repeat me-1"></i>Sync POs
     </a>
 </div>
 
@@ -77,8 +77,7 @@
                     {% else %}
                     <tr>
                         <td colspan="6" class="text-center py-4 text-muted">
-                            No purchase orders found.
-                            <a href="{{ url_for('admin.import_upload') }}">Import OpenPO_HIDE.csv</a>
+                            No purchase orders found. Run <code>flask epicor sync purchase_orders</code> to import.
                         </td>
                     </tr>
                     {% endfor %}

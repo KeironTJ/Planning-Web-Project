@@ -61,6 +61,16 @@ class BaseConfig:
     MAIL_PASSWORD: str = os.environ.get("MAIL_PASSWORD", "")
     MAIL_DEFAULT_SENDER: str = os.environ.get("MAIL_DEFAULT_SENDER", "noreply@localhost")
 
+    # --- Epicor Kinetic API ---
+    # Both API key and Basic Auth are required by this Epicor instance.
+    # Set EPICOR_VERIFY_SSL=true once an SSL certificate is provisioned.
+    EPICOR_BASE_URL: str = os.environ.get("EPICOR_BASE_URL", "")
+    EPICOR_COMPANY: str = os.environ.get("EPICOR_COMPANY", "TET01")
+    EPICOR_USERNAME: str = os.environ.get("EPICOR_USERNAME", "")
+    EPICOR_PASSWORD: str = os.environ.get("EPICOR_PASSWORD", "")
+    EPICOR_API_KEY: str = os.environ.get("EPICOR_API_KEY", "")
+    EPICOR_VERIFY_SSL: bool = os.environ.get("EPICOR_VERIFY_SSL", "false").lower() == "true"
+
 
 class DevelopmentConfig(BaseConfig):
     """Local development settings.

@@ -94,55 +94,44 @@ def _load_exempt_codes() -> frozenset[str]:
 
 def _load_stock() -> dict[str, Decimal]:
     """Return {product_code: qty_on_hand} for all stock rows."""
-    rows = db.session.query(Stock.product_code, Stock.qty_on_hand).all()
-    return {r.product_code: (r.qty_on_hand or Decimal(0)) for r in rows}
+    rows = db.session.query(Stock.part_num, Stock.qty_on_hand).all()
+    return {r.part_num: (r.qty_on_hand or Decimal(0)) for r in rows}
 
 
 def _load_po_coverage() -> dict[str, list[tuple[date, Decimal]]]:
     """
-    Return {product_code: [(due_date, outstanding_qty), ...]} for actual POs only (Type=PO).
-    CO (call-off) orders are excluded here — use _load_co_qty() for those.
-    Used to compute date-constrained PO coverage up to any given due date.
+    Return {part_num: [(due_date, outstanding_qty), ...]} for all open PO releases.
+    Date-constrained: only rows with a due_date are included.
     """
     rows = (
         db.session.query(
-            PurchaseOrder.product_code,
+            PurchaseOrder.part_num,
             PurchaseOrder.due_date,
             PurchaseOrder.outstanding_qty,
         )
         .filter(
-            PurchaseOrder.product_code.isnot(None),
+            PurchaseOrder.part_num.isnot(None),
             PurchaseOrder.outstanding_qty > 0,
-            PurchaseOrder.po_type != "CO",
+            PurchaseOrder.due_date.isnot(None),
         )
-        .order_by(PurchaseOrder.product_code, PurchaseOrder.due_date)
+        .order_by(PurchaseOrder.part_num, PurchaseOrder.due_date)
         .all()
     )
     coverage: dict[str, list[tuple[date, Decimal]]] = defaultdict(list)
     for r in rows:
-        if r.due_date is not None:
-            coverage[r.product_code].append((r.due_date, r.outstanding_qty or Decimal(0)))
+        coverage[r.part_num].append((r.due_date, r.outstanding_qty or Decimal(0)))
     return dict(coverage)
 
 
 def _load_co_qty() -> dict[str, Decimal]:
     """
-    Return {product_code: total_outstanding_qty} for Call-Off orders (Type=CO).
-
-    CO orders have ERP due dates set to a far-future placeholder (~2099) meaning
-    the stock is available on demand. They are not date-constrained.
+    Call-off (CO) order pool — not available from the OSPurchaseOrders BAQ.
+    Returns an empty dict; CO coverage is not currently split from standard POs.
     """
-    rows = (
-        db.session.query(PurchaseOrder.product_code, PurchaseOrder.outstanding_qty)
-        .filter(
-            PurchaseOrder.product_code.isnot(None),
-            PurchaseOrder.outstanding_qty > 0,
-            PurchaseOrder.po_type == "CO",
-        )
-        .all()
-    )
-    co_qty: dict[str, Decimal] = defaultdict(Decimal)
-    for r in rows:
+    # NOTE: The OSPurchaseOrders BAQ does not expose a PO type flag.
+    # All POs are treated as date-constrained for now.
+    co_qty: dict[str, Decimal] = {}
+    for r in []:
         co_qty[r.product_code] += (r.outstanding_qty or Decimal(0))
     return dict(co_qty)
 
@@ -189,7 +178,10 @@ def get_shortage_report(
 
     for req in (
         MaterialRequirementMain.query
-        .filter(MaterialRequirementMain.complete != "Y")
+        .filter(
+            MaterialRequirementMain.job_closed != True,
+            MaterialRequirementMain.issued_complete != True,
+        )
         .order_by(MaterialRequirementMain.due_date)
         .all()
     ):
@@ -201,16 +193,16 @@ def get_shortage_report(
             "source":       "main",
             "material_code": mc,
             "description":  req.material_description or "",
-            "department":   req.department or "",
+            "department":   req.warehouse_code or "",  # dept not in BAQ; warehouse as proxy
             "due_date":     req.due_date,
             "qty_required": qty_req,
             "qty_issued":   qty_issued,
             "net_required": net_req,
             "works_order":  req.works_order,
             "so_number":    req.so_number,
-            "customer_id":  req.customer_id,
+            "customer_id":  None,  # not available from BAQ
             "customer":     None,
-            "complete":     req.complete,
+            "complete":     "Y" if (req.job_closed or req.issued_complete) else "",
             "_search_text": f"{mc} {req.material_description or ''} {req.works_order or ''}".lower(),
         })
 
@@ -435,7 +427,8 @@ def get_so_material_status(
     main_reqs = (
         MaterialRequirementMain.query
         .filter(
-            MaterialRequirementMain.complete != "Y",
+            MaterialRequirementMain.job_closed != True,
+            MaterialRequirementMain.issued_complete != True,
             MaterialRequirementMain.so_number.in_(so_numbers),
         )
         .all()
@@ -450,29 +443,26 @@ def get_so_material_status(
 
     po_rows = (
         db.session.query(
-            PurchaseOrder.product_code,
+            PurchaseOrder.part_num,
             PurchaseOrder.due_date,
             PurchaseOrder.outstanding_qty,
-            PurchaseOrder.po_type,
         )
         .filter(
-            PurchaseOrder.product_code.isnot(None),
+            PurchaseOrder.part_num.isnot(None),
             PurchaseOrder.outstanding_qty > 0,
         )
         .all()
     )
 
-    co_qty_map: dict[str, Decimal] = defaultdict(Decimal)
+    co_qty_map: dict[str, Decimal] = {}   # CO type not available in BAQ
     po_entries: dict[str, list[tuple]] = defaultdict(list)
 
     for r in po_rows:
-        if not r.product_code:
+        if not r.part_num:
             continue
         qty = r.outstanding_qty or Decimal(0)
-        if r.po_type == "CO":
-            co_qty_map[r.product_code] += qty
-        elif r.due_date:
-            po_entries[r.product_code].append((r.due_date, qty))
+        if r.due_date:
+            po_entries[r.part_num].append((r.due_date, qty))
 
     # ---- Apply coverage — main requirements ----
     _apply_coverage(
@@ -523,7 +513,8 @@ def get_mrp_pegging(
         rows = (
             db.session.query(MaterialRequirementMain.material_code)
             .filter(
-                MaterialRequirementMain.complete != "Y",
+                MaterialRequirementMain.job_closed != True,
+                MaterialRequirementMain.issued_complete != True,
                 MaterialRequirementMain.so_number == so_number,
             )
             .distinct().all()
@@ -543,14 +534,14 @@ def get_mrp_pegging(
         material_codes.update(r.material_code for r in rows if r.material_code)
 
         rows = (
-            db.session.query(Stock.product_code)
+            db.session.query(Stock.part_num)
             .filter(db.or_(
-                Stock.product_code.ilike(term),
-                Stock.description.ilike(term),
+                Stock.part_num.ilike(term),
+                Stock.part_description.ilike(term),
             ))
             .all()
         )
-        material_codes.update(r.product_code for r in rows if r.product_code)
+        material_codes.update(r.part_num for r in rows if r.part_num)
 
     if not material_codes:
         return {"materials": [], "material_count": 0, "stock_imported": bool(stock_map)}
@@ -561,7 +552,8 @@ def get_mrp_pegging(
     main_reqs = (
         MaterialRequirementMain.query
         .filter(
-            MaterialRequirementMain.complete != "Y",
+            MaterialRequirementMain.job_closed != True,
+            MaterialRequirementMain.issued_complete != True,
             MaterialRequirementMain.material_code.in_(mc_list),
         )
         .order_by(MaterialRequirementMain.due_date)
@@ -570,7 +562,7 @@ def get_mrp_pegging(
     po_rows = (
         PurchaseOrder.query
         .filter(
-            PurchaseOrder.product_code.in_(mc_list),
+            PurchaseOrder.part_num.in_(mc_list),
             PurchaseOrder.outstanding_qty > 0,
         )
         .order_by(PurchaseOrder.due_date)
@@ -597,23 +589,20 @@ def get_mrp_pegging(
                 "_sort": (2, req.due_date or date.max, 1),
             })
 
-    co_totals: dict[str, Decimal] = defaultdict(Decimal)
+    co_totals: dict[str, Decimal] = {}   # CO type not available in BAQ
     for po in po_rows:
-        mc = po.product_code or ""
+        mc = po.part_num or ""
         qty = po.outstanding_qty or Decimal(0)
-        if po.po_type == "CO":
-            co_totals[mc] += qty
-        else:
-            raw_events[mc].append({
-                "event_date": po.due_date,
-                "row_type": "po",
-                "reference": po.po_number or "",
-                "source": "po",
-                "department": po.supplier_name or "",
-                "demand": None,
-                "receipt": qty,
-                "_sort": (2, po.due_date or date.max, 0),
-            })
+        raw_events[mc].append({
+            "event_date": po.due_date,
+            "row_type": "po",
+            "reference": str(po.po_num) if po.po_num else "",
+            "source": "po",
+            "department": po.supplier_name or "",
+            "demand": None,
+            "receipt": qty,
+            "_sort": (2, po.due_date or date.max, 0),
+        })
 
     # ---- Build MrpMaterial objects ----
     materials: list[MrpMaterial] = []
@@ -622,8 +611,8 @@ def get_mrp_pegging(
         opening_stock = stock_map.get(mc, Decimal(0))
         desc = descriptions.get(mc, "")
         if not desc:
-            s = Stock.query.filter_by(product_code=mc).first()
-            desc = s.description if s else ""
+            s = Stock.query.filter_by(part_num=mc).first()
+            desc = s.part_description if s else ""
 
         co_total = co_totals.get(mc, Decimal(0))
         events_raw = sorted(raw_events.get(mc, []), key=lambda e: e["_sort"])
@@ -956,7 +945,8 @@ def get_stock_summary() -> dict:
     shortage_estimate = (
         db.session.query(func.count(MaterialRequirementMain.id))
         .filter(
-            MaterialRequirementMain.complete != "Y",
+            MaterialRequirementMain.job_closed != True,
+            MaterialRequirementMain.issued_complete != True,
             MaterialRequirementMain.qty_for_order > MaterialRequirementMain.qty_issued,
         )
         .scalar() or 0
@@ -986,15 +976,14 @@ def get_stock_summary() -> dict:
 
 def get_po_list(search: Optional[str] = None, page: int = 1, per_page: int = 50):
     """Return paginated purchase orders, optionally filtered."""
-    q = PurchaseOrder.query.order_by(PurchaseOrder.due_date.asc().nullslast(), PurchaseOrder.po_number)
+    q = PurchaseOrder.query.order_by(PurchaseOrder.due_date.asc().nullslast(), PurchaseOrder.po_num)
     if search:
         term = f"%{search.strip()}%"
         q = q.filter(
             db.or_(
-                PurchaseOrder.product_code.ilike(term),
-                PurchaseOrder.po_number.ilike(term),
+                PurchaseOrder.part_num.ilike(term),
                 PurchaseOrder.supplier_name.ilike(term),
-                PurchaseOrder.description.ilike(term),
+                PurchaseOrder.line_desc.ilike(term),
             )
         )
     return q.paginate(page=page, per_page=per_page, error_out=False)
@@ -1006,13 +995,13 @@ def get_po_list(search: Optional[str] = None, page: int = 1, per_page: int = 50)
 
 def get_stock_list(search: Optional[str] = None, page: int = 1, per_page: int = 50):
     """Return paginated stock lines, optionally filtered."""
-    q = Stock.query.order_by(Stock.product_code)
+    q = Stock.query.order_by(Stock.part_num)
     if search:
         term = f"%{search.strip()}%"
         q = q.filter(
             db.or_(
-                Stock.product_code.ilike(term),
-                Stock.description.ilike(term),
+                Stock.part_num.ilike(term),
+                Stock.part_description.ilike(term),
             )
         )
     return q.paginate(page=page, per_page=per_page, error_out=False)

@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0">Epicor Data Sync</h4>
+        <p class="text-muted small mb-0">Pull live data from Epicor BAQs directly into the database.</p>
+    </div>
+    <form method="POST" action="{{ url_for('admin.epicor_sync_run') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="baq_key" value="">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-arrow-repeat me-1"></i>Sync All
+        </button>
+    </form>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ category }} alert-dismissible fade show py-2" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+{% endwith %}
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0 align-middle">
+            <thead class="thead-subtle">
+                <tr>
+                    <th>Importer</th>
+                    <th>BAQ Name</th>
+                    <th>Last Sync</th>
+                    <th class="text-end">Records</th>
+                    <th class="text-center">Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for key, info in last_syncs.items() %}
+                {% set batch = info.batch %}
+                <tr>
+                    <td class="fw-semibold">{{ key }}</td>
+                    <td class="text-muted font-monospace small">{{ info.baq_name }}</td>
+                    <td class="text-muted small">
+                        {% if batch %}
+                            {{ batch.uploaded_at.strftime('%d %b %Y %H:%M') }}
+                        {% else %}
+                            <span class="text-muted">Never</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        {% if batch %}{{ batch.row_count }}{% else %}—{% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if not batch %}
+                            <span class="badge bg-secondary">Not run</span>
+                        {% elif batch.status == 'success' %}
+                            <span class="badge bg-success">OK</span>
+                        {% elif batch.status == 'failed' %}
+                            <span class="badge bg-danger"
+                                  title="{{ batch.error_message or '' }}"
+                                  data-bs-toggle="tooltip">Failed</span>
+                        {% elif batch.status == 'pending' %}
+                            <span class="badge bg-warning text-dark">Running…</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ batch.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        <form method="POST" action="{{ url_for('admin.epicor_sync_run') }}"
+                              class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="baq_key" value="{{ key }}">
+                            <button type="submit" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Sync
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<p class="text-muted small mt-3">
+    <i class="bi bi-info-circle me-1"></i>
+    Syncs run synchronously — the page will wait while data is fetched from Epicor.
+    To run from the command line: <code>flask epicor sync</code> or <code>flask epicor sync &lt;key&gt;</code>
+</p>
+
+<script>
+// Initialise Bootstrap tooltips for failed-batch error messages
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+        new bootstrap.Tooltip(el);
+    });
+});
+</script>
+{% endblock %}

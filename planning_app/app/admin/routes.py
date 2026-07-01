@@ -21,6 +21,73 @@ from app.core.decorators import admin_required, permission_required
 from app.orders.models import Department, ImportBatch
 
 
+# ---------------------------------------------------------------------------
+# Epicor Data Sync
+# ---------------------------------------------------------------------------
+
+@admin_bp.route("/epicor-sync")
+@login_required
+@admin_required
+def epicor_sync():
+    """Show sync status for every registered Epicor BAQ importer."""
+    from app.core.epicor_importers import REGISTRY
+
+    last_syncs = {}
+    for key, cls in REGISTRY.items():
+        batch = (
+            ImportBatch.query
+            .filter_by(import_type=cls.IMPORT_TYPE)
+            .order_by(ImportBatch.uploaded_at.desc())
+            .first()
+        )
+        last_syncs[key] = {"baq_name": cls.BAQ_NAME, "batch": batch}
+
+    return render_template(
+        "admin/epicor_sync.html",
+        title="Epicor Data Sync",
+        last_syncs=last_syncs,
+    )
+
+
+@admin_bp.route("/epicor-sync/run", methods=["POST"])
+@login_required
+@admin_required
+def epicor_sync_run():
+    """Trigger one or all BAQ importers synchronously."""
+    from flask import current_app
+    from app.core.epicor_client import KineticClient
+    from app.core.epicor_importers import REGISTRY, run_batch
+
+    baq_key = request.form.get("baq_key") or None  # None = run all
+
+    if baq_key and baq_key not in REGISTRY:
+        flash(f"Unknown BAQ key: {baq_key!r}", "danger")
+        return redirect(url_for("admin.epicor_sync"))
+
+    keys = [baq_key] if baq_key else None
+
+    try:
+        with KineticClient.from_app(current_app._get_current_object()) as client:
+            results = run_batch(client, keys=keys, triggered_by_id=current_user.id)
+    except Exception as exc:
+        flash(f"Could not connect to Epicor: {exc}", "danger")
+        return redirect(url_for("admin.epicor_sync"))
+
+    for key, result in results.items():
+        if isinstance(result, NotImplementedError):
+            flash(f"{key}: not yet implemented — skipped.", "warning")
+        elif isinstance(result, Exception):
+            flash(f"{key}: {result}", "danger")
+        else:
+            flash(
+                f"{key}: synced {result.row_count} records "
+                f"({result.rows_inserted} inserted).",
+                "success",
+            )
+
+    return redirect(url_for("admin.epicor_sync"))
+
+
 @admin_bp.route("/")
 @login_required
 @admin_required
@@ -397,12 +464,12 @@ def data_main_material():
             MaterialRequirementMain.material_description.ilike(like),
         ))
     if f_dept:
-        query = query.filter(MaterialRequirementMain.department == f_dept)
+        query = query.filter(MaterialRequirementMain.warehouse_code == f_dept)
     rows = query.order_by(MaterialRequirementMain.due_date, MaterialRequirementMain.works_order).paginate(page=page, per_page=50, error_out=False)
     total = MaterialRequirementMain.query.count()
     last = MaterialRequirementMain.query.order_by(MaterialRequirementMain.imported_at.desc()).first()
     from sqlalchemy import distinct
-    depts = [r[0] for r in db.session.query(distinct(MaterialRequirementMain.department)).filter(MaterialRequirementMain.department.isnot(None)).order_by(MaterialRequirementMain.department).all()]
+    depts = [r[0] for r in db.session.query(distinct(MaterialRequirementMain.warehouse_code)).filter(MaterialRequirementMain.warehouse_code.isnot(None)).order_by(MaterialRequirementMain.warehouse_code).all()]
     return render_template(
         "admin/data_main_material.html",
         title="Main Material Requirements",

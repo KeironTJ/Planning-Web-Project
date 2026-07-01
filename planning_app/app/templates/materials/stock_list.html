@@ -10,8 +10,9 @@
             <i class="bi bi-exclamation-triangle me-1"></i>Shortage Report
         </a>
     </div>
-    <a href="{{ url_for('admin.import_upload') }}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-upload me-1"></i>Update Stock
+    <a href="{{ url_for('materials.stock_list') }}" class="btn btn-sm btn-outline-secondary"
+       title="Refresh via: flask epicor sync stock">
+        <i class="bi bi-arrow-clockwise me-1"></i>Refresh
     </a>
 </div>
 
@@ -38,25 +39,38 @@
             <table class="table table-sm table-hover mb-0 align-middle">
                 <thead class="thead-subtle">
                     <tr>
-                        <th>Product Code</th>
+                        <th>Part Number</th>
                         <th>Description</th>
-                        <th class="text-end">Qty On Hand</th>
+                        <th>Plant</th>
+                        <th class="text-end">On Hand</th>
+                        <th class="text-end">Required</th>
+                        <th class="text-end">Surplus / Deficit</th>
+                        <th class="text-center">Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for item in stock.items %}
-                    <tr class="{{ 'table-warning' if item.qty_on_hand <= 0 else '' }}">
-                        <td class="fw-semibold">{{ item.product_code }}</td>
-                        <td class="text-muted">{{ item.description or '—' }}</td>
-                        <td class="text-end {{ 'text-danger' if item.qty_on_hand <= 0 else '' }}">
-                            {{ item.qty_on_hand }}
+                    <tr>
+                        <td class="fw-semibold">{{ item.part_num }}</td>
+                        <td class="text-muted">{{ item.part_description or '—' }}</td>
+                        <td class="text-muted">{{ item.plant or '—' }}</td>
+                        <td class="text-end">{{ item.qty_on_hand }}</td>
+                        <td class="text-end">{{ item.qty_required }}</td>
+                        <td class="text-end {{ 'text-danger fw-semibold' if item.surplus_deficit is not none and item.surplus_deficit < 0 else 'text-success' }}">
+                            {{ item.surplus_deficit }}
+                        </td>
+                        <td class="text-center">
+                            {% if item.insufficient_stock %}
+                            <span class="badge bg-danger">SHORT</span>
+                            {% else %}
+                            <span class="badge bg-success">OK</span>
+                            {% endif %}
                         </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="3" class="text-center py-4 text-muted">
-                            No stock data found.
-                            <a href="{{ url_for('admin.import_upload') }}">Import StockOnHand_HIDE.csv</a>
+                        <td colspan="7" class="text-center py-4 text-muted">
+                            No stock data. Run <code>flask epicor sync stock</code> to import.
                         </td>
                     </tr>
                     {% endfor %}

@@ -27,6 +27,9 @@ redis==5.0.7
 marshmallow==3.21.3
 Flask-CORS==4.0.1
 
+# HTTP
+requests==2.32.3
+
 # Utilities
 python-dotenv==1.0.1
 click==8.1.7

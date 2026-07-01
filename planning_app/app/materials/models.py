@@ -17,93 +17,159 @@ from app.extensions import db
 
 
 class Stock(db.Model):
-    """Current stock on hand per product, per site. Full replace on each daily import."""
+    """
+    Stock on hand per part per plant.  Full replace on every Epicor API sync.
+
+    Field names mirror the PlanningStockReport BAQ exactly so that the importer
+    mapping is unambiguous and schema changes in Epicor are obvious here.
+    """
 
     __tablename__ = "stock"
     __table_args__ = (
-        db.UniqueConstraint("site_id", "product_code", name="uq_stock_site_product"),
+        db.UniqueConstraint("part_num", "plant", name="uq_stock_part_plant"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
-    site_id = db.Column(
-        db.Integer,
-        db.ForeignKey("sites.id", ondelete="CASCADE"),
-        nullable=True,
-        index=True,
-    )
-    product_code = db.Column(db.String(50), nullable=False, index=True)
-    description = db.Column(db.String(200), nullable=True)
-    qty_on_hand = db.Column(db.Numeric(12, 3), nullable=False, default=0)
+
+    # --- Identity ---
+    part_num          = db.Column(db.String(50),  nullable=False, index=True)   # Part_PartNum
+    part_description  = db.Column(db.String(200), nullable=True)                # Part_PartDescription
+    class_id          = db.Column(db.String(50),  nullable=True, index=True)    # Part_ClassID
+    unit_of_measure   = db.Column(db.String(10),  nullable=True)                # Part_IUM
+    plant             = db.Column(db.String(20),  nullable=True, index=True)    # PartPlant_Plant
+
+    # --- Quantities ---
+    qty_on_hand              = db.Column(db.Numeric(14, 3), nullable=True)      # Calculated_TotalOnHand2
+    qty_on_hand_stores       = db.Column(db.Numeric(14, 3), nullable=True)      # Calculated_TotalOnHandSTORES
+    qty_on_hand_prod_uk      = db.Column(db.Numeric(14, 3), nullable=True)      # Calculated_TotalOnHandPRODUK
+    qty_on_hand_romania      = db.Column(db.Numeric(14, 3), nullable=True)      # Calculated_TotalOnHandROMANIA
+    qty_on_hand_others       = db.Column(db.Numeric(14, 3), nullable=True)      # Calculated_TotalOnHandOTHERS
+    qty_required             = db.Column(db.Numeric(14, 3), nullable=True)      # Calculated_TOTALRequiredQty2
+    qty_required_unreleased  = db.Column(db.Numeric(14, 3), nullable=True)      # Calculated_TOTALUnRelRequiredQty2
+    qty_open_po              = db.Column(db.Numeric(14, 3), nullable=True)      # Calculated_OpenPOQty
+    qty_inspection           = db.Column(db.Numeric(14, 3), nullable=True)      # Calculated_InspQty
+
+    # --- MRP position ---
+    surplus_deficit             = db.Column(db.Numeric(14, 3), nullable=True)   # Calculated_SurplusDeficitStock
+    surplus_deficit_unreleased  = db.Column(db.Numeric(14, 3), nullable=True)   # Calculated_SurplusDeficitStockUR
+    insufficient_stock          = db.Column(db.Boolean, nullable=True, index=True)  # Calculated_InsufficientStock
+
     imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     def __repr__(self):
-        return f"<Stock {self.product_code}>"
+        return f"<Stock {self.part_num} ({self.plant})>"
 
 
 class PurchaseOrder(db.Model):
     """
-    Open inbound purchase order line, per site. Full replace on each daily import.
-    Note: outstanding_qty may map to 'OUSTANDINGQTY' (ERP typo) in older exports.
+    Open inbound PO release.  Full replace on every Epicor API sync.
+
+    Granularity: one row per PO number + line + release (PORel level).
+    Field names mirror the OSPurchaseOrders BAQ exactly.
     """
 
     __tablename__ = "purchase_orders"
     __table_args__ = (
-        db.UniqueConstraint("site_id", "po_number", "line_number", name="uq_po_site_line"),
+        db.UniqueConstraint("po_num", "po_line", "po_release", name="uq_po_num_line_rel"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
-    site_id = db.Column(
-        db.Integer,
-        db.ForeignKey("sites.id", ondelete="CASCADE"),
-        nullable=True,
-        index=True,
-    )
-    po_number = db.Column(db.String(30), nullable=False, index=True)
-    line_number = db.Column(db.Integer, nullable=False)
-    product_code = db.Column(db.String(50), nullable=True, index=True)
-    description = db.Column(db.String(200), nullable=True)
-    outstanding_qty = db.Column(db.Numeric(12, 3), nullable=True)
-    due_date = db.Column(db.Date, nullable=True, index=True)
-    supplier_code = db.Column(db.String(30), nullable=True)
-    supplier_name = db.Column(db.String(100), nullable=True)
-    po_type = db.Column(db.String(20), nullable=True)
+
+    # --- Release identity ---
+    po_num      = db.Column(db.Integer,     nullable=False, index=True)   # PORel_PONum
+    po_line     = db.Column(db.Integer,     nullable=False)               # PORel_POLine
+    po_release  = db.Column(db.Integer,     nullable=False)               # PORel_PORelNum
+
+    # --- Status flags ---
+    open_order   = db.Column(db.Boolean, nullable=True)                   # POHeader_OpenOrder
+    open_line    = db.Column(db.Boolean, nullable=True)                   # PODetail_OpenLine
+    open_release = db.Column(db.Boolean, nullable=True)                   # PORel_OpenRelease
+
+    # --- Dates ---
+    order_date   = db.Column(db.Date, nullable=True)                      # POHeader_OrderDate
+    due_date     = db.Column(db.Date, nullable=True, index=True)          # PORel_DueDate
+    promise_date = db.Column(db.Date, nullable=True)                      # PORel_PromiseDt
+
+    # --- Part / line detail ---
+    part_num        = db.Column(db.String(50),  nullable=True, index=True) # PODetail_PartNum
+    line_desc       = db.Column(db.String(255), nullable=True)             # PODetail_LineDesc
+    unit_of_measure = db.Column(db.String(10),  nullable=True)             # PODetail_PUM
+
+    # --- Quantities ---
+    rel_qty         = db.Column(db.Numeric(14, 3), nullable=True)          # PORel_RelQty
+    arrived_qty     = db.Column(db.Numeric(14, 3), nullable=True)          # PORel_ArrivedQty
+    received_qty    = db.Column(db.Numeric(14, 3), nullable=True)          # PORel_ReceivedQty
+    outstanding_qty = db.Column(db.Numeric(14, 3), nullable=True, index=True) # Calculated_OutstandingQty
+    invoiced_qty    = db.Column(db.Numeric(14, 3), nullable=True)          # PORel_InvoicedQty
+
+    # --- Pricing ---
+    unit_cost      = db.Column(db.Numeric(14, 4), nullable=True)           # PODetail_UnitCost
+    doc_unit_cost  = db.Column(db.Numeric(14, 4), nullable=True)           # PODetail_DocUnitCost
+    cost_per_code  = db.Column(db.String(5),      nullable=True)           # PODetail_CostPerCode
+    currency_code  = db.Column(db.String(10),     nullable=True)           # POHeader_CurrencyCode
+    exchange_rate  = db.Column(db.Numeric(12, 6), nullable=True)           # POHeader_ExchangeRate
+
+    # --- Supplier ---
+    supplier_id   = db.Column(db.String(20),  nullable=True, index=True)   # Vendor_VendorID
+    supplier_name = db.Column(db.String(150), nullable=True)               # Vendor_Name
+
     imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     def __repr__(self):
-        return f"<PurchaseOrder {self.po_number}/{self.line_number}>"
+        return f"<PurchaseOrder {self.po_num}/{self.po_line}/{self.po_release}>"
 
 
 class MaterialRequirementMain(db.Model):
-    """MRP material requirements, per site. Full replace on each daily import."""
+    """
+    MRP material requirements from PlanningMatReq BAQ.  Full replace daily.
 
-    __tablename__ = "material_requirements_main"
+    Granularity: one row per job + assembly + material line + SO number.
+    No unique constraint — the BAQ can return the same mtl_seq linked to
+    multiple SO lines; we deduplicate in the importer before inserting.
+    """
+
+    __tablename__ = "material_requirements"
 
     id = db.Column(db.Integer, primary_key=True)
-    site_id = db.Column(
-        db.Integer,
-        db.ForeignKey("sites.id", ondelete="CASCADE"),
-        nullable=True,
-        index=True,
-    )
-    customer_id = db.Column(db.String(30), nullable=True, index=True)
-    batch_id = db.Column(db.String(30), nullable=True)
-    so_number = db.Column(db.String(20), nullable=True, index=True)  # Direct SO number for pegging
-    works_order = db.Column(db.String(50), nullable=True, index=True)
-    load_date = db.Column(db.Date, nullable=True)
-    due_date = db.Column(db.Date, nullable=True, index=True)
-    department = db.Column(db.String(100), nullable=True, index=True)
-    material_code = db.Column(db.String(50), nullable=True, index=True)
-    material_description = db.Column(db.String(200), nullable=True)
-    qty_required_per_set = db.Column(db.Numeric(12, 3), nullable=True)
-    qty_for_order = db.Column(db.Numeric(12, 3), nullable=True)
-    qty_issued = db.Column(db.Numeric(12, 3), nullable=True, default=0)
-    product_group = db.Column(db.String(30), nullable=True)
-    product_group_desc = db.Column(db.String(100), nullable=True)
-    complete = db.Column(db.String(1), nullable=True)
+
+    # --- Job header ---
+    works_order       = db.Column(db.String(20),  nullable=True, index=True)  # JobHead_JobNum
+    job_released      = db.Column(db.Boolean,     nullable=True)
+    job_firm          = db.Column(db.Boolean,     nullable=True)
+    job_complete      = db.Column(db.Boolean,     nullable=True, index=True)
+    job_closed        = db.Column(db.Boolean,     nullable=True, index=True)
+    due_date          = db.Column(db.Date,        nullable=True, index=True)  # JobHead_ReqDueDate
+    finished_part_num = db.Column(db.String(50),  nullable=True, index=True)  # JobHead_PartNum
+    finished_part_desc= db.Column(db.String(200), nullable=True)
+    prod_qty          = db.Column(db.Numeric(14, 3), nullable=True)
+    plant             = db.Column(db.String(20),  nullable=True, index=True)
+    prod_plnwk        = db.Column(db.String(20),  nullable=True)
+    model             = db.Column(db.String(100), nullable=True)
+    size              = db.Column(db.String(50),  nullable=True)
+    so_type           = db.Column(db.String(20),  nullable=True)
+    so_number         = db.Column(db.String(20),  nullable=True, index=True)  # OrderHed_OrderNum (str)
+
+    # --- Assembly ---
+    assembly_seq  = db.Column(db.Integer,     nullable=True)
+    assembly_desc = db.Column(db.String(200), nullable=True)
+
+    # --- Material line ---
+    mtl_seq              = db.Column(db.Integer,      nullable=True)
+    material_code        = db.Column(db.String(50),   nullable=True, index=True)  # JobMtl_PartNum
+    material_description = db.Column(db.String(200),  nullable=True)
+    backflush            = db.Column(db.Boolean,      nullable=True)
+    qty_per              = db.Column(db.Numeric(14, 4), nullable=True)
+    qty_for_order        = db.Column(db.Numeric(14, 3), nullable=True)  # JobMtl_RequiredQty
+    qty_issued           = db.Column(db.Numeric(14, 3), nullable=True)  # JobMtl_IssuedQty
+    issued_complete      = db.Column(db.Boolean,      nullable=True, index=True)
+    related_operation    = db.Column(db.Integer,      nullable=True)
+    warehouse_code       = db.Column(db.String(10),   nullable=True)
+    class_id             = db.Column(db.String(50),   nullable=True, index=True)
+
     imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     def __repr__(self):
-        return f"<MaterialRequirementMain {self.works_order} {self.material_code}>"
+        return f"<MaterialRequirementMain {self.works_order}/{self.assembly_seq}/{self.mtl_seq}>"
 
 
 class MrpExemptMaterial(db.Model):

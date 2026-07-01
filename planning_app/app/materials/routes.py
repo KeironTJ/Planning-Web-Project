@@ -159,11 +159,11 @@ def main_requirements():
             MaterialRequirementMain.material_description.ilike(like),
         ))
     if f_dept:
-        query = query.filter(MaterialRequirementMain.department == f_dept)
+        query = query.filter(MaterialRequirementMain.warehouse_code == f_dept)
     rows = query.order_by(MaterialRequirementMain.due_date, MaterialRequirementMain.works_order).paginate(page=page, per_page=50, error_out=False)
     total = MaterialRequirementMain.query.count()
     last = MaterialRequirementMain.query.order_by(MaterialRequirementMain.imported_at.desc()).first()
-    depts = [r[0] for r in db.session.query(distinct(MaterialRequirementMain.department)).filter(MaterialRequirementMain.department.isnot(None)).order_by(MaterialRequirementMain.department).all()]
+    depts = [r[0] for r in db.session.query(distinct(MaterialRequirementMain.warehouse_code)).filter(MaterialRequirementMain.warehouse_code.isnot(None)).order_by(MaterialRequirementMain.warehouse_code).all()]
     return render_template(
         "materials/main_requirements.html",
         title="Main Material Requirements",

@@ -38,6 +38,10 @@ def create_app(config_class=None) -> Flask:
     # --- Register Template Helpers ---
     _register_template_globals(app)
 
+    # --- Register CLI Commands ---
+    from .core.epicor_commands import epicor_cli
+    app.cli.add_command(epicor_cli)
+
     return app
 
 
