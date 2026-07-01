@@ -1,4 +1,4 @@
-"""Materials blueprint routes — Phase 6."""
+﻿"""Materials blueprint routes — Phase 6."""
 
 from datetime import date, timedelta
 
@@ -9,7 +9,7 @@ from sqlalchemy import func
 from . import materials_bp
 from . import services
 from app.extensions import db
-from app.orders.models import Department, SalesOrderLine, WorksOrderOperation
+from app.sales.orders.models import Department, SalesOrderLine, WorksOrderOperation
 from app.core.decorators import permission_required
 
 
@@ -145,7 +145,7 @@ def po_list():
 @login_required
 @permission_required("view_materials")
 def main_requirements():
-    from app.materials.models import MaterialRequirementMain
+    from app.purchasing.materials.models import MaterialRequirementMain
     from sqlalchemy import distinct
     q = request.args.get("q", "").strip()
     f_dept = request.args.get("dept", "").strip()

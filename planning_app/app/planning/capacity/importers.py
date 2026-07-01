@@ -1,4 +1,4 @@
-"""
+﻿"""
 Capacity CSV importers.
 
 Covers:
@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from app.extensions import db
 from app.core.csv_utils import read_csv_rows, excel_serial_to_date, parse_decimal, parse_bool_truefalse, parse_bool_yn
-from app.orders.models import ImportBatch, Department
+from app.sales.orders.models import ImportBatch, Department
 from .models import CapacityBucket
 
 # Non-department columns in the LabourPlan CSV

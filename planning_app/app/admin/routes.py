@@ -1,4 +1,4 @@
-"""
+﻿"""
 Admin blueprint routes.
 
 All routes here require the "admin" role.  The admin_required decorator
@@ -18,7 +18,7 @@ from app.auth.models import User, Role, AuditLog
 from app.auth.services import RoleService
 from app.extensions import db
 from app.core.decorators import admin_required, permission_required
-from app.orders.models import Department, ImportBatch
+from app.sales.orders.models import Department, ImportBatch
 
 
 # ---------------------------------------------------------------------------
@@ -424,11 +424,11 @@ def import_upload():
 
 def _run_importer(import_type: str, stream, filename: str, user_id: int) -> ImportBatch:
     """Dispatch to the correct importer class."""
-    from app.orders.importers import OobImporter, SalesImporter, CooisImporter
-    from app.materials.importers import (
+    from app.sales.orders.importers import OobImporter, SalesImporter, CooisImporter
+    from app.purchasing.materials.importers import (
         StockImporter, OpenPoImporter, MainMaterialImporter,
     )
-    from app.capacity.importers import LabourPlanImporter
+    from app.planning.capacity.importers import LabourPlanImporter
 
     dispatch = {
         "sales":           SalesImporter,
@@ -451,7 +451,7 @@ def _run_importer(import_type: str, stream, filename: str, user_id: int) -> Impo
 @login_required
 @permission_required("view_materials")
 def data_main_material():
-    from app.materials.models import MaterialRequirementMain
+    from app.purchasing.materials.models import MaterialRequirementMain
     q = request.args.get("q", "").strip()
     f_dept = request.args.get("dept", "").strip()
     page = request.args.get("page", 1, type=int)
