@@ -161,7 +161,16 @@ def inspect_command(baq_key: str, params: tuple[str, ...]) -> None:
 
     try:
         with KineticClient.from_app(current_app._get_current_object()) as client:
-            records = client.get_baq(baq_name, params=merged or None, page_size=1)
+            # Make a single direct request — bypass the pagination loop entirely.
+            # Some BAQs ignore $top so get_baq() would loop forever or download
+            # thousands of records just to show field names.
+            url = (
+                f"{client.base_url}/api/v2/odata/{client.company}"
+                f"/BaqSvc/{baq_name}/Data?$top=1&$skip=0"
+            )
+            resp = client._session.get(url, params=merged or None, timeout=client.timeout)
+            resp.raise_for_status()
+            records = resp.json().get("value", [])
     except Exception as exc:
         raise click.ClickException(
             f"API call failed: {type(exc).__name__}: {exc}"

@@ -20,7 +20,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from app.core.epicor_sync import EpicorBaqImporter
-from app.orders.models import ImportBatch
+from app.sales.orders.models import ImportBatch
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ class StockImporter(EpicorBaqImporter):
         from decimal import Decimal, InvalidOperation
 
         from app.extensions import db
-        from app.materials.models import Stock
+        from app.purchasing.materials.models import Stock
 
         def _dec(val):
             """Coerce a BAQ value to Decimal, returning None on blank/null."""
@@ -124,7 +124,7 @@ class PurchaseOrderImporter(EpicorBaqImporter):
         from decimal import Decimal, InvalidOperation
 
         from app.extensions import db
-        from app.materials.models import PurchaseOrder
+        from app.purchasing.materials.models import PurchaseOrder
 
         def _dec(val):
             if val is None or val == "":
@@ -221,7 +221,7 @@ class MaterialRequirementsImporter(EpicorBaqImporter):
         from decimal import Decimal, InvalidOperation
 
         from app.extensions import db
-        from app.materials.models import MaterialRequirementMain
+        from app.purchasing.materials.models import MaterialRequirementMain
 
         def _dec(val):
             if val is None or val == "":
@@ -307,17 +307,160 @@ class WorksOrderImporter(EpicorBaqImporter):
 
     BAQ_NAME = "bskyCOOISv3"
     IMPORT_TYPE = "epicor_works_orders"
-    BAQ_PARAMS = {}
+    # Only the production plan range needs to be set — all other params (JobFirm,
+    # JobComplete, JobReleased, OrderNum, etc.) default to NULL when omitted,
+    # which the BAQ treats as "no filter". ProdPlanFrom/To must be provided as
+    # strings to avoid NULL breaking the >= / <= comparisons.
+    # Only the production plan range needs to be provided — all other params
+    # (JobFirm, JobComplete, JobReleased, etc.) default to NULL when omitted,
+    # which the BAQ treats as "no filter".
+    BAQ_PARAMS = {
+        "ProdPlanFrom": "0",        # less than any real week value → no lower bound
+        "ProdPlanTo":   "9999999",  # greater than any real week value → no upper bound
+    }
+    # bskyCOOISv3 ignores $top/$skip and always returns the full result set in one go.
+    # PAGE_SIZE must exceed the total row count so the pagination loop exits after the
+    # first (and only) call, rather than looping forever.
+    PAGE_SIZE = 10000
+
+    def _target_table(self) -> str:
+        return "works_orders"
 
     def _sync_records(
         self, records: list[dict], batch: ImportBatch, now: datetime
     ) -> None:
-        # TODO: implement once the WorksOrder / WorksOrderOperation model is created.
-        # Run `flask epicor inspect works_orders` to discover BAQ fields.
-        raise NotImplementedError(
-            "WorksOrderImporter._sync_records() is not yet implemented. "
-            "Run `flask epicor inspect works_orders` to discover BAQ fields."
-        )
+        from datetime import datetime as _dt
+        from decimal import Decimal, InvalidOperation
+
+        from app.extensions import db
+        from app.operations.models import WorksOrder
+
+        def _dec(val):
+            if val is None or val == "":
+                return None
+            try:
+                return Decimal(str(val))
+            except InvalidOperation:
+                return None
+
+        def _date(val):
+            if not val:
+                return None
+            try:
+                return _dt.fromisoformat(val.replace("Z", "+00:00")).date()
+            except (ValueError, AttributeError):
+                return None
+
+        def _bool(val):
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, (int, float)):
+                return bool(val)
+            if isinstance(val, str):
+                return val.strip().lower() in ("true", "1", "yes")
+            return None
+
+        WorksOrder.query.delete()
+        db.session.flush()
+
+        seen: set = set()
+        skipped = 0
+        for r in records:
+            key = (r.get("JobHead_JobNum"), r.get("JobAsmbl_AssemblySeq"))
+            if key in seen:
+                skipped += 1
+                continue
+            seen.add(key)
+
+            db.session.add(WorksOrder(
+                job_num       = r.get("JobHead_JobNum") or None,
+                assembly_seq  = r.get("JobAsmbl_AssemblySeq"),
+                job_released  = _bool(r.get("JobHead_JobReleased")),
+                job_firm      = _bool(r.get("JobHead_JobFirm")),
+                job_complete  = _bool(r.get("JobHead_JobComplete")),
+                firm_order    = _bool(r.get("OrderHed_FirmOrder_c")),
+                firm_line     = _bool(r.get("OrderDtl_FirmLine_c")),
+                order_held    = _bool(r.get("OrderHed_OrderHeld")),
+                so_credit_hold= _bool(r.get("Calculated_SOCreditHold")),
+                customer_credit_hold = _bool(r.get("Customer_CreditHold")),
+                ship_order_complete  = _bool(r.get("OrderHed_ShipOrderComplete")),
+                guaranteed_christmas = _bool(r.get("OrderHed_GuaranteedChristmasDelivery_c")),
+                display_order = _bool(r.get("OrderHed_DisplayOrder_c")),
+                req_due_date  = _date(r.get("JobHead_ReqDueDate")),
+                start_date    = _date(r.get("JobHead_StartDate")),
+                load_date     = r.get("JobHead_LoadDate_c") or None,
+                req_date      = _date(r.get("OrderRel_ReqDate")),
+                original_ship_by     = _date(r.get("OrderRel_OriginalShipBy_c")),
+                original_need_by     = _date(r.get("OrderRel_OriginalNeedBy_c")),
+                customer_delivery_requested = _date(r.get("OrderHed_CustomerDeliveryDateRequested_c")),
+                order_received_date  = _date(r.get("OrderHed_OrderReceivedDate_c")),
+                last_xmas_order_date = _date(r.get("Customer_LastOrderReceivedDateGuaranteedChristmas_c")),
+                last_xmas_delivery   = _date(r.get("Customer_LastChristmasDeliveryDate_c")),
+                prod_plnwk    = r.get("JobHead_ProdPlnWk_c") or None,
+                order_sort    = r.get("Calculated_OrderSort"),
+                customer_id   = r.get("Customer_CustID") or None,
+                customer_name = r.get("Customer_Name") or None,
+                so_type       = r.get("OrderHed_SOType_c") or None,
+                so_type_desc  = r.get("UDCodes_CodeDesc") or None,
+                order_num     = r.get("JobProd_OrderNum"),
+                order_line    = r.get("JobProd_OrderLine"),
+                order_rel_num = r.get("JobProd_OrderRelNum"),
+                ship_to_name  = r.get("ShipTo_Name") or None,
+                ship_to_zip   = r.get("ShipTo_ZIP") or None,
+                order_book_comments = r.get("OrderHed_OrderBookComments_c") or None,
+                grn           = r.get("Calculated_GRN") or None,
+                net_unit_price     = _dec(r.get("Calculated_NetUnitPrice01")),
+                net_unit_price_gbp = _dec(r.get("Calculated_NetUnitPriceGBP")),
+                part_num      = r.get("JobAsmbl_PartNum") or None,
+                description   = r.get("JobAsmbl_Description") or None,
+                class_id      = r.get("Part_ClassID") or None,
+                comment_text  = r.get("JobAsmbl_CommentText") or None,
+                model         = r.get("Calculated_Model") or None,
+                size          = r.get("Calculated_Size") or None,
+                size_desc     = r.get("Calculated_SizeDesc") or None,
+                prod_size     = r.get("Calculated_ProdSize") or None,
+                cover         = r.get("Calculated_Cover") or None,
+                cover_type    = r.get("Calculated_CoverType") or None,
+                leg           = r.get("Calculated_Leg") or None,
+                leg_mtl       = r.get("Calculated_LegMtl") or None,
+                castor_mtl    = r.get("Calculated_CastorMtl") or None,
+                castor_desc   = r.get("Calculated_CastorDesc") or None,
+                stud1_mtl     = r.get("Calculated_Stud1Mtl") or None,
+                stud2_mtl     = r.get("Calculated_Stud2Mtl") or None,
+                seat_interior_mtl = r.get("Calculated_SeatInteriorMtl") or None,
+                back_interior_mtl = r.get("Calculated_BackInteriorMtl") or None,
+                scat_interior_mtl = r.get("Calculated_ScatInteriorMtl") or None,
+                material_1    = r.get("Calculated_Material1") or None,
+                material_1_desc = r.get("Calculated_Material1Desc") or None,
+                material_2    = r.get("Calculated_Material2") or None,
+                material_2_desc = r.get("Calculated_Material2Desc") or None,
+                material_3    = r.get("Calculated_Material3") or None,
+                material_3_desc = r.get("Calculated_Material3Desc") or None,
+                material_4    = r.get("Calculated_Material4") or None,
+                material_4_desc = r.get("Calculated_Material4Desc") or None,
+                material_5    = r.get("Calculated_Material5") or None,
+                material_5_desc = r.get("Calculated_Material5Desc") or None,
+                material_6    = r.get("Calculated_Material6") or None,
+                material_6_desc = r.get("Calculated_Material6Desc") or None,
+                material_7    = r.get("Calculated_Material7") or None,
+                material_7_desc = r.get("Calculated_Material7Desc") or None,
+                material_8    = r.get("Calculated_Material8") or None,
+                material_8_desc = r.get("Calculated_Material8Desc") or None,
+                required_qty  = _dec(r.get("JobAsmbl_RequiredQty")),
+                qty_completed = _dec(r.get("JobHead_QtyCompleted")),
+                selling_qty   = _dec(r.get("Calculated_SellingQty")),
+                shipped_qty   = _dec(r.get("Calculated_ShippedQty01")),
+                next_op       = r.get("Calculated_NextOp01") or None,
+                wip_warehouse = r.get("PartWip_WareHouseCode") or None,
+                wip_bin       = r.get("PartWip_BinNum") or None,
+                waiting_temp  = _bool(r.get("JobHead_WaitingTemp_c")),
+                mtl_shortage  = _bool(r.get("JobHead_MtlShortage_c")),
+                imported_at   = now,
+            ))
+
+        batch.rows_inserted = len(records) - skipped
+        if skipped:
+            batch.notes = f"{skipped} duplicate rows skipped"
 
 
 # ---------------------------------------------------------------------------

@@ -58,7 +58,6 @@ import logging
 from datetime import datetime, timezone
 
 from app.extensions import db
-from app.orders.models import ImportBatch
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +79,10 @@ class EpicorBaqImporter:
     #: Dynamic params (e.g. date range) can be passed to .run(params={...}).
     BAQ_PARAMS: dict = {}
 
+    #: Override in subclasses whose BAQ is slow with large pages (complex joins).
+    #: None = use the KineticClient default (500 rows/page).
+    PAGE_SIZE: int | None = None
+
     def __init__(self, client) -> None:
         """
         Args:
@@ -96,7 +99,7 @@ class EpicorBaqImporter:
     # Public entry point
     # ------------------------------------------------------------------
 
-    def run(self, params: dict | None = None, triggered_by_id: int | None = None) -> ImportBatch:
+    def run(self, params: dict | None = None, triggered_by_id: int | None = None):
         """
         Execute the full sync: fetch BAQ → truncate → reload → commit.
 
@@ -107,6 +110,7 @@ class EpicorBaqImporter:
         Returns:
             The completed ImportBatch record.
         """
+        from app.sales.orders.models import ImportBatch  # lazy — avoids circular import at startup
         merged_params = {
             **self.BAQ_PARAMS,
             **self.get_dynamic_params(),
@@ -127,7 +131,11 @@ class EpicorBaqImporter:
         try:
             logger.info("EpicorSync starting  BAQ=%s  batch_id=%d", self.BAQ_NAME, batch.id)
 
-            records = self._client.get_baq(self.BAQ_NAME, params=merged_params or None)
+            records = self._client.get_baq(
+                self.BAQ_NAME,
+                params=merged_params or None,
+                page_size=self.PAGE_SIZE,  # None = client default (500)
+            )
             batch.row_count = len(records)
 
             # Guard against a silent empty response wiping the table.

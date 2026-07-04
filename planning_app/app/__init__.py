@@ -86,6 +86,7 @@ def _register_blueprints(app: Flask) -> None:
     from .planning.capacity import models as _capacity_models  # noqa: F401
     from .purchasing.materials import models as _materials_models  # noqa: F401
     from .admin import models as _admin_models  # noqa: F401
+    from .operations import models as _operations_models  # noqa: F401
 
     from .auth import auth_bp
     from .admin import admin_bp

@@ -64,8 +64,23 @@ with KineticClient.from_env() as client:
     print("=" * 60)
     test_baq(client, "PlanningOutPut", params={"DateFrom": today, "DateTo": today})
 
+    #print()
+    #print("=" * 60)
+    #print("BAQ: PlanningStockReport")
+    #print("=" * 60)
+    #test_baq(client, "PlanningStockReport", params={"JobReqByDateSTKPLAN": ""})
+
     print()
     print("=" * 60)
-    print("BAQ: PlanningStockReport")
+    print("BAQ: bskyCOOISv3")
     print("=" * 60)
-    test_baq(client, "PlanningStockReport", params={"JobReqByDateSTKPLAN": ""})
+    test_baq(client, "bskyCOOISv3", params={#"OrderNum": "", 
+                                            #"JobNum": "", 
+                                            #"IncludeClosed": "",
+                                            #"AsmPartNum": "",
+                                            #"JobFirm": "All",
+                                            #"JobComplete": "All",
+                                            #"JobReleased": "All",
+                                            "ProdPlanFrom": "0",
+                                            "ProdPlanTo": "9999999",
+                                            })

@@ -190,6 +190,19 @@ class KineticClient:
 
             payload = response.json()
             records: list = payload.get("value", [])
+
+            # Some BAQs ignore $top and return the full result set regardless.
+            # Detect this: if we got MORE records than we asked for, the BAQ doesn't
+            # support server-side pagination — take all returned records and stop.
+            if len(records) > effective_page_size:
+                logger.info(
+                    "KineticClient BAQ=%s returned %d records for $top=%d — "
+                    "BAQ ignores pagination, treating as non-paginating",
+                    baq_name, len(records), effective_page_size,
+                )
+                all_records.extend(records)
+                break
+
             all_records.extend(records)
 
             logger.info(
