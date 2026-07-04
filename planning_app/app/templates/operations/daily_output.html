@@ -36,6 +36,8 @@
                    class="btn btn-outline-secondary btn-sm">14 Days</a>
                 <a href="{{ url_for('operations.daily_output', date_from=date_7d.isoformat()) }}"
                    class="btn btn-outline-secondary btn-sm">7 Days</a>
+                <a href="{{ url_for('operations.daily_output', date_from=today.isoformat(), date_to=today.isoformat()) }}"
+                   class="btn btn-outline-secondary btn-sm">Today</a>
             </div>
             <div class="col-auto ms-auto d-flex gap-2 align-items-center">
                 <span class="badge bg-primary fs-6">{{ "%.0f"|format(total_qty) }} units</span>

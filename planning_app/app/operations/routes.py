@@ -15,19 +15,137 @@ from app.admin.models import SystemSetting, SETTING_DAILY_OUTPUT_TARGET, SETTING
 @operations_bp.route('/dashboard')
 @login_required
 def dashboard():
+    today = date.today()
     total     = db.session.query(func.count(WorksOrder.id)).scalar() or 0
     released  = db.session.query(func.count(WorksOrder.id)).filter(WorksOrder.job_released == True).scalar() or 0
     shortages = db.session.query(func.count(WorksOrder.id)).filter(WorksOrder.mtl_shortage == True).scalar() or 0
     waiting   = db.session.query(func.count(WorksOrder.id)).filter(WorksOrder.waiting_temp == True).scalar() or 0
     last = WorksOrder.query.order_by(WorksOrder.imported_at.desc()).first()
+
+    # ── WIP pivot ─────────────────────────────────────────────────────
+    # Overdue: req_due_date is in the past (regardless of prod_plnwk)
+    OVERDUE = 'Overdue'
+    overdue_rows = (
+        db.session.query(
+            WorksOrder.next_op,
+            func.count(WorksOrder.id).label('job_count'),
+            func.sum(WorksOrder.required_qty).label('total_qty'),
+        )
+        .filter(
+            WorksOrder.assembly_seq == 0,
+            WorksOrder.next_op.isnot(None),
+            WorksOrder.req_due_date < today,
+        )
+        .group_by(WorksOrder.next_op)
+        .all()
+    )
+
+    # Current / future: not yet overdue, group by planned week
+    current_rows = (
+        db.session.query(
+            WorksOrder.next_op,
+            WorksOrder.prod_plnwk,
+            func.count(WorksOrder.id).label('job_count'),
+            func.sum(WorksOrder.required_qty).label('total_qty'),
+        )
+        .filter(
+            WorksOrder.assembly_seq == 0,
+            WorksOrder.next_op.isnot(None),
+            WorksOrder.prod_plnwk.isnot(None),
+            db.or_(WorksOrder.req_due_date >= today, WorksOrder.req_due_date.is_(None)),
+        )
+        .group_by(WorksOrder.next_op, WorksOrder.prod_plnwk)
+        .all()
+    )
+
+    _pivot    = defaultdict(dict)
+    _op_tot   = defaultdict(lambda: {'jobs': 0, 'qty': 0.0})
+    _week_tot = defaultdict(lambda: {'jobs': 0, 'qty': 0.0})
+
+    for r in overdue_rows:
+        qty = float(r.total_qty or 0)
+        _pivot[r.next_op][OVERDUE] = {'jobs': r.job_count, 'qty': qty}
+        _op_tot[r.next_op]['jobs'] += r.job_count
+        _op_tot[r.next_op]['qty']  += qty
+        _week_tot[OVERDUE]['jobs'] += r.job_count
+        _week_tot[OVERDUE]['qty']  += qty
+
+    for r in current_rows:
+        qty = float(r.total_qty or 0)
+        _pivot[r.next_op][r.prod_plnwk] = {'jobs': r.job_count, 'qty': qty}
+        _op_tot[r.next_op]['jobs']          += r.job_count
+        _op_tot[r.next_op]['qty']           += qty
+        _week_tot[r.prod_plnwk]['jobs']     += r.job_count
+        _week_tot[r.prod_plnwk]['qty']      += qty
+
+    future_weeks = sorted(w for w in _week_tot if w != OVERDUE)
+    wip_weeks    = ([OVERDUE] if OVERDUE in _week_tot else []) + future_weeks
+
+    def _fmt_week(w):
+        if w == OVERDUE:
+            return OVERDUE
+        try:
+            return f'W{int(w[2:4]):02d}/{w[4:6]}'
+        except (ValueError, IndexError):
+            return w
+
+    wip_chart_labels = [_fmt_week(w) for w in wip_weeks]
+
+    # Departments: tracked first in flow_order, rest alphabetically after
+    _all_depts = DeptModel.query.all()
+    _flow      = {d.name: (d.flow_order or 9999) for d in _all_depts}
+    _tracked   = {d.name for d in _all_depts if d.track}
+    wip_ops    = sorted(
+        _op_tot.keys(),
+        key=lambda op: (0 if op in _tracked else 1, _flow.get(op, 9999), op),
+    )
+
+    PALETTE = [
+        '#4361ee', '#f72585', '#4cc9f0', '#06d6a0', '#ffd166',
+        '#ef476f', '#118ab2', '#7209b7', '#adb5bd', '#3a0ca3',
+        '#b5838d', '#6d6875', '#073b4c', '#e5989b',
+    ]
+    wip_chart_datasets = [
+        {
+            'label': op,
+            'data': [_pivot.get(op, {}).get(w, {}).get('qty', 0) for w in wip_weeks],
+            'backgroundColor': PALETTE[i % len(PALETTE)],
+        }
+        for i, op in enumerate(wip_ops)
+    ]
+
+    # ── Job detail list ───────────────────────────────────────────────
     search = request.args.get('q', '').strip()
     page   = request.args.get('page', 1, type=int)
     q = WorksOrder.query.filter(WorksOrder.assembly_seq == 0)
     if search:
         term = f'%{search}%'
-        q = q.filter(db.or_(WorksOrder.job_num.ilike(term), WorksOrder.customer_name.ilike(term), WorksOrder.description.ilike(term), WorksOrder.model.ilike(term)))
-    jobs = q.order_by(WorksOrder.prod_plnwk, WorksOrder.req_due_date).paginate(page=page, per_page=50, error_out=False)
-    return render_template('operations/dashboard.html', title='Operations', total=total, released=released, shortages=shortages, waiting=waiting, jobs=jobs, search=search, last_imported=last.imported_at if last else None, today=date.today())
+        q = q.filter(db.or_(
+            WorksOrder.job_num.ilike(term),
+            WorksOrder.customer_name.ilike(term),
+            WorksOrder.description.ilike(term),
+            WorksOrder.model.ilike(term),
+        ))
+    jobs = q.order_by(WorksOrder.prod_plnwk, WorksOrder.req_due_date).paginate(
+        page=page, per_page=50, error_out=False
+    )
+
+    return render_template(
+        'operations/dashboard.html',
+        title='Operations',
+        today=today,
+        total=total, released=released, shortages=shortages, waiting=waiting,
+        last_imported=last.imported_at if last else None,
+        wip_pivot=dict(_pivot),
+        wip_ops=wip_ops,
+        wip_weeks=wip_weeks,
+        op_totals={k: dict(v) for k, v in _op_tot.items()},
+        week_totals={k: dict(v) for k, v in _week_tot.items()},
+        wip_chart_datasets=wip_chart_datasets,
+        wip_chart_labels=wip_chart_labels,
+        jobs=jobs,
+        search=search,
+    )
 
 @operations_bp.route('/daily-output')
 @login_required
