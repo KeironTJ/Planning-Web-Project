@@ -141,6 +141,13 @@
                     <i class="bi bi-speedometer2 me-2"></i>Dashboard
                 </a>
             </li>
+            <!-- Daily Output Report -->
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'operations.daily_output' %}active{% endif %}"
+                   href="{{ url_for('operations.daily_output') }}">
+                    <i class="bi bi-journal-text me-2"></i>Daily Output Report
+                </a>
+            </li>
 
             {# -- Transport --------------------------------------------- #}
             <li class="mt-3">

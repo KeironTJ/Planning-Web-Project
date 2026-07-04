@@ -58,6 +58,14 @@
       </div>
     </a>
   </div>
+  {% if summary.held_count %}
+  <div class="col-6 col-md col-lg">
+    <div class="card h-100 border-warning shadow-sm text-center py-3">
+      <div class="fw-bold fs-2 text-warning">{{ summary.held_count }}</div>
+      <div class="small text-warning">On Hold / Credit Hold</div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 {# ═══════════════════════════════════════════════════════════════════════════

@@ -36,6 +36,15 @@ class SystemSettingsForm(FlaskForm):
             "automatically mark the Despatch operation as completed too."
         ),
     )
+    daily_output_target = IntegerField(
+        "Daily Target (units)",
+        validators=[Optional(), NumberRange(min=0)],
+    )
+    daily_target_mon = BooleanField("Mon")
+    daily_target_tue = BooleanField("Tue")
+    daily_target_wed = BooleanField("Wed")
+    daily_target_thu = BooleanField("Thu")
+    daily_target_fri = BooleanField("Fri")
 
 
 class DeptHoursForm(FlaskForm):
@@ -48,3 +57,4 @@ class DeptHoursForm(FlaskForm):
         "Flow Order",
         validators=[Optional(), NumberRange(min=1, max=999)],
     )
+    track = BooleanField("Track Department")

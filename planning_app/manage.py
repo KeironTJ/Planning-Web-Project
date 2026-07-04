@@ -128,32 +128,60 @@ def seed_sites(name, code, description):
 @app.cli.command("seed-departments")
 @click.option("--site", "site_code", required=True, prompt=True, help="Site code to add departments to")
 def seed_departments(site_code):
-    """Seed generic production departments for a site (edit list as needed)."""
+    """Seed departments from distinct op_desc values in ProductionOutput.
+
+    Discovers every unique operation description already imported from Epicor
+    and creates a Department record for each one that does not yet exist.
+    After seeding, visit Admin → Departments to assign Flow Order values so
+    that the daily output view respects your production sequence.
+    """
     from app.sales.orders.models import Department
+    from app.operations.models import ProductionOutput
     from app.admin.models import Site
-    depts = [
-        "PRODUCTION",
-        "ASSEMBLY",
-        "QUALITY",
-        "DESPATCH",
-        "WAREHOUSE",
-        "GENERAL",
-    ]
+
     with app.app_context():
         site = Site.query.filter_by(code=site_code.upper()).first()
         if not site:
             click.echo(f"Error: Site '{site_code}' not found. Run seed-sites first.")
             return
+
+        # Discover distinct op_desc values from imported production output
+        rows = (
+            db.session.query(ProductionOutput.op_desc)
+            .filter(ProductionOutput.op_desc.isnot(None))
+            .distinct()
+            .order_by(ProductionOutput.op_desc)
+            .all()
+        )
+        names = [r.op_desc.strip() for r in rows if r.op_desc and r.op_desc.strip()]
+
+        if not names:
+            click.echo(
+                "No op_desc values found in production_output. "
+                "Import production output data first (Admin → Sync Data), then re-run."
+            )
+            return
+
+        click.echo(f"Found {len(names)} distinct operation(s) in production output:")
         created = 0
-        for name in depts:
-            code = name.upper().replace(" ", "_")
+        for name in names:
+            code = name.upper().replace(" ", "_")[:50]
             if not Department.query.filter_by(site_id=site.id, name=name).first():
                 dept = Department(site_id=site.id, code=code, name=name, is_active=True)
                 db.session.add(dept)
+                click.echo(f"  + {name}")
                 created += 1
+            else:
+                click.echo(f"  · {name}  (already exists)")
+
         db.session.commit()
-        click.echo(f"{created} department(s) created for site '{site.name}'")
-        click.echo("Tip: update department names and add/remove entries in Admin → Departments.")
+        click.echo(f"\n{created} department(s) created for site '{site.name}'.")
+        if created:
+            click.echo(
+                "Next step: visit Admin → Departments and set the 'Flow Order' on each\n"
+                "department (1 = first step in your production flow) so that the\n"
+                "Daily Output page shows them in the correct sequence."
+            )
 
 
 @app.cli.command("clear-oob")

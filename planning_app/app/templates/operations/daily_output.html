@@ -1,0 +1,323 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<!-- ── Page header ─────────────────────────────────────────────────── -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h4 class="mb-0 fw-semibold">Daily Production Output</h4>
+        <p class="text-muted small mb-0">
+            14-day view by department
+            {% if last_imported %} · Last sync {{ last_imported.strftime('%d %b %Y %H:%M') }}{% endif %}
+        </p>
+    </div>
+    <a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-repeat me-1"></i>Sync Data
+    </a>
+</div>
+
+<!-- ── Date range filter ───────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label small mb-0">From</label>
+                <input type="date" name="date_from" value="{{ date_from.isoformat() }}"
+                       class="form-control form-control-sm">
+            </div>
+            <div class="col-auto">
+                <label class="form-label small mb-0">To</label>
+                <input type="date" name="date_to" value="{{ date_to.isoformat() }}"
+                       class="form-control form-control-sm">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+                <a href="{{ url_for('operations.daily_output') }}"
+                   class="btn btn-outline-secondary btn-sm">14 Days</a>
+                <a href="{{ url_for('operations.daily_output', date_from=date_7d.isoformat()) }}"
+                   class="btn btn-outline-secondary btn-sm">7 Days</a>
+            </div>
+            <div class="col-auto ms-auto d-flex gap-2 align-items-center">
+                <span class="badge bg-primary fs-6">{{ "%.0f"|format(total_qty) }} units</span>
+                {% if period_target > 0 %}
+                {% set pct = (total_qty / period_target * 100) | round(0) | int %}
+                <span class="badge fs-6 {% if pct >= 100 %}bg-success{% elif pct >= 80 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                    {{ pct }}% of target
+                </span>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if departments %}
+
+<!-- ── Department summary cards ───────────────────────────────────── -->
+<div class="row g-2 mb-3">
+    {% for dept in departments %}
+    <div class="col-6 col-md-3 col-xl-2">
+        <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=dept) }}"
+           class="card border-0 shadow-sm text-decoration-none h-100{% if section == dept %} border-primary border-2{% endif %}">
+            <div class="card-body p-2 text-center">
+                <div class="fw-bold fs-5 text-primary">{{ "%.0f"|format(dept_totals.get(dept, 0)) }}</div>
+                <div class="small text-muted text-truncate" title="{{ dept }}">{{ dept or '—' }}</div>
+            </div>
+        </a>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- ── Stacked bar chart ───────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">Output by Day</h6>
+        <p class="text-muted small mb-0">Units produced per day by department</p>
+    </div>
+    <div class="card-body pt-2" style="position:relative;height:280px;">
+        <canvas id="outputChart"></canvas>
+    </div>
+</div>
+
+<!-- ── Pivot matrix ────────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">Department × Day Breakdown</h6>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0 align-middle"
+                   style="font-size:0.78rem; white-space:nowrap;">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3" style="min-width:130px">Department</th>
+                        {% for d in date_list %}
+                        <th class="text-center px-1{% if d.weekday() >= 5 %} table-secondary{% endif %}"
+                            style="min-width:52px">
+                            <div class="fw-semibold">{{ d.strftime('%d') }}</div>
+                            <div class="text-muted" style="font-size:0.65rem;">{{ d.strftime('%a') }}</div>
+                        </th>
+                        {% endfor %}
+                        <th class="text-end pe-3 fw-semibold" style="min-width:60px">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dept in departments %}
+                    <tr>
+                        <td class="ps-3 fw-semibold">
+                            <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=dept) }}"
+                               class="text-decoration-none text-dark">{{ dept }}</a>
+                        </td>
+                        {% for d in date_list %}
+                        {% set qty = pivot.get(dept, {}).get(d.isoformat(), 0) %}
+                        <td class="text-center px-1{% if d.weekday() >= 5 %} table-secondary{% endif %}{% if qty > 0 %} fw-semibold{% else %} text-muted{% endif %}">
+                            {%- if qty > 0 -%}
+                                {{ "%.0f"|format(qty) }}
+                            {%- else -%}
+                                <span style="opacity:0.3">·</span>
+                            {%- endif -%}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end pe-3 fw-bold text-primary">
+                            {{ "%.0f"|format(dept_totals.get(dept, 0)) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="table-light">
+                    <tr class="fw-bold">
+                        <td class="ps-3">Daily Total</td>
+                        {% for d in date_list %}
+                        {% set dt = date_totals.get(d.isoformat(), 0) %}
+                        {% set tgt = day_targets.get(d.isoformat(), 0) %}
+                        <td class="text-center px-1{% if d.weekday() >= 5 %} table-secondary{% endif %}
+                            {%- if tgt > 0 and dt >= tgt %} text-success
+                            {%- elif tgt > 0 and dt > 0 %} text-danger
+                            {%- elif dt > 0 %} text-primary
+                            {%- else %} text-muted{%- endif %}">
+                            {{ "%.0f"|format(dt) if dt > 0 else '\u2014' }}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end pe-3 text-primary">{{ "%.0f"|format(total_qty) }}</td>
+                    </tr>
+                    {% if target_qty > 0 %}
+                    <tr class="text-muted" style="font-size:0.72rem;">
+                        <td class="ps-3">Target</td>
+                        {% for d in date_list %}
+                        {% set tgt = day_targets.get(d.isoformat(), 0) %}
+                        <td class="text-center px-1{% if d.weekday() >= 5 %} table-secondary{% endif %}">
+                            {{ "%.0f"|format(tgt) if tgt > 0 else '\u2014' }}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end pe-3">{{ "%.0f"|format(period_target) }}</td>
+                    </tr>
+                    {% endif %}
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ── Detail records (collapsible) ───────────────────────────────── -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-transparent d-flex justify-content-between align-items-center"
+         role="button" data-bs-toggle="collapse" data-bs-target="#detailCollapse"
+         aria-expanded="false" aria-controls="detailCollapse" style="cursor:pointer;">
+        <h6 class="mb-0 fw-semibold">
+            <i class="bi bi-list-ul me-1 text-muted"></i>Detail Records
+        </h6>
+        <i class="bi bi-chevron-down text-muted small"></i>
+    </div>
+    <div class="collapse" id="detailCollapse">
+        {% if section %}
+        <div class="px-3 pt-2 d-flex align-items-center gap-2">
+            <span class="badge bg-secondary">{{ section }}</span>
+            <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat()) }}"
+               class="btn btn-sm btn-link p-0">Clear filter</a>
+        </div>
+        {% endif %}
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 align-middle">
+                    <thead class="thead-subtle">
+                        <tr>
+                            <th>Date</th>
+                            <th>Section</th>
+                            <th>Job</th>
+                            <th>Model / Size</th>
+                            <th>Employee</th>
+                            <th class="text-end">Qty</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in detail.items %}
+                        <tr>
+                            <td class="text-muted small">{{ r.clock_in_date.strftime('%d %b') if r.clock_in_date else '—' }}</td>
+                            <td>
+                                <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=r.op_desc) }}"
+                                   class="badge bg-secondary text-decoration-none">{{ r.op_desc or '—' }}</a>
+                            </td>
+                            <td class="font-monospace small">{{ r.job_num or '—' }}</td>
+                            <td class="text-muted small">
+                                {% if r.model %}{{ r.model }}{% endif %}
+                                {% if r.mod_size %}<span class="ms-1 text-muted">{{ r.mod_size }}</span>{% endif %}
+                            </td>
+                            <td class="text-muted small">{{ r.employee_num or '—' }}</td>
+                            <td class="text-end fw-semibold">{{ "%.0f"|format(r.labor_qty or 0) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center py-4 text-muted">
+                                No output records for this period.
+                                Sync data from <a href="{{ url_for('admin.epicor_sync') }}">Epicor Data Sync</a>.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if detail.pages > 1 %}
+            <nav class="px-3 py-2">
+                <ul class="pagination pagination-sm justify-content-center mb-0">
+                    {% for p in detail.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                        {% if p %}
+                            <li class="page-item {{ 'active' if p == detail.page else '' }}">
+                                <a class="page-link"
+                                   href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=section, page=p) }}">{{ p }}</a>
+                            </li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">…</span></li>
+                        {% endif %}
+                    {% endfor %}
+                </ul>
+            </nav>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% else %}
+<!-- No data state -->
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-bar-chart-line display-4 d-block mb-3 opacity-25"></i>
+    No production output data for this period.<br>
+    <a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-outline-secondary btn-sm mt-3">
+        <i class="bi bi-arrow-repeat me-1"></i>Sync from Epicor
+    </a>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+{% if departments %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const labels   = {{ chart_labels | tojson }};
+    const deptData = {{ chart_dept_data | tojson }};
+
+    const datasets = deptData.map(d => ({
+        label:           d.label,
+        data:            d.data,
+        backgroundColor: d.backgroundColor,
+        borderRadius:    2,
+        borderSkipped:   false,
+    }));
+
+    // Target line
+    const chartTargetData = {{ chart_target_data | tojson }};
+    if ({{ target_qty }} > 0) {
+        datasets.push({
+            label: 'Target ({{ target_qty }})',
+            data: chartTargetData.map(v => v > 0 ? v : null),
+            type: 'line',
+            borderColor: 'rgba(220,53,69,0.75)',
+            borderWidth: 2,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            fill: false,
+            tension: 0,
+            order: -1,
+        });
+    }
+
+    const ctx = document.getElementById('outputChart');
+    if (!ctx) return;
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { boxWidth: 12, padding: 14, font: { size: 11 } },
+                },
+                tooltip: {
+                    callbacks: {
+                        footer(items) {
+                            const total = items.reduce((s, i) => s + i.parsed.y, 0);
+                            return total > 0 ? `Total: ${Math.round(total)}` : '';
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { size: 11 } },
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: { font: { size: 11 } },
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                },
+            },
+        },
+    });
+});
+</script>
+{% endif %}
+{% endblock %}

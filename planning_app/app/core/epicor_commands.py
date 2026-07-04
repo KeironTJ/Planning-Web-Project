@@ -58,7 +58,14 @@ def list_importers():
 
 @epicor_cli.command("sync")
 @click.argument("baqs", nargs=-1)
-def sync_command(baqs: tuple[str, ...]) -> None:
+@click.option(
+    "--params", "-p",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help="BAQ filter parameters passed at runtime (overrides defaults). "
+         "Repeat for multiple: -p DateFrom=2026-01-01 -p DateTo=2026-07-04",
+)
+def sync_command(baqs: tuple[str, ...], params: tuple[str, ...]) -> None:
     """
     Pull BAQs from Epicor and write to the database.
 
@@ -69,7 +76,8 @@ def sync_command(baqs: tuple[str, ...]) -> None:
     Examples:
         flask epicor sync
         flask epicor sync stock
-        flask epicor sync stock purchase_orders works_orders
+        flask epicor sync production_output -p DateFrom=2026-07-04 -p DateTo=2026-07-04
+        flask epicor sync sales_closed -p OrderDateFrom=01/01/2026 -p OrderDateTo=04/07/2026
     """
     if baqs:
         invalid = [k for k in baqs if k not in REGISTRY]
@@ -83,11 +91,28 @@ def sync_command(baqs: tuple[str, ...]) -> None:
     else:
         keys = None  # run all
 
+    # Parse -p KEY=VALUE overrides
+    runtime_params: dict = {}
+    for p in params:
+        if "=" not in p:
+            raise click.BadParameter(f"Expected KEY=VALUE, got {p!r}", param_hint="--params")
+        k, v = p.split("=", 1)
+        runtime_params[k] = v
+
     label = ", ".join(keys) if keys else "ALL"
     click.echo(f"\nStarting Epicor sync: {label}\n")
 
     with KineticClient.from_app(current_app._get_current_object()) as client:
-        results = run_batch(client, keys=keys)
+        if keys and len(keys) == 1 and runtime_params:
+            # Single importer with runtime params — run directly to pass params
+            importer = REGISTRY[keys[0]](client)
+            try:
+                result = importer.run(params=runtime_params)
+                results = {keys[0]: result}
+            except Exception as exc:
+                results = {keys[0]: exc}
+        else:
+            results = run_batch(client, keys=keys)
 
     click.echo("Results:")
     all_ok = True

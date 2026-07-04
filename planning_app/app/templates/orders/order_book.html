@@ -182,7 +182,7 @@
           </td>
           <td class="text-muted small text-nowrap">{{ o.customer_order_ref or '–' }}</td>
           <td>
-            <span class="badge {% if o.order_type.startswith('Z') %}text-bg-info{% else %}text-bg-secondary{% endif %}">
+            <span class="badge {% if o.so_type and o.so_type.startswith('Z') %}text-bg-info{% else %}text-bg-secondary{% endif %}">
               {{ o.order_type or '–' }}
             </span>
           </td>

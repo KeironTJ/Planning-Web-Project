@@ -31,6 +31,16 @@
                             Controls the column order on the WIP Tracker. Leave blank to place at the end.
                         </div>
                     </div>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            {{ form.track(class="form-check-input", role="switch") }}
+                            {{ form.track.label(class="form-check-label fw-semibold") }}
+                        </div>
+                        <div class="form-text">
+                            When enabled, this department appears in the Daily Output chart and pivot table.
+                            Disable to hide support/overhead departments from production views.
+                        </div>
+                    </div>
                     <button type="submit" class="btn btn-primary">Save</button>
                 </form>
             </div>

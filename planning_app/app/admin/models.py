@@ -88,6 +88,14 @@ class SystemSetting(db.Model):
                 row.description = description
 
     @classmethod
+    def get_int(cls, key: str, default: int = 0) -> int:
+        """Return the value as an integer."""
+        try:
+            return int(cls.get(key, str(default)))
+        except (ValueError, TypeError):
+            return default
+
+    @classmethod
     def set_bool(cls, key: str, flag: bool, description: str | None = None) -> None:
         """Convenience wrapper — stores True as '1', False as '0'."""
         cls.set(key, "1" if flag else "0", description)
@@ -101,3 +109,5 @@ class SystemSetting(db.Model):
 # ---------------------------------------------------------------------------
 
 SETTING_AUTO_COMPLETE_DESPATCH = "auto_complete_despatch"
+SETTING_DAILY_OUTPUT_TARGET = "daily_output_target"
+SETTING_DAILY_OUTPUT_TARGET_DAYS = "daily_output_target_days"  # comma-separated weekday ints 0=Mon…4=Fri

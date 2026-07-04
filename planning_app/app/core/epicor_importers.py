@@ -464,6 +464,346 @@ class WorksOrderImporter(EpicorBaqImporter):
 
 
 # ---------------------------------------------------------------------------
+# Sales Orders   →   BAQ: bskyVA05v1  (open + closed, same table)
+# ---------------------------------------------------------------------------
+
+def _build_sales_order(r: dict, _date, _dec, _bool, now):
+    """Map one BAQ record to a SalesOrder keyword-arg dict."""
+    from app.sales.orders.models import SalesOrder
+    return SalesOrder(
+        order_num    = r.get("OrderHed_OrderNum"),
+        order_line   = r.get("OrderDtl_OrderLine"),
+        rel_num      = r.get("OrderRel_OrderRelNum"),
+        po_num       = r.get("OrderHed_PONum") or None,
+        open_order   = _bool(r.get("OrderHed_OpenOrder")),
+        open_line    = _bool(r.get("OrderDtl_OpenLine")),
+        open_release = _bool(r.get("OrderRel_OpenRelease")),
+        firm_order   = _bool(r.get("OrderHed_FirmOrder_c")),
+        firm_line    = _bool(r.get("OrderDtl_FirmLine_c")),
+        firm_release = _bool(r.get("OrderRel_FirmRelease")),
+        void_line    = _bool(r.get("OrderDtl_VoidLine")),
+        order_held   = _bool(r.get("OrderHed_OrderHeld")),
+        so_credit_hold       = _bool(r.get("Calculated_SOCreditHold")),
+        customer_credit_hold = _bool(r.get("Customer_CreditHold")),
+        guaranteed_christmas = _bool(r.get("OrderHed_GuaranteedChristmasDelivery_c")),
+        display_order        = _bool(r.get("OrderHed_DisplayOrder_c")),
+        order_date           = _date(r.get("OrderHed_OrderDate")),
+        need_by_date         = _date(r.get("OrderRel_NeedByDate")),
+        req_date             = _date(r.get("OrderRel_ReqDate")),
+        original_ship_by     = _date(r.get("OrderRel_OriginalShipBy_c")),
+        original_need_by     = _date(r.get("OrderRel_OriginalNeedBy_c")),
+        order_received_date  = _date(r.get("OrderHed_OrderReceivedDate_c")),
+        customer_delivery_requested = _date(r.get("OrderHed_CustomerDeliveryDateRequested_c")),
+        last_xmas_order_date = _date(r.get("Customer_LastOrderReceivedDateGuaranteedChristmas_c")),
+        last_xmas_delivery   = _date(r.get("Customer_LastChristmasDeliveryDate_c")),
+        order_ack_sent       = _date(r.get("OrderHed_OrderAckSent_c")),
+        customer_id      = r.get("Customer_CustID") or None,
+        customer_name    = r.get("Customer_Name") or None,
+        customer_country = r.get("Customer_Country") or None,
+        customer_group   = r.get("Customer_GroupCode") or None,
+        ship_to_num      = r.get("OrderHed_ShipToNum") or None,
+        sales_rep        = r.get("OrderHed_SalesRepList") or None,
+        sur_name         = r.get("OrderHed_SurName_c") or None,
+        so_type          = r.get("OrderHed_SOType_c") or None,
+        so_type_desc     = r.get("UDCodes_CodeDesc") or None,
+        channel          = r.get("ICCode_Description") or None,
+        prod_code        = r.get("OrderDtl_ProdCode") or None,
+        entry_person     = r.get("OrderHed_EntryPerson") or None,
+        created_by       = r.get("OrderDtl_CreatedBy_c") or None,
+        job_num          = r.get("JobProd_JobNum") or None,
+        job_released     = _bool(r.get("JobHead_JobReleased")),
+        job_firm         = _bool(r.get("JobHead_JobFirm")),
+        prod_plnwk       = str(r["JobHead_ProdPlnWk_c"]) if r.get("JobHead_ProdPlnWk_c") else None,
+        assembly_seq     = r.get("JobAsmbl_AssemblySeq"),
+        part_num         = r.get("Calculated_PartNum") or None,
+        part_desc        = r.get("Calculated_PartDesc") or None,
+        base_part_num    = r.get("OrderDtl_BasePartNum") or None,
+        xpart_num        = r.get("OrderDtl_XPartNum") or None,
+        ium              = r.get("OrderDtl_IUM") or None,
+        wip_bin          = r.get("PartWip_BinNum") or None,
+        model            = r.get("Calculated_Model") or None,
+        size_desc        = r.get("Calculated_SizeDesc") or None,
+        prod_size        = r.get("Calculated_ProdSize") or None,
+        cover            = r.get("Calculated_Cover") or None,
+        cover_desc       = r.get("Calculated_CoverDesc") or None,
+        leg              = r.get("Calculated_Leg") or None,
+        leg_mtl          = r.get("Calculated_LegMtl") or None,
+        castor_mtl       = r.get("Calculated_CastorMtl") or None,
+        stud1_mtl        = r.get("Calculated_Stud1Mtl") or None,
+        stud2_mtl        = r.get("Calculated_Stud2Mtl") or None,
+        seat_interior_mtl = r.get("Calculated_SeatInteriorMtl") or None,
+        back_interior_mtl = r.get("Calculated_BackInteriorMtl") or None,
+        scat_interior_mtl = r.get("Calculated_ScatInteriorMtl") or None,
+        material_1       = r.get("Calculated_Material1") or None,
+        material_1_desc  = r.get("Calculated_Cover1PartDesc") or None,
+        material_2       = r.get("Calculated_Material2") or None,
+        material_2_desc  = r.get("Calculated_Cover2PartDesc") or None,
+        material_3       = r.get("Calculated_Material3") or None,
+        material_3_desc  = r.get("Calculated_Cover3PartDesc") or None,
+        material_4       = r.get("Calculated_Material4") or None,
+        material_4_desc  = r.get("Calculated_Cover4PartDesc") or None,
+        material_5       = r.get("Calculated_Material5") or None,
+        material_5_desc  = r.get("Calculated_Cover5PartDesc") or None,
+        material_6       = r.get("Calculated_Material6") or None,
+        material_6_desc  = r.get("Calculated_Cover6PartDesc") or None,
+        material_7       = r.get("Calculated_Material7") or None,
+        material_7_desc  = r.get("Calculated_Cover7PartDesc") or None,
+        material_8       = r.get("Calculated_Material8") or None,
+        material_8_desc  = r.get("Calculated_Cover8PartDesc") or None,
+        selling_qty      = _dec(r.get("Calculated_SellingQty")),
+        shipped_qty      = _dec(r.get("Calculated_ShippedQty")),
+        required_qty     = _dec(r.get("JobAsmbl_RequiredQty")),
+        qty_completed    = _dec(r.get("JobHead_QtyCompleted")),
+        release_qty      = _dec(r.get("Calculated_ReleaseQty")),
+        release_price    = _dec(r.get("Calculated_ReleasePrice")),
+        release_price_gbp= _dec(r.get("Calculated_ReleasePriceGBP")),
+        currency_code    = r.get("OrderHed_CurrencyCode") or None,
+        exchange_rate    = _dec(r.get("OrderHed_ExchangeRate")),
+        order_book_comments   = r.get("OrderHed_OrderBookComments_c") or None,
+        ship_by_changed_count = r.get("OrderRel_ShipByChangedCount_c"),
+        need_by_changed_count = r.get("OrderRel_NeedByChangedCount_c"),
+        imported_at      = now,
+    )
+
+
+class SalesOrderOpenImporter(EpicorBaqImporter):
+    """
+    Daily snapshot of all currently open sales orders.
+
+    Strategy: delete all rows where open_order=True, then INSERT the fresh
+    snapshot.  This keeps closed historical orders untouched.
+    """
+
+    BAQ_NAME    = "bskyVA05v1"
+    IMPORT_TYPE = "epicor_sales_open"
+    BAQ_PARAMS  = {"OpenOrders": "Open"}
+    PAGE_SIZE   = 10000   # BAQ ignores $top — returns full set in one response
+
+    def _target_table(self) -> str:
+        return "sales_orders"
+
+    def _sync_records(self, records: list[dict], batch: ImportBatch, now: datetime) -> None:
+        from datetime import datetime as _dt
+        from decimal import Decimal, InvalidOperation
+        from app.extensions import db
+        from app.sales.orders.models import SalesOrder
+
+        def _dec(v):
+            if v is None or v == "": return None
+            try: return Decimal(str(v))
+            except InvalidOperation: return None
+
+        def _date(v):
+            if not v: return None
+            try: return _dt.fromisoformat(v.replace("Z", "+00:00")).date()
+            except (ValueError, AttributeError): return None
+
+        def _bool(v):
+            if isinstance(v, bool): return v
+            if isinstance(v, (int, float)): return bool(v)
+            if isinstance(v, str): return v.strip().lower() in ("true", "1", "yes")
+            return None
+
+        # Delete the current open-order snapshot, preserve closed history
+        deleted = SalesOrder.query.filter(SalesOrder.open_order == True).delete()
+        db.session.flush()
+
+        seen: set = set()
+        skipped = 0
+        for r in records:
+            key = (
+                r.get("OrderHed_OrderNum"),
+                r.get("OrderDtl_OrderLine"),
+                r.get("OrderRel_OrderRelNum"),
+                r.get("JobAsmbl_AssemblySeq"),
+                r.get("JobProd_JobNum"),
+            )
+            if key in seen:
+                skipped += 1
+                continue
+            seen.add(key)
+            db.session.add(_build_sales_order(r, _date, _dec, _bool, now))
+
+        batch.rows_inserted = len(records) - skipped
+        batch.notes = f"Deleted {deleted} stale open rows; {skipped} duplicates skipped"
+
+
+class SalesOrderClosedImporter(EpicorBaqImporter):
+    """
+    On-demand import of closed sales orders for a date range.
+
+    Default date range: 1 Jan of current year → today.
+    Override from the admin UI or CLI:
+        flask epicor sync sales_closed \\
+          -p OrderDateFrom=01/01/2025 -p OrderDateTo=31/12/2025
+
+    Strategy: delete existing records whose order_num appears in the batch,
+    then INSERT the fetched records.  Safe to re-run for the same range.
+    """
+
+    BAQ_NAME    = "bskyVA05v1"
+    IMPORT_TYPE = "epicor_sales_closed"
+    BAQ_PARAMS  = {"OpenOrders": "Closed"}
+    PAGE_SIZE   = 10000
+
+    def _target_table(self) -> str:
+        return "sales_orders"
+
+    def get_dynamic_params(self) -> dict:
+        """Default date range: 1 Jan of current year → today (UK format dd/mm/yyyy)."""
+        from datetime import date
+        today = date.today()
+        return {
+            "OrderDateFrom": f"01/01/{today.year}",
+            "OrderDateTo":   today.strftime("%d/%m/%Y"),
+        }
+
+    def _sync_records(self, records: list[dict], batch: ImportBatch, now: datetime) -> None:
+        from datetime import datetime as _dt
+        from decimal import Decimal, InvalidOperation
+        from app.extensions import db
+        from app.sales.orders.models import SalesOrder
+
+        def _dec(v):
+            if v is None or v == "": return None
+            try: return Decimal(str(v))
+            except InvalidOperation: return None
+
+        def _date(v):
+            if not v: return None
+            try: return _dt.fromisoformat(v.replace("Z", "+00:00")).date()
+            except (ValueError, AttributeError): return None
+
+        def _bool(v):
+            if isinstance(v, bool): return v
+            if isinstance(v, (int, float)): return bool(v)
+            if isinstance(v, str): return v.strip().lower() in ("true", "1", "yes")
+            return None
+
+        # Delete any existing records for the order numbers in this batch
+        # so a re-run of the same date range is idempotent
+        order_nums = {r["OrderHed_OrderNum"] for r in records if r.get("OrderHed_OrderNum")}
+        if order_nums:
+            SalesOrder.query.filter(SalesOrder.order_num.in_(order_nums)).delete(
+                synchronize_session=False
+            )
+            db.session.flush()
+
+        seen: set = set()
+        skipped = 0
+        for r in records:
+            key = (
+                r.get("OrderHed_OrderNum"),
+                r.get("OrderDtl_OrderLine"),
+                r.get("OrderRel_OrderRelNum"),
+                r.get("JobAsmbl_AssemblySeq"),
+                r.get("JobProd_JobNum"),
+            )
+            if key in seen:
+                skipped += 1
+                continue
+            seen.add(key)
+            db.session.add(_build_sales_order(r, _date, _dec, _bool, now))
+
+        batch.rows_inserted = len(records) - skipped
+        if skipped:
+            batch.notes = f"{skipped} duplicate rows skipped"
+
+
+# ---------------------------------------------------------------------------
+# Production Output   →   BAQ: PlanningOutPut
+# ---------------------------------------------------------------------------
+
+class ProductionOutputImporter(EpicorBaqImporter):
+    """
+    Daily production/labour output from the PlanningOutPut BAQ.
+
+    Synced by date range (default: 01 Jan current year → today).
+    Strategy: DELETE rows where clock_in_date in the range, then INSERT.
+
+    Override from the admin UI or CLI:
+        flask epicor sync production_output -p DateFrom=2026-01-01 -p DateTo=2026-07-04
+    """
+
+    BAQ_NAME    = "PlanningOutPut"
+    IMPORT_TYPE = "epicor_production_output"
+    BAQ_PARAMS  = {}
+
+    def _target_table(self) -> str:
+        return "production_output"
+
+    def get_dynamic_params(self) -> dict:
+        """Default: 01 Jan of current year → today (ISO format yyyy-mm-dd)."""
+        from datetime import date
+        today = date.today()
+        return {
+            "DateFrom": date(today.year, 1, 1).isoformat(),
+            "DateTo":   today.isoformat(),
+        }
+
+    def _sync_records(self, records: list[dict], batch: ImportBatch, now: datetime) -> None:
+        from datetime import datetime as _dt
+        from decimal import Decimal, InvalidOperation
+        from app.extensions import db
+        from app.operations.models import ProductionOutput
+
+        def _dec(v):
+            if v is None or v == "": return None
+            try: return Decimal(str(v))
+            except InvalidOperation: return None
+
+        def _date(v):
+            if not v: return None
+            try: return _dt.fromisoformat(v.replace("Z", "+00:00")).date()
+            except (ValueError, AttributeError): return None
+
+        # Delete rows in the date range covered by this batch, then re-insert.
+        # row_ident values from this BAQ are fake sequential GUIDs and cannot
+        # be used as unique keys, so we always replace the full date range.
+        dates = {_date(r.get("LaborDtl_ClockInDate")) for r in records}
+        dates.discard(None)
+        deleted = 0
+        if dates:
+            from_d, to_d = min(dates), max(dates)
+            deleted = ProductionOutput.query.filter(
+                ProductionOutput.clock_in_date >= from_d,
+                ProductionOutput.clock_in_date <= to_d,
+            ).delete()
+            db.session.flush()
+
+        inserted = 0
+        for r in records:
+            db.session.add(ProductionOutput(
+                row_ident    = r.get("RowIdent") or None,
+                job_num      = r.get("LaborDtl_JobNum") or None,
+                assembly_seq = r.get("JobAsmbl_AssemblySeq"),
+                opr_seq      = r.get("LaborDtl_OprSeq"),
+                op_desc      = r.get("JobOper_OpDesc") or None,
+                employee_num = r.get("LaborDtl_EmployeeNum") or None,
+                labor_entry_method = r.get("JobOper_LaborEntryMethod") or None,
+                clock_in_date= _date(r.get("LaborDtl_ClockInDate")),
+                labor_qty    = _dec(r.get("LaborDtl_LaborQty")),
+                prod_plnwk   = str(r["JobHead_ProdPlnWk_c"]) if r.get("JobHead_ProdPlnWk_c") else None,
+                model        = r.get("OrderDtl_Cnfg_Model_c") or None,
+                mod_size     = r.get("Calculated_ModSize") or None,
+                line_desc    = r.get("OrderDtl_LineDesc") or None,
+                assembly_desc= r.get("JobAsmbl_Description") or None,
+                currency_code    = r.get("OrderHed_CurrencyCode") or None,
+                exchange_rate    = _dec(r.get("OrderHed_ExchangeRate")),
+                release_price    = _dec(r.get("Calculated_ReleaseExtendedPrice")),
+                release_discount = _dec(r.get("Calculated_ReleaseDiscountAmount")),
+                misc_charges     = _dec(r.get("Calculated_ReleaseMiscCharges")),
+                release_total    = _dec(r.get("Calculated_ReleaseTotal")),
+                release_total_gbp= _dec(r.get("Calculated_ReleaseTotalGBP")),
+                imported_at  = now,
+            ))
+            inserted += 1
+
+        batch.rows_inserted = inserted
+        batch.notes = f"Deleted {deleted} stale rows in date range; {inserted} inserted"
+
+
+# ---------------------------------------------------------------------------
 # Registry — single source of truth
 # ---------------------------------------------------------------------------
 
@@ -474,6 +814,9 @@ REGISTRY: dict[str, type[EpicorBaqImporter]] = {
     "purchase_orders":       PurchaseOrderImporter,
     "material_requirements": MaterialRequirementsImporter,
     "works_orders":          WorksOrderImporter,
+    "sales_open":            SalesOrderOpenImporter,
+    "sales_closed":          SalesOrderClosedImporter,
+    "production_output":     ProductionOutputImporter,
 }
 
 

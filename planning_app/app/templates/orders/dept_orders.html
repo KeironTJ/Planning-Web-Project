@@ -17,7 +17,7 @@
         <form method="GET" class="row g-2 align-items-end" id="filterForm">
             <div class="col-sm-3 col-md-2">
                 <input type="search" name="q" class="form-control form-control-sm"
-                       placeholder="SO, customer, productâ€¦" value="{{ search }}">
+                       placeholder="SO, customer, product..." value="{{ search }}">
             </div>
             <div class="col-sm-3 col-md-2">
                 <select name="status" class="form-select form-select-sm">
@@ -102,7 +102,7 @@
 <div class="d-flex justify-content-between align-items-center mb-2">
     <small class="text-muted">
         {{ pagination.total }} order{{ 's' if pagination.total != 1 }}
-        &nbsp;Â·&nbsp;
+        &nbsp;.&nbsp;
         page {{ pagination.page }} of {{ pagination.pages or 1 }}
     </small>
     <!-- Bulk action -->
@@ -138,10 +138,10 @@
                 <th style="min-width:130px;">Customer</th>
                 <th style="min-width:70px;">Lines / Qty</th>
                 <th class="text-center" style="min-width:80px;"
-                    title="Requested Delivery Date â€” from ERP">Req. Delivery</th>
+                    title="Requested Delivery Date "” from ERP">Req. Delivery</th>
                 <th class="text-center" style="min-width:55px;">Â±Days</th>
                 <th class="text-center" style="min-width:80px;"
-                    title="Planned Delivery Date â€” set by planner">Planned Date</th>
+                    title="Planned Delivery Date "” set by planner">Planned Date</th>
                 <th style="min-width:100px;">Status</th>
                 <th style="min-width:80px;">Materials</th>
                 <th class="text-end" style="min-width:70px;"
@@ -192,7 +192,7 @@
                 &nbsp;/&nbsp;{{ group.total_qty | int }} units
             </td>
             <td class="text-center text-nowrap {{ 'text-danger' if is_overdue else ('text-warning' if is_urgent else '') }}">
-                {{ group.due_date.strftime('%d %b %Y') if group.due_date else 'â€”' }}
+                {{ group.due_date.strftime('%d %b %Y') if group.due_date else '"”' }}
             </td>
             <td class="text-center">
                 {% if group.days_delta is not none %}
@@ -204,11 +204,11 @@
                         <span class="badge text-bg-success">+{{ group.days_delta }}d</span>
                     {% endif %}
                 {% else %}
-                    <span class="text-muted">â€”</span>
+                    <span class="text-muted">"”</span>
                 {% endif %}
             </td>
             <td class="text-center fw-normal small {{ 'text-danger fw-semibold' if plan_late else '' }}">
-                {{ group.dept_planned.strftime('%d %b') if group.dept_planned else 'â€”' }}
+                {{ group.dept_planned.strftime('%d %b') if group.dept_planned else '"”' }}
             </td>
             <td>
                 {% if group.dept_status == 'completed' or group.dept_status == 'closed' %}
@@ -218,7 +218,7 @@
                         data-so="{{ group.so_number }}"
                         data-dept="{{ dept.name }}"
                         data-current-status="{{ group.dept_status }}"
-                        title="{{ label }} â€” right-click to step back">
+                        title="{{ label }} "” right-click to step back">
                     <i class="bi bi-check-circle" style="font-size:.65rem;"></i> {{ label[:6] }}
                 </button>
                 {% else %}
@@ -228,13 +228,13 @@
                         data-so="{{ group.so_number }}"
                         data-dept="{{ dept.name }}"
                         data-current-status="{{ group.dept_status }}"
-                        title="Click to advance Â· Right-click to step back">
+                        title="Click to advance . Right-click to step back">
                     <i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> {{ label[:6] }}
                 </button>
                 {% endif %}
             </td>
             {# Material status #}
-            {% set mat_label, mat_colour = mat_status_meta.get(group.mat_status, ('â€”', 'secondary')) %}
+            {% set mat_label, mat_colour = mat_status_meta.get(group.mat_status, ('"”', 'secondary')) %}
             <td>
                 {% if group.mat_status == 'no_data' %}
                     <span class="badge text-bg-success" style="font-size:.75rem; min-width:62px; text-align:center; display:inline-block;">Mat. OK</span>
@@ -252,7 +252,7 @@
                     {{ group.dept_smv_hours | hm }}
                 </span>
                 {% else %}
-                <span class="text-muted">â€”</span>
+                <span class="text-muted">"”</span>
                 {% endif %}
             </td>
         </tr>
@@ -269,15 +269,15 @@
             <td colspan="2" class="small">
                 <span class="text-muted">{{ sol.product_code }}</span>
                 {% if sol.product_description %}
-                <span class="text-muted"> â€” {{ sol.product_description | truncate(40) }}</span>
+                <span class="text-muted"> "” {{ sol.product_description | truncate(40) }}</span>
                 {% endif %}
             </td>
             <td class="text-center text-muted small">
-                {{ op.due_date.strftime('%d %b') if op.due_date else 'â€”' }}
+                {{ op.due_date.strftime('%d %b') if op.due_date else '"”' }}
             </td>
             <td></td>
             <td class="text-center text-muted small">
-                {{ op.planned_date.strftime('%d %b') if op.planned_date else 'â€”' }}
+                {{ op.planned_date.strftime('%d %b') if op.planned_date else '"”' }}
             </td>
             <td>
                 <div class="d-flex align-items-center gap-2">
@@ -286,7 +286,7 @@
                             style="font-size:.72rem;"
                             data-op-id="{{ op.id }}"
                             data-status="{{ op.status }}"
-                            title="Click to advance Â· Right-click to step back">
+                            title="Click to advance . Right-click to step back">
                         {% if op.status == 'completed' or op.status == 'closed' %}
                         <i class="bi bi-check-circle" style="font-size:.65rem;"></i>
                         {% else %}
@@ -317,10 +317,10 @@
                     {% endif %}
                 </div>
             </td>
-            <td></td>{# Materials â€” order-level only #}
+            <td></td>{# Materials "” order-level only #}
             <td class="text-end text-muted small text-nowrap">
                 {% set op_hrs = group.op_smv_hours.get(op.id, 0) %}
-                {{ op_hrs | hm if op_hrs else 'â€”' }}
+                {{ op_hrs | hm if op_hrs else '"”' }}
             </td>
         </tr>
         {% endfor %}
@@ -466,10 +466,10 @@
             btn.dataset.currentStatus = newStatus;
             btn.className = 'btn btn-' + newColour + ' btn-sm py-0 px-1 advance-so-dept-btn';
             if (newStatus === 'completed' || newStatus === 'closed') {
-                btn.title = newLabel + ' â€” right-click to step back';
+                btn.title = newLabel + ' "” right-click to step back';
                 btn.innerHTML = '<i class="bi bi-check-circle" style="font-size:.65rem;"></i> ' + newLabel.substring(0, 6);
             } else {
-                btn.title = 'Click to advance Â· Right-click to step back';
+                btn.title = 'Click to advance . Right-click to step back';
                 btn.innerHTML = '<i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> ' + newLabel.substring(0, 6);
             }
         })
@@ -582,7 +582,7 @@
         const btn = e.relatedTarget && e.relatedTarget.closest('[data-op-id]');
         if (!btn) return;
         opForm.action = '/orders/operations/' + btn.dataset.opId + '/update';
-        document.getElementById('opModalLabel').textContent = btn.dataset.so + ' â€” ' + btn.dataset.dept;
+        document.getElementById('opModalLabel').textContent = btn.dataset.so + ' "” ' + btn.dataset.dept;
         document.getElementById('modalStatus').value  = btn.dataset.status;
         document.getElementById('modalPlanned').value = btn.dataset.planned;
         document.getElementById('modalNotes').value   = btn.dataset.notes;

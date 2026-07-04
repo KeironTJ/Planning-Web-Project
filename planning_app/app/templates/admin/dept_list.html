@@ -18,6 +18,7 @@
                         <th>Code</th>
                         <th>Name</th>
                         <th class="text-end">Target Hrs/Day</th>
+                        <th class="text-center">Tracked</th>
                         <th class="text-center">Status</th>
                         <th class="text-end">Operations</th>
                         <th></th>
@@ -36,6 +37,13 @@
                                 {{ dept.target_hours_per_day }}
                             {% else %}
                                 <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if dept.track %}
+                                <i class="bi bi-check-circle-fill text-success" title="Tracked"></i>
+                            {% else %}
+                                <i class="bi bi-dash-circle text-muted" title="Not tracked"></i>
                             {% endif %}
                         </td>
                         <td class="text-center">

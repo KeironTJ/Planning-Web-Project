@@ -13,7 +13,7 @@ from flask_login import login_required, current_user
 
 from . import admin_bp
 from .forms import ImportUploadForm, DeptHoursForm, SystemSettingsForm
-from .models import SystemSetting, SETTING_AUTO_COMPLETE_DESPATCH
+from .models import SystemSetting, SETTING_AUTO_COMPLETE_DESPATCH, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS
 from app.auth.models import User, Role, AuditLog
 from app.auth.services import RoleService
 from app.extensions import db
@@ -31,6 +31,7 @@ from app.sales.orders.models import Department, ImportBatch
 def epicor_sync():
     """Show sync status for every registered Epicor BAQ importer."""
     from app.core.epicor_importers import REGISTRY
+    from datetime import date
 
     last_syncs = {}
     for key, cls in REGISTRY.items():
@@ -42,10 +43,19 @@ def epicor_sync():
         )
         last_syncs[key] = {"baq_name": cls.BAQ_NAME, "batch": batch}
 
+    today = date.today()
+    defaults = {
+        "sales_closed_from":      date(today.year, 1, 1).isoformat(),
+        "sales_closed_to":        today.isoformat(),
+        "production_output_from": (today - __import__("datetime").timedelta(days=7)).isoformat(),
+        "production_output_to":   today.isoformat(),
+    }
+
     return render_template(
         "admin/epicor_sync.html",
         title="Epicor Data Sync",
         last_syncs=last_syncs,
+        defaults=defaults,
     )
 
 
@@ -53,39 +63,113 @@ def epicor_sync():
 @login_required
 @admin_required
 def epicor_sync_run():
-    """Trigger one or all BAQ importers synchronously."""
+    """Trigger one or all BAQ importers (traditional form POST fallback)."""
     from flask import current_app
     from app.core.epicor_client import KineticClient
     from app.core.epicor_importers import REGISTRY, run_batch
 
-    baq_key = request.form.get("baq_key") or None  # None = run all
-
+    baq_key = request.form.get("baq_key") or None
     if baq_key and baq_key not in REGISTRY:
         flash(f"Unknown BAQ key: {baq_key!r}", "danger")
         return redirect(url_for("admin.epicor_sync"))
-
     keys = [baq_key] if baq_key else None
+
+    extra_params: dict = {}
+    if baq_key == "sales_closed":
+        from datetime import date as _date
+        def _fmt(iso):
+            try: return _date.fromisoformat(iso).strftime("%d/%m/%Y")
+            except (ValueError, TypeError): return iso
+        extra_params = {
+            "OrderDateFrom": _fmt(request.form.get("OrderDateFrom", "")),
+            "OrderDateTo":   _fmt(request.form.get("OrderDateTo", "")),
+        }
+    elif baq_key == "production_output":
+        extra_params = {
+            "DateFrom": request.form.get("DateFrom", ""),
+            "DateTo":   request.form.get("DateTo", ""),
+        }
 
     try:
         with KineticClient.from_app(current_app._get_current_object()) as client:
-            results = run_batch(client, keys=keys, triggered_by_id=current_user.id)
+            if baq_key and extra_params:
+                batch = REGISTRY[baq_key](client).run(
+                    params=extra_params, triggered_by_id=current_user.id
+                )
+                results = {baq_key: batch}
+            else:
+                results = run_batch(client, keys=keys, triggered_by_id=current_user.id)
     except Exception as exc:
         flash(f"Could not connect to Epicor: {exc}", "danger")
         return redirect(url_for("admin.epicor_sync"))
 
     for key, result in results.items():
-        if isinstance(result, NotImplementedError):
-            flash(f"{key}: not yet implemented — skipped.", "warning")
-        elif isinstance(result, Exception):
+        if isinstance(result, Exception):
             flash(f"{key}: {result}", "danger")
         else:
-            flash(
-                f"{key}: synced {result.row_count} records "
-                f"({result.rows_inserted} inserted).",
-                "success",
-            )
+            flash(f"{key}: {result.row_count} fetched / {result.rows_inserted} inserted.", "success")
 
     return redirect(url_for("admin.epicor_sync"))
+
+
+@admin_bp.route("/epicor-sync/run-one", methods=["POST"])
+@login_required
+@admin_required
+def epicor_sync_run_one():
+    """
+    AJAX endpoint: run a single importer and return JSON.
+
+    Expects JSON body: {"baq_key": "stock", "params": {"DateFrom": "2026-01-01"}}
+    Returns:          {"status": "ok", "row_count": 123, "rows_inserted": 123}
+    """
+    from flask import current_app, jsonify
+    from app.core.epicor_client import KineticClient
+    from app.core.epicor_importers import REGISTRY
+
+    data    = request.get_json(force=True, silent=True) or {}
+    baq_key = data.get("baq_key", "")
+    params  = data.get("params", {}) or {}
+
+    if not baq_key or baq_key not in REGISTRY:
+        return jsonify({"status": "error", "message": f"Unknown importer: {baq_key!r}"}), 400
+
+    # Convert sales_closed date params from ISO to UK format
+    if baq_key == "sales_closed":
+        from datetime import date as _date
+        def _to_uk(iso):
+            try: return _date.fromisoformat(iso).strftime("%d/%m/%Y")
+            except (ValueError, TypeError): return iso
+        if "OrderDateFrom" in params: params["OrderDateFrom"] = _to_uk(params["OrderDateFrom"])
+        if "OrderDateTo"   in params: params["OrderDateTo"]   = _to_uk(params["OrderDateTo"])
+
+    try:
+        import time
+        from sqlalchemy.exc import OperationalError as _OE
+        last_exc = None
+        for attempt in range(4):           # up to 4 attempts: 0, 2, 4, 8 s backoff
+            if attempt:
+                time.sleep(2 ** attempt)   # 2, 4, 8 seconds
+            try:
+                with KineticClient.from_app(current_app._get_current_object()) as client:
+                    importer = REGISTRY[baq_key](client)
+                    batch = importer.run(
+                        params=params if params else None,
+                        triggered_by_id=current_user.id,
+                    )
+                return jsonify({
+                    "status":        "ok",
+                    "key":           baq_key,
+                    "row_count":     batch.row_count,
+                    "rows_inserted": batch.rows_inserted,
+                    "notes":         batch.notes or "",
+                })
+            except _OE as db_err:
+                last_exc = db_err
+                continue   # retry on SQLite lock
+        return jsonify({"status": "error", "key": baq_key,
+                        "message": f"DB locked after retries: {last_exc}"}), 500
+    except Exception as exc:
+        return jsonify({"status": "error", "key": baq_key, "message": str(exc)}), 500
 
 
 @admin_bp.route("/")
@@ -342,6 +426,7 @@ def dept_edit(dept_id: int):
         else:
             dept.target_hours_per_day = form.target_hours_per_day.data
             dept.flow_order = form.flow_order.data  # None clears it
+            dept.track = form.track.data
             db.session.commit()
             flash(f"Settings updated for {dept.name}.", "success")
         return redirect(url_for("admin.dept_list"))
@@ -497,6 +582,24 @@ def system_settings():
                 "operations for an order line are completed."
             ),
         )
+        SystemSetting.set(
+            SETTING_DAILY_OUTPUT_TARGET,
+            str(form.daily_output_target.data or 0),
+            description="Factory daily output target (units).",
+        )
+        day_map = [
+            (0, form.daily_target_mon),
+            (1, form.daily_target_tue),
+            (2, form.daily_target_wed),
+            (3, form.daily_target_thu),
+            (4, form.daily_target_fri),
+        ]
+        target_days_str = ','.join(str(i) for i, f in day_map if f.data)
+        SystemSetting.set(
+            SETTING_DAILY_OUTPUT_TARGET_DAYS,
+            target_days_str or '0,1,2,3',
+            description="Weekdays on which the daily target applies (0=Mon, 4=Fri).",
+        )
         db.session.commit()
         flash("Settings saved.", "success")
         return redirect(url_for("admin.system_settings"))
@@ -505,6 +608,19 @@ def system_settings():
     form.auto_complete_despatch.data = SystemSetting.get_bool(
         SETTING_AUTO_COMPLETE_DESPATCH, default=False
     )
+    form.daily_output_target.data = SystemSetting.get_int(
+        SETTING_DAILY_OUTPUT_TARGET, default=128
+    )
+    _tdays = set(
+        int(d) for d in
+        SystemSetting.get(SETTING_DAILY_OUTPUT_TARGET_DAYS, '0,1,2,3').split(',')
+        if d.strip().isdigit()
+    )
+    form.daily_target_mon.data = 0 in _tdays
+    form.daily_target_tue.data = 1 in _tdays
+    form.daily_target_wed.data = 2 in _tdays
+    form.daily_target_thu.data = 3 in _tdays
+    form.daily_target_fri.data = 4 in _tdays
 
     return render_template(
         "admin/settings.html",

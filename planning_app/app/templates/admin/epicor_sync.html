@@ -1,102 +1,191 @@
-{% extends 'base.html' %}
-
+{%- extends 'base.html' %}
 {% block content %}
+
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h4 class="mb-0">Epicor Data Sync</h4>
-        <p class="text-muted small mb-0">Pull live data from Epicor BAQs directly into the database.</p>
-    </div>
-    <form method="POST" action="{{ url_for('admin.epicor_sync_run') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="baq_key" value="">
-        <button type="submit" class="btn btn-primary">
-            <i class="bi bi-arrow-repeat me-1"></i>Sync All
-        </button>
-    </form>
+  <div>
+    <h4 class="mb-0">Epicor Data Sync</h4>
+    <p class="text-muted small mb-0">Pull live data from Epicor BAQs directly into the database.</p>
+  </div>
+  <button id="sync-all-btn" class="btn btn-primary">
+    <i class="bi bi-arrow-repeat me-1"></i>Sync All
+  </button>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for category, message in messages %}
-    <div class="alert alert-{{ category }} alert-dismissible fade show py-2" role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    </div>
-    {% endfor %}
+  {% for category, message in messages %}
+  <div class="alert alert-{{ category }} alert-dismissible fade show py-2" role="alert">
+    {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
 {% endwith %}
 
-<div class="card border-0 shadow-sm">
-    <div class="card-body p-0">
-        <table class="table table-sm table-hover mb-0 align-middle">
-            <thead class="thead-subtle">
-                <tr>
-                    <th>Importer</th>
-                    <th>BAQ Name</th>
-                    <th>Last Sync</th>
-                    <th class="text-end">Records</th>
-                    <th class="text-center">Status</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for key, info in last_syncs.items() %}
-                {% set batch = info.batch %}
-                <tr>
-                    <td class="fw-semibold">{{ key }}</td>
-                    <td class="text-muted font-monospace small">{{ info.baq_name }}</td>
-                    <td class="text-muted small">
-                        {% if batch %}
-                            {{ batch.uploaded_at.strftime('%d %b %Y %H:%M') }}
-                        {% else %}
-                            <span class="text-muted">Never</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-end">
-                        {% if batch %}{{ batch.row_count }}{% else %}—{% endif %}
-                    </td>
-                    <td class="text-center">
-                        {% if not batch %}
-                            <span class="badge bg-secondary">Not run</span>
-                        {% elif batch.status == 'success' %}
-                            <span class="badge bg-success">OK</span>
-                        {% elif batch.status == 'failed' %}
-                            <span class="badge bg-danger"
-                                  title="{{ batch.error_message or '' }}"
-                                  data-bs-toggle="tooltip">Failed</span>
-                        {% elif batch.status == 'pending' %}
-                            <span class="badge bg-warning text-dark">Running…</span>
-                        {% else %}
-                            <span class="badge bg-secondary">{{ batch.status }}</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-end">
-                        <form method="POST" action="{{ url_for('admin.epicor_sync_run') }}"
-                              class="d-inline">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <input type="hidden" name="baq_key" value="{{ key }}">
-                            <button type="submit" class="btn btn-sm btn-outline-primary">
-                                <i class="bi bi-arrow-clockwise me-1"></i>Sync
-                            </button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+<div id="progress-panel" class="card border-0 shadow-sm mb-3 d-none">
+  <div class="card-header bg-transparent fw-semibold small py-2">Sync Progress</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0"><tbody id="progress-rows"></tbody></table>
+  </div>
 </div>
 
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0 align-middle">
+      <thead class="thead-subtle">
+        <tr>
+          <th style="width:160px">Importer</th>
+          <th>BAQ</th>
+          <th style="width:145px">Last Sync</th>
+          <th class="text-end" style="width:70px">Rows</th>
+          <th class="text-center" style="width:85px">Status</th>
+          <th style="min-width:230px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for key, info in last_syncs.items() %}
+        {% set batch = info.batch %}
+        <tr>
+          <td class="fw-semibold small">{{ key }}</td>
+          <td class="text-muted font-monospace small">{{ info.baq_name }}</td>
+          <td class="text-muted small">
+            {% if batch %}{{ batch.uploaded_at.strftime('%d %b %Y %H:%M') }}
+            {% else %}<span class="text-muted">Never</span>{% endif %}
+          </td>
+          <td class="text-end small">{% if batch %}{{ batch.row_count }}{% else %}-{% endif %}</td>
+          <td class="text-center">
+            {% if not batch %}<span class="badge bg-secondary">Not run</span>
+            {% elif batch.status == 'success' %}<span class="badge bg-success">OK</span>
+            {% elif batch.status == 'failed' %}<span class="badge bg-danger"
+                title="{{ batch.error_message or '' }}" data-bs-toggle="tooltip">Failed</span>
+            {% elif batch.status == 'pending' %}<span class="badge bg-warning text-dark">Running</span>
+            {% else %}<span class="badge bg-secondary">{{ batch.status }}</span>{% endif %}
+          </td>
+          <td>
+            {% if key == 'sales_closed' %}
+            <form class="individual-sync d-flex gap-1 align-items-center flex-nowrap" data-key="{{ key }}">
+              <input type="date" name="OrderDateFrom" value="{{ defaults.sales_closed_from }}"
+                     class="form-control form-control-sm" style="width:128px;">
+              <input type="date" name="OrderDateTo" value="{{ defaults.sales_closed_to }}"
+                     class="form-control form-control-sm" style="width:128px;">
+              <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">
+                <i class="bi bi-arrow-clockwise"></i></button>
+            </form>
+            {% elif key == 'production_output' %}
+            <form class="individual-sync d-flex gap-1 align-items-center flex-nowrap" data-key="{{ key }}">
+              <input type="date" name="DateFrom" value="{{ defaults.production_output_from }}"
+                     class="form-control form-control-sm" style="width:128px;">
+              <input type="date" name="DateTo" value="{{ defaults.production_output_to }}"
+                     class="form-control form-control-sm" style="width:128px;">
+              <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">
+                <i class="bi bi-arrow-clockwise"></i></button>
+            </form>
+            {% else %}
+            <form class="individual-sync" data-key="{{ key }}">
+              <button type="submit" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-arrow-clockwise me-1"></i>Sync</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 <p class="text-muted small mt-3">
-    <i class="bi bi-info-circle me-1"></i>
-    Syncs run synchronously — the page will wait while data is fetched from Epicor.
-    To run from the command line: <code>flask epicor sync</code> or <code>flask epicor sync &lt;key&gt;</code>
+  <i class="bi bi-info-circle me-1"></i>
+  Each importer runs in sequence. Progress updates live above.
+  CLI: <code>flask epicor sync &lt;key&gt;</code>
 </p>
 
 <script>
-// Initialise Bootstrap tooltips for failed-batch error messages
-document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
-        new bootstrap.Tooltip(el);
+const RUN_ONE = '{{ url_for("admin.epicor_sync_run_one") }}';
+const CSRF    = '{{ csrf_token() }}';
+
+function getFormParams(form) {
+  const p = {};
+  new FormData(form).forEach((v,k) => { if (k !== 'csrf_token') p[k] = v; });
+  return p;
+}
+
+function mkRow(key, state, detail) {
+  const icons = {
+    wait: '<i class="bi bi-clock text-muted me-2"></i>',
+    run:  '<span class="spinner-border spinner-border-sm me-2 text-primary"></span>',
+    ok:   '<i class="bi bi-check-circle-fill text-success me-2"></i>',
+    err:  '<i class="bi bi-x-circle-fill text-danger me-2"></i>'
+  };
+  const badges = {
+    wait: '<span class="badge bg-secondary">Waiting</span>',
+    run:  '<span class="badge bg-warning text-dark">Running</span>',
+    ok:   '<span class="badge bg-success">OK</span>',
+    err:  '<span class="badge bg-danger">Failed</span>'
+  };
+  return '<td class="fw-semibold small" style="width:140px">'+key+'</td>' +
+         '<td class="small">'+(icons[state]||'')+detail+'</td>' +
+         '<td class="text-center" style="width:80px">'+(badges[state]||'')+'</td>';
+}
+
+async function runOne(key, params, tr) {
+  tr.innerHTML = mkRow(key, 'run', 'Syncing '+key+'...');
+  try {
+    const r = await fetch(RUN_ONE, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', 'X-CSRFToken': CSRF},
+      body: JSON.stringify({baq_key: key, params: params})
     });
+    const data = await r.json();
+    if (data.status === 'ok' || data.status === 'success') {
+      const note = data.notes ? ' - ' + data.notes : '';
+      tr.innerHTML = mkRow(key, 'ok',
+        data.row_count + ' fetched / ' + data.rows_inserted + ' inserted' + note);
+    } else {
+      tr.innerHTML = mkRow(key, 'err', data.message || data.error || data.status);
+    }
+  } catch(e) {
+    tr.innerHTML = mkRow(key, 'err', 'Network error: ' + e.message);
+  }
+}
+
+// Individual sync forms
+document.querySelectorAll('.individual-sync').forEach(form => {
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const panel = document.getElementById('progress-panel');
+    const tbody = document.getElementById('progress-rows');
+    panel.classList.remove('d-none');
+    panel.scrollIntoView({behavior: 'smooth'});
+    const tr = document.createElement('tr');
+    tbody.appendChild(tr);
+    await runOne(form.dataset.key, getFormParams(form), tr);
+    setTimeout(() => location.reload(), 1800);
+  });
 });
+
+// Sync All: run every importer sequentially
+document.getElementById('sync-all-btn').addEventListener('click', async () => {
+  const panel = document.getElementById('progress-panel');
+  const tbody = document.getElementById('progress-rows');
+  tbody.innerHTML = '';
+  panel.classList.remove('d-none');
+  panel.scrollIntoView({behavior: 'smooth'});
+
+  const forms = [...document.querySelectorAll('.individual-sync')];
+  const rows  = forms.map(form => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = mkRow(form.dataset.key, 'wait', 'Waiting...');
+    tbody.appendChild(tr);
+    return {form, tr};
+  });
+
+  document.getElementById('sync-all-btn').disabled = true;
+  document.querySelectorAll('.individual-sync button').forEach(b => b.disabled = true);
+
+  for (const {form, tr} of rows) {
+    await runOne(form.dataset.key, getFormParams(form), tr);
+    await new Promise(r => setTimeout(r, 800)); // brief pause between syncs
+  }
+  setTimeout(() => location.reload(), 2000);
+});
+
+document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
 </script>
 {% endblock %}

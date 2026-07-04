@@ -65,11 +65,11 @@
             {# Row 1: search + CPR + status + dept + sort + per-page + overdue #}
             <div class="col-sm-3 col-md-2">
                 <input type="search" name="q" class="form-control form-control-sm"
-                       placeholder="SO, customer, productâ€¦" value="{{ search }}">
+                       placeholder="SO, customer, product..." value="{{ search }}">
             </div>
             <div class="col-sm-3 col-md-2">
                 <input type="search" name="cpr" class="form-control form-control-sm"
-                       placeholder="Cust. Prod. Refâ€¦" value="{{ cust_prod_ref }}"
+                       placeholder="Cust. Prod. Ref..." value="{{ cust_prod_ref }}"
                        title="Filter by Customer Product Reference (CUSPRODREF)">
             </div>
             <div class="col-sm-3 col-md-2">
@@ -154,7 +154,7 @@
 <div class="d-flex justify-content-between align-items-center mb-2">
     <small class="text-muted">
         <strong>{{ pagination.total }}</strong> order{{ 's' if pagination.total != 1 }} found
-        {% if pagination.pages > 1 %}&nbsp;Â·&nbsp; page {{ pagination.page }}/{{ pagination.pages }}{% endif %}
+        {% if pagination.pages > 1 %}&nbsp;.&nbsp; page {{ pagination.page }}/{{ pagination.pages }}{% endif %}
     </small>
 
 </div>
@@ -162,17 +162,17 @@
 <!-- Key: order-level buttons advance ALL lines; line-level buttons open detail modal -->
 <p class="text-muted small mb-2">
     <i class="bi bi-arrow-right-circle me-1"></i>
-    <strong>Left-click</strong> the <strong>Status</strong> badge to advance <em>all ops</em> for that order &nbsp;Â·&nbsp;
-    <strong>Left-click</strong> a dept button to advance that dept &nbsp;Â·&nbsp;
-    <strong>Right-click</strong> either to step back &nbsp;Â·&nbsp;
+    <strong>Left-click</strong> the <strong>Status</strong> badge to advance <em>all ops</em> for that order &nbsp;.&nbsp;
+    <strong>Left-click</strong> a dept button to advance that dept &nbsp;.&nbsp;
+    <strong>Right-click</strong> either to step back &nbsp;.&nbsp;
     Expand <i class="bi bi-chevron-right"></i> to update individual lines.
     Dates shown below buttons are planned dates.
-    &nbsp;Â·&nbsp;
+    &nbsp;.&nbsp;
     <strong>Materials:</strong>
     <span class="badge text-bg-success fw-normal" style="font-size:.7rem;">Mat. OK</span> stock covers all
     <span class="badge text-bg-info fw-normal ms-1" style="font-size:.7rem;">Low Risk</span> covered by call-off (CO)
     <span class="badge text-bg-warning fw-normal ms-1" style="font-size:.7rem;">Med Risk</span> covered by PO
-    <span class="badge text-bg-danger fw-normal ms-1" style="font-size:.7rem;">Shortage</span> uncovered &nbsp;Â·&nbsp; Click badge to view details.
+    <span class="badge text-bg-danger fw-normal ms-1" style="font-size:.7rem;">Shortage</span> uncovered &nbsp;.&nbsp; Click badge to view details.
 </p>
 
 <!-- WIP Grid -->
@@ -263,7 +263,7 @@
                     {% elif order.total_value > 0 %}
                         Â£{{ "%.0f" | format(order.total_value) }}
                     {% else %}
-                        â€”
+                        "”
                     {% endif %}
                 </td>
                 <td class="text-muted" style="font-size:.78rem;">
@@ -271,10 +271,10 @@
                     &nbsp;/&nbsp;{{ order.total_qty | int }} qty
                 </td>
                 <td class="text-center {{ 'text-danger fw-semibold' if order.due_date and order.due_date < today else '' }}">
-                    {{ order.due_date.strftime('%d %b') if order.due_date else 'â€”' }}
+                    {{ order.due_date.strftime('%d %b') if order.due_date else '"”' }}
                 </td>
                 <td class="text-center {{ 'text-warning fw-semibold' if order.plan_date and order.plan_date > (order.due_date or order.plan_date) else '' }}">
-                    {{ order.plan_date.strftime('%d %b') if order.plan_date else 'â€”' }}
+                    {{ order.plan_date.strftime('%d %b') if order.plan_date else '"”' }}
                 </td>
                 <td>
                     <button type="button"
@@ -282,13 +282,13 @@
                             style="cursor:pointer;"
                             data-so="{{ order.so_number }}"
                             data-current-status="{{ order.agg_status }}"
-                            title="Left-click: advance all Â· Right-click: step back all">
+                            title="Left-click: advance all . Right-click: step back all">
                         {{ agg_label }}
                     </button>
                 </td>
 
                 {# Material availability status #}
-                {% set mat_label, mat_colour = mat_status_meta.get(order.mat_status, ('â€”', 'secondary')) %}
+                {% set mat_label, mat_colour = mat_status_meta.get(order.mat_status, ('"”', 'secondary')) %}
                 <td>
                     {% if order.mat_status == 'no_data' %}
                         <span class="badge text-bg-success" style="font-size:.72rem;">Mat. OK</span>
@@ -301,7 +301,7 @@
                     {% endif %}
                 </td>
 
-                {# Order-level dept cells â€” advance-all / step-back buttons #}
+                {# Order-level dept cells "” advance-all / step-back buttons #}
                 {% for dept in departments %}
                 <td class="text-center p-1" data-dept="{{ dept.name }}">
                     {% set ds = order.dept_status.get(dept.name) %}
@@ -316,7 +316,7 @@
                                     data-so="{{ order.so_number }}"
                                     data-dept="{{ dept.name }}"
                                     data-current-status="{{ ds }}"
-                                    title="{{ op_label }} â€” right-click to step back">
+                                    title="{{ op_label }} "” right-click to step back">
                                 <i class="bi bi-check-circle" style="font-size:.65rem;"></i> {{ op_label[:5] }}
                             </button>
                         {% else %}
@@ -326,7 +326,7 @@
                                     data-so="{{ order.so_number }}"
                                     data-dept="{{ dept.name }}"
                                     data-current-status="{{ ds }}"
-                                    title="Left-click: advance Â· Right-click: step back">
+                                    title="Left-click: advance . Right-click: step back">
                                 <i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> {{ op_label[:5] }}
                             </button>
                         {% endif %}
@@ -336,7 +336,7 @@
                         </div>
                         {% endif %}
                     {% else %}
-                        <span class="text-muted">Â·</span>
+                        <span class="text-muted">.</span>
                     {% endif %}
                 </td>
                 {% endfor %}
@@ -346,7 +346,7 @@
                             class="btn btn-link btn-sm p-0 so-comment-btn {{ 'text-warning' if order.comment_count else 'text-muted' }}"
                             data-so="{{ order.so_number }}"
                             data-count="{{ order.comment_count }}"
-                            title="{{ order.comment_count }} comment{{ 's' if order.comment_count != 1 }} â€” click to view / add">
+                            title="{{ order.comment_count }} comment{{ 's' if order.comment_count != 1 }} "” click to view / add">
                         <i class="bi bi-chat{{ '-fill' if order.comment_count else '' }}" style="font-size:.9rem;"></i>
                         {% if order.comment_count %}
                         <sup style="font-size:.65rem;">{{ order.comment_count }}</sup>
@@ -360,7 +360,7 @@
                         {{ order.latest_comment }}
                     </div>
                     <div class="text-muted" style="font-size:.68rem;">
-                        {{ order.latest_user }} Â· {{ order.latest_at }}
+                        {{ order.latest_user }} . {{ order.latest_at }}
                     </div>
                     {% endif %}
                 </td>
@@ -405,23 +405,23 @@
                     {{ sol.product_description or '' }}
                 </td>
                 <td class="text-muted" style="font-size:.78rem;">
-                    {{ sol.qty_ordered | int if sol.qty_ordered else 'â€”' }} qty
+                    {{ sol.qty_ordered | int if sol.qty_ordered else '"”' }} qty
                 </td>
                 <td class="text-center {{ 'text-danger' if sol.due_date and sol.due_date < today else '' }}"
                     style="font-size:.78rem;">
-                    {{ sol.due_date.strftime('%d %b') if sol.due_date else 'â€”' }}
+                    {{ sol.due_date.strftime('%d %b') if sol.due_date else '"”' }}
                 </td>
                 {% set fpd = sol.final_planned_date %}
                 <td class="text-center {{ 'text-warning' if fpd and sol.due_date and fpd > sol.due_date else '' }}"
                     style="font-size:.78rem;">
-                    {{ fpd.strftime('%d %b') if fpd else 'â€”' }}
+                    {{ fpd.strftime('%d %b') if fpd else '"”' }}
                 </td>
                 <td>
                     <span class="badge text-bg-{{ line_colour }}" style="font-size:.68rem;">{{ line_label }}</span>
                 </td>
-                <td></td>{# Materials column â€” order-level only #}
+                <td></td>{# Materials column "” order-level only #}
 
-                {# Line-level dept cells â€” single op modal #}
+                {# Line-level dept cells "” single op modal #}
                 {% for dept in departments %}
                 {% set op = ops_by_dept.get(dept.name) %}
                 <td class="text-center p-1" data-dept="{{ dept.name }}">
@@ -434,7 +434,7 @@
                                 data-so="{{ sol.so_number }}/{{ sol.line_number }}"
                                 data-dept="{{ dept.name }}"
                                 data-status="{{ op.status }}"
-                                title="Left-click: advance Â· Right-click: step back{% if op.planned_date %} â€” {{ op.planned_date.strftime('%d %b') }}{% endif %}{% if op.is_overdue %} âš  Overdue{% endif %}">
+                                title="Left-click: advance . Right-click: step back{% if op.planned_date %} "” {{ op.planned_date.strftime('%d %b') }}{% endif %}{% if op.is_overdue %} âš  Overdue{% endif %}">
                             {% if op.is_overdue %}<i class="bi bi-exclamation-triangle" style="font-size:.65rem;"></i> {% endif %}{{ op_label[:6] }}
                         </button>
                         {% if op.planned_date %}
@@ -443,14 +443,14 @@
                         </div>
                         {% endif %}
                     {% else %}
-                        <span class="text-muted">Â·</span>
+                        <span class="text-muted">.</span>
                     {% endif %}
                 </td>
                 {% endfor %}
-                <td></td>{# Comments icon â€” order-level only #}
-                <td></td>{# Latest note â€” order-level only #}
+                <td></td>{# Comments icon "” order-level only #}
+                <td></td>{# Latest note "” order-level only #}
                 {% if current_user.has_permission('manage_orders') %}
-                <td></td>{# Hold â€” order-level only #}
+                <td></td>{# Hold "” order-level only #}
                 {% endif %}
             </tr>
             {% endfor %}
@@ -478,9 +478,9 @@
 ) }}{% endmacro %}
 
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3">
-    {# Left: showing Xâ€“Y of Z #}
+    {# Left: showing X"“Y of Z #}
     <small class="text-muted">
-        Showing {{ _start }}â€“{{ _end }} of {{ pagination.total }} order{{ 's' if pagination.total != 1 }}
+        Showing {{ _start }}"“{{ _end }} of {{ pagination.total }} order{{ 's' if pagination.total != 1 }}
     </small>
 
     {# Centre: page controls #}
@@ -504,7 +504,7 @@
                         <a class="page-link" href="{{ page_url(p) }}">{{ p }}</a>
                     </li>
                 {% else %}
-                    <li class="page-item disabled"><span class="page-link">â€¦</span></li>
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
                 {% endif %}
             {% endfor %}
             {# Next #}
@@ -556,7 +556,7 @@
                 {# Thread #}
                 <div id="commentThread" style="max-height:320px; overflow-y:auto; padding:1rem;">
                     <div class="text-center text-muted small py-3" id="commentLoading">
-                        <span class="spinner-border spinner-border-sm me-1"></span> Loadingâ€¦
+                        <span class="spinner-border spinner-border-sm me-1"></span> Loading...
                     </div>
                 </div>
                 {# Add comment #}
@@ -565,7 +565,7 @@
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div class="mb-2">
                             <textarea id="commentBody" name="body" class="form-control form-control-sm"
-                                      rows="3" placeholder="Add a noteâ€¦" maxlength="1000"></textarea>
+                                      rows="3" placeholder="Add a note..." maxlength="1000"></textarea>
                         </div>
                         <div class="d-flex justify-content-between align-items-center">
                             <small class="text-muted" id="commentCharCount">0 / 1000</small>
@@ -632,7 +632,7 @@
             const icon   = btn.querySelector('i');
             // detail rows share data-group matching the order's loop.index
             // We set data-group on each detail row to "order-N" where N = outer loop.index
-            // But inner loop uses loop.index0 for data-group â€” need to match order-row id
+            // But inner loop uses loop.index0 for data-group "” need to match order-row id
             // Actually we match by the toggle btn's data-target which equals "order-N"
             const rows = document.querySelectorAll(
                 '.order-detail-row[data-group="' + group + '"]'
@@ -701,10 +701,10 @@
             btn.className = 'btn btn-' + newColour + ' btn-sm py-0 px-1 advance-so-dept-btn';
             if (newStatus === 'completed' || newStatus === 'closed') {
                 btn.innerHTML = '<i class="bi bi-check-circle" style="font-size:.65rem;"></i> ' + newLabel.substring(0, 5);
-                btn.title = newLabel + ' â€” right-click to step back';
+                btn.title = newLabel + ' "” right-click to step back';
             } else {
                 btn.innerHTML = '<i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> ' + newLabel.substring(0, 5);
-                btn.title = 'Left-click: advance Â· Right-click: step back';
+                btn.title = 'Left-click: advance . Right-click: step back';
             }
 
             // Mirror change on all line-level op buttons for this dept
@@ -772,10 +772,10 @@
                         deptBtn.className = 'btn btn-' + meta.colour + ' btn-sm py-0 px-1 advance-so-dept-btn';
                         if (data.status === 'completed' || data.status === 'closed') {
                             deptBtn.innerHTML = '<i class="bi bi-check-circle" style="font-size:.65rem;"></i> ' + meta.label.substring(0, 5);
-                            deptBtn.title = meta.label + ' â€” right-click to step back';
+                            deptBtn.title = meta.label + ' "” right-click to step back';
                         } else {
                             deptBtn.innerHTML = '<i class="bi bi-arrow-right-circle" style="font-size:.65rem;"></i> ' + meta.label.substring(0, 5);
-                            deptBtn.title = 'Left-click: advance Â· Right-click: step back';
+                            deptBtn.title = 'Left-click: advance . Right-click: step back';
                         }
                     }
                 }
@@ -922,12 +922,12 @@
     const modal = document.getElementById('opModal');
     const form  = document.getElementById('opForm');
     modal.addEventListener('show.bs.modal', function (e) {
-        // relatedTarget may be a child element (e.g. the <i> icon) â€” walk up to the button
+        // relatedTarget may be a child element (e.g. the <i> icon) "” walk up to the button
         const btn  = e.relatedTarget && e.relatedTarget.closest('[data-op-id]');
         if (!btn) return;
         const opId = btn.dataset.opId;
         form.action = '/orders/operations/' + opId + '/update';
-        document.getElementById('opModalLabel').textContent = btn.dataset.so + ' â€” ' + btn.dataset.dept;
+        document.getElementById('opModalLabel').textContent = btn.dataset.so + ' "” ' + btn.dataset.dept;
         document.getElementById('opModalSub').textContent   = '';
         document.getElementById('modalStatus').value  = btn.dataset.status;
         document.getElementById('modalPlanned').value = btn.dataset.planned;
@@ -982,7 +982,7 @@
     function loadComments(soNumber) {
         commentThread.innerHTML =
             '<div class="text-center text-muted small py-3">' +
-            '<span class="spinner-border spinner-border-sm me-1"></span> Loadingâ€¦</div>';
+            '<span class="spinner-border spinner-border-sm me-1"></span> Loading...</div>';
 
         fetch('/orders/so/' + encodeURIComponent(soNumber) + '/comments', {
             headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -992,7 +992,7 @@
             commentThread.innerHTML = '';
             if (!data.ok) { commentThread.innerHTML = '<p class="text-danger small p-3">Failed to load.</p>'; return; }
             if (data.comments.length === 0) {
-                commentThread.innerHTML = '<p class="text-muted small text-center py-3">No notes yet â€” be the first to add one.</p>';
+                commentThread.innerHTML = '<p class="text-muted small text-center py-3">No notes yet "” be the first to add one.</p>';
             } else {
                 data.comments.forEach(function (c) { commentThread.appendChild(renderComment(c)); });
                 commentThread.scrollTop = commentThread.scrollHeight;
@@ -1009,7 +1009,7 @@
             const btn = e.target.closest('.so-comment-btn');
             if (!btn) return;
             activeSo = btn.dataset.so;
-            commentLabel.textContent = 'Notes â€” ' + activeSo;
+            commentLabel.textContent = 'Notes "” ' + activeSo;
             commentBody.value = '';
             commentCount.textContent = '0 / 1000';
             bootstrap.Modal.getOrCreateInstance(commentModal).show();
@@ -1069,7 +1069,7 @@
                                 escHtml(data.comment.body) +
                             '</div>' +
                             '<div class="text-muted" style="font-size:.68rem;">' +
-                                escHtml(data.comment.user) + ' Â· ' + escHtml(data.comment.created_at) +
+                                escHtml(data.comment.user) + ' . ' + escHtml(data.comment.created_at) +
                             '</div>';
                     }
                 }
@@ -1084,7 +1084,7 @@
         let isDragging = false, startX = 0, scrollStart = 0, moved = false;
 
         wipWrapper.addEventListener('mousedown', function (e) {
-            // Only drag on empty table areas â€” not buttons, links, inputs
+            // Only drag on empty table areas "” not buttons, links, inputs
             if (e.target.closest('button, a, input, select, label')) return;
             isDragging  = true;
             moved       = false;
