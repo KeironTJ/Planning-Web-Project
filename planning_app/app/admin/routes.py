@@ -12,7 +12,7 @@ from flask import render_template, redirect, url_for, flash, request, jsonify
 from flask_login import login_required, current_user
 
 from . import admin_bp
-from .forms import ImportUploadForm, DeptHoursForm, SystemSettingsForm
+from .forms import ImportUploadForm, DeptHoursForm, SystemSettingsForm, DeptCreateForm
 from .models import SystemSetting, SETTING_AUTO_COMPLETE_DESPATCH, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS, SETTING_MRP_LEAD_DAYS
 from app.auth.models import User, Role, AuditLog
 from app.auth.services import RoleService
@@ -407,6 +407,33 @@ def dept_list():
         Department.flow_order.asc().nullslast(), Department.name.asc()
     ).all()
     return render_template("admin/dept_list.html", title="Departments", departments=departments)
+
+
+@admin_bp.route("/departments/add", methods=["GET", "POST"])
+@login_required
+@admin_required
+def dept_add():
+    form = DeptCreateForm()
+    if request.method == "GET":
+        form.track.data = True
+    if form.validate_on_submit():
+        code = form.code.data.strip().upper()
+        if Department.query.filter_by(code=code).first():
+            flash(f"A department with code '{code}' already exists.", "danger")
+        else:
+            dept = Department(
+                code=code,
+                name=form.name.data.strip(),
+                target_hours_per_day=form.target_hours_per_day.data,
+                flow_order=form.flow_order.data,
+                track=form.track.data,
+                is_active=True,
+            )
+            db.session.add(dept)
+            db.session.commit()
+            flash(f"Department '{dept.name}' created.", "success")
+            return redirect(url_for("admin.dept_list"))
+    return render_template("admin/dept_add.html", title="Add Department", form=form)
 
 
 @admin_bp.route("/departments/<int:dept_id>", methods=["GET", "POST"])

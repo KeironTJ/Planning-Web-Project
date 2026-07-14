@@ -2,8 +2,8 @@
 
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired, FileAllowed
-from wtforms import SelectField, DecimalField, IntegerField, BooleanField
-from wtforms.validators import Optional, NumberRange
+from wtforms import SelectField, DecimalField, IntegerField, BooleanField, StringField
+from wtforms.validators import Optional, NumberRange, DataRequired, Length
 
 
 class ImportUploadForm(FlaskForm):
@@ -49,6 +49,28 @@ class SystemSettingsForm(FlaskForm):
 
 
 class DeptHoursForm(FlaskForm):
+    target_hours_per_day = DecimalField(
+        "Target Hours / Day",
+        places=2,
+        validators=[Optional()],
+    )
+    flow_order = IntegerField(
+        "Flow Order",
+        validators=[Optional(), NumberRange(min=1, max=999)],
+    )
+    track = BooleanField("Track Department")
+
+
+class DeptCreateForm(FlaskForm):
+    code = StringField(
+        "Code",
+        validators=[DataRequired(), Length(max=50)],
+        description="Short unique identifier, e.g. CUTTING or DESPATCH.",
+    )
+    name = StringField(
+        "Name",
+        validators=[DataRequired(), Length(max=100)],
+    )
     target_hours_per_day = DecimalField(
         "Target Hours / Day",
         places=2,

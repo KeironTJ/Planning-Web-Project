@@ -3,9 +3,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0">Departments</h4>
-    <a href="{{ url_for('admin.seed_departments') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-database-add me-1"></i>Seed Defaults
-    </a>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('admin.dept_add') }}" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-lg me-1"></i>Add Department
+        </a>
+        <a href="{{ url_for('admin.seed_departments') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-database-add me-1"></i>Seed Defaults
+        </a>
+    </div>
 </div>
 
 <div class="card border-0 shadow-sm">

@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Add Department</h4>
+            <a href="{{ url_for('admin.dept_list') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1"></i>Back
+            </a>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+        {% endwith %}
+
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+
+                    <div class="mb-3">
+                        {{ form.code.label(class="form-label fw-semibold") }}
+                        {{ form.code(class="form-control text-uppercase", placeholder="e.g. CUTTING") }}
+                        <div class="form-text">Short unique identifier. Will be stored in uppercase.</div>
+                        {% for e in form.code.errors %}
+                        <div class="text-danger small">{{ e }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        {{ form.name.label(class="form-label fw-semibold") }}
+                        {{ form.name(class="form-control", placeholder="e.g. Cutting") }}
+                        {% for e in form.name.errors %}
+                        <div class="text-danger small">{{ e }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        {{ form.target_hours_per_day.label(class="form-label fw-semibold") }}
+                        {{ form.target_hours_per_day(class="form-control", placeholder="e.g. 7.50") }}
+                        <div class="form-text">Default capacity when no Labour Plan has been imported.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        {{ form.flow_order.label(class="form-label fw-semibold") }}
+                        {{ form.flow_order(class="form-control", placeholder="e.g. 1, 2, 3…") }}
+                        <div class="form-text">Position in the production flow (1 = first). Controls column order on the WIP Tracker.</div>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="form-check form-switch">
+                            {{ form.track(class="form-check-input", role="switch") }}
+                            {{ form.track.label(class="form-check-label fw-semibold") }}
+                        </div>
+                        <div class="form-text">Include in Daily Output chart and production views.</div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-plus-lg me-1"></i>Create Department
+                        </button>
+                        <a href="{{ url_for('admin.dept_list') }}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
