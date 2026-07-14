@@ -14,7 +14,7 @@ from sqlalchemy import func, case
 
 from app.extensions import db
 from app.core.exceptions import ValidationError
-from .models import SalesOrderLine, SalesOrderComment, SalesOrder
+from .models import SalesOrderComment, SalesOrder
 
 # A sale is countable as a "unit" only when the model is a real finished-goods
 # product — NULL, empty string, and "Scatter" items are excluded from all unit

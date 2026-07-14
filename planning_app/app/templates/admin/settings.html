@@ -107,6 +107,41 @@
                 </div>
             </div>
 
+            <!-- Materials / MRP -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-transparent fw-semibold">
+                    <i class="bi bi-boxes me-2"></i>Materials / MRP
+                </div>
+                <div class="card-body">
+
+                    <div class="d-flex justify-content-between align-items-start py-3">
+                        <div>
+                            <div class="fw-semibold">{{ form.mrp_lead_days.label.text }}</div>
+                            <div class="text-muted small mt-1">
+                                Minimum number of calendar days before a sales order's ship date
+                                that a PO must be due in order to count as material coverage.
+                                If the PO arrives after this deadline the order is marked
+                                <span class="text-danger fw-semibold">Shortage</span> rather than
+                                <span class="text-warning fw-semibold">Med Risk</span>.
+                                Overdue POs (past due date) are treated as arriving today and
+                                assessed against this same window.
+                            </div>
+                        </div>
+                        <div class="ms-4 flex-shrink-0 d-flex align-items-center gap-2">
+                            {{ form.mrp_lead_days(class="form-control form-control-sm text-end",
+                               style="width:80px;") }}
+                            <span class="text-muted small">days</span>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="card-footer bg-transparent text-end">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-floppy me-1"></i>Save Settings
+                    </button>
+                </div>
+            </div>
+
         </form>
 
     </div>

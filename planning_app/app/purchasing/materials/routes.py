@@ -4,12 +4,11 @@ from datetime import date, timedelta
 
 from flask import render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
-from sqlalchemy import func
 
 from . import materials_bp
 from . import services
 from app.extensions import db
-from app.sales.orders.models import Department, SalesOrderLine, WorksOrderOperation
+from app.sales.orders.models import Department
 from app.core.decorators import permission_required
 
 
@@ -27,6 +26,7 @@ def index():
         weekly=weekly,
         so_breakdown=so_breakdown,
         timedelta=timedelta,
+        today=date.today(),
     )
 
 
@@ -69,29 +69,10 @@ def shortage():
     )
     departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
 
-    # Build plan_start_map: SO number -> earliest planned op date from our system.
-    # Use so_number field directly (populated from 'Order' column during import).
-    so_numbers = list({
-        r.so_number for r in data["rows"]
-        if r.so_number
-    })
+    # plan_start_map is no longer populated from the old CSV WorksOrderOperation table.
+    # Planner dates from that system have been retired; the shortage report uses
+    # MaterialRequirementMain.due_date directly as the effective deadline.
     plan_start_map: dict = {}
-    if so_numbers:
-        rows = (
-            db.session.query(
-                SalesOrderLine.so_number,
-                func.min(WorksOrderOperation.planned_date),
-            )
-            .join(WorksOrderOperation, WorksOrderOperation.sales_order_line_id == SalesOrderLine.id)
-            .filter(
-                SalesOrderLine.so_number.in_(so_numbers),
-                WorksOrderOperation.planned_date.isnot(None),
-                WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED,
-            )
-            .group_by(SalesOrderLine.so_number)
-            .all()
-        )
-        plan_start_map = {so: pd for so, pd in rows}
 
     return render_template(
         "materials/shortage.html",
@@ -128,15 +109,39 @@ def stock_list():
 @login_required
 @permission_required("view_materials")
 def po_list():
-    search = request.args.get("q", "")
-    page   = request.args.get("page", 1, type=int)
-    pos    = services.get_po_list(search=search or None, page=page)
-    today  = date.today()
+    search      = request.args.get("q", "")
+    due_from_s  = request.args.get("due_from", "")
+    due_before_s = request.args.get("due_before", "")
+    page        = request.args.get("page", 1, type=int)
+    today       = date.today()
+
+    due_from = None
+    if due_from_s:
+        try:
+            due_from = date.fromisoformat(due_from_s)
+        except ValueError:
+            pass
+
+    due_before = None
+    if due_before_s:
+        try:
+            due_before = date.fromisoformat(due_before_s)
+        except ValueError:
+            pass
+
+    pos = services.get_po_list(
+        search=search or None,
+        due_from=due_from,
+        due_before=due_before,
+        page=page,
+    )
     return render_template(
         "materials/po_list.html",
         title="Open Purchase Orders",
         pos=pos,
         search=search,
+        due_from=due_from_s,
+        due_before=due_before_s,
         today=today,
     )
 

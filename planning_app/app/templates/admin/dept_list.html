@@ -20,7 +20,6 @@
                         <th class="text-end">Target Hrs/Day</th>
                         <th class="text-center">Tracked</th>
                         <th class="text-center">Status</th>
-                        <th class="text-end">Operations</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -52,9 +51,6 @@
                             {% else %}
                                 <span class="badge text-bg-secondary">Inactive</span>
                             {% endif %}
-                        </td>
-                        <td class="text-end text-muted small">
-                            {{ dept.works_order_operations | length }}
                         </td>
                         <td class="text-end">
                             <a href="{{ url_for('admin.dept_edit', dept_id=dept.id) }}"

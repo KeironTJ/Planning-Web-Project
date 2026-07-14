@@ -45,7 +45,7 @@
         <!-- Row 2: Department buttons -->
         {% set ns = namespace(data_dept_ids=[]) %}
         {% for row in data.summary %}
-            {% if row.avail_total or row.load_total %}
+            {% if row.avail_total %}
                 {% set ns.data_dept_ids = ns.data_dept_ids + [row.dept.id] %}
             {% endif %}
         {% endfor %}
@@ -121,15 +121,13 @@
                     <tr>
                         <th>Department</th>
                         <th class="text-end">Available Hrs</th>
-                        <th class="text-end">Planned Load</th>
                         <th class="text-end">Headroom</th>
-                        <th style="min-width:160px;">Utilisation</th>
                         <th></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in data.summary %}
-                    {% if row.avail_total or row.load_total %}
+                    {% if row.avail_total %}
                     <tr>
                         <td class="fw-semibold">
                             <a href="{{ url_for('orders.order_book', dept_id=row.dept.id, plan_from=data.from_date.isoformat(), plan_to=data.to_date.isoformat()) }}"
@@ -138,34 +136,10 @@
                             </a>
                         </td>
                         <td class="text-end">{{ row.avail_total if row.avail_total else '"”' }}</td>
-                        <td class="text-end">{{ row.load_total if row.load_total else '"”' }}</td>
                         <td class="text-end {{ 'text-danger fw-semibold' if row.headroom < 0 else '' }}">
                             {{ row.headroom if row.avail_total else '"”' }}
                         </td>
                         <td>
-                            {% if row.avail_total and row.util_pct %}
-                            <div class="d-flex align-items-center gap-1">
-                                <div class="progress flex-grow-1" style="height:8px;">
-                                    <div class="progress-bar
-                                        {% if row.util_pct > 100 %}bg-danger
-                                        {% elif row.util_pct > 85 %}bg-warning
-                                        {% else %}bg-primary{% endif %}"
-                                        style="width:{{ [row.util_pct, 100] | min }}%">
-                                    </div>
-                                </div>
-                                <small class="{% if row.util_pct > 100 %}text-danger fw-semibold
-                                             {% elif row.util_pct > 85 %}text-warning
-                                             {% else %}text-primary{% endif %}"
-                                       style="min-width:44px;">
-                                    {{ row.util_pct }}%
-                                </small>
-                            </div>
-                            {% elif row.avail_total %}
-                            <span class="text-muted small">No load data</span>
-                            {% else %}
-                            <span class="text-muted small">No data</span>
-                            {% endif %}
-                        </td>
                         <td>
                             <a href="{{ url_for('capacity.dept_calendar', dept_id=row.dept.id) }}"
                                class="btn btn-sm btn-outline-secondary py-0"
@@ -193,7 +167,7 @@
 <div class="card border-0 shadow-sm mt-3">
     <div class="card-header bg-transparent fw-semibold py-2 d-flex justify-content-between align-items-center">
         <span>Weekly Capacity Buckets</span>
-        <small class="text-muted fw-normal">Available / Load / Util %</small>
+        <small class="text-muted fw-normal">Available hours per week</small>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -210,10 +184,10 @@
                 <tbody>
                     {% for d in data.departments %}
                     {% set has_any = namespace(val=false) %}
-                    {% for row in d.rows %}{% if row.avail > 0 or row.demand > 0 %}{% set has_any.val = true %}{% endif %}{% endfor %}
+                    {% for row in d.rows %}{% if row.avail > 0 %}{% set has_any.val = true %}{% endif %}{% endfor %}
                     {% if has_any.val %}
                     <tr class="table-group-row">
-                        <td class="fw-semibold border-end border-2" rowspan="3" style="vertical-align:middle; width:150px; max-width:150px; overflow:hidden; word-break:break-word;">
+                        <td class="fw-semibold border-end border-2" style="vertical-align:middle; width:150px; max-width:150px; overflow:hidden; word-break:break-word;">
                             <a href="{{ url_for('orders.order_book', dept_id=d.dept.id) }}"
                                class="text-decoration-none text-body" title="View orders with planned operations in this period ({{ data.from_date.strftime('%d %b') }} "“ {{ data.to_date.strftime('%d %b') }})">
                                 {{ d.dept.name }}
@@ -229,24 +203,7 @@
                         <td class="text-center">{{ row.avail if row.avail else '"”' }}</td>
                         {% endfor %}
                     </tr>
-                    <tr>
-                        <td class="text-nowrap text-primary" title="Hours for operations with a planned date set">Planned load</td>
-                        {% for row in d.rows %}
-                        <td class="text-center">{{ row.load if row.load else '"”' }}</td>
-                        {% endfor %}
-                    </tr>
                     <tr class="border-bottom border-2">
-                        <td class="text-nowrap small text-muted">Util %</td>
-                        {% for row in d.rows %}
-                        <td class="text-center small fw-semibold
-                            {% if row.avail and row.util > 100 %}bg-danger text-white
-                            {% elif row.avail and row.util > 85 %}bg-warning
-                            {% elif row.avail and row.util > 0 %}bg-primary bg-opacity-25
-                            {% endif %}">
-                            {{ row.util ~ '%' if row.avail and row.util else '"”' }}
-                        </td>
-                        {% endfor %}
-                    </tr>
                     {% endif %}
                     {% endfor %}
                 </tbody>
@@ -316,91 +273,38 @@ document.addEventListener('DOMContentLoaded', function () {
     const d   = chartData[0];
     const ctx = document.getElementById('deptChart');
     if (ctx) {
-        const utils      = d.rows.map(r => r.util);
         const weekTitles = weeks.map(weekTitle);
-        const maxUtil    = Math.max(...utils, 0);
 
         new Chart(ctx, {
+            type: 'bar',
             data: {
                 labels: weeks.map(weekLabel),
-                datasets: [
-                    {
-                        type: 'bar',
-                        label: 'Available',
-                        data: d.rows.map(r => r.avail),
-                        backgroundColor: 'rgba(200,210,220,0.45)',
-                        borderColor:     'rgba(150,160,175,0.7)',
-                        borderWidth: 1,
-                        yAxisID: 'yHrs',
-                        order: 3,
-                    },
-                    {
-                        type: 'bar',
-                        label: 'Planned Load',
-                        data: d.rows.map(r => r.load),
-                        backgroundColor: utils.map(u => utilColour(u, 0.8)),
-                        borderWidth: 0,
-                        yAxisID: 'yHrs',
-                        order: 2,
-                    },
-                    {
-                        type: 'line',
-                        label: 'Utilisation %',
-                        data: utils,
-                        borderColor:     'rgba(99,99,255,0.9)',
-                        backgroundColor: 'rgba(99,99,255,0.1)',
-                        borderWidth: 2.5,
-                        pointRadius: 5,
-                        pointHoverRadius: 7,
-                        pointBackgroundColor: utils.map(u => utilColour(u, 1)),
-                        fill: false,
-                        tension: 0.3,
-                        yAxisID: 'yUtil',
-                        order: 1,
-                    },
-                ]
+                datasets: [{
+                    label: 'Available Hours',
+                    data: d.rows.map(r => r.avail),
+                    backgroundColor: 'rgba(13,110,253,0.35)',
+                    borderColor:     'rgba(13,110,253,0.7)',
+                    borderWidth: 1,
+                }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    legend: {
-                        position: 'top',
-                        labels: { usePointStyle: true, padding: 16 },
-                    },
+                    legend: { display: false },
                     tooltip: {
                         callbacks: {
                             title: (items) => weekTitles[items[0].dataIndex],
-                            label: (item) => {
-                                if (item.dataset.label === 'Utilisation %')
-                                    return `  Utilisation:  ${item.raw}%`;
-                                return `  ${item.dataset.label}:  ${item.raw} hrs`;
-                            },
-                            footer: (items) => {
-                                const u = utils[items[0].dataIndex];
-                                return u > 100 ? 'âš  Over capacity' : u > 85 ? 'âš  High utilisation' : '';
-                            }
+                            label: (item) => `  Available: ${item.raw} hrs`,
                         }
                     }
                 },
                 scales: {
-                    yHrs: {
-                        type: 'linear',
-                        position: 'left',
+                    y: {
                         beginAtZero: true,
                         title: { display: true, text: 'Hours / week', font: { size: 12 } },
                         grid: { color: gridColour },
                         ticks: { callback: v => v + ' h' },
-                    },
-                    yUtil: {
-                        type: 'linear',
-                        position: 'right',
-                        beginAtZero: true,
-                        suggestedMax: Math.max(120, Math.ceil(maxUtil / 10) * 10 + 20),
-                        title: { display: true, text: 'Utilisation', font: { size: 12 } },
-                        grid: { drawOnChartArea: false },
-                        ticks: { callback: v => v + '%' },
                     },
                     x: {
                         grid: { color: gridColour },
@@ -414,75 +318,40 @@ document.addEventListener('DOMContentLoaded', function () {
     // â”€â”€ All departments chart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const ctx2 = document.getElementById('allDeptsChart');
     if (ctx2 && chartData.length) {
-        // Strip departments that have no avail and no load across all weeks
-        const activeData = chartData.filter(d => d.rows.some(r => r.avail > 0 || r.load > 0));
-        const fullNames = activeData.map(d => d.dept.name);
-        const labels    = fullNames.map(deptLabel);
-        const avails    = activeData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.avail, 0).toFixed(1)));
-        const loads     = activeData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.load, 0).toFixed(1)));
-        const utils     = avails.map((a, i) => a > 0 ? parseFloat((loads[i] / a * 100).toFixed(1)) : 0);
-        const headrooms = avails.map((a, i) => parseFloat(Math.max(0, a - loads[i]).toFixed(1)));
+        const activeData = chartData.filter(d => d.rows.some(r => r.avail > 0));
+        const fullNames  = activeData.map(d => d.dept.name);
+        const labels     = fullNames.map(deptLabel);
+        const avails     = activeData.map(d => parseFloat(d.rows.reduce((s, r) => s + r.avail, 0).toFixed(1)));
 
         new Chart(ctx2, {
             type: 'bar',
             data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: 'Planned Load',
-                        data: loads,
-                        backgroundColor: utils.map(u => utilColour(u, 0.82)),
-                        borderWidth: 0,
-                        stack: 'cap',
-                    },
-                    {
-                        label: 'Remaining Capacity',
-                        data: headrooms,
-                        backgroundColor: 'rgba(210,215,220,0.4)',
-                        borderColor:     'rgba(160,165,175,0.5)',
-                        borderWidth: 1,
-                        stack: 'cap',
-                    },
-                ]
+                labels,
+                datasets: [{
+                    label: 'Available Hours',
+                    data: avails,
+                    backgroundColor: 'rgba(13,110,253,0.45)',
+                    borderColor:     'rgba(13,110,253,0.7)',
+                    borderWidth: 1,
+                }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    legend: {
-                        position: 'top',
-                        labels: { usePointStyle: true, padding: 16 },
-                    },
+                    legend: { display: false },
                     tooltip: {
                         callbacks: {
                             title: (items) => fullNames[items[0].dataIndex],
-                            label: (item) => {
-                                const i = item.dataIndex;
-                                if (item.datasetIndex === 0)
-                                    return `  Planned Load:       ${loads[i]} hrs`;
-                                return `  Remaining Capacity: ${headrooms[i]} hrs`;
-                            },
-                            footer: (items) => {
-                                const i = items[0].dataIndex;
-                                const flag = utils[i] > 100 ? '  âš  OVER CAPACITY'
-                                           : utils[i] > 85  ? '  âš  High utilisation'
-                                           : '';
-                                return `Available: ${avails[i]} hrs  .  Utilisation: ${utils[i]}%${flag}`;
-                            }
+                            label: (item) => `  Available: ${item.raw} hrs`,
                         }
                     }
                 },
                 scales: {
-                    x: {
-                        stacked: true,
-                        ticks: { maxRotation: 0, font: { size: 11 }, autoSkip: false },
-                        grid: { color: gridColour },
-                    },
+                    x: { ticks: { maxRotation: 0, font: { size: 11 }, autoSkip: false }, grid: { color: gridColour } },
                     y: {
-                        stacked: true,
                         beginAtZero: true,
-                        title: { display: true, text: 'Total hours  ({{ num_weeks }}-week period)', font: { size: 12 } },
+                        title: { display: true, text: 'Total hours ({{ num_weeks }}-week period)', font: { size: 12 } },
                         grid: { color: gridColour },
                         ticks: { callback: v => v + ' h' },
                     }

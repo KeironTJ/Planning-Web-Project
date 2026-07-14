@@ -111,3 +111,4 @@ class SystemSetting(db.Model):
 SETTING_AUTO_COMPLETE_DESPATCH = "auto_complete_despatch"
 SETTING_DAILY_OUTPUT_TARGET = "daily_output_target"
 SETTING_DAILY_OUTPUT_TARGET_DAYS = "daily_output_target_days"  # comma-separated weekday ints 0=Mon…4=Fri
+SETTING_MRP_LEAD_DAYS = "mrp_material_lead_days"  # days material must arrive before ship date

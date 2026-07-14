@@ -100,9 +100,13 @@ def _load_stock() -> dict[str, Decimal]:
 
 def _load_po_coverage() -> dict[str, list[tuple[date, Decimal]]]:
     """
-    Return {part_num: [(due_date, outstanding_qty), ...]} for all open PO releases.
-    Date-constrained: only rows with a due_date are included.
+    Return {part_num: [(effective_date, outstanding_qty), ...]} for all open PO releases.
+
+    Overdue POs (due_date < today) are clamped to today — they are still
+    outstanding (not yet received) but assumed to arrive at the earliest now.
+    Only rows with a due_date are included.
     """
+    today = date.today()
     rows = (
         db.session.query(
             PurchaseOrder.part_num,
@@ -119,8 +123,19 @@ def _load_po_coverage() -> dict[str, list[tuple[date, Decimal]]]:
     )
     coverage: dict[str, list[tuple[date, Decimal]]] = defaultdict(list)
     for r in rows:
-        coverage[r.part_num].append((r.due_date, r.outstanding_qty or Decimal(0)))
+        effective = r.due_date if r.due_date >= today else today
+        coverage[r.part_num].append((effective, r.outstanding_qty or Decimal(0)))
     return dict(coverage)
+
+
+def _get_lead_days() -> int:
+    """
+    Return the configured MRP material lead days from SystemSetting.
+    This is the number of days before the ship date that a PO must arrive
+    to count as material coverage (default 14).
+    """
+    from app.admin.models import SystemSetting, SETTING_MRP_LEAD_DAYS
+    return SystemSetting.get_int(SETTING_MRP_LEAD_DAYS, default=14)
 
 
 def _load_co_qty() -> dict[str, Decimal]:
@@ -168,8 +183,9 @@ def get_shortage_report(
             "reqs_imported": bool,
         }
     """
+    lead_days    = _get_lead_days()       # days material must arrive before ship date
     stock_map    = _load_stock()
-    po_map       = _load_po_coverage()   # actual POs, date-constrained
+    po_map       = _load_po_coverage()   # actual POs; overdue dates clamped to today
     co_qty_map   = _load_co_qty()        # CO call-offs, treated as finite pool
     exempt_codes = _load_exempt_codes()  # materials excluded from shortage reporting
 
@@ -217,22 +233,27 @@ def get_shortage_report(
     all_netted: list[dict] = []
 
     for mc, reqs in by_material.items():
+        from datetime import timedelta as _td
         # Sort by due_date (None → treated as very far future)
         reqs.sort(key=lambda r: (r["due_date"] or date.max))
 
         remaining_stock = stock_map.get(mc, Decimal(0))
         remaining_co    = co_qty_map.get(mc, Decimal(0))
-        po_lines        = sorted(po_map.get(mc, []), key=lambda x: x[0])  # (date, qty)
+        po_lines        = sorted(po_map.get(mc, []), key=lambda x: x[0])  # (effective_date, qty)
         po_consumed     = Decimal(0)
 
         for req in reqs:
             net_req = req["net_required"]
             req_due = req["due_date"]
 
-            # PO quantity available up to this requirement's due date,
+            # PO must arrive at least lead_days before the requirement due date.
+            # _load_po_coverage() has already clamped overdue POs to today.
+            po_deadline = (req_due - _td(days=lead_days)) if req_due else None
+
+            # PO quantity available up to the lead-time deadline,
             # minus what earlier requirements in this material group already consumed
             po_gross = sum(
-                (qty for d, qty in po_lines if req_due is None or d <= req_due),
+                (qty for d, qty in po_lines if po_deadline is None or d <= po_deadline),
                 Decimal(0),
             )
             po_avail = max(Decimal(0), po_gross - po_consumed)
@@ -343,16 +364,21 @@ def _apply_coverage(
     po_entries: dict,
     plan_start_map: Optional[dict] = None,
     exempt_codes: frozenset = frozenset(),
+    lead_days: int = 14,
 ) -> None:
     """
     Apply worst-case coverage tier to result dict for a list of requirement rows.
 
-    For the PO date constraint, the effective deadline is:
+    For the PO date constraint, the effective ship deadline is:
       - plan_start_map[so]  if a planned start date has been set (planner's date)
       - req.due_date        otherwise (ERP's MRP date)
-    Using the planned start date ensures PO coverage is assessed against when
-    production is actually scheduled to begin, not the ERP's estimate.
+
+    A PO counts as coverage only if its effective_date <= (ship_deadline - lead_days).
+    This ensures materials are on-site at least ``lead_days`` days before production
+    is due to start.  Overdue PO dates should already be clamped to today by the
+    caller before being placed in po_entries.
     """
+    from datetime import timedelta
     plan_start_map = plan_start_map or {}
     for req in reqs:
         so = so_key_fn(req)
@@ -379,10 +405,12 @@ def _apply_coverage(
                     line_status = "low_risk"
                 else:
                     # Use planner's start date if set; fall back to ERP MRP date
-                    effective_date = plan_start_map.get(so) or due_date_fn(req)
+                    ship_date = plan_start_map.get(so) or due_date_fn(req)
+                    # PO must arrive at least lead_days before ship date
+                    po_deadline = (ship_date - timedelta(days=lead_days)) if ship_date else None
                     po_cov = sum(
                         (qty for d, qty in po_entries.get(mc, [])
-                         if effective_date is None or d <= effective_date),
+                         if po_deadline is None or d <= po_deadline),
                         Decimal(0),
                     )
                     remaining -= po_cov
@@ -454,6 +482,8 @@ def get_so_material_status(
         .all()
     )
 
+    lead_days    = _get_lead_days()       # days material must arrive before ship date
+    today        = date.today()
     co_qty_map: dict[str, Decimal] = {}   # CO type not available in BAQ
     po_entries: dict[str, list[tuple]] = defaultdict(list)
 
@@ -462,7 +492,9 @@ def get_so_material_status(
             continue
         qty = r.outstanding_qty or Decimal(0)
         if r.due_date:
-            po_entries[r.part_num].append((r.due_date, qty))
+            # Clamp overdue POs to today — still outstanding, but no earlier than now
+            effective = r.due_date if r.due_date >= today else today
+            po_entries[r.part_num].append((effective, qty))
 
     # ---- Apply coverage — main requirements ----
     _apply_coverage(
@@ -479,6 +511,7 @@ def get_so_material_status(
         po_entries=po_entries,
         plan_start_map=plan_start_map,
         exempt_codes=exempt_codes,
+        lead_days=lead_days,
     )
 
     return result
@@ -583,7 +616,7 @@ def get_mrp_pegging(
                 "row_type": "requirement",
                 "reference": req.works_order or "",
                 "source": "main",
-                "department": req.department or "",
+                "department": req.warehouse_code or "",
                 "demand": net_req,
                 "receipt": None,
                 "_sort": (2, req.due_date or date.max, 1),
@@ -682,7 +715,14 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
     Aggregate open SOs by ISO week and material status, returning both
     SO count and total order value per bucket.
 
-    "Open" = has at least one non-closed WorksOrderOperation.
+    "Open"  = SalesOrder.open_order == True  (Epicor API data, daily sync).
+    Date    = req_date (OrderRel_ReqDate) — the customer-requested delivery date.
+    Value   = sum of release_price_gbp, de-duplicated to one row per
+              (order_num, order_line, rel_num) before summing, so that
+              multiple assemblies/jobs against the same release don't
+              double-count the value.
+    SO#     = str(order_num) — matches MaterialRequirementMain.so_number exactly.
+
     no_data status is folded into "ok" (no MRP requirements = no shortage risk).
 
     Returns:
@@ -697,32 +737,38 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
         }
     """
     from datetime import date, timedelta
-    from app.sales.orders.models import SalesOrderLine, WorksOrderOperation
+    from app.sales.orders.models import SalesOrder
 
     today   = date.today()
     cutoff  = today + timedelta(weeks=weeks_ahead)
 
     STATUSES = ("ok", "low_risk", "med_risk", "high_risk")
 
-    open_so_subq = (
-        db.session.query(WorksOrderOperation.so_number)
-        .filter(WorksOrderOperation.status != WorksOrderOperation.STATUS_CLOSED)
-        .distinct()
+    # Collapse to one row per (order_num, order_line, rel_num) to avoid
+    # counting the same release price multiple times across assemblies/jobs.
+    release_subq = (
+        db.session.query(
+            SalesOrder.order_num,
+            SalesOrder.req_date,
+            SalesOrder.release_price_gbp,
+        )
+        .filter(
+            SalesOrder.open_order == True,
+            SalesOrder.req_date.isnot(None),
+            SalesOrder.req_date <= cutoff,
+        )
+        .group_by(SalesOrder.order_num, SalesOrder.order_line, SalesOrder.rel_num)
         .subquery()
     )
 
+    # One row per SO number: earliest req_date across all its releases, total GBP value.
     so_rows = (
         db.session.query(
-            SalesOrderLine.so_number,
-            func.min(SalesOrderLine.due_date).label("due_date"),
-            func.sum(SalesOrderLine.total_value).label("total_value"),
+            release_subq.c.order_num,
+            func.min(release_subq.c.req_date).label("due_date"),
+            func.sum(release_subq.c.release_price_gbp).label("total_value"),
         )
-        .filter(
-            SalesOrderLine.so_number.in_(db.session.query(open_so_subq.c.so_number)),
-            SalesOrderLine.due_date.isnot(None),
-            SalesOrderLine.due_date <= cutoff,
-        )
-        .group_by(SalesOrderLine.so_number)
+        .group_by(release_subq.c.order_num)
         .all()
     )
 
@@ -732,31 +778,48 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
             "total_value": Decimal(0), "total_count": 0, "has_data": False,
         }
 
-    so_numbers  = [r.so_number for r in so_rows]
+    # str(order_num) matches MaterialRequirementMain.so_number (stored as numeric string)
+    so_numbers  = [str(r.order_num) for r in so_rows]
     status_map  = get_so_material_status(so_numbers)
 
     # ---- Group by ISO week ----
+    # Weeks before the current ISO week collapse into a single "Overdue" bucket.
+    iso_y_now, iso_w_now, _ = today.isocalendar()
+    current_week_start = date.fromisocalendar(iso_y_now, iso_w_now, 1)
+
     def _empty_bucket():
         return {s: {"count": 0, "value": Decimal(0)} for s in STATUSES}
 
     buckets: dict[str, dict] = {}
+    OVERDUE_KEY = "0000-W00"
 
     for r in so_rows:
         d      = r.due_date
-        raw_st = status_map.get(r.so_number, "no_data")
+        raw_st = status_map.get(str(r.order_num), "no_data")
         status = "ok" if raw_st == "no_data" else raw_st
         value  = r.total_value or Decimal(0)
 
-        iso_y, iso_w, _ = d.isocalendar()
-        key        = f"{iso_y}-W{iso_w:02d}"
-        week_start = date.fromisocalendar(iso_y, iso_w, 1)
+        if d < current_week_start:
+            key = OVERDUE_KEY
+            if key not in buckets:
+                b = _empty_bucket()
+                b["iso_key"]    = key
+                b["week_label"] = "Overdue"
+                b["week_start"] = date.min
+                b["is_overdue"] = True
+                buckets[key]    = b
+        else:
+            iso_y, iso_w, _ = d.isocalendar()
+            key        = f"{iso_y}-W{iso_w:02d}"
+            week_start = date.fromisocalendar(iso_y, iso_w, 1)
 
-        if key not in buckets:
-            b = _empty_bucket()
-            b["iso_key"]    = key
-            b["week_label"] = f"W{iso_w:02d}  {week_start.strftime('%d %b')}"
-            b["week_start"] = week_start
-            buckets[key]    = b
+            if key not in buckets:
+                b = _empty_bucket()
+                b["iso_key"]    = key
+                b["week_label"] = f"W{iso_w:02d}  {week_start.strftime('%d %b')}"
+                b["week_start"] = week_start
+                b["is_overdue"] = False
+                buckets[key]    = b
 
         buckets[key][status]["count"] += 1
         buckets[key][status]["value"] += value
@@ -971,11 +1034,139 @@ def get_stock_summary() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Purchasing dashboard
+# ---------------------------------------------------------------------------
+
+def get_purchasing_dashboard(weeks_ahead: int = 8) -> dict:
+    """
+    Headline PO KPIs, weekly delivery schedule, and top-supplier spend
+    for the purchasing dashboard.
+
+    PO value = outstanding_qty * unit_cost  (unit_cost is base/GBP currency).
+
+    Returns:
+        {
+            "total_lines":    int,
+            "total_value":    Decimal,        # GBP
+            "overdue_lines":  int,
+            "overdue_value":  Decimal,         # GBP
+            "weeks":          [{"iso_key", "week_label", "value", "count", "is_overdue"}, ...],
+            "top_suppliers":  [{"name", "value", "lines",
+                                "overdue_value", "overdue_lines"}, ...],
+            "has_data":       bool,
+        }
+    """
+    from datetime import timedelta
+
+    today = date.today()
+    iso_y_now, iso_w_now, _ = today.isocalendar()
+    current_week_start = date.fromisocalendar(iso_y_now, iso_w_now, 1)
+    cutoff = today + timedelta(weeks=weeks_ahead)
+
+    rows = (
+        db.session.query(
+            PurchaseOrder.supplier_name,
+            PurchaseOrder.due_date,
+            PurchaseOrder.outstanding_qty,
+            PurchaseOrder.unit_cost,
+            PurchaseOrder.cost_per_code,
+        )
+        .filter(PurchaseOrder.outstanding_qty > 0)
+        .all()
+    )
+
+    if not rows:
+        return {
+            "total_lines": 0,   "total_value": Decimal(0),
+            "overdue_lines": 0, "overdue_value": Decimal(0),
+            "weeks": [],        "top_suppliers": [], "has_data": False,
+        }
+
+    _DIVISORS: dict[str, Decimal] = {"C": Decimal(100), "M": Decimal(1000)}
+
+    total_lines  = 0
+    total_value  = Decimal(0)
+    overdue_lines = 0
+    overdue_value = Decimal(0)
+    week_buckets: dict[str, dict]     = {}
+    supplier_buckets: dict[str, dict] = {}
+    OVERDUE_KEY = "0000-W00"
+
+    for r in rows:
+        divisor = _DIVISORS.get(r.cost_per_code or "E", Decimal(1))
+        val = (r.outstanding_qty or Decimal(0)) * (r.unit_cost or Decimal(0)) / divisor
+        total_lines += 1
+        total_value += val
+
+        is_overdue = bool(r.due_date and r.due_date < today)
+        if is_overdue:
+            overdue_lines += 1
+            overdue_value += val
+
+        # ---- Week bucketing (overdue + next N weeks) ----
+        due = r.due_date
+        if due is not None and due <= cutoff:
+            if due < current_week_start:
+                key = OVERDUE_KEY
+                if key not in week_buckets:
+                    week_buckets[key] = {
+                        "iso_key": key, "week_label": "Overdue",
+                        "value": Decimal(0), "count": 0, "is_overdue": True,
+                    }
+            else:
+                iso_y, iso_w, _ = due.isocalendar()
+                key        = f"{iso_y}-W{iso_w:02d}"
+                week_start = date.fromisocalendar(iso_y, iso_w, 1)
+                if key not in week_buckets:
+                    week_buckets[key] = {
+                        "iso_key":    key,
+                        "week_label": f"W{iso_w:02d}  {week_start.strftime('%d %b')}",
+                        "week_start": week_start.isoformat(),
+                        "week_end":   (week_start + timedelta(days=6)).isoformat(),
+                        "value": Decimal(0), "count": 0, "is_overdue": False,
+                    }
+            week_buckets[key]["value"] += val
+            week_buckets[key]["count"] += 1
+
+        # ---- Supplier bucketing ----
+        supplier = r.supplier_name or "Unknown"
+        if supplier not in supplier_buckets:
+            supplier_buckets[supplier] = {
+                "name": supplier, "value": Decimal(0), "lines": 0,
+                "overdue_value": Decimal(0), "overdue_lines": 0,
+            }
+        supplier_buckets[supplier]["value"]  += val
+        supplier_buckets[supplier]["lines"]  += 1
+        if is_overdue:
+            supplier_buckets[supplier]["overdue_value"] += val
+            supplier_buckets[supplier]["overdue_lines"] += 1
+
+    weeks = sorted(week_buckets.values(), key=lambda b: b["iso_key"])
+    top_suppliers = sorted(supplier_buckets.values(), key=lambda s: -s["value"])[:10]
+
+    return {
+        "total_lines":   total_lines,
+        "total_value":   total_value,
+        "overdue_lines": overdue_lines,
+        "overdue_value": overdue_value,
+        "weeks":         weeks,
+        "top_suppliers": top_suppliers,
+        "has_data":      True,
+    }
+
+
+# ---------------------------------------------------------------------------
 # PO list
 # ---------------------------------------------------------------------------
 
-def get_po_list(search: Optional[str] = None, page: int = 1, per_page: int = 50):
-    """Return paginated purchase orders, optionally filtered."""
+def get_po_list(
+    search: Optional[str] = None,
+    due_from: Optional[date] = None,
+    due_before: Optional[date] = None,
+    page: int = 1,
+    per_page: int = 50,
+):
+    """Return paginated purchase orders, optionally filtered by text search and/or due-date range."""
     q = PurchaseOrder.query.order_by(PurchaseOrder.due_date.asc().nullslast(), PurchaseOrder.po_num)
     if search:
         term = f"%{search.strip()}%"
@@ -986,6 +1177,10 @@ def get_po_list(search: Optional[str] = None, page: int = 1, per_page: int = 50)
                 PurchaseOrder.line_desc.ilike(term),
             )
         )
+    if due_from:
+        q = q.filter(PurchaseOrder.due_date >= due_from)
+    if due_before:
+        q = q.filter(PurchaseOrder.due_date <= due_before)
     return q.paginate(page=page, per_page=per_page, error_out=False)
 
 

@@ -1,6 +1,17 @@
 {% extends 'base.html' %}
+{% set page_title = 'Shortages — Material Status' %}
 
 {% block content %}
+<!-- Page header -->
+<div class="d-flex align-items-center mb-4 gap-3">
+    <div class="rounded-3 p-3 bg-danger bg-opacity-10">
+        <i class="bi bi-exclamation-triangle-fill fs-2 text-danger"></i>
+    </div>
+    <div>
+        <h4 class="mb-0 fw-semibold">Shortages</h4>
+        <p class="text-muted mb-0 small">Weekly material status across open sales orders — stock, PO coverage and shortage risk</p>
+    </div>
+</div>
 <!-- KPI cards -->
 <div class="row g-3 mb-4">
     <div class="col-6 col-md-3">
@@ -145,12 +156,16 @@
                 </thead>
                 <tbody>
                     {% for w in so_breakdown.weeks %}
+                    {% if w.is_overdue %}
+                    {% set week_url = url_for('materials.shortage', due_before=today.strftime('%Y-%m-%d'), shortages_only='0') %}
+                    {% else %}
                     {% set week_url = url_for('materials.shortage', due_from=w.week_start.strftime('%Y-%m-%d'), due_before=(w.week_start + timedelta(days=6)).strftime('%Y-%m-%d'), shortages_only='0') %}
+                    {% endif %}
                     {% set high = w.high_risk.count %}
                     {% set med  = w.med_risk.count %}
                     <tr onclick="window.location='{{ week_url }}'" style="cursor:pointer;"
-                        class="{{ 'table-danger' if high > 0 else ('table-warning' if med > 0 else '') }}">
-                        <td class="fw-semibold">{{ w.week_label }}</td>
+                        class="{{ 'table-danger' if high > 0 else ('table-warning' if med > 0 else '') }}{{ ' border-top border-2' if w.is_overdue else '' }}">
+                        <td class="fw-semibold {{ 'text-secondary fst-italic' if w.is_overdue else '' }}">{{ w.week_label }}</td>
                         <td class="text-end">{{ w.total_count }}</td>
                         <td class="text-end fw-semibold" style="color:#198754;">
                             {{ w.ok.count or '—' }}
@@ -214,18 +229,20 @@ document.addEventListener('DOMContentLoaded', function () {
     const totals = {{ so_breakdown.total_value | float | tojson }};
     const totCnt = {{ so_breakdown.total_count | tojson }};
 
-    const weekLabels = raw.map(w => w.week_label);
+    // Exclude the Overdue bucket from the chart — it has no meaningful week position
+    const chartRaw = raw.filter(w => !w.is_overdue);
+    const weekLabels = chartRaw.map(w => w.week_label);
 
     // Build dataset arrays for each status
     const valueDatasets = STATUSES.map(s => ({
         label:           LABELS[s],
-        data:            raw.map(w => parseFloat(w[s].value)),
+        data:            chartRaw.map(w => parseFloat(w[s].value)),
         backgroundColor: COLORS[s],
         borderRadius:    2,
     }));
     const countDatasets = STATUSES.map(s => ({
         label:           LABELS[s],
-        data:            raw.map(w => w[s].count),
+        data:            chartRaw.map(w => w[s].count),
         backgroundColor: COLORS[s],
         borderRadius:    2,
     }));

@@ -242,19 +242,7 @@ class MaterialRequirementsImporter(EpicorBaqImporter):
         MaterialRequirementMain.query.delete()
         db.session.flush()
 
-        seen: set = set()
-        skipped = 0
         for r in records:
-            key = (
-                r.get("JobHead_JobNum"),
-                r.get("JobAsmbl_AssemblySeq"),
-                r.get("JobMtl_MtlSeq"),
-                r.get("OrderHed_OrderNum"),
-            )
-            if key in seen:
-                skipped += 1
-                continue
-            seen.add(key)
             db.session.add(MaterialRequirementMain(
                 works_order        = r.get("JobHead_JobNum") or None,
                 job_released       = r.get("JobHead_JobReleased"),
@@ -287,9 +275,7 @@ class MaterialRequirementsImporter(EpicorBaqImporter):
                 imported_at        = now,
             ))
 
-        batch.rows_inserted = len(records) - skipped
-        if skipped:
-            batch.notes = f"{skipped} duplicate BAQ rows skipped"
+        batch.rows_inserted = len(records)
 
 
 # ---------------------------------------------------------------------------

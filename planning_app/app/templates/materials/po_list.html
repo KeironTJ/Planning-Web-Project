@@ -24,10 +24,18 @@
             </div>
             <div class="col-auto">
                 <button type="submit" class="btn btn-primary btn-sm">Search</button>
-                {% if search %}
+                {% if search or due_from or due_before %}
                 <a href="{{ url_for('materials.po_list') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
                 {% endif %}
             </div>
+            {% if due_from or due_before %}
+            <div class="col-12">
+                <span class="badge text-bg-info">
+                    <i class="bi bi-calendar-range me-1"></i>
+                    Due: {{ due_from or '…' }} → {{ due_before or '…' }}
+                </span>
+            </div>
+            {% endif %}
         </form>
     </div>
 </div>
@@ -35,48 +43,57 @@
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0 align-middle">
+            <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.85rem;">
                 <thead class="thead-subtle">
                     <tr>
-                        <th>PO / Line</th>
-                        <th>Product</th>
+                        <th>PO / Line / Rel</th>
+                        <th>Part No.</th>
+                        <th>Description</th>
                         <th>Supplier</th>
-                        <th>Type</th>
-                        <th class="text-end">Outstanding Qty</th>
+                        <th class="text-end">Rel Qty</th>
+                        <th class="text-end">Outstanding</th>
+                        <th class="text-end">Line Value (£)</th>
                         <th class="text-center">Due Date</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for po in pos.items %}
                     <tr class="{{ 'table-danger' if po.due_date and po.due_date < today else '' }}">
-                        <td>
-                            <span class="fw-semibold">{{ po.po_number }}</span>
-                            <span class="text-muted">/{{ po.line_number }}</span>
+                        <td class="text-nowrap">
+                            <span class="fw-semibold">{{ po.po_num }}</span>
+                            <span class="text-muted">/{{ po.po_line }}/{{ po.po_release }}</span>
                         </td>
-                        <td>
-                            <span class="text-muted small">{{ po.product_code or '—' }}</span>
-                            {% if po.description %}
-                            <div class="text-truncate" style="max-width:200px;" title="{{ po.description }}">
-                                {{ po.description }}
-                            </div>
-                            {% endif %}
-                        </td>
-                        <td class="text-muted small">
-                            {{ po.supplier_name or po.supplier_code or '—' }}
-                        </td>
-                        <td>
-                            {% if po.po_type %}
-                            <span class="badge text-bg-secondary">{{ po.po_type }}</span>
+                        <td class="text-nowrap">
+                            {% if po.part_num %}
+                            <a href="{{ url_for('materials.mrp', q=po.part_num) }}"
+                               class="text-decoration-none fw-semibold">{{ po.part_num }}</a>
                             {% else %}—{% endif %}
                         </td>
-                        <td class="text-end fw-semibold">{{ po.outstanding_qty }}</td>
-                        <td class="text-center {{ 'text-danger fw-semibold' if po.due_date and po.due_date < today else '' }}">
+                        <td>
+                            <span class="text-truncate d-inline-block" style="max-width:220px;"
+                                  title="{{ po.line_desc or '' }}">
+                                {{ po.line_desc or '—' }}
+                            </span>
+                        </td>
+                        <td class="text-muted text-truncate" style="max-width:160px;"
+                            title="{{ po.supplier_name or '' }}">
+                            {{ po.supplier_name or po.supplier_id or '—' }}
+                        </td>
+                        <td class="text-end">{{ po.rel_qty or '—' }}</td>
+                        <td class="text-end fw-semibold">{{ po.outstanding_qty or '—' }}</td>
+                        <td class="text-end fw-semibold text-nowrap">
+                            {% if po.unit_cost and po.outstanding_qty %}
+                            {% set divisor = 100 if po.cost_per_code == 'C' else (1000 if po.cost_per_code == 'M' else 1) %}
+                            £{{ '{:,.2f}'.format((po.outstanding_qty * po.unit_cost / divisor) | float) }}
+                            {% else %}—{% endif %}
+                        </td>
+                        <td class="text-center text-nowrap {{ 'text-danger fw-semibold' if po.due_date and po.due_date < today else '' }}">
                             {{ po.due_date.strftime('%d %b %Y') if po.due_date else '—' }}
                         </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6" class="text-center py-4 text-muted">
+                        <td colspan="8" class="text-center py-4 text-muted">
                             No purchase orders found. Run <code>flask epicor sync purchase_orders</code> to import.
                         </td>
                     </tr>

@@ -10,13 +10,10 @@ class ImportUploadForm(FlaskForm):
     import_type = SelectField(
         "Import Type",
         choices=[
-            ("sales",          "Sales Orders (sales_HIDE.csv)"),
-            ("coois",          "Production / Works Orders (COOIS_HIDE.csv)"),
             ("stock",          "Stock On Hand (SOH_HIDE.csv)"),
             ("open_po",        "Open Purchase Orders (OpenPO_HIDE.csv)"),
             ("main_material",  "Material Requirements (MatReq_HIDE.csv)"),
             ("labour_plan",    "Labour Plan (Capacity)"),
-            ("oob",            "Open Order Book (legacy OOB format)"),
         ],
     )
     file = FileField(
@@ -39,6 +36,10 @@ class SystemSettingsForm(FlaskForm):
     daily_output_target = IntegerField(
         "Daily Target (units)",
         validators=[Optional(), NumberRange(min=0)],
+    )
+    mrp_lead_days = IntegerField(
+        "Material Lead Days",
+        validators=[Optional(), NumberRange(min=0, max=90)],
     )
     daily_target_mon = BooleanField("Mon")
     daily_target_tue = BooleanField("Tue")

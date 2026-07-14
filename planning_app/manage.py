@@ -184,53 +184,21 @@ def seed_departments(site_code):
             )
 
 
-@app.cli.command("clear-oob")
-def clear_oob():
-    """Delete all OOB sales order lines and their operations."""
-    from app.sales.orders.models import SalesOrderLine, WorksOrderOperation
-    with app.app_context():
-        ops = WorksOrderOperation.query.delete()
-        lines = SalesOrderLine.query.delete()
-        db.session.commit()
-        click.echo(f"Deleted {lines} sales order line(s) and {ops} operation(s).")
-
-
 # ---------------------------------------------------------------------------
 # CSV Import commands
 # ---------------------------------------------------------------------------
 
-@app.cli.command("import-oob")
-@click.option("--file", "filepath", required=True, help="Path to OpenOrderBook_HIDE.csv")
-def import_oob(filepath):
-    """Import Open Order Book CSV (UPSERT — preserves planner fields)."""
-    from app.sales.orders.importers import OobImporter
-    with app.app_context():
-        click.echo(f"Importing OOB from {filepath} ...")
-        batch = OobImporter.import_file(filepath, filename=filepath.split("/")[-1].split("\\")[-1])
-        click.echo(
-            f"Done: {batch.rows_inserted} inserted, {batch.rows_updated} updated, "
-            f"{batch.rows_closed} closed. Status: {batch.status}"
-        )
-        if batch.error_message:
-            click.echo(f"Error: {batch.error_message}", err=True)
-
-
 @app.cli.command("import-csv")
 @click.option("--type", "import_type", required=True,
-              type=click.Choice(["sales", "coois", "stock", "open_po", "main_material",
-                                 "labour_plan", "oob"]),
+              type=click.Choice(["stock", "open_po", "main_material", "labour_plan"]),
               help="Type of CSV to import")
 @click.option("--file", "filepath", required=True, help="Path to the CSV file")
 def import_csv(import_type, filepath):
-    """Import a CSV file. Use sales/coois/stock/open_po/main_material for daily Epicor exports."""
+    """Import a CSV file (stock / open_po / main_material / labour_plan)."""
     from app.purchasing.materials.importers import StockImporter, OpenPoImporter, MainMaterialImporter
     from app.planning.capacity.importers import LabourPlanImporter
-    from app.sales.orders.importers import OobImporter, SalesImporter, CooisImporter
 
     importers = {
-        "sales":           SalesImporter,
-        "coois":           CooisImporter,
-        "oob":             OobImporter,
         "stock":           StockImporter,
         "open_po":         OpenPoImporter,
         "main_material":   MainMaterialImporter,
@@ -248,105 +216,6 @@ def import_csv(import_type, filepath):
         )
         if batch.error_message:
             click.echo(f"Error: {batch.error_message}", err=True)
-
-
-@app.cli.command("backfill-despatch-dates")
-def backfill_despatch_dates():
-    """
-    One-off backfill: stamp despatch_completed_date / order_completed_date on
-    SalesOrderLines where all known-dept ops are already in a terminal state
-    (COMPLETED or CLOSED) but the milestone dates were never recorded.
-
-    Safe to run multiple times — only updates rows where the date is NULL.
-    """
-    from datetime import date
-    from app.sales.orders.models import SalesOrderLine, WorksOrderOperation
-
-    _terminal = {WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED}
-    today = date.today()
-
-    with app.app_context():
-        # Find SOLs missing at least one milestone date
-        candidates = SalesOrderLine.query.filter(
-            db.or_(
-                SalesOrderLine.despatch_completed_date.is_(None),
-                SalesOrderLine.order_completed_date.is_(None),
-            )
-        ).all()
-
-        updated = 0
-        for sol in candidates:
-            all_ops = (
-                WorksOrderOperation.query
-                .filter_by(so_number=sol.so_number, line_number=sol.line_number)
-                .filter(WorksOrderOperation.department_id.isnot(None))
-                .all()
-            )
-            if not all_ops:
-                continue
-            if not all(op.status in _terminal for op in all_ops):
-                continue
-            changed = False
-            if sol.despatch_completed_date is None:
-                despatch_op = next(
-                    (op for op in all_ops
-                     if op.work_centre_name.strip().upper() == "DESPATCH"),
-                    None,
-                )
-                if despatch_op:
-                    sol.despatch_completed_date = despatch_op.completed_date or today
-                    changed = True
-            if sol.order_completed_date is None:
-                sol.order_completed_date = today
-                changed = True
-            if changed:
-                updated += 1
-
-        db.session.commit()
-        click.echo(f"Backfill complete: {updated} SalesOrderLine(s) updated.")
-
-
-@app.cli.command("backfill-production-ready-date")
-def backfill_production_ready_date():
-    """
-    One-off backfill: stamp production_ready_date on SalesOrderLines where all
-    non-DESPATCH known-dept ops are already in a terminal state (COMPLETED or CLOSED)
-    but production_ready_date was never recorded.
-
-    Safe to run multiple times — only updates rows where the date is NULL.
-    """
-    from datetime import date
-    from app.sales.orders.models import SalesOrderLine, WorksOrderOperation
-
-    _terminal = {WorksOrderOperation.STATUS_COMPLETED, WorksOrderOperation.STATUS_CLOSED}
-    today = date.today()
-
-    with app.app_context():
-        candidates = SalesOrderLine.query.filter(
-            SalesOrderLine.production_ready_date.is_(None)
-        ).all()
-
-        updated = 0
-        for sol in candidates:
-            all_ops = (
-                WorksOrderOperation.query
-                .filter_by(so_number=sol.so_number, line_number=sol.line_number)
-                .filter(WorksOrderOperation.department_id.isnot(None))
-                .all()
-            )
-            prod_ops = [
-                op for op in all_ops
-                if op.work_centre_name.strip().upper() != "DESPATCH"
-            ]
-            if not prod_ops:
-                continue
-            if not all(op.status in _terminal for op in prod_ops):
-                continue
-            sol.production_ready_date = today
-            updated += 1
-
-        db.session.commit()
-        click.echo(f"Backfill complete: {updated} SalesOrderLine(s) updated.")
 
 
 if __name__ == "__main__":

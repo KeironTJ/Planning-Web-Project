@@ -13,7 +13,7 @@ from flask_login import login_required, current_user
 
 from . import admin_bp
 from .forms import ImportUploadForm, DeptHoursForm, SystemSettingsForm
-from .models import SystemSetting, SETTING_AUTO_COMPLETE_DESPATCH, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS
+from .models import SystemSetting, SETTING_AUTO_COMPLETE_DESPATCH, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS, SETTING_MRP_LEAD_DAYS
 from app.auth.models import User, Role, AuditLog
 from app.auth.services import RoleService
 from app.extensions import db
@@ -509,16 +509,12 @@ def import_upload():
 
 def _run_importer(import_type: str, stream, filename: str, user_id: int) -> ImportBatch:
     """Dispatch to the correct importer class."""
-    from app.sales.orders.importers import OobImporter, SalesImporter, CooisImporter
     from app.purchasing.materials.importers import (
         StockImporter, OpenPoImporter, MainMaterialImporter,
     )
     from app.planning.capacity.importers import LabourPlanImporter
 
     dispatch = {
-        "sales":           SalesImporter,
-        "coois":           CooisImporter,
-        "oob":             OobImporter,
         "stock":           StockImporter,
         "open_po":         OpenPoImporter,
         "main_material":   MainMaterialImporter,
@@ -600,6 +596,11 @@ def system_settings():
             target_days_str or '0,1,2,3',
             description="Weekdays on which the daily target applies (0=Mon, 4=Fri).",
         )
+        SystemSetting.set(
+            SETTING_MRP_LEAD_DAYS,
+            str(form.mrp_lead_days.data if form.mrp_lead_days.data is not None else 14),
+            description="Days before ship date that materials must arrive on PO to count as covered.",
+        )
         db.session.commit()
         flash("Settings saved.", "success")
         return redirect(url_for("admin.system_settings"))
@@ -610,6 +611,9 @@ def system_settings():
     )
     form.daily_output_target.data = SystemSetting.get_int(
         SETTING_DAILY_OUTPUT_TARGET, default=128
+    )
+    form.mrp_lead_days.data = SystemSetting.get_int(
+        SETTING_MRP_LEAD_DAYS, default=14
     )
     _tdays = set(
         int(d) for d in
