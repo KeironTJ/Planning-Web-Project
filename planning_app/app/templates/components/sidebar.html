@@ -29,6 +29,12 @@
                     <i class="bi bi-exclamation-triangle me-2"></i>Overdue Report
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'sales.customer_report' %}active{% endif %}"
+                   href="{{ url_for('sales.customer_report') }}">
+                    <i class="bi bi-person-lines-fill me-2"></i>Customer Report
+                </a>
+            </li>
             {# Production work-centre quick filters #}
             {% if active_departments %}
             <li class="nav-item mt-1">

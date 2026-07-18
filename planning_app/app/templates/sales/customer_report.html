@@ -1,0 +1,932 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block extra_css %}
+<link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js" defer></script>
+<style>
+  @media print {
+    .no-print { display: none !important; }
+    .print-header { display: block !important; }
+    .card { box-shadow: none !important; border: 1px solid #dee2e6 !important; }
+    .collapse { display: block !important; }
+  }
+  .print-header { display: none; }
+  /* Tom Select sizing tweaks */
+  .ts-wrapper.form-control, .ts-wrapper.form-select { padding: 0; }
+  .ts-control { min-height: 2rem; font-size: 0.875rem; }
+</style>
+{% endblock %}
+
+{% block page_actions %}
+{% if customer_ids and customer_info is defined %}
+<a href="{{ url_for('orders.order_book', customer=customer_info.customer_name if not customer_info.is_combined else '') }}"
+   class="btn btn-sm btn-outline-secondary no-print">
+  <i class="bi bi-grid-3x3-gap me-1"></i>Order Book
+</a>
+<button onclick="window.print()" class="btn btn-sm btn-outline-secondary no-print">
+  <i class="bi bi-printer me-1"></i>Print
+</button>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+{# Print-only header #}
+<div class="print-header mb-3 pb-2 border-bottom">
+  <h4 class="mb-0">Customer Report{% if customer_ids and customer_info is defined %} &mdash; {{ customer_info.customer_name }}{% endif %}</h4>
+  <p class="text-muted small mb-0">{{ today.strftime('%d %B %Y') }}</p>
+</div>
+
+{# ── Customer selector ─────────────────────────────────────────────────────── #}
+<form method="get" class="card border-0 shadow-sm mb-4 no-print">
+  <div class="card-body py-2 px-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-md-6 col-lg-5">
+        <label class="form-label small mb-1 fw-semibold">
+          Customer
+          <span class="text-muted fw-normal">(select one or more to combine accounts)</span>
+        </label>
+        <select id="customerSelect" name="customer_id" multiple class="form-select form-select-sm">
+          {% for c in customers %}
+          <option value="{{ c.customer_id }}" {% if c.customer_id in customer_ids %}selected{% endif %}>
+            {{ c.customer_name }} ({{ c.customer_id }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% if customer_ids %}
+      <div class="col-6 col-md-3 col-lg-2">
+        <label class="form-label small mb-1 fw-semibold">Closed history</label>
+        <select name="closed_months" class="form-select form-select-sm" onchange="this.form.submit()">
+          {% for m in [3, 6, 12] %}
+          <option value="{{ m }}" {% if m == closed_months %}selected{% endif %}>{{ m }} months</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="col-auto d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm px-3">
+          <i class="bi bi-person-lines-fill me-1"></i>View Report
+        </button>
+        {% if customer_ids %}
+        <a href="{{ url_for('sales.customer_report') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-x-circle me-1"></i>Clear
+        </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</form>
+
+{% if not customer_ids %}
+{# ── Empty state ──────────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm">
+  <div class="card-body text-center py-5">
+    <div class="rounded-3 p-3 bg-info bg-opacity-10 d-inline-block mb-3">
+      <i class="bi bi-person-lines-fill fs-1 text-info"></i>
+    </div>
+    <h5 class="fw-semibold mb-1">Select a customer</h5>
+    <p class="text-muted mb-0">Choose a customer from the dropdown above to view their detailed order report.</p>
+  </div>
+</div>
+
+{% elif customer_info is not defined %}
+{# ── No matching records ────────────────────────────────────────────────── #}
+<div class="alert alert-warning">
+  <i class="bi bi-exclamation-triangle me-2"></i>
+  No orders found for the selected customer account(s): <strong>{{ customer_ids | join(', ') }}</strong>.
+</div>
+
+{% else %}
+{# ════════════════════════════════════════════════════════════════════════════ #}
+{# ── Full report ─────────────────────────────────────────────────────────── #}
+{# ════════════════════════════════════════════════════════════════════════════ #}
+
+{# ── Customer header ──────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <div class="rounded-3 p-3 bg-info bg-opacity-10 flex-shrink-0">
+    <i class="bi bi-building fs-2 text-info"></i>
+  </div>
+  <div>
+    <h4 class="mb-1 fw-semibold">{{ customer_info.customer_name }}</h4>
+    <div class="d-flex flex-wrap gap-2">
+      {% if customer_info.is_combined %}
+        {% for sc in selected_customers %}
+        <span class="badge text-bg-primary">{{ sc.customer_name }} ({{ sc.customer_id }})</span>
+        {% endfor %}
+      {% else %}
+        <span class="badge text-bg-secondary">{{ customer_info.customer_id }}</span>
+      {% endif %}
+      {% if customer_info.customer_country %}
+      <span class="badge text-bg-light border text-dark">
+        <i class="bi bi-geo-alt me-1"></i>{{ customer_info.customer_country }}
+      </span>
+      {% endif %}
+      {% if customer_info.customer_group %}
+      <span class="badge text-bg-light border text-dark">
+        <i class="bi bi-diagram-3 me-1"></i>{{ customer_info.customer_group }}
+      </span>
+      {% endif %}
+      {% if customer_info.channel %}
+      <span class="badge text-bg-light border text-dark">
+        <i class="bi bi-signpost-2 me-1"></i>{{ customer_info.channel }}
+      </span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ── KPI cards ────────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2">{{ open_summary.open_orders }}</div>
+      <div class="small text-muted">Open Orders</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2 text-primary">{{ open_summary.open_units | int }}</div>
+      <div class="small text-muted">Open Units</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-3">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      {% set v = open_summary.open_value %}
+      <div class="fw-bold fs-2">
+        {% if v >= 1000000 %}£{{ "%.2f"|format(v / 1000000) }}m
+        {% elif v >= 1000 %}£{{ "%.0f"|format(v / 1000) }}k
+        {% else %}£{{ "%.0f"|format(v) }}{% endif %}
+      </div>
+      <div class="small text-muted">Open Value</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card {% if open_summary.overdue_orders > 0 %}border-danger{% else %}border-0{% endif %} shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2 {% if open_summary.overdue_orders > 0 %}text-danger{% else %}text-muted{% endif %}">
+        {{ open_summary.overdue_orders }}
+      </div>
+      <div class="small {% if open_summary.overdue_orders > 0 %}text-danger{% else %}text-muted{% endif %}">Overdue Orders</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-3">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      {% set cv = closed_summary.closed_value %}
+      <div class="fw-bold fs-2 text-secondary">
+        {% if cv >= 1000000 %}£{{ "%.2f"|format(cv / 1000000) }}m
+        {% elif cv >= 1000 %}£{{ "%.0f"|format(cv / 1000) }}k
+        {% else %}£{{ "%.0f"|format(cv) }}{% endif %}
+      </div>
+      <div class="small text-muted">Closed ({{ closed_months }}m)</div>
+    </div>
+  </div>
+</div>
+
+{# ── Forward demand chart ─────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0 pb-0">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-bar-chart-line me-2 text-primary"></i>Forward Demand Schedule
+    </h6>
+    <p class="text-muted small mb-0">Open order value due by week &mdash; next 12 weeks</p>
+  </div>
+  <div class="card-body">
+    <canvas id="chartDemand" style="max-height:260px;"></canvas>
+  </div>
+</div>
+
+{# ── Row: Open vs Closed donut + Monthly intake trend ───────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-12 col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-pie-chart-fill me-2 text-primary"></i>Open vs Shipped
+        </h6>
+        <p class="text-muted small mb-0">Outstanding vs closed ({{ closed_months }}m)</p>
+      </div>
+      <div class="card-body d-flex align-items-center justify-content-center">
+        <canvas id="chartOpenClosed" style="max-height:220px;max-width:220px;"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-8">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-calendar3 me-2 text-success"></i>Monthly Order Intake
+        </h6>
+        <p class="text-muted small mb-0">Closed orders value by month — last 12 months</p>
+      </div>
+      <div class="card-body">
+        {% if monthly_intake %}
+        <canvas id="chartMonthly" style="max-height:220px;"></canvas>
+        {% else %}
+        <div class="text-center text-muted py-4 small">No closed order history available.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Row: Lead time + Overdue age ─────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-12 {{ 'col-lg-6' if open_summary.overdue_orders else '' }}">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-hourglass-split me-2 text-warning"></i>Order Lead Time Distribution
+        </h6>
+        <p class="text-muted small mb-0">Order date &rarr; due date, all orders</p>
+      </div>
+      <div class="card-body">
+        <canvas id="chartLeadTime" style="max-height:200px;"></canvas>
+      </div>
+    </div>
+  </div>
+  {% if open_summary.overdue_orders %}
+  <div class="col-12 col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-clock-history me-2 text-danger"></i>Overdue Age Breakdown
+        </h6>
+        <p class="text-muted small mb-0">How long overdue orders have been outstanding</p>
+      </div>
+      <div class="card-body">
+        <canvas id="chartOverdueAge" style="max-height:200px;"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Row: Product group + Order type breakdown ──────────────────────────────── #}
+{% if by_product_group or by_order_type %}
+<div class="row g-3 mb-4">
+  {% if by_product_group %}
+  <div class="{{ 'col-12 col-lg-6' if by_order_type else 'col-12' }}">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-pie-chart me-2 text-success"></i>Open Mix &mdash; Product Group
+        </h6>
+      </div>
+      <div class="card-body">
+        <canvas id="chartProdGroup" style="max-height:230px;"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% if by_order_type %}
+  <div class="{{ 'col-12 col-lg-6' if by_product_group else 'col-12' }}">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-tag me-2 text-warning"></i>Open Orders &mdash; Order Type
+        </h6>
+        <p class="text-muted small mb-0">Value and count split by order type</p>
+      </div>
+      <div class="card-body">
+        <canvas id="chartOrderType" style="max-height:230px;"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ── Top Models Pareto chart ─────────────────────────────────────────────── #}
+{% if by_model %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0 pb-0">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-bar-chart-steps me-2 text-info"></i>Top Models &mdash; Pareto
+    </h6>
+    <p class="text-muted small mb-0">Value by model (bars) with cumulative % line &mdash; open orders</p>
+  </div>
+  <div class="card-body">
+    <canvas id="chartModelsPareto" style="max-height:260px;"></canvas>
+  </div>
+</div>
+{% endif %}
+
+{# ── Top products from closed history ─────────────────────────────────────── #}
+{% if top_products_closed %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0 pb-0">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-trophy me-2 text-warning"></i>Top Products Ordered (last {{ closed_months }} months)
+    </h6>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0 align-middle" style="font-size:0.85rem;">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3">Part No.</th>
+          <th>Description</th>
+          <th class="text-center">Orders</th>
+          <th class="text-end">Units</th>
+          <th class="text-end pe-3">Value (£)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in top_products_closed %}
+        <tr>
+          <td class="ps-3 fw-semibold text-nowrap">{{ p.part_num }}</td>
+          <td class="text-muted small">{{ p.part_desc }}</td>
+          <td class="text-center text-muted">{{ p.orders }}</td>
+          <td class="text-end">{{ p.units | int }}</td>
+          <td class="text-end pe-3">£{{ "{:,.0f}".format(p.value) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Open orders table ────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-table me-2 text-success"></i>Open Orders
+      <span class="badge text-bg-primary ms-1">{{ open_summary.open_orders }}</span>
+      {% if open_summary.overdue_orders %}
+      <span class="badge text-bg-danger ms-1">{{ open_summary.overdue_orders }} overdue</span>
+      {% endif %}
+    </h6>
+  </div>
+  <div class="card-body p-0">
+    {% if open_orders %}
+    <div class="table-responsive">
+      <table id="openOrdersTable" class="table table-sm table-hover mb-0 align-middle" style="font-size:0.85rem;">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3" style="white-space:nowrap;">SO #</th>
+            {% if customer_info.is_combined %}<th>Customer</th>{% endif %}
+            <th style="min-width:120px;">Customer PO</th>
+            <th>Type</th>
+            <th style="white-space:nowrap;">Order Date</th>
+            <th style="white-space:nowrap;">Due Date</th>
+            <th class="text-center">Lines</th>
+            <th class="text-end">Qty</th>
+            <th class="text-end pe-3" style="white-space:nowrap;">Value (£)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for o in open_orders %}
+          {% set is_overdue = o.due_date and o.due_date < today %}
+          {% set due_soon   = o.due_date and not is_overdue and o.days_delta is not none and o.days_delta <= 7 %}
+          <tr class="{{ 'table-danger' if is_overdue else '' }}">
+            <td class="ps-3 fw-semibold text-nowrap">{{ o.so_number }}</td>
+            {% if customer_info.is_combined %}<td class="small text-muted">{{ o.customer_name }}</td>{% endif %}
+            <td class="text-muted small">{{ o.customer_order_ref or '–' }}</td>
+            <td>
+              <span class="badge {% if o.so_type and o.so_type.startswith('Z') %}text-bg-info{% else %}text-bg-secondary{% endif %}">
+                {{ o.order_type or '–' }}
+              </span>
+            </td>
+            <td class="small text-muted text-nowrap">
+              {{ o.order_date.strftime('%d %b %Y') if o.order_date else '–' }}
+            </td>
+            <td class="text-nowrap {% if is_overdue %}text-danger fw-semibold{% elif due_soon %}text-warning fw-semibold{% endif %}">
+              {% if o.due_date %}
+                {{ o.due_date.strftime('%d %b %Y') }}
+                {% if is_overdue %}
+                  <span class="badge text-bg-danger ms-1">{{ (-o.days_delta) | int }}d late</span>
+                {% elif due_soon %}
+                  <span class="badge text-bg-warning text-dark ms-1">{{ o.days_delta }}d</span>
+                {% endif %}
+              {% else %}–{% endif %}
+            </td>
+            <td class="text-center text-muted">{{ o.line_count }}</td>
+            <td class="text-end">{{ "%.0f" | format(o.total_qty) }}</td>
+            <td class="text-end pe-3 fw-semibold">£{{ "{:,.0f}".format(o.total_value) }}</td>
+            <td class="text-end text-nowrap pe-2">
+              {% if o.comment_count %}
+              <span class="badge bg-light text-dark border small"
+                    title="{{ o.latest_comment }}{% if o.latest_user %} — {{ o.latest_user }}{% endif %}{% if o.latest_at %} ({{ o.latest_at }}){% endif %}">
+                <i class="bi bi-chat-left-text me-1 text-info"></i>{{ o.comment_count }}
+              </span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light fw-semibold">
+          <tr>
+            <td class="ps-3" colspan="6">Total</td>
+            <td class="text-end">{{ "%.0f" | format(open_summary.open_units) }}</td>
+            <td class="text-end pe-3">£{{ "{:,.0f}".format(open_summary.open_value) }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="card-footer bg-transparent border-top d-flex align-items-center gap-3 no-print" id="openOrdersNav"></div>
+    {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
+      <p class="mb-0">No open orders for this customer.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Closed / shipped orders ──────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <h6 class="mb-0 fw-semibold">
+        <i class="bi bi-archive me-2 text-secondary"></i>Closed / Shipped Orders
+        <span class="badge text-bg-secondary ms-1">{{ closed_summary.closed_orders }}</span>
+        <span class="text-muted small fw-normal ms-1">(last {{ closed_months }} months)</span>
+      </h6>
+      <button class="btn btn-sm btn-outline-secondary no-print" type="button"
+              data-bs-toggle="collapse" data-bs-target="#closedOrdersBody">
+        <i class="bi bi-chevron-down me-1"></i>Toggle
+      </button>
+    </div>
+  </div>
+  <div class="collapse show" id="closedOrdersBody">
+    {% if closed_orders %}
+    <div class="table-responsive">
+      <table id="closedOrdersTable" class="table table-sm table-hover mb-0 align-middle" style="font-size:0.85rem;">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3" style="white-space:nowrap;">SO #</th>
+            {% if customer_info.is_combined %}<th>Customer</th>{% endif %}
+            <th style="min-width:120px;">Customer PO</th>
+            <th>Type</th>
+            <th style="white-space:nowrap;">Order Date</th>
+            <th style="white-space:nowrap;">Due Date</th>
+            <th class="text-center">Lines</th>
+            <th class="text-end">Qty</th>
+            <th class="text-end pe-3" style="white-space:nowrap;">Value (£)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for o in closed_orders %}
+          <tr>
+            <td class="ps-3 fw-semibold text-nowrap">{{ o.so_number }}</td>
+            {% if customer_info.is_combined %}<td class="small text-muted">{{ o.customer_name }}</td>{% endif %}
+            <td class="text-muted small">{{ o.customer_order_ref or '–' }}</td>
+            <td><span class="badge text-bg-secondary">{{ o.order_type or '–' }}</span></td>
+            <td class="small text-muted text-nowrap">
+              {{ o.order_date.strftime('%d %b %Y') if o.order_date else '–' }}
+            </td>
+            <td class="small text-muted text-nowrap">
+              {{ o.due_date.strftime('%d %b %Y') if o.due_date else '–' }}
+            </td>
+            <td class="text-center text-muted">{{ o.line_count }}</td>
+            <td class="text-end">{{ "%.0f" | format(o.total_qty) }}</td>
+            <td class="text-end pe-3 fw-semibold">£{{ "{:,.0f}".format(o.total_value) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light fw-semibold">
+          <tr>
+            <td class="ps-3" colspan="6">Total</td>
+            <td class="text-end">{{ "%.0f" | format(closed_summary.closed_units) }}</td>
+            <td class="text-end pe-3">£{{ "{:,.0f}".format(closed_summary.closed_value) }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="card-footer bg-transparent border-top d-flex align-items-center gap-3 no-print" id="closedOrdersNav"></div>
+    {% else %}
+    <div class="card-body text-center text-muted py-4">
+      <i class="bi bi-archive fs-2 d-block mb-2 opacity-50"></i>
+      <p class="mb-0">No closed orders found in the last {{ closed_months }} months.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endif %}{# end customer selected #}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if customer_ids and customer_info is defined %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+  // ── Shared helpers ────────────────────────────────────────────────────────
+  function fmtGbp(v) {
+    return v >= 1000000 ? '£' + (v/1000000).toFixed(1) + 'm'
+         : v >= 1000    ? '£' + (v/1000).toFixed(0) + 'k'
+         :                '£' + v.toFixed(0);
+  }
+
+  // ── 1. Forward demand bar+line ────────────────────────────────────────────
+  var demandLabels = {{ weekly_schedule['labels'] | tojson }};
+  var demandValues = {{ weekly_schedule['values'] | tojson }};
+  var demandUnits  = {{ weekly_schedule['units']  | tojson }};
+  var demandCtx = document.getElementById('chartDemand');
+  if (demandCtx) {
+    new Chart(demandCtx, {
+      type: 'bar',
+      data: {
+        labels: demandLabels,
+        datasets: [
+          {
+            label: 'Value (£)',
+            data: demandValues,
+            backgroundColor: demandLabels.map(function(l){
+              return l === 'Overdue' ? 'rgba(220,53,69,0.75)' : 'rgba(13,110,253,0.6)';
+            }),
+            yAxisID: 'yValue',
+          },
+          {
+            label: 'Units',
+            data: demandUnits,
+            type: 'line',
+            borderColor: 'rgba(25,135,84,0.85)',
+            backgroundColor: 'rgba(25,135,84,0.1)',
+            borderWidth: 2,
+            pointRadius: 3,
+            fill: false,
+            tension: 0.3,
+            yAxisID: 'yUnits',
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { display: true, position: 'top' } },
+        scales: {
+          yValue: { type:'linear', position:'left',  title:{display:true,text:'Value (£)'}, ticks:{callback:fmtGbp} },
+          yUnits: { type:'linear', position:'right', title:{display:true,text:'Units'},     grid:{drawOnChartArea:false} }
+        }
+      }
+    });
+  }
+
+  // ── 2. Open vs Closed donut ───────────────────────────────────────────────
+  var openVal   = {{ open_summary.open_value | round(2) }};
+  var closedVal = {{ closed_summary.closed_value | round(2) }};
+  var ocCtx = document.getElementById('chartOpenClosed');
+  if (ocCtx) {
+    new Chart(ocCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Open (outstanding)', 'Shipped ({{ closed_months }}m)'],
+        datasets: [{
+          data: [openVal, closedVal],
+          backgroundColor: ['rgba(13,110,253,0.75)', 'rgba(25,135,84,0.65)'],
+          borderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 12 } },
+          tooltip: { callbacks: { label: function(ctx){ return ' ' + fmtGbp(ctx.parsed); } } }
+        }
+      }
+    });
+  }
+
+  // ── 3. Monthly intake bar ─────────────────────────────────────────────────
+  {% if monthly_intake %}
+  var mLabels = {{ monthly_intake | map(attribute='month') | list | tojson }};
+  var mValues = {{ monthly_intake | map(attribute='value') | list | tojson }};
+  var mOrders = {{ monthly_intake | map(attribute='orders') | list | tojson }};
+  var mCtx = document.getElementById('chartMonthly');
+  if (mCtx) {
+    new Chart(mCtx, {
+      type: 'bar',
+      data: {
+        labels: mLabels,
+        datasets: [
+          {
+            label: 'Value (£)',
+            data: mValues,
+            backgroundColor: 'rgba(25,135,84,0.65)',
+            yAxisID: 'yVal',
+          },
+          {
+            label: 'Orders',
+            data: mOrders,
+            type: 'line',
+            borderColor: 'rgba(13,110,253,0.8)',
+            pointRadius: 3,
+            fill: false,
+            tension: 0.3,
+            yAxisID: 'yOrd',
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { display: true, position: 'top' } },
+        scales: {
+          yVal: { type:'linear', position:'left',  ticks:{callback:fmtGbp} },
+          yOrd: { type:'linear', position:'right', title:{display:true,text:'Orders'}, grid:{drawOnChartArea:false} }
+        }
+      }
+    });
+  }
+  {% endif %}
+
+  // ── 4. Lead time distribution ─────────────────────────────────────────────
+  var ltLabels = {{ lead_time_dist.labels | tojson }};
+  var ltCounts = {{ lead_time_dist.counts | tojson }};
+  var ltCtx = document.getElementById('chartLeadTime');
+  if (ltCtx) {
+    new Chart(ltCtx, {
+      type: 'bar',
+      data: {
+        labels: ltLabels,
+        datasets: [{
+          label: 'Orders',
+          data: ltCounts,
+          backgroundColor: 'rgba(255,193,7,0.7)',
+          borderColor: 'rgba(255,193,7,1)',
+          borderWidth: 1,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    });
+  }
+
+  // ── 5. Overdue age breakdown ──────────────────────────────────────────────
+  {% if open_summary.overdue_orders %}
+  var ageLabels = {{ overdue_age_chart.labels | tojson }};
+  var ageCounts = {{ overdue_age_chart.counts | tojson }};
+  var ageCtx = document.getElementById('chartOverdueAge');
+  if (ageCtx) {
+    new Chart(ageCtx, {
+      type: 'bar',
+      data: {
+        labels: ageLabels,
+        datasets: [{
+          label: 'Orders',
+          data: ageCounts,
+          backgroundColor: 'rgba(220,53,69,0.7)',
+          borderColor: 'rgba(220,53,69,1)',
+          borderWidth: 1,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    });
+  }
+  {% endif %}
+
+  // ── 6. Product group horizontal bar ──────────────────────────────────────
+  {% if by_product_group %}
+  var pgLabels = {{ by_product_group | map(attribute='group') | list | tojson }};
+  var pgValues = {{ by_product_group | map(attribute='value') | list | tojson }};
+  var pgCtx = document.getElementById('chartProdGroup');
+  if (pgCtx) {
+    new Chart(pgCtx, {
+      type: 'bar',
+      data: {
+        labels: pgLabels,
+        datasets: [{ label:'Value (£)', data:pgValues, backgroundColor:'rgba(25,135,84,0.65)' }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { callback: fmtGbp } } }
+      }
+    });
+  }
+  {% endif %}
+
+  // ── 7. Order type horizontal bar ─────────────────────────────────────────
+  {% if by_order_type %}
+  var otLabels = {{ by_order_type | map(attribute='order_type') | list | tojson }};
+  var otValues = {{ by_order_type | map(attribute='value')      | list | tojson }};
+  var otOrders = {{ by_order_type | map(attribute='orders')     | list | tojson }};
+  var otCtx = document.getElementById('chartOrderType');
+  if (otCtx) {
+    new Chart(otCtx, {
+      type: 'bar',
+      data: {
+        labels: otLabels,
+        datasets: [
+          {
+            label: 'Value (£)',
+            data: otValues,
+            backgroundColor: 'rgba(255,193,7,0.7)',
+            yAxisID: 'yVal',
+          },
+          {
+            label: 'Orders',
+            data: otOrders,
+            type: 'line',
+            borderColor: 'rgba(13,110,253,0.8)',
+            pointRadius: 4,
+            fill: false,
+            tension: 0.2,
+            yAxisID: 'yOrd',
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { display: true, position: 'top' } },
+        scales: {
+          yVal: { type:'linear', position:'left',  ticks:{ callback: fmtGbp } },
+          yOrd: { type:'linear', position:'right', title:{ display:true, text:'Orders' }, grid:{ drawOnChartArea:false }, ticks:{ precision:0 } }
+        }
+      }
+    });
+  }
+  {% endif %}
+
+  // ── 8. Top models Pareto ──────────────────────────────────────────────────
+  {% if by_model %}
+  var modelLabels = {{ by_model | map(attribute='model') | list | tojson }};
+  var modelValues = {{ by_model | map(attribute='value') | list | tojson }};
+  var modelTotal  = modelValues.reduce(function(a,b){ return a+b; }, 0);
+  var cumPct = [];
+  var running = 0;
+  modelValues.forEach(function(v){ running += v; cumPct.push(modelTotal > 0 ? Math.round(running/modelTotal*1000)/10 : 0); });
+  var paretoCtx = document.getElementById('chartModelsPareto');
+  if (paretoCtx) {
+    new Chart(paretoCtx, {
+      type: 'bar',
+      data: {
+        labels: modelLabels,
+        datasets: [
+          {
+            label: 'Value (£)',
+            data: modelValues,
+            backgroundColor: 'rgba(13,202,240,0.65)',
+            yAxisID: 'yVal',
+            order: 2,
+          },
+          {
+            label: 'Cumulative %',
+            data: cumPct,
+            type: 'line',
+            borderColor: 'rgba(220,53,69,0.9)',
+            borderWidth: 2,
+            pointRadius: 3,
+            fill: false,
+            tension: 0.3,
+            yAxisID: 'yPct',
+            order: 1,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { display: true, position: 'top' } },
+        scales: {
+          yVal: { type:'linear', position:'left',  ticks:{ callback: fmtGbp } },
+          yPct: { type:'linear', position:'right', min:0, max:100,
+                  title:{ display:true, text:'Cumulative %' },
+                  ticks:{ callback: function(v){ return v+'%'; } },
+                  grid:{ drawOnChartArea:false } }
+        }
+      }
+    });
+  }
+  {% endif %}
+
+  // ── Pagination helper ─────────────────────────────────────────────────────
+  function paginateTable(tableId, navId, initialPageSize) {
+    var table = document.getElementById(tableId);
+    var nav   = document.getElementById(navId);
+    if (!table || !nav) return;
+    var rows     = Array.from(table.querySelectorAll('tbody tr'));
+    var total    = rows.length;
+    var pageSize = initialPageSize;
+    var pages    = Math.ceil(total / pageSize);
+    var cur      = 1;
+
+    function show(p) {
+      cur   = Math.max(1, Math.min(p, pages));
+      pages = Math.ceil(total / pageSize);
+      rows.forEach(function(r, i) {
+        r.style.display = (i >= (cur-1)*pageSize && i < cur*pageSize) ? '' : 'none';
+      });
+      render();
+    }
+
+    function render() {
+      pages = Math.ceil(total / pageSize);
+      nav.innerHTML = '';
+
+      // ── per-page selector ────────────────────────────────────────────────
+      var perPageSel = document.createElement('select');
+      perPageSel.className = 'form-select form-select-sm me-3';
+      perPageSel.style.cssText = 'width:auto;font-size:0.8rem;height:1.9rem;';
+      [10, 25, 50, 100, 200].forEach(function(n) {
+        var opt = document.createElement('option');
+        opt.value = n; opt.textContent = n + ' rows';
+        if (n === pageSize) opt.selected = true;
+        perPageSel.appendChild(opt);
+      });
+      perPageSel.addEventListener('change', function() {
+        pageSize = parseInt(this.value, 10);
+        cur = 1;
+        show(1);
+      });
+      nav.appendChild(perPageSel);
+
+      if (pages <= 1 && total <= pageSize) {
+        // just the selector, no nav needed
+        var info2 = document.createElement('small');
+        info2.className = 'text-muted';
+        info2.textContent = total + ' rows';
+        nav.appendChild(info2);
+        return;
+      }
+
+      // ── prev / page input / next ─────────────────────────────────────────
+      var ul = document.createElement('ul');
+      ul.className = 'pagination pagination-sm mb-0';
+
+      function mkBtn(label, page, disabled) {
+        var item = document.createElement('li');
+        item.className = 'page-item' + (disabled ? ' disabled' : '');
+        var a = document.createElement('a');
+        a.className = 'page-link'; a.href = '#'; a.innerHTML = label;
+        if (!disabled) a.addEventListener('click', function(e){ e.preventDefault(); show(page); });
+        item.appendChild(a); return item;
+      }
+
+      ul.appendChild(mkBtn('&laquo;', cur-1, cur===1));
+
+      // page-jump input (plain li with no disabled)
+      var liInp = document.createElement('li');
+      liInp.className = 'page-item';
+      var spanW = document.createElement('span');
+      spanW.className = 'page-link d-flex align-items-center gap-1 py-0';
+      spanW.style.cssText = 'background:transparent;cursor:default;';
+      var inp = document.createElement('input');
+      inp.type = 'number'; inp.min = 1; inp.max = pages; inp.value = cur;
+      inp.className = 'form-control form-control-sm text-center';
+      inp.style.cssText = 'width:3.4rem;height:1.75rem;font-size:0.8rem;padding:0.1rem 0.3rem;';
+      inp.addEventListener('change', function(){
+        var v = parseInt(this.value, 10);
+        if (v >= 1 && v <= pages) show(v); else this.value = cur;
+      });
+      inp.addEventListener('click', function(){ this.select(); });
+      var ofSpan = document.createElement('span');
+      ofSpan.className = 'text-muted small text-nowrap';
+      ofSpan.textContent = 'of ' + pages;
+      spanW.appendChild(inp); spanW.appendChild(ofSpan);
+      liInp.appendChild(spanW);
+      ul.appendChild(liInp);
+
+      ul.appendChild(mkBtn('&raquo;', cur+1, cur===pages));
+      nav.appendChild(ul);
+
+      var info = document.createElement('small');
+      info.className = 'text-muted ms-3';
+      var s = (cur-1)*pageSize + 1, e = Math.min(cur*pageSize, total);
+      info.textContent = s + '\u2013' + e + ' of ' + total;
+      nav.appendChild(info);
+    }
+
+    show(1);
+  }
+
+  paginateTable('openOrdersTable',   'openOrdersNav',   10);
+  paginateTable('closedOrdersTable', 'closedOrdersNav', 10);
+
+});
+</script>
+{% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var sel = document.getElementById('customerSelect');
+  if (sel && typeof TomSelect !== 'undefined') {
+    new TomSelect(sel, {
+      placeholder: 'Type to search customers\u2026',
+      plugins: ['remove_button', 'clear_button'],
+      selectOnTab: true,
+      maxOptions: 300,
+      closeAfterSelect: false,
+    });
+  }
+});
+</script>
+{% endblock %}

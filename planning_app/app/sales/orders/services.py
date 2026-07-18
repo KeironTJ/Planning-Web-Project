@@ -893,3 +893,403 @@ def add_so_comment(so_number: str, user_id: int, body: str) -> SalesOrderComment
     db.session.add(comment)
     db.session.commit()
     return comment
+
+
+# ---------------------------------------------------------------------------
+# Customer list
+# ---------------------------------------------------------------------------
+
+def get_customer_list() -> list[dict]:
+    """Return one row per distinct customer_id, ordered by customer_name."""
+    rows = (
+        db.session.query(
+            SalesOrder.customer_id,
+            func.max(SalesOrder.customer_name).label("customer_name"),
+        )
+        .filter(SalesOrder.customer_id.isnot(None))
+        .group_by(SalesOrder.customer_id)
+        .order_by(func.max(SalesOrder.customer_name))
+        .all()
+    )
+    return [
+        {"customer_id": r.customer_id, "customer_name": r.customer_name or r.customer_id}
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Customer report
+# ---------------------------------------------------------------------------
+
+def get_customer_report(customer_ids: list[str], closed_months: int = 12) -> Optional[dict]:
+    """
+    Return all data needed for the customer report page.
+
+    Accepts one or more customer_ids so that accounts representing the same
+    real customer can be viewed in a single combined report.
+    Returns None if no records exist for the given customer_ids.
+    """
+    today       = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+
+    # ── Customer info (supports combined view for multiple accounts) ──────────
+    selected_rows = (
+        db.session.query(
+            SalesOrder.customer_id,
+            func.max(SalesOrder.customer_name).label("customer_name"),
+            func.max(SalesOrder.customer_country).label("customer_country"),
+            func.max(SalesOrder.customer_group).label("customer_group"),
+            func.max(SalesOrder.channel).label("channel"),
+        )
+        .filter(SalesOrder.customer_id.in_(customer_ids))
+        .group_by(SalesOrder.customer_id)
+        .order_by(func.max(SalesOrder.customer_name))
+        .all()
+    )
+    if not selected_rows:
+        return None
+
+    selected_customers = [
+        {"customer_id": r.customer_id, "customer_name": r.customer_name or r.customer_id}
+        for r in selected_rows
+    ]
+    is_combined = len(selected_rows) > 1
+
+    if not is_combined:
+        r0 = selected_rows[0]
+        customer_info = {
+            "customer_id":      r0.customer_id or "",
+            "customer_name":    r0.customer_name or "",
+            "customer_country": r0.customer_country or "",
+            "customer_group":   r0.customer_group or "",
+            "channel":          r0.channel or "",
+            "is_combined":      False,
+        }
+    else:
+        countries = {r.customer_country for r in selected_rows if r.customer_country}
+        groups    = {r.customer_group    for r in selected_rows if r.customer_group}
+        channels  = {r.channel           for r in selected_rows if r.channel}
+        customer_info = {
+            "customer_id":      " / ".join(r.customer_id for r in selected_rows),
+            "customer_name":    f"{len(selected_rows)} accounts combined",
+            "customer_country": next(iter(countries)) if len(countries) == 1 else "",
+            "customer_group":   next(iter(groups))    if len(groups)    == 1 else "",
+            "channel":          next(iter(channels))  if len(channels)  == 1 else "",
+            "is_combined":      True,
+        }
+
+    # ── Open orders (deduped by release, grouped by order_num) ───────────────
+    dedup_sub = _so_dedup_subq(open_only=True)
+
+    all_open_rows = (
+        db.session.query(SalesOrder)
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(SalesOrder.customer_id.in_(customer_ids))
+        .order_by(SalesOrder.need_by_date.asc().nullslast(), SalesOrder.order_num)
+        .all()
+    )
+
+    seen: dict[int, dict] = {}
+    open_orders: list[dict] = []
+    for so in all_open_rows:
+        if so.order_num not in seen:
+            entry: dict = {
+                "so_number":          str(so.order_num),
+                "customer_name":      so.customer_name or "",
+                "customer_order_ref": so.po_num,
+                "order_type":         so.so_type_desc or "",
+                "so_type":            so.so_type or "",
+                "order_date":         so.order_date,
+                "_releases":          [],
+            }
+            seen[so.order_num] = entry
+            open_orders.append(entry)
+        seen[so.order_num]["_releases"].append(so)
+
+    for entry in open_orders:
+        releases = entry.pop("_releases")
+        due_dates = [r.need_by_date for r in releases if r.need_by_date]
+        entry["due_date"]    = min(due_dates) if due_dates else None
+        entry["days_delta"]  = (entry["due_date"] - today).days if entry["due_date"] else None
+        entry["total_qty"]   = sum(float(r.selling_qty or 0) for r in releases)
+        entry["total_value"] = sum(float(r.release_price_gbp or 0) for r in releases)
+        entry["line_count"]  = len({r.order_line for r in releases})
+
+    # ── Open summary KPIs ─────────────────────────────────────────────────────
+    open_units = float(
+        db.session.query(func.sum(_unit_qty_so))
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(SalesOrder.customer_id.in_(customer_ids))
+        .scalar() or 0.0
+    )
+    overdue_list = [o for o in open_orders if o["due_date"] and o["due_date"] < today]
+
+    open_summary = {
+        "open_orders":    len(open_orders),
+        "overdue_orders": len(overdue_list),
+        "open_value":     sum(o["total_value"] for o in open_orders),
+        "overdue_value":  sum(o["total_value"] for o in overdue_list),
+        "open_units":     open_units,
+    }
+
+    # ── Forward demand by week (next 12 weeks + overdue bucket) ──────────────
+    week_labels: list[str] = ["Overdue"]
+    week_values: list[float] = [0.0]
+    week_units_list: list[float] = [0.0]
+    week_starts: list = [None]
+    for i in range(12):
+        ws = this_monday + timedelta(weeks=i)
+        week_labels.append(f"Wk {ws.isocalendar()[1]}")
+        week_values.append(0.0)
+        week_units_list.append(0.0)
+        week_starts.append(ws)
+
+    for o in open_orders:
+        if not o["due_date"]:
+            continue
+        if o["due_date"] < this_monday:
+            bucket = 0
+        else:
+            bucket = next(
+                (i for i, ws in enumerate(week_starts[1:], 1)
+                 if ws <= o["due_date"] <= ws + timedelta(days=6)),
+                None,
+            )
+        if bucket is not None:
+            week_values[bucket]      += o["total_value"]
+            week_units_list[bucket]  += o["total_qty"]
+
+    # ── Order mix: by product group and by model ──────────────────────────────
+    by_product_group_rows = (
+        db.session.query(
+            SalesOrder.prod_code,
+            func.sum(_unit_qty_so).label("cnt"),
+            func.sum(SalesOrder.release_price_gbp).label("val"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(
+            SalesOrder.customer_id.in_(customer_ids),
+            SalesOrder.prod_code.isnot(None),
+        )
+        .group_by(SalesOrder.prod_code)
+        .order_by(func.sum(SalesOrder.release_price_gbp).desc())
+        .all()
+    )
+
+    by_model_rows = (
+        db.session.query(
+            SalesOrder.model,
+            func.sum(_unit_qty_so).label("cnt"),
+            func.sum(SalesOrder.release_price_gbp).label("val"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(
+            SalesOrder.customer_id.in_(customer_ids),
+            SalesOrder.model.isnot(None),
+            SalesOrder.model != "",
+            SalesOrder.model != "Scatter",
+        )
+        .group_by(SalesOrder.model)
+        .order_by(func.sum(SalesOrder.release_price_gbp).desc())
+        .limit(15)
+        .all()
+    )
+
+    # ── Closed orders (last closed_months months, grouped by order_num) ───────
+    closed_from = today - timedelta(days=30 * closed_months)
+
+    closed_rows = (
+        db.session.query(
+            SalesOrder.order_num,
+            SalesOrder.po_num,
+            SalesOrder.order_date,
+            SalesOrder.so_type_desc,
+            func.max(SalesOrder.customer_name).label("customer_name"),
+            func.min(SalesOrder.need_by_date).label("min_due"),
+            func.sum(SalesOrder.release_price_gbp).label("total_value"),
+            func.sum(SalesOrder.selling_qty).label("total_qty"),
+            func.count(SalesOrder.order_line.distinct()).label("line_count"),
+        )
+        .filter(
+            SalesOrder.customer_id.in_(customer_ids),
+            SalesOrder.open_order == False,  # noqa: E712
+            SalesOrder.order_date >= closed_from,
+        )
+        .group_by(
+            SalesOrder.order_num,
+            SalesOrder.po_num,
+            SalesOrder.order_date,
+            SalesOrder.so_type_desc,
+        )
+        .order_by(SalesOrder.order_date.desc())
+        .all()
+    )
+
+    closed_orders = [
+        {
+            "so_number":          str(r.order_num),
+            "customer_name":      r.customer_name or "",
+            "customer_order_ref": r.po_num,
+            "order_date":         r.order_date,
+            "order_type":         r.so_type_desc or "",
+            "due_date":           r.min_due,
+            "total_qty":          float(r.total_qty or 0),
+            "total_value":        float(r.total_value or 0),
+            "line_count":         r.line_count,
+        }
+        for r in closed_rows
+    ]
+
+    closed_summary = {
+        "closed_orders": len(closed_orders),
+        "closed_value":  sum(o["total_value"] for o in closed_orders),
+        "closed_units":  sum(o["total_qty"] for o in closed_orders),
+    }
+
+    # ── Monthly intake trend (last 12 months of closed orders, by month) ──────
+    intake_from = today - timedelta(days=365)
+    monthly_rows = (
+        db.session.query(
+            func.strftime("%Y-%m", SalesOrder.order_date).label("ym"),
+            func.sum(SalesOrder.release_price_gbp).label("val"),
+            func.sum(SalesOrder.selling_qty).label("qty"),
+            func.count(SalesOrder.order_num.distinct()).label("cnt"),
+        )
+        .filter(
+            SalesOrder.customer_id.in_(customer_ids),
+            SalesOrder.open_order == False,  # noqa: E712
+            SalesOrder.order_date >= intake_from,
+            SalesOrder.order_date.isnot(None),
+        )
+        .group_by(func.strftime("%Y-%m", SalesOrder.order_date))
+        .order_by(func.strftime("%Y-%m", SalesOrder.order_date))
+        .all()
+    )
+    monthly_intake = [
+        {
+            "month":  r.ym,
+            "value":  round(float(r.val or 0), 2),
+            "units":  round(float(r.qty or 0), 0),
+            "orders": r.cnt,
+        }
+        for r in monthly_rows
+    ]
+
+    # ── Overdue age breakdown ─────────────────────────────────────────────────
+    age_labels = ["1–7 days", "8–14 days", "15–30 days", "31–60 days", "60+ days"]
+    age_counts = [0, 0, 0, 0, 0]
+    for o in overdue_list:
+        d = abs(o["days_delta"])
+        if   d <= 7:  age_counts[0] += 1
+        elif d <= 14: age_counts[1] += 1
+        elif d <= 30: age_counts[2] += 1
+        elif d <= 60: age_counts[3] += 1
+        else:         age_counts[4] += 1
+    overdue_age_chart = {"labels": age_labels, "counts": age_counts}
+
+    # ── Top products from closed history ─────────────────────────────────────
+    top_products_rows = (
+        db.session.query(
+            SalesOrder.part_num,
+            SalesOrder.part_desc,
+            func.sum(SalesOrder.selling_qty).label("qty"),
+            func.sum(SalesOrder.release_price_gbp).label("val"),
+            func.count(SalesOrder.order_num.distinct()).label("cnt"),
+        )
+        .filter(
+            SalesOrder.customer_id.in_(customer_ids),
+            SalesOrder.open_order == False,  # noqa: E712
+            SalesOrder.order_date >= closed_from,
+            SalesOrder.part_num.isnot(None),
+            SalesOrder.part_num != "",
+        )
+        .group_by(SalesOrder.part_num, SalesOrder.part_desc)
+        .order_by(func.sum(SalesOrder.release_price_gbp).desc())
+        .limit(10)
+        .all()
+    )
+    top_products_closed = [
+        {
+            "part_num":  r.part_num,
+            "part_desc": r.part_desc or r.part_num,
+            "units":     round(float(r.qty or 0), 0),
+            "value":     round(float(r.val or 0), 2),
+            "orders":    r.cnt,
+        }
+        for r in top_products_rows
+    ]
+
+    # ── Lead time distribution (order_date → need_by_date, all orders) ────────
+    lt_rows = (
+        db.session.query(
+            SalesOrder.order_date,
+            SalesOrder.need_by_date,
+        )
+        .filter(
+            SalesOrder.customer_id.in_(customer_ids),
+            SalesOrder.order_date.isnot(None),
+            SalesOrder.need_by_date.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    lt_labels = ["<2 wks", "2–4 wks", "4–8 wks", "8–12 wks", "12–24 wks", "24 wks+"]
+    lt_counts = [0, 0, 0, 0, 0, 0]
+    for r in lt_rows:
+        days = (r.need_by_date - r.order_date).days
+        if   days <  14: lt_counts[0] += 1
+        elif days <  28: lt_counts[1] += 1
+        elif days <  56: lt_counts[2] += 1
+        elif days <  84: lt_counts[3] += 1
+        elif days < 168: lt_counts[4] += 1
+        else:            lt_counts[5] += 1
+    lead_time_dist = {"labels": lt_labels, "counts": lt_counts}
+
+    # ── Order type breakdown (open orders) ─────────────────────────────────────────
+    by_order_type_rows = (
+        db.session.query(
+            SalesOrder.so_type_desc,
+            func.sum(_unit_qty_so).label("cnt"),
+            func.sum(SalesOrder.release_price_gbp).label("val"),
+            func.count(SalesOrder.order_num.distinct()).label("orders"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(
+            SalesOrder.customer_id.in_(customer_ids),
+            SalesOrder.so_type_desc.isnot(None),
+        )
+        .group_by(SalesOrder.so_type_desc)
+        .order_by(func.sum(SalesOrder.release_price_gbp).desc())
+        .all()
+    )
+
+    return {
+        "customer_info":    customer_info,
+        "selected_customers": selected_customers,
+        "open_summary":    open_summary,
+        "open_orders":     open_orders,
+        "weekly_schedule": {
+            "labels": week_labels,
+            "values": [round(v, 2) for v in week_values],
+            "units":  [round(v, 0) for v in week_units_list],
+        },
+        "by_product_group": [
+            {"group": r.prod_code, "units": float(r.cnt or 0), "value": float(r.val or 0)}
+            for r in by_product_group_rows
+        ],
+        "by_model": [
+            {"model": r.model, "units": float(r.cnt or 0), "value": float(r.val or 0)}
+            for r in by_model_rows
+        ],
+        "by_order_type": [
+            {"order_type": r.so_type_desc, "units": float(r.cnt or 0),
+             "value": float(r.val or 0), "orders": r.orders}
+            for r in by_order_type_rows
+        ],
+        "closed_orders":       closed_orders,
+        "closed_summary":      closed_summary,
+        "monthly_intake":      monthly_intake,
+        "overdue_age_chart":   overdue_age_chart,
+        "top_products_closed": top_products_closed,
+        "lead_time_dist":      lead_time_dist,
+    }
