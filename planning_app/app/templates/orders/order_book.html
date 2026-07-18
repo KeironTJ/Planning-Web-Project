@@ -155,6 +155,7 @@
     <table class="table table-sm table-hover mb-0 align-middle" style="font-size:0.85rem;">
       <thead class="table-light">
         <tr>
+          <th style="width:2rem;"></th>
           <th style="white-space:nowrap;">{{ sort_link('SO #', 'so_number') }}</th>
           <th style="min-width:160px;">{{ sort_link('Customer', 'customer') }}</th>
           <th style="min-width:120px;">Customer PO</th>
@@ -172,9 +173,16 @@
       </thead>
       <tbody>
         {% for o in orders %}
+        {% set row_id    = "ob-" ~ loop.index %}
         {% set is_overdue = o.due_date and o.due_date < today %}
         {% set due_soon   = o.due_date and not is_overdue and o.days_delta is not none and o.days_delta <= 7 %}
         <tr class="{{ 'table-danger' if is_overdue else '' }}">
+          <td class="ps-2 text-center">
+            <button class="btn btn-link btn-sm p-0 ob-toggle-btn"
+                    data-target="{{ row_id }}" title="Expand lines">
+              <i class="bi bi-chevron-right small text-muted"></i>
+            </button>
+          </td>
           <td class="fw-semibold text-nowrap">{{ o.so_number }}</td>
           <td>
             <div class="fw-semibold lh-sm">{{ o.customer_name }}</div>
@@ -214,9 +222,81 @@
             {% endif %}
           </td>
         </tr>
+
+        {# ── Expandable line detail rows ── #}
+        {% for line in o.lines %}
+        <tr id="{{ row_id }}" class="ob-detail-row" style="display:none; background:#f8f9fa;">
+          <td class="border-0"></td>
+          <td class="text-muted small font-monospace ps-2 align-top text-nowrap py-2">
+            L{{ line.order_line }}/R{{ line.rel_num }}
+          </td>
+          <td colspan="7" class="small py-2">
+            {% if line.part_num %}
+            <span class="fw-semibold font-monospace">{{ line.part_num }}</span>
+            {% endif %}
+            {% if line.model %}
+            &nbsp;<span class="text-muted">{{ line.model }}</span>
+            {% endif %}
+            {% if line.size_desc %}
+            &nbsp;<span class="badge text-bg-light border text-dark" style="font-size:.7rem;">{{ line.size_desc }}</span>
+            {% endif %}
+            {% if line.cover_desc %}
+            &nbsp;<span class="text-muted small">{{ line.cover_desc }}</span>
+            {% endif %}
+            {% if not line.model and line.part_desc %}
+            <br><span class="text-muted" style="font-size:.75rem;">{{ line.part_desc }}</span>
+            {% endif %}
+          </td>
+          <td class="small text-muted text-nowrap align-top py-2">
+            {{ line.need_by_date.strftime('%d %b %Y') if line.need_by_date else '–' }}
+          </td>
+          <td class="text-end small align-top py-2">
+            <span>{{ "%.0f" | format(line.selling_qty) }}</span>
+            {% if line.shipped_qty > 0 %}
+            <div class="text-muted" style="font-size:.7rem;">{{ "%.0f" | format(line.shipped_qty) }} shp</div>
+            {% endif %}
+          </td>
+          <td class="text-end small text-nowrap align-top py-2">£{{ "{:,.0f}".format(line.release_price_gbp) }}</td>
+          <td class="small align-top py-2">
+            {% if line.job_num %}
+            <span class="font-monospace d-block" style="font-size:.7rem; color:#666;">{{ line.job_num }}</span>
+            {% set req  = line.required_qty %}
+            {% set comp = line.qty_completed %}
+            {% if req > 0 and comp >= req %}
+            <span class="badge text-bg-success" style="font-size:.65rem;">
+              <i class="bi bi-check2"></i> Done
+            </span>
+            {% elif comp > 0 %}
+            <span class="badge text-bg-warning text-dark" style="font-size:.65rem;">
+              <i class="bi bi-tools me-1"></i>{{ "%.0f" | format(comp) }}/{{ "%.0f" | format(req) }}
+            </span>
+            {% else %}
+            <span class="badge text-bg-secondary" style="font-size:.65rem;">
+              {% if line.next_op %}
+              <i class="bi bi-arrow-right-circle me-1"></i>{{ line.next_op }}
+              {% else %}
+              <i class="bi bi-clock me-1"></i>WIP
+              {% endif %}
+            </span>
+            {% endif %}
+            {% endif %}
+            {% if line.wip_bin %}
+            <span class="badge text-bg-light border text-dark d-block mt-1" style="font-size:.65rem;">
+              <i class="bi bi-geo-alt-fill me-1 text-primary"></i>{{ line.wip_bin }}
+            </span>
+            {% endif %}
+            {% if line.prod_plnwk %}
+            <span class="badge text-bg-light border text-muted d-block mt-1" style="font-size:.65rem;">
+              <i class="bi bi-calendar3 me-1"></i>{{ line.prod_plnwk }}
+            </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+
         {% else %}
         <tr>
-          <td colspan="13" class="text-center text-muted py-5">
+          <td colspan="14" class="text-center text-muted py-5">
             <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
             No orders match the current filters.
           </td>
@@ -256,4 +336,23 @@
 {% endif %}
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.ob-toggle-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var target   = btn.dataset.target;
+            var rows     = document.querySelectorAll('tr[id="' + target + '"]');
+            var icon     = btn.querySelector('i');
+            var isHidden = rows.length > 0 && rows[0].style.display === 'none';
+            rows.forEach(function (r) { r.style.display = isHidden ? '' : 'none'; });
+            icon.classList.toggle('bi-chevron-right', !isHidden);
+            icon.classList.toggle('bi-chevron-down',   isHidden);
+            btn.title = isHidden ? 'Collapse lines' : 'Expand lines';
+        });
+    });
+});
+</script>
 {% endblock %}

@@ -94,6 +94,27 @@ def order_book():
         o["latest_user"]    = cs.get("latest_user")
         o["latest_at"]      = cs.get("latest_at")
 
+    # ── Enrich lines with next_op from WorksOrder ──────────────────────
+    from app.operations.models import WorksOrder
+    from app.extensions import db
+    all_job_nums = {
+        line["job_num"]
+        for o in orders
+        for line in o.get("lines", [])
+        if line["job_num"]
+    }
+    next_op_map: dict[str, str] = {}
+    if all_job_nums:
+        wo_rows = (
+            db.session.query(WorksOrder.job_num, WorksOrder.next_op)
+            .filter(WorksOrder.job_num.in_(list(all_job_nums)), WorksOrder.assembly_seq == 0)
+            .all()
+        )
+        next_op_map = {wo.job_num: wo.next_op for wo in wo_rows if wo.next_op}
+    for o in orders:
+        for line in o.get("lines", []):
+            line["next_op"] = next_op_map.get(line["job_num"], "")
+
     return render_template(
         "orders/order_book.html",
         title="Open Order Book",

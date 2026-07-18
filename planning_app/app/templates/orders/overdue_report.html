@@ -46,11 +46,11 @@
         <div class="card border-0 shadow-sm h-100 text-center py-3">
             {% set val = total_overdue_value %}
             {% if val >= 1000000 %}
-                {% set val_fmt = "&pound;%.2fm" | format(val / 1000000) %}
+                {% set val_fmt = "£%.2fm" | format(val / 1000000) %}
             {% elif val >= 1000 %}
-                {% set val_fmt = "&pound;%.0fk" | format(val / 1000) %}
+                {% set val_fmt = "£%.0fk" | format(val / 1000) %}
             {% else %}
-                {% set val_fmt = "&pound;%.0f" | format(val) %}
+                {% set val_fmt = "£%.0f" | format(val) %}
             {% endif %}
             <div class="fw-bold fs-2 text-danger">{{ val_fmt }}</div>
             <div class="small text-muted">Overdue Order Value</div>
@@ -250,7 +250,7 @@
                             </span>
                         </td>
                         <td class="text-end small">
-                            {% if o.total_value %}&pound;{{ '{:,.0f}'.format(o.total_value) }}{% else %}&mdash;{% endif %}
+                            {% if o.total_value %}£{{ '{:,.0f}'.format(o.total_value) }}{% else %}&mdash;{% endif %}
                         </td>
                         <td class="small text-body-secondary" style="max-width:200px;">
                             {% if o.depts %}

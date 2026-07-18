@@ -5,50 +5,116 @@
 <!-- ── Page header ─────────────────────────────────────────────────── -->
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
-        <h4 class="mb-0 fw-semibold">Daily Production Output</h4>
+        <h4 class="mb-0 fw-semibold">Production Output</h4>
         <p class="text-muted small mb-0">
-            14-day view by department
-            {% if last_imported %} · Last sync {{ last_imported.strftime('%d %b %Y %H:%M') }}{% endif %}
+            {{ 'Weekly' if view == 'weekly' else 'Daily' }} view &middot; {{ date_from.strftime('%d %b %Y') }} &ndash; {{ date_to.strftime('%d %b %Y') }}
+            {%- if total_qty > 0 %} &middot; <strong class="text-dark">{{ "{:,.0f}".format(total_qty | int) }}</strong> units{%- endif %}
+            {% if last_imported %} &middot; Last sync {{ last_imported.strftime('%d %b %Y %H:%M') }}{% endif %}
         </p>
     </div>
-    <a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-arrow-repeat me-1"></i>Sync Data
-    </a>
+    <div class="d-flex align-items-center gap-2">
+        <div id="sync-result" class="d-none alert py-1 px-2 mb-0 small" role="alert"></div>
+        <button id="btn-sync" type="button" class="btn btn-sm btn-outline-secondary" onclick="syncOutput()">
+            <span class="spinner-border spinner-border-sm d-none me-1" id="sync-spinner"></span>
+            <i class="bi bi-arrow-repeat me-1" id="sync-icon"></i>Sync Data
+        </button>
+    </div>
 </div>
 
-<!-- ── Date range filter ───────────────────────────────────────────── -->
+<!-- ── Unified filter bar ───────────────────────────────────────── -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
-        <form method="GET" class="row g-2 align-items-end">
-            <div class="col-auto">
-                <label class="form-label small mb-0">From</label>
-                <input type="date" name="date_from" value="{{ date_from.isoformat() }}"
-                       class="form-control form-control-sm">
+        {%- set ns = namespace(any_active=false) %}
+        {%- for s in period_shortcuts %}{% if s.active %}{%- set ns.any_active = true %}{% endif %}{% endfor %}
+
+        <div class="d-flex flex-wrap gap-1 align-items-center">
+
+            <!-- View toggle -->
+            <div class="btn-group btn-group-sm" role="group">
+                <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=section, view='daily') }}"
+                   class="btn {{ 'btn-primary' if view != 'weekly' else 'btn-outline-secondary' }}">Daily</a>
+                <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=section, view='weekly') }}"
+                   class="btn {{ 'btn-primary' if view == 'weekly' else 'btn-outline-secondary' }}">Weekly</a>
             </div>
-            <div class="col-auto">
-                <label class="form-label small mb-0">To</label>
-                <input type="date" name="date_to" value="{{ date_to.isoformat() }}"
-                       class="form-control form-control-sm">
-            </div>
-            <div class="col-auto">
-                <button type="submit" class="btn btn-primary btn-sm">Apply</button>
-                <a href="{{ url_for('operations.daily_output') }}"
-                   class="btn btn-outline-secondary btn-sm">14 Days</a>
-                <a href="{{ url_for('operations.daily_output', date_from=date_7d.isoformat()) }}"
-                   class="btn btn-outline-secondary btn-sm">7 Days</a>
-                <a href="{{ url_for('operations.daily_output', date_from=today.isoformat(), date_to=today.isoformat()) }}"
-                   class="btn btn-outline-secondary btn-sm">Today</a>
-            </div>
-            <div class="col-auto ms-auto d-flex gap-2 align-items-center">
-                <span class="badge bg-primary fs-6">{{ "%.0f"|format(total_qty) }} units</span>
-                {% if period_target > 0 %}
-                {% set pct = (total_qty / period_target * 100) | round(0) | int %}
-                <span class="badge fs-6 {% if pct >= 100 %}bg-success{% elif pct >= 80 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-                    {{ pct }}% of target
-                </span>
+
+            <div class="vr mx-2" style="height:1.6rem;"></div>
+
+            <!-- Today / This Week -->
+            {% for s in period_shortcuts if s.group == 'now' %}
+            <a href="{{ url_for('operations.daily_output', date_from=s.date_from, date_to=s.date_to, section=section, view=view) }}"
+               class="btn btn-sm {{ 'btn-primary' if s.active else 'btn-outline-secondary' }}">{{ s.label }}</a>
+            {% endfor %}
+
+            <div class="vr mx-2" style="height:1.6rem;"></div>
+
+            <!-- Week shortcuts -->
+            {% for s in period_shortcuts if s.group == 'week' %}
+            <a href="{{ url_for('operations.daily_output', date_from=s.date_from, date_to=s.date_to, section=section, view=view) }}"
+               class="btn btn-sm {{ 'btn-primary' if s.active else 'btn-outline-secondary' }}">{{ s.label }}</a>
+            {% endfor %}
+
+            <div class="vr mx-2" style="height:1.6rem;"></div>
+
+            <!-- Month shortcuts -->
+            {% for s in period_shortcuts if s.group == 'month' %}
+            <a href="{{ url_for('operations.daily_output', date_from=s.date_from, date_to=s.date_to, section=section, view=view) }}"
+               class="btn btn-sm {{ 'btn-primary' if s.active else 'btn-outline-secondary' }}">{{ s.label }}</a>
+            {% endfor %}
+
+            <div class="vr mx-2" style="height:1.6rem;"></div>
+
+            <!-- Year shortcuts -->
+            {% for s in period_shortcuts if s.group == 'year' %}
+            <a href="{{ url_for('operations.daily_output', date_from=s.date_from, date_to=s.date_to, section=section, view=view) }}"
+               class="btn btn-sm {{ 'btn-primary' if s.active else 'btn-outline-secondary' }}">{{ s.label }}</a>
+            {% endfor %}
+
+            <div class="vr mx-2" style="height:1.6rem;"></div>
+
+            <!-- Custom date toggle -->
+            <button type="button"
+                    class="btn btn-sm {{ 'btn-primary' if not ns.any_active else 'btn-outline-secondary' }}"
+                    data-bs-toggle="collapse" data-bs-target="#customRange"
+                    aria-expanded="{{ 'true' if not ns.any_active else 'false' }}">
+                <i class="bi bi-calendar3 me-1"></i>{%- if not ns.any_active -%}{{ date_from.strftime('%d %b') }}&ndash;{{ date_to.strftime('%d %b %y') }}{%- else -%}Custom{%- endif -%}
+            </button>
+
+            <!-- Totals removed — units shown in page subtitle -->
+
+            <div class="vr mx-2" style="height:1.6rem;"></div>
+
+            <!-- Department filter -->
+            <select class="form-select form-select-sm" style="width:auto; max-width:170px;"
+                    onchange="applyDeptFilter(this.value)" title="Filter by department">
+                <option value="">All departments</option>
+                {% for r in section_summary %}
+                {% if r.op_desc %}
+                <option value="{{ r.op_desc }}"{{ ' selected' if section == r.op_desc else '' }}>{{ r.op_desc }}</option>
                 {% endif %}
-            </div>
-        </form>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Custom date picker (hidden when a shortcut is active) -->
+        <div class="collapse{{ ' show' if not ns.any_active else '' }}" id="customRange">
+            <form method="GET" class="d-flex flex-wrap gap-2 align-items-end pt-2 mt-2 border-top">
+                <input type="hidden" name="view" value="{{ view }}">
+                <input type="hidden" name="section" value="{{ section }}">
+                <div>
+                    <label class="form-label small mb-0">From</label>
+                    <input type="date" name="date_from" value="{{ date_from.isoformat() }}"
+                           class="form-control form-control-sm">
+                </div>
+                <div>
+                    <label class="form-label small mb-0">To</label>
+                    <input type="date" name="date_to" value="{{ date_to.isoformat() }}"
+                           class="form-control form-control-sm">
+                </div>
+                <div class="align-self-end">
+                    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -58,7 +124,7 @@
 <div class="row g-2 mb-3">
     {% for dept in departments %}
     <div class="col-6 col-md-3 col-xl-2">
-        <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=dept) }}"
+        <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=dept, view=view) }}"
            class="card border-0 shadow-sm text-decoration-none h-100{% if section == dept %} border-primary border-2{% endif %}">
             <div class="card-body p-2 text-center">
                 <div class="fw-bold fs-5 text-primary">{{ "%.0f"|format(dept_totals.get(dept, 0)) }}</div>
@@ -71,9 +137,17 @@
 
 <!-- ── Stacked bar chart ───────────────────────────────────────────── -->
 <div class="card border-0 shadow-sm mb-3">
-    <div class="card-header bg-transparent border-0 pb-0">
-        <h6 class="mb-0 fw-semibold">Output by Day</h6>
-        <p class="text-muted small mb-0">Units produced per day by department</p>
+    <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start">
+        <div>
+            <h6 class="mb-0 fw-semibold">Output by {{ 'Week' if view == 'weekly' else 'Day' }}</h6>
+            <p class="text-muted small mb-0">Units produced per {{ 'week' if view == 'weekly' else 'day' }} by department</p>
+        </div>
+        <button id="btn-trend" type="button"
+                class="btn btn-sm btn-outline-secondary mt-1"
+                onclick="toggleTrend()"
+                title="Show/hide trend line">
+            <i class="bi bi-graph-up me-1"></i>Trend
+        </button>
     </div>
     <div class="card-body pt-2" style="position:relative;height:280px;">
         <canvas id="outputChart"></canvas>
@@ -83,10 +157,81 @@
 <!-- ── Pivot matrix ────────────────────────────────────────────────── -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-header bg-transparent border-0 pb-0">
-        <h6 class="mb-0 fw-semibold">Department × Day Breakdown</h6>
+        <h6 class="mb-0 fw-semibold">Department × {{ 'Week' if view == 'weekly' else 'Day' }} Breakdown</h6>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
+        {% if view == 'weekly' %}
+            {# ── Weekly table ── #}
+            <table class="table table-sm table-bordered mb-0 align-middle"
+                   style="font-size:0.78rem; white-space:nowrap;">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3" style="min-width:130px">Department</th>
+                        {% for wk in week_list %}
+                        <th class="text-center px-1" style="min-width:64px">
+                            <div class="fw-semibold">W{{ "%02d"|format(wk[6:]|int) }}</div>
+                            <div class="text-muted" style="font-size:0.65rem;">{{ wk[:4] }}</div>
+                        </th>
+                        {% endfor %}
+                        <th class="text-end pe-3 fw-semibold" style="min-width:60px">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dept in departments %}
+                    <tr>
+                        <td class="ps-3 fw-semibold">
+                            <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=dept, view='weekly') }}"
+                               class="text-decoration-none text-dark">{{ dept }}</a>
+                        </td>
+                        {% for wk in week_list %}
+                        {% set qty = week_pivot.get(dept, {}).get(wk, 0) %}
+                        <td class="text-center px-1{% if qty > 0 %} fw-semibold{% else %} text-muted{% endif %}">
+                            {%- if qty > 0 -%}
+                                {{ "%.0f"|format(qty) }}
+                            {%- else -%}
+                                <span style="opacity:0.3">·</span>
+                            {%- endif -%}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end pe-3 fw-bold text-primary">
+                            {{ "%.0f"|format(dept_totals.get(dept, 0)) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="table-light">
+                    <tr class="fw-bold">
+                        <td class="ps-3">Weekly Total</td>
+                        {% for wk in week_list %}
+                        {% set wt = week_totals.get(wk, 0) %}
+                        {% set wtgt = week_targets.get(wk, 0) %}
+                        <td class="text-center px-1
+                            {%- if wtgt > 0 and wt >= wtgt %} text-success
+                            {%- elif wtgt > 0 and wt > 0 %} text-danger
+                            {%- elif wt > 0 %} text-primary
+                            {%- else %} text-muted{%- endif %}">
+                            {{ "%.0f"|format(wt) if wt > 0 else '&mdash;'|safe }}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end pe-3 text-primary">{{ "%.0f"|format(total_qty) }}</td>
+                    </tr>
+                    {% if target_qty > 0 %}
+                    <tr class="text-muted" style="font-size:0.72rem;">
+                        <td class="ps-3">Target</td>
+                        {% for wk in week_list %}
+                        {% set wtgt = week_targets.get(wk, 0) %}
+                        <td class="text-center px-1">
+                            {{ "%.0f"|format(wtgt) if wtgt > 0 else '&mdash;'|safe }}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end pe-3">{{ "%.0f"|format(week_period_target) }}</td>
+                    </tr>
+                    {% endif %}
+                </tfoot>
+            </table>
+        {% else %}
+            {# ── Daily table ── #}
             <table class="table table-sm table-bordered mb-0 align-middle"
                    style="font-size:0.78rem; white-space:nowrap;">
                 <thead class="table-light">
@@ -155,6 +300,7 @@
                     {% endif %}
                 </tfoot>
             </table>
+        {% endif %}
         </div>
     </div>
 </div>
@@ -173,7 +319,7 @@
         {% if section %}
         <div class="px-3 pt-2 d-flex align-items-center gap-2">
             <span class="badge bg-secondary">{{ section }}</span>
-            <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat()) }}"
+            <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), view=view) }}"
                class="btn btn-sm btn-link p-0">Clear filter</a>
         </div>
         {% endif %}
@@ -195,7 +341,7 @@
                         <tr>
                             <td class="text-muted small">{{ r.clock_in_date.strftime('%d %b') if r.clock_in_date else '—' }}</td>
                             <td>
-                                <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=r.op_desc) }}"
+                                <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=r.op_desc, view=view) }}"
                                    class="badge bg-secondary text-decoration-none">{{ r.op_desc or '—' }}</a>
                             </td>
                             <td class="font-monospace small">{{ r.job_num or '—' }}</td>
@@ -224,7 +370,7 @@
                         {% if p %}
                             <li class="page-item {{ 'active' if p == detail.page else '' }}">
                                 <a class="page-link"
-                                   href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=section, page=p) }}">{{ p }}</a>
+                                   href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=section, page=p, view=view) }}">{{ p }}</a>
                             </li>
                         {% else %}
                             <li class="page-item disabled"><span class="page-link">…</span></li>
@@ -242,20 +388,79 @@
 <div class="text-center py-5 text-muted">
     <i class="bi bi-bar-chart-line display-4 d-block mb-3 opacity-25"></i>
     No production output data for this period.<br>
-    <a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-outline-secondary btn-sm mt-3">
+    <button type="button" class="btn btn-outline-secondary btn-sm mt-3" onclick="syncOutput()">
         <i class="bi bi-arrow-repeat me-1"></i>Sync from Epicor
-    </a>
+    </button>
 </div>
 {% endif %}
 
 {% endblock %}
 
 {% block extra_js %}
+<script>
+function toggleTrend() {
+    const chart = window._outputChart;
+    if (!chart) return;
+    const idx = chart.data.datasets.findIndex(d => d.label && d.label.startsWith('Trend'));
+    if (idx < 0) return;
+    const nowVisible = chart.isDatasetVisible(idx);
+    chart.setDatasetVisibility(idx, !nowVisible);
+    chart.update();
+    document.getElementById('btn-trend').classList.toggle('active', !nowVisible);
+}
+function applyDeptFilter(dept) {
+    const url = new URL(window.location.href);
+    if (dept) { url.searchParams.set('section', dept); } else { url.searchParams.delete('section'); }
+    url.searchParams.delete('page');
+    window.location.href = url.toString();
+}
+async function syncOutput() {
+    const btn     = document.getElementById('btn-sync');
+    const spinner = document.getElementById('sync-spinner');
+    const icon    = document.getElementById('sync-icon');
+    const result  = document.getElementById('sync-result');
+
+    btn.disabled = true;
+    spinner.classList.remove('d-none');
+    icon.classList.add('d-none');
+    result.className = 'd-none alert py-1 px-2 mb-0 small';
+    result.textContent = '';
+
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    try {
+        const resp = await fetch('{{ url_for("operations.daily_output_sync") }}', {
+            method:  'POST',
+            headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' },
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            const inserted = data.rows_inserted ?? 0;
+            const notes    = data.notes ? ' · ' + data.notes : '';
+            result.className = 'alert alert-success py-1 px-2 mb-0 small';
+            result.textContent = `Synced — ${inserted} new rows${notes}`;
+            setTimeout(() => location.reload(), 1800);
+        } else {
+            result.className = 'alert alert-danger py-1 px-2 mb-0 small';
+            result.textContent = data.message || 'Sync failed';
+            btn.disabled = false;
+            spinner.classList.add('d-none');
+            icon.classList.remove('d-none');
+        }
+    } catch (err) {
+        result.className = 'alert alert-danger py-1 px-2 mb-0 small';
+        result.textContent = 'Network error — ' + err.message;
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+        icon.classList.remove('d-none');
+    }
+}
+</script>
+
 {% if departments %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const labels   = {{ chart_labels | tojson }};
-    const deptData = {{ chart_dept_data | tojson }};
+    const labels   = {{ (chart_week_labels if view == 'weekly' else chart_labels) | tojson }};
+    const deptData = {{ (chart_week_dept_data if view == 'weekly' else chart_dept_data) | tojson }};
 
     const datasets = deptData.map(d => ({
         label:           d.label,
@@ -265,11 +470,31 @@ document.addEventListener('DOMContentLoaded', function () {
         borderSkipped:   false,
     }));
 
+    // Trendline (SMA-5 for daily, linear regression for weekly)
+    const trendData = {{ (chart_week_trendline_data if view == 'weekly' else chart_trendline_data) | tojson }};
+    if (trendData.some(v => v !== null && v !== undefined)) {
+        datasets.push({
+            label: 'Trend{% if trend_dept_label %} ({{ trend_dept_label }}){% endif %}',
+            data: trendData,
+            type: 'line',
+            borderColor: 'rgba(99,102,241,0.85)',
+            borderWidth: 1.5,
+            borderDash: [],
+            pointRadius: {{ 3 if view == 'weekly' else 0 }},
+            pointHoverRadius: 4,
+            pointBackgroundColor: 'rgba(99,102,241,0.9)',
+            fill: false,
+            tension: 0.3,
+            order: -3,
+            hidden: true,
+        });
+    }
+
     // Target line
-    const chartTargetData = {{ chart_target_data | tojson }};
+    const chartTargetData = {{ (chart_week_target_data if view == 'weekly' else chart_target_data) | tojson }};
     if ({{ target_qty }} > 0) {
         datasets.push({
-            label: 'Target ({{ target_qty }})',
+            label: '{{ "Weekly Target" if view == "weekly" else "Target (" ~ target_qty ~ ")" }}',
             data: chartTargetData.map(v => v > 0 ? v : null),
             type: 'line',
             borderColor: 'rgba(220,53,69,0.75)',
@@ -285,7 +510,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const ctx = document.getElementById('outputChart');
     if (!ctx) return;
 
-    new Chart(ctx, {
+    window._outputChart = new Chart(ctx, {
         type: 'bar',
         data: { labels, datasets },
         options: {

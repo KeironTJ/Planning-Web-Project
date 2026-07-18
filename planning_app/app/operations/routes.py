@@ -1,15 +1,36 @@
 ﻿'''Operations department portal routes.'''
 
 from collections import defaultdict
+import calendar
 from datetime import date, timedelta
-from flask import render_template, request
-from flask_login import login_required
+from flask import current_app, jsonify, render_template, request
+from flask_login import current_user, login_required
 from sqlalchemy import func
 from . import operations_bp
 from .models import WorksOrder, ProductionOutput
 from app.extensions import db
 from app.sales.orders.models import Department as DeptModel
 from app.admin.models import SystemSetting, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS
+
+@operations_bp.route('/daily-output/sync', methods=['POST'])
+@login_required
+def daily_output_sync():
+    """AJAX endpoint: run the incremental production output sync and return JSON."""
+    from app.core.epicor_client import KineticClient
+    from app.core.epicor_importers import REGISTRY
+
+    try:
+        with KineticClient.from_app(current_app._get_current_object()) as client:
+            importer = REGISTRY['production_output'](client)
+            batch = importer.run(triggered_by_id=current_user.id)
+        return jsonify({
+            'status':        'ok',
+            'rows_inserted': batch.rows_inserted,
+            'notes':         batch.notes or '',
+        })
+    except Exception as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 500
+
 
 @operations_bp.route('/')
 @operations_bp.route('/dashboard')
@@ -151,7 +172,7 @@ def dashboard():
 @login_required
 def daily_output():
     today         = date.today()
-    default_from  = today - timedelta(days=13)
+    default_from  = today - timedelta(days=today.weekday())   # Monday of current week
     date_7d       = today - timedelta(days=6)
     date_from_str = request.args.get('date_from', default_from.isoformat())
     date_to_str   = request.args.get('date_to',   today.isoformat())
@@ -162,7 +183,67 @@ def daily_output():
         date_from = default_from
         date_to   = today
 
-    # Department totals (cards + row totals)
+    view = request.args.get('view', 'daily')
+
+    # ── Smart period shortcuts ───────────────────────────────────────
+    def _wb(d):
+        mon = d - timedelta(days=d.weekday())
+        return mon, mon + timedelta(days=6)
+
+    _sc = []
+    # "Now" shortcuts — shown first for quick access
+    _mon_curr, _sun_curr = _wb(today)
+    _sc.append({
+        'group':     'now',
+        'label':     'Today',
+        'date_from': today.isoformat(),
+        'date_to':   today.isoformat(),
+        'active':    date_from == today and date_to == today,
+    })
+    _sc.append({
+        'group':     'now',
+        'label':     'This Week',
+        'date_from': _mon_curr.isoformat(),
+        'date_to':   _sun_curr.isoformat(),
+        'active':    date_from == _mon_curr and date_to == _sun_curr,
+    })
+    # 3 prior ISO weeks (oldest → newest); current week is covered by "This Week" above
+    for _i in range(3, 0, -1):
+        _mon, _sun = _wb(today - timedelta(weeks=_i))
+        _iso = _mon.isocalendar()
+        _sfx = f" '{str(_iso[0])[2:]}" if _iso[0] != today.year else ""
+        _sc.append({
+            'group': 'week',
+            'label': f"W{_iso[1]:02d}{_sfx}",
+            'date_from': _mon.isoformat(),
+            'date_to':   _sun.isoformat(),
+            'active':    date_from == _mon and date_to == _sun,
+        })
+    # Current + 5 prior months (oldest → newest)
+    for _i in range(5, -1, -1):
+        _yr, _mo = today.year, today.month - _i
+        while _mo <= 0:
+            _mo += 12; _yr -= 1
+        _mf = date(_yr, _mo, 1)
+        _mt = date(_yr, _mo, calendar.monthrange(_yr, _mo)[1])
+        _sfx = f" '{str(_yr)[2:]}" if _yr != today.year else ""
+        _sc.append({
+            'group': 'month',
+            'label': _mf.strftime('%b') + _sfx,
+            'date_from': _mf.isoformat(),
+            'date_to':   _mt.isoformat(),
+            'active':    date_from == _mf and date_to == _mt,
+        })
+    # Previous year + current year
+    for _y in (today.year - 1, today.year):
+        _sc.append({
+            'group': 'year',
+            'label': str(_y),
+            'date_from': date(_y, 1, 1).isoformat(),
+            'date_to':   date(_y, 12, 31).isoformat(),
+            'active':    date_from == date(_y, 1, 1) and date_to == date(_y, 12, 31),
+        })
+    period_shortcuts = _sc
     section_summary = (
         db.session.query(
             ProductionOutput.op_desc,
@@ -175,8 +256,11 @@ def daily_output():
         .all()
     )
 
+    # Department filter — parsed early so pivot / chart also respect it
+    section = request.args.get('section', '')
+
     # Pivot: date × department
-    by_day_dept = (
+    _by_day_q = (
         db.session.query(
             ProductionOutput.clock_in_date,
             ProductionOutput.op_desc,
@@ -185,8 +269,10 @@ def daily_output():
         .filter(ProductionOutput.clock_in_date >= date_from, ProductionOutput.clock_in_date <= date_to)
         .group_by(ProductionOutput.clock_in_date, ProductionOutput.op_desc)
         .order_by(ProductionOutput.clock_in_date, ProductionOutput.op_desc)
-        .all()
     )
+    if section:
+        _by_day_q = _by_day_q.filter(ProductionOutput.op_desc == section)
+    by_day_dept = _by_day_q.all()
 
     # Build pivot structures (plain dicts for template safety)
     _pivot     = defaultdict(dict)   # {dept: {date_str: qty}}
@@ -249,7 +335,6 @@ def daily_output():
 
     # Detail table
     page     = request.args.get('page', 1, type=int)
-    section  = request.args.get('section', '')
     detail_q = ProductionOutput.query.filter(
         ProductionOutput.clock_in_date >= date_from,
         ProductionOutput.clock_in_date <= date_to,
@@ -260,12 +345,98 @@ def daily_output():
         ProductionOutput.clock_in_date.desc(), ProductionOutput.op_desc
     ).paginate(page=page, per_page=100, error_out=False)
 
-    total_qty = sum(r.total_qty or 0 for r in section_summary)
+    # total_qty reflects the active dept filter (or all depts if no filter)
+    total_qty = (
+        float(dept_totals.get(section, 0))
+        if section else
+        sum(r.total_qty or 0 for r in section_summary)
+    )
     last      = ProductionOutput.query.order_by(ProductionOutput.imported_at.desc()).first()
+
+    # ── Weekly pivot (reuse by_day_dept query data) ──────────────────────
+    _week_pivot    = defaultdict(lambda: defaultdict(float))
+    _week_date_tot = defaultdict(float)
+
+    for row in by_day_dept:
+        if not row.clock_in_date:
+            continue
+        iso      = row.clock_in_date.isocalendar()
+        week_key = f"{iso[0]}-W{iso[1]:02d}"
+        dept     = row.op_desc or '—'
+        qty      = float(row.total_qty or 0)
+        _week_pivot[dept][week_key] += qty
+        _week_date_tot[week_key]    += qty
+
+    week_list = sorted(_week_date_tot.keys())
+
+    def _week_label(wk):
+        return f"W{int(wk[6:]):02d}/{wk[2:4]}"
+
+    chart_week_labels = [_week_label(wk) for wk in week_list]
+
+    week_targets = {
+        wk: sum(
+            target_qty
+            for d in date_list
+            if f"{d.isocalendar()[0]}-W{d.isocalendar()[1]:02d}" == wk
+            and d.weekday() in target_days
+        )
+        for wk in week_list
+    }
+    week_period_target     = sum(week_targets.values())
+    chart_week_target_data = [week_targets.get(wk, 0) for wk in week_list]
+
+    week_pivot  = {dept: dict(inner) for dept, inner in _week_pivot.items()}
+    week_totals = dict(_week_date_tot)
+
+    # ── Trendlines ───────────────────────────────────────────────
+    def _sma(vals, w):
+        """Simple moving average; None for positions with insufficient history."""
+        out = []
+        for i in range(len(vals)):
+            out.append(None if i < w - 1 else round(sum(vals[i - w + 1:i + 1]) / w, 1))
+        return out
+
+    def _lintrend(vals):
+        """Ordinary least-squares linear regression through (i, vals[i])."""
+        n = len(vals)
+        if n < 2:
+            return [round(v, 1) for v in vals]
+        xm = (n - 1) / 2.0
+        ym = sum(vals) / n
+        num = sum((i - xm) * (vals[i] - ym) for i in range(n))
+        den = sum((i - xm) ** 2 for i in range(n))
+        if den == 0:
+            return [round(ym, 1)] * n
+        slope = num / den
+        return [round(ym + slope * (i - xm), 1) for i in range(n)]
+
+    # Trendline source: filtered dept when section is set, otherwise the final
+    # department in the process flow (last entry in flow-ordered departments list).
+    _trend_dept = section or (departments[-1] if departments else None)
+    if _trend_dept and not section:
+        _dv = [float(pivot.get(_trend_dept, {}).get(d.isoformat(), 0)) for d in date_list]
+        _wv = [float(week_pivot.get(_trend_dept, {}).get(wk, 0)) for wk in week_list]
+    else:
+        _dv = [float(date_totals.get(d.isoformat(), 0)) for d in date_list]
+        _wv = [float(week_totals.get(wk, 0)) for wk in week_list]
+    chart_trendline_data      = _lintrend(_dv)
+    chart_week_trendline_data = _lintrend(_wv)
+    trend_dept_label          = _trend_dept or ''
+
+    chart_week_dept_data = [
+        {
+            'label':           dept,
+            'data':            [week_pivot.get(dept, {}).get(wk, 0) for wk in week_list],
+            'backgroundColor': PALETTE[i % len(PALETTE)],
+        }
+        for i, dept in enumerate(departments)
+    ]
 
     return render_template(
         'operations/daily_output.html',
-        title='Daily Output',
+        title='Production Output',
+        view=view,
         date_from=date_from, date_to=date_to, today=today, date_7d=date_7d,
         section_summary=section_summary,
         detail=detail, section=section,
@@ -282,4 +453,16 @@ def daily_output():
         day_targets=day_targets,
         target_qty=target_qty,
         period_target=period_target,
+        week_list=week_list,
+        week_pivot=week_pivot,
+        week_totals=week_totals,
+        chart_week_labels=chart_week_labels,
+        chart_week_dept_data=chart_week_dept_data,
+        chart_week_target_data=chart_week_target_data,
+        week_targets=week_targets,
+        week_period_target=week_period_target,
+        period_shortcuts=period_shortcuts,
+        chart_trendline_data=chart_trendline_data,
+        chart_week_trendline_data=chart_week_trendline_data,
+        trend_dept_label=trend_dept_label,
     )

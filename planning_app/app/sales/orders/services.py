@@ -194,6 +194,27 @@ def get_order_book(
         entry["total_qty"]   = sum(float(r.selling_qty or 0) for r in releases)
         entry["total_value"] = sum(float(r.release_price_gbp or 0) for r in releases)
         entry["line_count"]  = len({r.order_line for r in releases})
+        entry["lines"]       = [
+            {
+                "order_line":        r.order_line,
+                "rel_num":           r.rel_num,
+                "part_num":          r.part_num or "",
+                "part_desc":         r.part_desc or "",
+                "model":             r.model or "",
+                "size_desc":         r.size_desc or "",
+                "cover_desc":        r.cover_desc or "",
+                "selling_qty":       float(r.selling_qty or 0),
+                "shipped_qty":       float(r.shipped_qty or 0),
+                "required_qty":      float(r.required_qty or 0),
+                "qty_completed":     float(r.qty_completed or 0),
+                "release_price_gbp": float(r.release_price_gbp or 0),
+                "need_by_date":      r.need_by_date,
+                "job_num":           r.job_num or "",
+                "wip_bin":           r.wip_bin or "",
+                "prod_plnwk":        r.prod_plnwk or "",
+            }
+            for r in releases
+        ]
 
     if order_by == "value":
         order_list.sort(key=lambda x: x["total_value"], reverse=True)

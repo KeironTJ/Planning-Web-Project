@@ -83,6 +83,11 @@ class EpicorBaqImporter:
     #: None = use the KineticClient default (500 rows/page).
     PAGE_SIZE: int | None = None
 
+    #: Set to True in incremental importers that legitimately fetch 0 records
+    #: (e.g. when the date window contains no new data).  Bypasses the
+    #: zero-record safety guard that normally prevents accidental table wipes.
+    ALLOW_EMPTY_RESULT: bool = False
+
     def __init__(self, client) -> None:
         """
         Args:
@@ -141,7 +146,7 @@ class EpicorBaqImporter:
             # Guard against a silent empty response wiping the table.
             # If the BAQ has never returned data before, allow 0 records (first run).
             # If we have existing rows and the API returns 0, treat it as a failure.
-            if len(records) == 0:
+            if len(records) == 0 and not self.ALLOW_EMPTY_RESULT:
                 from app.extensions import db as _db
                 existing = _db.session.execute(
                     _db.text(f"SELECT COUNT(*) FROM {self._target_table()}")

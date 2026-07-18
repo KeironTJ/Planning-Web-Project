@@ -632,15 +632,71 @@ class SalesOrderClosedImporter(EpicorBaqImporter):
     BAQ_PARAMS  = {"OpenOrders": "Closed"}
     PAGE_SIZE   = 10000
 
+    # Incremental — a narrow date window may legitimately return 0 rows.
+    ALLOW_EMPTY_RESULT = True
+
+    # How many days before the last successful run to re-fetch, so that
+    # corrections / amendments to recently-closed orders are picked up.
+    _OVERLAP_DAYS = 30
+
+    # Hard cap on how far back the open-order floor can extend the query window.
+    # Prevents the BAQ from being asked for multiple years of closed orders on
+    # every daily run.  Orders with order_dates older than this cap will not be
+    # caught automatically if they close — use a manual backfill for those.
+    # Increase if your order cycles routinely exceed 12 months.
+    MAX_LOOKBACK_DAYS = 365
+
     def _target_table(self) -> str:
         return "sales_orders"
 
     def get_dynamic_params(self) -> dict:
-        """Default date range: 1 Jan of current year → today (UK format dd/mm/yyyy)."""
-        from datetime import date
+        """
+        Rolling-window incremental with open-order floor.
+
+        The date range is the EARLIER of:
+          • (last_run − OVERLAP_DAYS) — rolling 30-day overlap to catch corrections
+          • earliest open order_date currently in the DB — ensures orders that
+            transition from open → closed are never missed, regardless of how
+            old their order_date is (e.g. overdue 2025 orders that close in 2026)
+
+        First run (no previous successful batch): fetches 1 Jan of current year
+        → today as an initial baseline.  To seed further back, call:
+            flask epicor sync sales_closed -p OrderDateFrom=01/01/2024
+        """
+        from datetime import date, timedelta
+        from app.extensions import db
+        from app.sales.orders.models import ImportBatch as IB, SalesOrder
+
         today = date.today()
+        last_batch = (
+            IB.query
+            .filter_by(import_type=self.IMPORT_TYPE, status=IB.STATUS_SUCCESS)
+            .order_by(IB.uploaded_at.desc())
+            .first()
+        )
+
+        if last_batch:
+            rolling_from = last_batch.uploaded_at.date() - timedelta(days=self._OVERLAP_DAYS)
+        else:
+            # First ever run — load current year as the baseline.
+            rolling_from = date(today.year, 1, 1)
+
+        # Extend the window back to cover any currently-open order that might
+        # have since closed — their order_date could be in a prior year.
+        # Capped at MAX_LOOKBACK_DAYS to prevent expensive multi-year BAQ queries.
+        cap_date = today - timedelta(days=self.MAX_LOOKBACK_DAYS)
+        earliest_open = (
+            db.session.query(db.func.min(SalesOrder.order_date))
+            .filter(SalesOrder.open_order == True, SalesOrder.order_date.isnot(None))
+            .scalar()
+        )
+        if earliest_open and earliest_open < rolling_from:
+            from_d = max(earliest_open, cap_date)
+        else:
+            from_d = rolling_from
+
         return {
-            "OrderDateFrom": f"01/01/{today.year}",
+            "OrderDateFrom": from_d.strftime("%d/%m/%Y"),
             "OrderDateTo":   today.strftime("%d/%m/%Y"),
         }
 
@@ -715,15 +771,44 @@ class ProductionOutputImporter(EpicorBaqImporter):
     IMPORT_TYPE = "epicor_production_output"
     BAQ_PARAMS  = {}
 
+    # Incremental — a date window with no new output legitimately returns 0 rows.
+    ALLOW_EMPTY_RESULT = True
+
+    # Earliest date to fetch on the very first run (full-history load).
+    # Adjust if you need to go further back.
+    HISTORY_START = "2020-01-01"
+
     def _target_table(self) -> str:
         return "production_output"
 
     def get_dynamic_params(self) -> dict:
-        """Default: 01 Jan of current year → today (ISO format yyyy-mm-dd)."""
-        from datetime import date
+        """
+        Incremental: fetch only dates not yet in the database.
+
+        Queries the maximum ``clock_in_date`` already stored and uses the
+        following day as ``DateFrom``.  On the very first run (empty table)
+        falls back to ``HISTORY_START`` for a full-history load.
+        """
+        from datetime import date, timedelta
+        from app.extensions import db
+        from app.operations.models import ProductionOutput
+
         today = date.today()
+        last_date = db.session.query(
+            db.func.max(ProductionOutput.clock_in_date)
+        ).scalar()
+
+        if last_date:
+            from_d = last_date + timedelta(days=1)
+            # Nothing new to fetch — request today anyway; 0 rows is fine.
+            if from_d > today:
+                from_d = today
+        else:
+            # First ever run — load full history.
+            from_d = date.fromisoformat(self.HISTORY_START)
+
         return {
-            "DateFrom": date(today.year, 1, 1).isoformat(),
+            "DateFrom": from_d.isoformat(),
             "DateTo":   today.isoformat(),
         }
 

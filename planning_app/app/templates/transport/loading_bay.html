@@ -1,0 +1,732 @@
+{% extends 'base.html' %}
+
+{% block page_actions %}
+<a href="{{ url_for('transport.dashboard') }}" class="btn btn-sm btn-outline-secondary no-print">
+    <i class="bi bi-truck me-1"></i>Transport
+</a>
+<button onclick="window.print()" class="btn btn-sm btn-outline-secondary no-print">
+    <i class="bi bi-printer me-1"></i>Print
+</button>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    @media print {
+        .no-print { display: none !important; }
+        .print-header { display: block !important; }
+        .card { break-inside: avoid; }
+        .collapse { display: block !important; height: auto !important; }
+        .table-responsive { overflow: visible !important; }
+    }
+    .print-header { display: none; }
+
+    .status-finished    { border-left: 3px solid #198754; }
+    .status-partial     { border-left: 3px solid #fd7e14; }
+
+    .release-row-finished    { background-color: rgba(25, 135, 84, 0.05); }
+    .release-row-in_progress { background-color: rgba(255, 193, 7, 0.08); }
+    .release-row-not_started { background-color: rgba(108, 117, 125, 0.05); }
+
+    .kpi-card-value { font-size: 1.75rem; font-weight: 700; line-height: 1.1; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── Print header ─────────────────────────────────────────────────── #}
+<div class="print-header mb-3 pb-2 border-bottom">
+    <h4 class="mb-0">Loading Bay Report — Finished Goods</h4>
+    <p class="text-muted small mb-0">
+        {{ active_site.name if active_site else 'Manufacturing' }}
+        &mdash; {{ today.strftime('%d %B %Y') }}
+    </p>
+</div>
+
+{# ── KPI Cards ─────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="kpi-card-value text-success">{{ summary.total_orders }}</div>
+            <div class="small text-muted">Orders with Finished Goods</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-success shadow-sm h-100 text-center py-3">
+            <div class="kpi-card-value text-success">{{ summary.ready_orders }}</div>
+            <div class="small text-success">Fully Ready to Ship</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-warning shadow-sm h-100 text-center py-3">
+            <div class="kpi-card-value text-warning">{{ summary.partial_orders }}</div>
+            <div class="small text-warning">Partial (WIP Remaining)</div>
+        </div>
+    </div>
+
+    {% if summary.urgent_count %}
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-danger shadow-sm h-100 text-center py-3">
+            <div class="kpi-card-value text-danger">{{ summary.urgent_count }}</div>
+            <div class="small text-danger fw-semibold">Urgent — Overdue &amp; Ready</div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if summary.held_count %}
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-danger border-opacity-50 shadow-sm h-100 text-center py-3">
+            <div class="kpi-card-value text-danger">{{ summary.held_count }}</div>
+            <div class="small text-danger">Ready but On Hold</div>
+            <div class="text-muted" style="font-size:.72rem;">£{{ "{:,.0f}".format(summary.held_value) }} blocked</div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if summary.intl_count %}
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-info border-opacity-50 shadow-sm h-100 text-center py-3">
+            <div class="kpi-card-value text-info">{{ summary.intl_count }}</div>
+            <div class="small text-info">Export / International</div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-0 shadow-sm h-100 text-center py-3">
+            <div class="kpi-card-value text-primary">{{ "%.0f" | format(summary.total_units_ready) }}</div>
+            <div class="small text-muted">Units Ready</div>
+        </div>
+    </div>
+
+    <div class="col-12 col-md-8 col-xl-4">
+        <div class="card border-0 shadow-sm h-100 text-center py-3 px-2">
+            {% set v = summary.total_invoiceable %}
+            {% if v >= 1000000 %}
+                {% set v_fmt = "£{:,.0f}m".format(v / 1000000) %}
+            {% elif v >= 1000 %}
+                {% set v_fmt = "£{:,.0f}k".format(v / 1000) %}
+            {% else %}
+                {% set v_fmt = "£{:,.0f}".format(v) %}
+            {% endif %}
+            <div class="kpi-card-value text-success">{{ v_fmt }}</div>
+            <div class="small text-muted">Invoicing Potential (GBP, finished lines)</div>
+        </div>
+    </div>
+
+</div>
+
+{% if summary.total_orders == 0 %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-inbox fs-1 text-muted d-block mb-2"></i>
+        <h5 class="fw-semibold text-muted mb-1">No finished goods in loading bay</h5>
+        <p class="text-muted mb-0 small">
+            No open orders have completed production jobs at this time.
+        </p>
+    </div>
+</div>
+{% else %}
+
+{# ── Urgent dispatch alert ─────────────────────────────────────────── #}
+{% if urgent_orders %}
+{% set urgent_val = summary.urgent_value %}
+<div class="card border-danger shadow-sm mb-4">
+    <div class="card-header bg-danger text-white py-2"
+         role="button" data-bs-toggle="collapse" data-bs-target="#urgentCollapse"
+         aria-expanded="false" aria-controls="urgentCollapse"
+         style="cursor:pointer;">
+        <div class="d-flex align-items-center justify-content-between">
+            <h6 class="mb-0 fw-semibold">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                Urgent Dispatch — {{ urgent_orders | length }} order{{ 's' if urgent_orders | length != 1 }} overdue &amp; ready to ship
+                &mdash;
+                {% if urgent_val >= 1000000 %}£{{ "%.2f" | format(urgent_val / 1000000) }}m
+                {% elif urgent_val >= 1000 %}£{{ "%.0f" | format(urgent_val / 1000) }}k
+                {% else %}£{{ "%.0f" | format(urgent_val) }}
+                {% endif %} total
+            </h6>
+            <i class="bi bi-chevron-down ms-2"></i>
+        </div>
+    </div>
+    <div id="urgentCollapse" class="collapse">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">SO&nbsp;#</th>
+                            <th>Customer</th>
+                            <th>Cust PO</th>
+                            <th class="text-center">Days Overdue</th>
+                            <th class="text-end">Units</th>
+                            <th class="text-end pe-3">Value (GBP)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for o in urgent_orders %}
+                        <tr class="clickable-order-row" data-href="{{ url_for('orders.order_book', q=o.order_num) }}"
+                            style="cursor:pointer;">
+                            <td class="ps-3 fw-semibold font-monospace">{{ o.order_num }}</td>
+                            <td>
+                                {{ o.customer_name }}
+                                {% if o.is_international %}
+                                <i class="bi bi-globe2 ms-1 text-info" title="{{ o.customer_country }}"></i>
+                                {% endif %}
+                            </td>
+                            <td class="small text-muted font-monospace">{{ o.po_num or '—' }}</td>
+                            <td class="text-center">
+                                <span class="badge text-bg-danger fw-semibold">
+                                    {{ (o.days_delta | abs) }}d overdue
+                                </span>
+                            </td>
+                            <td class="text-end">{{ "%.0f" | format(o.units_ready) }}</td>
+                            <td class="text-end pe-3 fw-semibold text-danger">
+                                £{{ "{:,.2f}".format(o.invoiceable_value) }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ── Dispatch consolidation ───────────────────────────────────────── #}
+{% if consolidation %}
+<div class="card border-primary border-opacity-25 shadow-sm mb-4 no-print">
+    <div class="card-header bg-transparent border-bottom-0 py-2"
+         role="button" data-bs-toggle="collapse" data-bs-target="#consolidationCollapse"
+         aria-expanded="false" aria-controls="consolidationCollapse"
+         style="cursor:pointer;">
+        <div class="d-flex align-items-center justify-content-between">
+            <h6 class="mb-0 fw-semibold">
+                <i class="bi bi-truck me-2 text-primary"></i>
+                Dispatch Run Opportunities
+                <span class="badge text-bg-primary ms-1">{{ consolidation | length }}</span>
+                <span class="text-muted fw-normal small ms-2">customers with multiple ready orders</span>
+            </h6>
+            <i class="bi bi-chevron-down ms-2 text-muted"></i>
+        </div>
+    </div>
+    <div id="consolidationCollapse" class="collapse">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">Customer</th>
+                            <th>Country</th>
+                            <th class="text-center">Orders</th>
+                            <th>SO Numbers</th>
+                            <th class="text-end">Units</th>
+                            <th class="text-end pe-3">Combined Value (GBP)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for run in consolidation %}
+                        <tr>
+                            <td class="ps-3 fw-semibold">
+                                {{ run.name }}
+                                {% if run.intl %}
+                                <i class="bi bi-globe2 ms-1 text-info" title="Export order"></i>
+                                {% endif %}
+                            </td>
+                            <td class="small text-muted">{{ run.country or '—' }}</td>
+                            <td class="text-center">
+                                <span class="badge text-bg-primary">{{ run.orders | length }}</span>
+                            </td>
+                            <td class="small font-monospace text-muted">
+                                {{ run.orders | join(', ') }}
+                            </td>
+                            <td class="text-end">{{ "%.0f" | format(run.units) }}</td>
+                            <td class="text-end pe-3 fw-semibold text-success">
+                                £{{ "{:,.2f}".format(run.value) }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ── Charts row ────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4 no-print">
+    <div class="col-12 col-lg-7">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-bar-chart-horizontal me-2 text-success"></i>
+                    Invoicing Potential by Customer (top 15)
+                </h6>
+                <p class="text-muted small mb-0">Ready / partial / on-hold breakdown per customer</p>
+            </div>
+            <div class="card-body">
+                {% if customer_summary %}
+                <canvas id="chartCustomer"
+                        style="height:{{ [customer_summary | length * 28 + 20, 140] | max }}px;"></canvas>
+                {% else %}
+                <div class="text-center text-muted py-4 small">No data.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-5">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent border-0 pb-0 d-flex align-items-start justify-content-between">
+                <div>
+                    <h6 class="mb-0 fw-semibold">
+                        <i class="bi bi-pie-chart me-2 text-warning"></i>
+                        Order Readiness
+                    </h6>
+                    <p class="text-muted small mb-0">Ready to ship vs. partial vs. on hold</p>
+                </div>
+                <div class="btn-group btn-group-sm no-print" role="group">
+                    <button id="readinessByValue" class="btn btn-primary btn-sm active">Value</button>
+                    <button id="readinessByUnits" class="btn btn-outline-primary btn-sm">Units</button>
+                </div>
+            </div>
+            <div class="card-body d-flex align-items-center justify-content-center">
+                <canvas id="chartReadiness" style="max-height:200px; max-width:200px;"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Customer invoice-potential summary table ──────────────────────── #}
+{% if customer_summary %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-transparent border-0">
+        <h6 class="mb-0 fw-semibold">
+            <i class="bi bi-receipt me-2 text-primary"></i>Invoicing Summary by Customer
+        </h6>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3">Customer</th>
+                        <th class="text-center">Orders</th>
+                        <th class="text-end">Units Ready</th>
+                        <th class="text-end pe-3">Invoiceable Value (GBP)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in customer_summary %}
+                    <tr>
+                        <td class="ps-3 fw-semibold">{{ c.name }}</td>
+                        <td class="text-center">
+                            <span class="badge text-bg-secondary">{{ c.orders }}</span>
+                        </td>
+                        <td class="text-end">{{ "%.0f" | format(c.units) }}</td>
+                        <td class="text-end pe-3 fw-semibold text-success">
+                            £{{ "{:,.2f}".format(c.value) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="table-light fw-semibold">
+                    <tr>
+                        <td class="ps-3">Total</td>
+                        <td class="text-center">{{ summary.total_orders }}</td>
+                        <td class="text-end">{{ "%.0f" | format(summary.total_units_ready) }}</td>
+                        <td class="text-end pe-3 text-success">
+                            £{{ "{:,.2f}".format(summary.total_invoiceable) }}
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ── Filter & Order Detail ─────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-transparent border-0">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <h6 class="mb-0 fw-semibold">
+                <i class="bi bi-list-check me-2 text-success"></i>
+                Order Detail
+                <span class="badge text-bg-success ms-1">{{ summary.total_orders }}</span>
+                {% if summary.partial_orders %}
+                <span class="badge text-bg-warning ms-1">{{ summary.partial_orders }} partial</span>
+                {% endif %}
+            </h6>
+            <button class="btn btn-sm btn-outline-secondary no-print"
+                    type="button" data-bs-toggle="collapse"
+                    data-bs-target="#filterPanel" aria-expanded="{{ 'true' if search or customer_f else 'false' }}">
+                <i class="bi bi-funnel me-1"></i>Filters
+                {% if search or customer_f %}
+                <span class="badge text-bg-warning ms-1">active</span>
+                {% endif %}
+            </button>
+        </div>
+
+        <div class="collapse {% if search or customer_f %}show{% endif %}" id="filterPanel">
+            <form method="get" action="{{ url_for('transport.loading_bay') }}" class="mt-3">
+                <div class="row g-2 align-items-end">
+                    <div class="col-12 col-sm-6 col-md-4">
+                        <label class="form-label small mb-1">Search (SO / Customer / Part)</label>
+                        <input type="text" name="q" value="{{ search }}"
+                               class="form-control form-control-sm" placeholder="e.g. 12345 / ACME / ABC01">
+                    </div>
+                    <div class="col-12 col-sm-6 col-md-3">
+                        <label class="form-label small mb-1">Customer</label>
+                        <input type="text" name="customer" value="{{ customer_f }}"
+                               class="form-control form-control-sm" placeholder="Customer name…">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-1">Sort by</label>
+                        <select name="sort" class="form-select form-select-sm">
+                            <option value="due_date"   {% if sort == 'due_date'   %}selected{% endif %}>Due Date</option>
+                            <option value="customer"   {% if sort == 'customer'   %}selected{% endif %}>Customer</option>
+                            <option value="value"      {% if sort == 'value'      %}selected{% endif %}>Value</option>
+                            <option value="so_number"  {% if sort == 'so_number'  %}selected{% endif %}>SO Number</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-3 d-flex gap-1">
+                        <button type="submit" class="btn btn-sm btn-success flex-fill">Apply</button>
+                        <a href="{{ url_for('transport.loading_bay') }}"
+                           class="btn btn-sm btn-outline-secondary flex-fill">Reset</a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0 align-middle" id="loadingBayTable">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-2" style="width:2rem;"></th>
+                        <th>SO&nbsp;#</th>
+                        <th>Customer</th>
+                        <th>Cust PO Ref</th>
+                        <th>Due Date</th>
+                        <th class="text-center">Status</th>
+                        <th class="text-center">Lines</th>
+                        <th class="text-end">Units Ready</th>
+                        <th class="text-end pe-3">Invoiceable (GBP)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for o in orders %}
+                    {% set row_id = "order-" ~ loop.index %}
+
+                    {# ── Order header row ── #}
+                    <tr class="{% if o.on_hold %}table-danger{% elif o.order_status == 'ready' %}status-finished{% else %}status-partial{% endif %} fw-semibold clickable-order-row"
+                        data-href="{{ url_for('orders.order_book', q=o.order_num) }}"
+                        style="cursor:pointer;">
+                        <td class="ps-2 text-center">
+                            <button class="btn btn-link btn-sm p-0 toggle-btn no-print"
+                                    data-target="{{ row_id }}"
+                                    title="Expand / collapse lines">
+                                <i class="bi bi-chevron-right small"></i>
+                            </button>
+                        </td>
+                        <td class="font-monospace">{{ o.order_num }}</td>
+                        <td>
+                            <span class="text-truncate d-inline-block" style="max-width:150px;"
+                                  title="{{ o.customer_name }}">{{ o.customer_name }}</span>
+                            {% if o.is_international %}
+                            <i class="bi bi-globe2 ms-1 text-info"
+                               title="Export / International: {{ o.customer_country }}"></i>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted small font-monospace">
+                            {{ o.po_num or '—' }}
+                        </td>
+                        <td class="text-nowrap small
+                            {% if o.days_delta is not none and o.days_delta < 0 %}text-danger
+                            {% elif o.days_delta is not none and o.days_delta <= 3 %}text-warning
+                            {% else %}text-muted{% endif %}">
+                            {% if o.due_date %}
+                                {{ o.due_date.strftime('%d %b %Y') }}
+                                {% if o.days_delta is not none %}
+                                    {% if o.days_delta < 0 %}
+                                    <span class="badge text-bg-danger ms-1">{{ o.days_delta | abs }}d overdue</span>
+                                    {% elif o.days_delta == 0 %}
+                                    <span class="badge text-bg-warning ms-1">Today</span>
+                                    {% elif o.days_delta <= 3 %}
+                                    <span class="badge text-bg-warning ms-1">{{ o.days_delta }}d</span>
+                                    {% endif %}
+                                {% endif %}
+                            {% else %}—{% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if o.on_hold %}
+                            <span class="badge text-bg-danger">
+                                <i class="bi bi-slash-circle me-1"></i>On Hold
+                            </span>
+                            {% if o.so_credit_hold or o.customer_credit_hold %}
+                            <span class="badge text-bg-danger bg-opacity-75 ms-1" style="font-size:.65rem;">Credit</span>
+                            {% endif %}
+                            {% elif o.order_status == 'ready' %}
+                            <span class="badge text-bg-success">
+                                <i class="bi bi-check-circle me-1"></i>Ready to Ship
+                            </span>
+                            {% else %}
+                            <span class="badge text-bg-warning text-dark">
+                                <i class="bi bi-hourglass-split me-1"></i>Partial
+                                <span class="ms-1">({{ o.wip_count }} WIP)</span>
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center small">
+                            <span class="text-success fw-bold">{{ o.finished_count }}</span>
+                            <span class="text-muted">/ {{ o.total_lines }}</span>
+                        </td>
+                        <td class="text-end">{{ "%.0f" | format(o.units_ready) }}</td>
+                        <td class="text-end pe-3 text-success">£{{ "{:,.2f}".format(o.invoiceable_value) }}</td>
+                    </tr>
+
+                    {# ── Collapsed line detail rows ── #}
+                    {% for rel in o.releases %}
+                    <tr id="{{ row_id }}" class="release-row-{{ rel.status }}"
+                        style="display:none;">
+                        <td class="ps-2"></td>
+                        <td class="text-muted small ps-3">
+                            L{{ rel.order_line }}/R{{ rel.rel_num }}
+                        </td>
+                        <td colspan="2" class="small">
+                            <span class="fw-semibold">{{ rel.part_num }}</span>
+                            {% if rel.model %}
+                            &nbsp;<span class="text-muted">{{ rel.model }}</span>
+                            {% endif %}
+                            {% if rel.size_desc %}
+                            &nbsp;<span class="badge text-bg-light text-dark border small">{{ rel.size_desc }}</span>
+                            {% endif %}
+                            {% if rel.cover_desc %}
+                            &nbsp;<span class="text-muted small">{{ rel.cover_desc }}</span>
+                            {% endif %}
+                            <br>
+                            <span class="text-muted" style="font-size:.75rem;">{{ rel.part_desc }}</span>
+                        </td>
+                        <td class="small text-muted text-nowrap">
+                            {% if rel.need_by_date %}{{ rel.need_by_date.strftime('%d %b %Y') }}{% else %}—{% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if rel.status == 'finished' %}
+                            <span class="badge text-bg-success small">
+                                <i class="bi bi-check2"></i> Finished
+                            </span>
+                            {% elif rel.status == 'in_progress' %}
+                            <span class="badge text-bg-warning text-dark small">
+                                <i class="bi bi-tools"></i> In Progress
+                            </span>
+                            {% else %}
+                            <span class="badge text-bg-secondary small">
+                                <i class="bi bi-clock"></i> WIP
+                            </span>
+                            {% endif %}
+                            {% if rel.wip_bin %}
+                            <div class="mt-1">
+                                <span class="badge text-bg-light border text-dark fw-normal"
+                                      style="font-size:.7rem; letter-spacing:.02em;">
+                                    <i class="bi bi-geo-alt-fill me-1 text-primary"></i>{{ rel.wip_bin }}
+                                </span>
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td class="text-center small text-muted">
+                            {% for j in rel.jobs %}
+                            <span class="font-monospace d-block" style="font-size:.7rem;">{{ j.job_num }}</span>
+                            {% if rel.status != 'finished' and j.next_op %}
+                            <span class="badge text-bg-info text-dark d-block mt-1" style="font-size:.65rem;">
+                                <i class="bi bi-arrow-right-circle me-1"></i>{{ j.next_op }}
+                            </span>
+                            {% endif %}
+                            {% endfor %}
+                        </td>
+                        <td class="text-end small">
+                            <span class="{% if rel.status == 'finished' %}text-success fw-semibold{% else %}text-muted{% endif %}">
+                                {{ "%.0f" | format(rel.qty_completed) }}
+                            </span>
+                            <span class="text-muted">/ {{ "%.0f" | format(rel.selling_qty) }}</span>
+                        </td>
+                        <td class="text-end pe-3 small
+                            {% if rel.status == 'finished' %}text-success fw-semibold
+                            {% else %}text-muted{% endif %}">
+                            {% if rel.status == 'finished' %}
+                            £{{ "{:,.2f}".format(rel.release_price_gbp) }}
+                            {% else %}
+                            <span class="text-decoration-line-through text-muted small">
+                                £{{ "{:,.2f}".format(rel.release_price_gbp) }}
+                            </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+
+                    {% endfor %}{# orders loop #}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% endif %}{# total_orders > 0 #}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // ── Clickable order rows (navigate to order book) ─────────────────
+    document.querySelectorAll('.clickable-order-row').forEach(function (tr) {
+        tr.addEventListener('click', function (e) {
+            if (e.target.closest('.toggle-btn')) return;
+            window.location.href = tr.dataset.href;
+        });
+    });
+
+    // ── Expand / collapse order detail rows ────────────────────────────
+    document.querySelectorAll('.toggle-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var target   = btn.dataset.target;
+            var rows     = document.querySelectorAll('tr[id="' + target + '"]');
+            var icon     = btn.querySelector('i');
+            var isHidden = rows.length > 0 && rows[0].style.display === 'none';
+            rows.forEach(function (r) { r.style.display = isHidden ? '' : 'none'; });
+            icon.classList.toggle('bi-chevron-right', !isHidden);
+            icon.classList.toggle('bi-chevron-down',   isHidden);
+        });
+    });
+
+    // ── Charts ─────────────────────────────────────────────────────────
+    var custData   = {{ customer_summary | tojson }};
+    var readyCount = {{ summary.ready_orders - summary.held_count }};
+    var partCount  = {{ summary.partial_orders }};
+    var heldCount  = {{ summary.held_count }};
+
+    // Chart data for value and units modes
+    var readinessChartData = {
+        value: [{{ summary.ready_clear_value | round(2) }}, {{ summary.partial_value | round(2) }}, {{ summary.held_value | round(2) }}],
+        units: [{{ summary.ready_clear_units | round(0) | int }}, {{ summary.partial_units | round(0) | int }}, {{ summary.held_units | round(0) | int }}],
+    };
+
+    // Customer invoicing potential — stacked by status (mirrors doughnut colours)
+    if (custData.length && document.getElementById('chartCustomer')) {
+        new Chart(document.getElementById('chartCustomer'), {
+            type: 'bar',
+            data: {
+                labels: custData.map(function (c) { return c.name; }),
+                datasets: [
+                    {
+                        label: 'Ready to Ship',
+                        data: custData.map(function (c) { return c.ready_value; }),
+                        backgroundColor: '#198754',
+                        borderRadius: 0,
+                    },
+                    {
+                        label: 'Partial (WIP remaining)',
+                        data: custData.map(function (c) { return c.partial_value; }),
+                        backgroundColor: '#fd7e14',
+                        borderRadius: 0,
+                    },
+                    {
+                        label: 'Ready but On Hold',
+                        data: custData.map(function (c) { return c.held_value; }),
+                        backgroundColor: '#dc3545',
+                        borderRadius: 0,
+                    },
+                ]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
+                    tooltip: {
+                        callbacks: {
+                            label: function (ctx) {
+                                if (!ctx.raw) return null;
+                                return ' ' + ctx.dataset.label + ': £' + ctx.raw.toLocaleString('en-GB', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        ticks: {
+                            callback: function (v) {
+                                if (v >= 1000000) return '£' + (v / 1000000).toFixed(1) + 'm';
+                                if (v >= 1000)    return '£' + (v / 1000).toFixed(0) + 'k';
+                                return '£' + v;
+                            }
+                        }
+                    },
+                    y: { stacked: true, ticks: { font: { size: 11 } } }
+                }
+            }
+        });
+    }
+
+    // Readiness doughnut — default to value, toggle to units
+    var readinessChart = null;
+    if (document.getElementById('chartReadiness')) {
+        readinessChart = new Chart(document.getElementById('chartReadiness'), {
+            type: 'doughnut',
+            data: {
+                labels: ['Ready to Ship', 'Partial (WIP remaining)', 'Ready but On Hold'],
+                datasets: [{
+                    data: readinessChartData.value,
+                    backgroundColor: ['#198754', '#fd7e14', '#dc3545'],
+                    borderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom', labels: { font: { size: 11 } } },
+                    tooltip: {
+                        callbacks: {
+                            label: function (ctx) {
+                                var mode = readinessChart._currentMode || 'value';
+                                if (mode === 'value') {
+                                    return ' ' + ctx.label + ': £' + ctx.raw.toLocaleString('en-GB', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+                                }
+                                return ' ' + ctx.label + ': ' + ctx.raw + ' units';
+                            }
+                        }
+                    }
+                },
+                cutout: '60%',
+            }
+        });
+        readinessChart._currentMode = 'value';
+
+        // Toggle buttons
+        var btnVal   = document.getElementById('readinessByValue');
+        var btnUnits = document.getElementById('readinessByUnits');
+        if (btnVal && btnUnits) {
+            btnVal.addEventListener('click', function () {
+                readinessChart.data.datasets[0].data = readinessChartData.value;
+                readinessChart._currentMode = 'value';
+                readinessChart.update();
+                btnVal.classList.replace('btn-outline-primary', 'btn-primary');
+                btnUnits.classList.replace('btn-primary', 'btn-outline-primary');
+            });
+            btnUnits.addEventListener('click', function () {
+                readinessChart.data.datasets[0].data = readinessChartData.units;
+                readinessChart._currentMode = 'units';
+                readinessChart.update();
+                btnUnits.classList.replace('btn-outline-primary', 'btn-primary');
+                btnVal.classList.replace('btn-primary', 'btn-outline-primary');
+            });
+        }
+    }
+});
+</script>
+{% endblock %}
