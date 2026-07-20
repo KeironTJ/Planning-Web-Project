@@ -402,6 +402,14 @@ def daily_output():
         'date_to':   today.isoformat(),
         'active':    date_from == today and date_to == today,
     })
+    _yesterday = today - timedelta(days=1)
+    _sc.append({
+        'group':     'now',
+        'label':     'Yesterday',
+        'date_from': _yesterday.isoformat(),
+        'date_to':   _yesterday.isoformat(),
+        'active':    date_from == _yesterday and date_to == _yesterday,
+    })
     _sc.append({
         'group':     'now',
         'label':     'This Week',

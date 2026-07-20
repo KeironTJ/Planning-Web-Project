@@ -186,6 +186,334 @@ def epicor_sync_run_one():
         return jsonify({"status": "error", "key": baq_key, "message": str(exc)}), 500
 
 
+# ---------------------------------------------------------------------------
+# Sync Jobs  (job-based grouped schedules)
+# ---------------------------------------------------------------------------
+
+@admin_bp.route("/epicor-sync/schedules")
+@login_required
+@admin_required
+def sync_schedules():
+    """List all sync jobs."""
+    from app.core.epicor_importers import REGISTRY
+    from app.admin.models import SyncJob
+
+    jobs = SyncJob.query.order_by(SyncJob.created_at).all()
+    return render_template(
+        "admin/schedules.html",
+        title="Sync Jobs",
+        jobs=jobs,
+        registry=REGISTRY,
+    )
+
+
+@admin_bp.route("/epicor-sync/schedules/jobs", methods=["POST"])
+@login_required
+@admin_required
+def sync_job_create():
+    """Create a new sync job (traditional form POST → redirect)."""
+    from app.admin.models import SyncJob
+
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        flash("Job name is required.", "danger")
+        return redirect(url_for("admin.sync_schedules"))
+
+    try:
+        interval = int(request.form.get("interval_minutes", 120))
+        if interval < 1:
+            raise ValueError
+    except (ValueError, TypeError):
+        interval = 120
+
+    job = SyncJob(name=name, interval_minutes=interval)
+    db.session.add(job)
+    db.session.commit()
+    flash(f"Job '{job.name}' created.", "success")
+    return redirect(url_for("admin.sync_schedules"))
+
+
+@admin_bp.route("/epicor-sync/schedules/jobs/<int:job_id>", methods=["POST"])
+@login_required
+@admin_required
+def sync_job_update(job_id: int):
+    """
+    AJAX: update job fields (name, enabled, interval_minutes).
+
+    Expects JSON: {"name": "...", "enabled": true, "interval_minutes": 60}
+    """
+    from app.admin.models import SyncJob
+
+    job  = SyncJob.query.get_or_404(job_id)
+    data = request.get_json(force=True, silent=True) or {}
+
+    if "name" in data:
+        name = (data["name"] or "").strip()
+        if name:
+            job.name = name
+
+    if "enabled" in data:
+        job.enabled = bool(data["enabled"])
+        if job.enabled:
+            job.schedule_next_run()
+        else:
+            job.next_run_at = None
+
+    if "interval_minutes" in data:
+        try:
+            mins = int(data["interval_minutes"])
+            if mins < 1:
+                raise ValueError
+            job.interval_minutes = mins
+            if job.enabled:
+                job.schedule_next_run()
+        except (ValueError, TypeError):
+            return jsonify({"status": "error", "message": "interval_minutes must be a positive integer"}), 400
+
+    # Allow the live-run JS to record overall job outcome after sequential item runs
+    if "last_status" in data:
+        job.last_status  = data["last_status"]
+        job.last_run_at  = datetime.now(timezone.utc)
+        if job.enabled:
+            job.schedule_next_run()
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+    return jsonify({
+        "status":           "ok",
+        "id":               job.id,
+        "name":             job.name,
+        "enabled":          job.enabled,
+        "interval_minutes": job.interval_minutes,
+        "next_run_at":      job.next_run_at.isoformat() if job.next_run_at else None,
+    })
+
+
+@admin_bp.route("/epicor-sync/schedules/jobs/<int:job_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def sync_job_delete(job_id: int):
+    """AJAX: delete a job and all its items."""
+    from app.admin.models import SyncJob
+
+    job = SyncJob.query.get_or_404(job_id)
+    db.session.delete(job)
+    db.session.commit()
+    return jsonify({"status": "ok"})
+
+
+@admin_bp.route("/epicor-sync/schedules/jobs/<int:job_id>/run-now", methods=["POST"])
+@login_required
+@admin_required
+def sync_job_run_now(job_id: int):
+    """AJAX: run a job immediately (outside the scheduler)."""
+    from flask import current_app
+    from app.admin.models import SyncJob, SyncJobItem
+    from app.core.epicor_client import KineticClient
+    from app.core.epicor_importers import REGISTRY
+    from app.core.scheduler import _resolve_item_params
+
+    job = SyncJob.query.get_or_404(job_id)
+
+    item_results = []
+    try:
+        with KineticClient.from_app(current_app._get_current_object()) as client:
+            for item in job.items:
+                key = item.importer_key
+                if key not in REGISTRY:
+                    continue
+                try:
+                    batch = REGISTRY[key](client).run(
+                        triggered_by_id=current_user.id,
+                        params=_resolve_item_params(item),
+                    )
+                    item.last_status    = SyncJobItem.STATUS_SUCCESS
+                    item.last_row_count = batch.row_count
+                    item.last_error     = None
+                    item_results.append({"key": key, "row_count": batch.row_count, "status": "success"})
+                except Exception as exc:
+                    item.last_status = SyncJobItem.STATUS_FAILED
+                    item.last_error  = str(exc)
+                    item_results.append({"key": key, "row_count": 0, "status": "failed", "error": str(exc)})
+                finally:
+                    item.last_run_at = datetime.now(timezone.utc)
+
+        all_ok     = all(r["status"] == "success" for r in item_results)
+        any_ok     = any(r["status"] == "success" for r in item_results)
+        job.last_status   = SyncJob.STATUS_SUCCESS if all_ok else (SyncJob.STATUS_PARTIAL if any_ok else SyncJob.STATUS_FAILED)
+        job.last_run_at   = datetime.now(timezone.utc)
+        if job.enabled:
+            job.schedule_next_run()
+        db.session.commit()
+
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+    return jsonify({
+        "status":       "ok",
+        "job_id":       job.id,
+        "last_status":  job.last_status,
+        "item_results": item_results,
+    })
+
+
+@admin_bp.route("/epicor-sync/schedules/jobs/<int:job_id>/items", methods=["POST"])
+@login_required
+@admin_required
+def sync_job_item_add(job_id: int):
+    """AJAX: add an importer to a job."""
+    from app.admin.models import SyncJob, SyncJobItem
+    from app.core.epicor_importers import REGISTRY
+
+    job  = SyncJob.query.get_or_404(job_id)
+    data = request.get_json(force=True, silent=True) or {}
+    key  = data.get("importer_key", "")
+
+    if not key or key not in REGISTRY:
+        return jsonify({"status": "error", "message": f"Unknown importer: {key!r}"}), 400
+
+    # Determine next sort_order
+    max_order = db.session.query(db.func.max(SyncJobItem.sort_order)).filter_by(job_id=job_id).scalar() or -1
+    item = SyncJobItem(job_id=job_id, importer_key=key, sort_order=max_order + 1)
+    db.session.add(item)
+    db.session.commit()
+
+    return jsonify({
+        "status":        "ok",
+        "item_id":       item.id,
+        "importer_key":  key,
+        "display_name":  item.display_name,
+        "sort_order":    item.sort_order,
+        "baq_name":      REGISTRY[key].BAQ_NAME,
+    })
+
+
+@admin_bp.route("/epicor-sync/schedules/jobs/<int:job_id>/items/<int:item_id>", methods=["POST"])
+@login_required
+@admin_required
+def sync_job_item_update(job_id: int, item_id: int):
+    """AJAX: update item params or reorder (action: move_up / move_down / save_params)."""
+    import json as _json
+    from app.admin.models import SyncJobItem
+
+    item = SyncJobItem.query.filter_by(id=item_id, job_id=job_id).first_or_404()
+    data = request.get_json(force=True, silent=True) or {}
+    action = data.get("action", "save_params")
+
+    if action in ("move_up", "move_down"):
+        # Find the adjacent item to swap sort_order with
+        if action == "move_up":
+            sibling = (
+                SyncJobItem.query
+                .filter(SyncJobItem.job_id == job_id, SyncJobItem.sort_order < item.sort_order)
+                .order_by(SyncJobItem.sort_order.desc())
+                .first()
+            )
+        else:
+            sibling = (
+                SyncJobItem.query
+                .filter(SyncJobItem.job_id == job_id, SyncJobItem.sort_order > item.sort_order)
+                .order_by(SyncJobItem.sort_order.asc())
+                .first()
+            )
+        if sibling:
+            item.sort_order, sibling.sort_order = sibling.sort_order, item.sort_order
+
+    elif action == "save_params":
+        raw = data.get("schedule_params")
+        if raw is None or raw == {}:
+            item.schedule_params = None
+        else:
+            try:
+                item.schedule_params = _json.dumps(raw)
+            except (TypeError, ValueError) as exc:
+                return jsonify({"status": "error", "message": f"Invalid params: {exc}"}), 400
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+    return jsonify({
+        "status":       "ok",
+        "item_id":      item.id,
+        "sort_order":   item.sort_order,
+        "params_label": item.params_label,
+    })
+
+
+@admin_bp.route("/epicor-sync/schedules/jobs/<int:job_id>/items/<int:item_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def sync_job_item_delete(job_id: int, item_id: int):
+    """AJAX: remove an item from a job."""
+    from app.admin.models import SyncJobItem
+
+    item = SyncJobItem.query.filter_by(id=item_id, job_id=job_id).first_or_404()
+    db.session.delete(item)
+    db.session.commit()
+    return jsonify({"status": "ok"})
+
+
+@admin_bp.route("/epicor-sync/schedules/jobs/<int:job_id>/items/<int:item_id>/run-one", methods=["POST"])
+@login_required
+@admin_required
+def sync_job_item_run_one(job_id: int, item_id: int):
+    """
+    AJAX: run a single job item immediately.
+
+    Called by the live-progress UI to run items one at a time so the
+    frontend can update each row's status badge as they complete.
+    """
+    from flask import current_app
+    from app.admin.models import SyncJobItem
+    from app.core.epicor_client import KineticClient
+    from app.core.epicor_importers import REGISTRY
+    from app.core.scheduler import _resolve_item_params
+
+    item = SyncJobItem.query.filter_by(id=item_id, job_id=job_id).first_or_404()
+    key  = item.importer_key
+
+    if key not in REGISTRY:
+        return jsonify({"status": "error", "message": f"Unknown importer: {key!r}"}), 400
+
+    try:
+        with KineticClient.from_app(current_app._get_current_object()) as client:
+            batch = REGISTRY[key](client).run(
+                triggered_by_id=current_user.id,
+                params=_resolve_item_params(item),
+            )
+        item.last_status    = SyncJobItem.STATUS_SUCCESS
+        item.last_row_count = batch.row_count
+        item.last_error     = None
+        item.last_run_at    = datetime.now(timezone.utc)
+        db.session.commit()
+        return jsonify({
+            "status":        "ok",
+            "row_count":     batch.row_count,
+            "rows_inserted": batch.rows_inserted,
+        })
+    except Exception as exc:
+        item.last_status = SyncJobItem.STATUS_FAILED
+        item.last_error  = str(exc)
+        item.last_run_at = datetime.now(timezone.utc)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Admin Dashboard
+# ---------------------------------------------------------------------------
+
 @admin_bp.route("/")
 @login_required
 @admin_required

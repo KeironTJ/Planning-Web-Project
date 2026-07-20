@@ -71,6 +71,9 @@ class BaseConfig:
     EPICOR_API_KEY: str = os.environ.get("EPICOR_API_KEY", "")
     EPICOR_VERIFY_SSL: bool = os.environ.get("EPICOR_VERIFY_SSL", "false").lower() == "true"
 
+    # --- APScheduler ---
+    SCHEDULER_API_ENABLED: bool = False  # disable REST management API (not needed)
+
 
 class DevelopmentConfig(BaseConfig):
     """Local development settings.

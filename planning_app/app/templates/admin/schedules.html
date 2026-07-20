@@ -1,0 +1,763 @@
+{%- extends 'base.html' %}
+
+{% block page_title %}
+  Sync Jobs
+  <p class="text-muted small fw-normal mb-0">Group importers into ordered routines that run automatically.</p>
+{% endblock %}
+
+{% block page_actions %}
+  <a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Epicor Sync
+  </a>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newJobModal">
+    <i class="bi bi-plus-lg me-1"></i>New Job
+  </button>
+{% endblock %}
+
+{% block content %}
+
+{# ── Interval presets ────────────────────────────────────────────────────── #}
+{% set PRESETS = [(5,"5 min"),(15,"15 min"),(30,"30 min"),(60,"1 hr"),(120,"2 hr"),(240,"4 hr"),(480,"8 hr"),(1440,"24 hr")] %}
+
+{# ── Importers that accept date params ──────────────────────────────────── #}
+{% set PARAM_IMPORTERS = ['production_output', 'sales_closed'] %}
+
+{% if not jobs %}
+<div class="text-center text-muted py-5">
+  <i class="bi bi-clock-history display-4 mb-3 d-block"></i>
+  <p class="mb-2">No sync jobs yet.</p>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newJobModal">
+    <i class="bi bi-plus-lg me-1"></i>Create your first job
+  </button>
+</div>
+{% endif %}
+
+{% for job in jobs %}
+{% set used_keys = job.items | map(attribute='importer_key') | list %}
+<div class="card border-0 shadow-sm mb-4" id="job-card-{{ job.id }}">
+
+  {# ── Job header ──────────────────────────────────────────────────────── #}
+  <div class="card-header bg-transparent py-2">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+
+      {# Editable name #}
+      <input type="text"
+             class="form-control form-control-sm fw-semibold job-name-input"
+             data-job="{{ job.id }}"
+             value="{{ job.name }}"
+             style="width:200px; border:none; background:transparent; box-shadow:none;"
+             title="Click to rename">
+
+      {# Enable toggle #}
+      <div class="form-check form-switch m-0" title="Enable/disable this job">
+        <input class="form-check-input job-toggle" type="checkbox"
+               data-job="{{ job.id }}"
+               {% if job.enabled %}checked{% endif %}
+               role="switch">
+      </div>
+
+      {# Interval presets #}
+      <div class="d-flex align-items-center gap-1 flex-wrap">
+        {% for mins, label in PRESETS %}
+        <button type="button"
+                class="btn btn-xs py-0 px-2 preset-btn {% if job.interval_minutes == mins %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+                data-job="{{ job.id }}" data-minutes="{{ mins }}"
+                style="font-size:.75rem">{{ label }}</button>
+        {% endfor %}
+        <div class="input-group" style="width:95px">
+          <input type="number" min="1" max="10080"
+                 class="form-control form-control-sm custom-interval"
+                 data-job="{{ job.id }}"
+                 value="{{ job.interval_minutes }}"
+                 style="font-size:.75rem">
+          <span class="input-group-text px-1" style="font-size:.7rem">min</span>
+        </div>
+      </div>
+
+      {# Status / timing info #}
+      <div class="ms-auto d-flex align-items-center gap-2 small text-muted">
+        <span id="job-status-{{ job.id }}">
+          {% if job.is_running %}<span class="badge bg-warning text-dark">Running</span>
+          {% elif job.last_status == 'success' %}<span class="badge bg-success">OK</span>
+          {% elif job.last_status == 'partial' %}<span class="badge bg-warning text-dark">Partial</span>
+          {% elif job.last_status == 'failed' %}<span class="badge bg-danger">Failed</span>
+          {% elif job.enabled %}<span class="badge bg-secondary">Pending</span>
+          {% else %}<span class="badge bg-secondary">Off</span>{% endif %}
+        </span>
+        <span id="job-timing-{{ job.id }}" class="text-muted" style="font-size:.72rem">
+          {% if job.last_run_at %}Last {{ job.last_run_at.strftime('%d %b %H:%M') }}{% endif %}
+          {% if job.enabled and job.next_run_at %} · Next {{ job.next_run_at.strftime('%d %b %H:%M') }}{% endif %}
+        </span>
+        <button class="btn btn-sm btn-outline-primary run-job-btn" data-job="{{ job.id }}" title="Run now">
+          <i class="bi bi-play-fill"></i> Run now
+        </button>
+        <button class="btn btn-sm btn-outline-danger delete-job-btn" data-job="{{ job.id }}" title="Delete job">
+          <i class="bi bi-trash"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-secondary job-collapse-btn ps-2 pe-2"
+                data-bs-toggle="collapse"
+                data-bs-target="#job-body-{{ job.id }}"
+                aria-expanded="false"
+                title="Show / hide importers">
+          <i class="bi bi-chevron-down job-chevron" style="transition:transform .25s"></i>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  {# ── Collapsible body: items table + add footer ──────────────────────── #}
+  <div class="collapse" id="job-body-{{ job.id }}">
+  <div class="card-body p-0">
+    {% if job.items %}
+    <table class="table table-sm mb-0 align-middle" id="items-table-{{ job.id }}">
+      <thead class="thead-subtle">
+        <tr>
+          <th style="width:30px" class="text-center text-muted">#</th>
+          <th>Importer</th>
+          <th style="width:160px">Parameters</th>
+          <th style="width:130px">Last Run</th>
+          <th style="width:90px" class="text-center">Status</th>
+          <th style="width:110px" class="text-end pe-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in job.items %}
+        {% set pp = item.parsed_params %}
+        <tr id="item-row-{{ item.id }}" data-item="{{ item.id }}" data-job="{{ job.id }}">
+          <td class="text-center text-muted small">{{ loop.index }}</td>
+          <td>
+            <div class="fw-semibold small">{{ item.display_name }}</div>
+            <div class="text-muted" style="font-size:.7rem;font-family:monospace">{{ registry[item.importer_key].BAQ_NAME }}</div>
+          </td>
+          <td>
+            <span class="badge {% if pp %}bg-info text-dark{% else %}bg-light text-muted border{% endif %} small params-badge-{{ item.id }}">
+              {{ item.params_label }}
+            </span>
+          </td>
+          <td class="small text-muted item-last-run-{{ item.id }}">
+            {% if item.last_run_at %}{{ item.last_run_at.strftime('%d %b %H:%M') }}{% else %}—{% endif %}
+          </td>
+          <td class="text-center item-status-{{ item.id }}">
+            {% if item.last_status == 'success' %}
+              <span class="badge bg-success">OK{% if item.last_row_count is not none %} · {{ item.last_row_count }}{% endif %}</span>
+            {% elif item.last_status == 'failed' %}
+              <span class="badge bg-danger" title="{{ item.last_error or '' }}" data-bs-toggle="tooltip">Failed</span>
+            {% else %}
+              <span class="badge bg-secondary">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end pe-3">
+            <button class="btn btn-xs btn-outline-secondary move-up-btn py-0 px-1"
+                    data-job="{{ job.id }}" data-item="{{ item.id }}" title="Move up">
+              <i class="bi bi-chevron-up"></i>
+            </button>
+            <button class="btn btn-xs btn-outline-secondary move-down-btn py-0 px-1"
+                    data-job="{{ job.id }}" data-item="{{ item.id }}" title="Move down">
+              <i class="bi bi-chevron-down"></i>
+            </button>
+            {% if item.importer_key in PARAM_IMPORTERS %}
+            <button class="btn btn-xs {% if pp %}btn-info{% else %}btn-outline-secondary{% endif %} py-0 px-1 params-toggle-btn"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#params-panel-{{ item.id }}"
+                    data-item="{{ item.id }}"
+                    title="Configure date parameters">
+              <i class="bi bi-sliders"></i>
+            </button>
+            {% endif %}
+            <button class="btn btn-xs btn-outline-danger py-0 px-1 remove-item-btn"
+                    data-job="{{ job.id }}" data-item="{{ item.id }}" title="Remove">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </td>
+        </tr>
+
+        {# ── Params sub-row ──────────────────────────────────────────── #}
+        {% if item.importer_key in PARAM_IMPORTERS %}
+        <tr class="params-subrow" id="params-subrow-{{ item.id }}">
+          <td colspan="6" class="p-0">
+            <div class="collapse {% if pp %}show{% endif %}" id="params-panel-{{ item.id }}">
+              <div class="bg-body-tertiary border-top ps-5 pe-3 py-3">
+
+                {# production_output #}
+                {% if item.importer_key == 'production_output' %}
+                <div class="small fw-semibold mb-2 text-primary">
+                  <i class="bi bi-calendar-range me-1"></i>Date mode — Production Output
+                </div>
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                  {% for val, lbl, desc in [
+                    ('auto',  'Auto (incremental)',   'fetches from last known date up to today'),
+                    ('today', 'Today only',           'always syncs only today\'s production output'),
+                    ('range', 'Fixed range',          ''),
+                  ] %}
+                  <div class="form-check">
+                    <input class="form-check-input prod-mode-radio" type="radio"
+                           name="prod_mode_item_{{ item.id }}" id="prod_{{ val }}_{{ item.id }}"
+                           value="{{ val }}" data-item="{{ item.id }}" data-job="{{ job.id }}"
+                           {% if (not pp and val == 'auto') or pp.get('mode') == val %}checked{% endif %}>
+                    <label class="form-check-label small" for="prod_{{ val }}_{{ item.id }}">
+                      <strong>{{ lbl }}</strong>{% if desc %}<span class="text-muted ms-1">— {{ desc }}</span>{% endif %}
+                    </label>
+                  </div>
+                  {% endfor %}
+                  <div class="d-flex align-items-center gap-1
+                       {% if pp.get('mode') != 'range' %}d-none{% endif %}"
+                       id="prod-range-{{ item.id }}">
+                    <input type="date" class="form-control form-control-sm prod-from"
+                           data-item="{{ item.id }}" data-job="{{ job.id }}"
+                           value="{{ pp.get('DateFrom', '') }}" style="width:130px">
+                    <span class="text-muted small">→</span>
+                    <input type="date" class="form-control form-control-sm prod-to"
+                           data-item="{{ item.id }}" data-job="{{ job.id }}"
+                           value="{{ pp.get('DateTo', '') }}" style="width:130px">
+                  </div>
+                </div>
+
+                {# sales_closed #}
+                {% elif item.importer_key == 'sales_closed' %}
+                <div class="small fw-semibold mb-2 text-primary">
+                  <i class="bi bi-calendar-range me-1"></i>Date mode — Sales Closed
+                </div>
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                  {% for val, lbl, desc in [
+                    ('auto',  'Auto (rolling window)', '30-day overlap from last run, extended to cover open orders'),
+                    ('range', 'Fixed range',           ''),
+                  ] %}
+                  <div class="form-check">
+                    <input class="form-check-input sc-mode-radio" type="radio"
+                           name="sc_mode_item_{{ item.id }}" id="sc_{{ val }}_{{ item.id }}"
+                           value="{{ val }}" data-item="{{ item.id }}" data-job="{{ job.id }}"
+                           {% if (not pp and val == 'auto') or pp.get('mode') == val %}checked{% endif %}>
+                    <label class="form-check-label small" for="sc_{{ val }}_{{ item.id }}">
+                      <strong>{{ lbl }}</strong>{% if desc %}<span class="text-muted ms-1">— {{ desc }}</span>{% endif %}
+                    </label>
+                  </div>
+                  {% endfor %}
+                  <div class="d-flex align-items-center gap-1
+                       {% if pp.get('mode') != 'range' %}d-none{% endif %}"
+                       id="sc-range-{{ item.id }}">
+                    <input type="date" class="form-control form-control-sm sc-from"
+                           data-item="{{ item.id }}" data-job="{{ job.id }}"
+                           value="{{ pp.get('OrderDateFrom', '') }}" style="width:130px">
+                    <span class="text-muted small">→</span>
+                    <input type="date" class="form-control form-control-sm sc-to"
+                           data-item="{{ item.id }}" data-job="{{ job.id }}"
+                           value="{{ pp.get('OrderDateTo', '') }}" style="width:130px">
+                  </div>
+                  <span class="text-muted small"><i class="bi bi-info-circle me-1"></i>Dates sent to Epicor as dd/mm/yyyy automatically.</span>
+                </div>
+                {% endif %}
+
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center text-muted py-3 small">
+      <i class="bi bi-inbox me-1"></i>No importers added yet — use the selector below.
+    </div>
+    {% endif %}
+
+    {# ── Add importer footer ─────────────────────────────────────────────── #}
+    <div class="border-top px-3 py-2 d-flex align-items-center gap-2 bg-body-secondary" style="border-radius:0 0 .375rem .375rem">
+      <select class="form-select form-select-sm add-item-select" data-job="{{ job.id }}" style="max-width:220px">
+        <option value="">Add importer…</option>
+        {% for key, cls in registry.items() %}
+        {% if key not in used_keys %}
+        <option value="{{ key }}">{{ key.replace('_', ' ').title() }}</option>
+        {% endif %}
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn-sm btn-outline-success add-item-btn" data-job="{{ job.id }}">
+        <i class="bi bi-plus-lg me-1"></i>Add
+      </button>
+    </div>
+
+  </div>
+  </div>{# /collapse #}
+</div>
+{% endfor %}
+
+{# ── New Job modal ────────────────────────────────────────────────────────── #}
+<div class="modal fade" id="newJobModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin.sync_job_create') }}">
+        {{ csrf_token()|safe if csrf_token is defined else '' }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h5 class="modal-title">New Sync Job</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Job name</label>
+            <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. Sync All" required autofocus>
+          </div>
+          <div class="mb-1">
+            <label class="form-label small fw-semibold">Default interval</label>
+            <div class="input-group input-group-sm">
+              <input type="number" name="interval_minutes" class="form-control" value="120" min="1" max="10080">
+              <span class="input-group-text">min</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1100" id="toast-container"></div>
+
+{% endblock %}
+
+
+{% block extra_js %}
+<script>
+// ── URL builders ───────────────────────────────────────────────────────────
+const BASE = '{{ url_for("admin.sync_job_create") }}'; // /admin/epicor-sync/schedules/jobs
+const CSRF = document.querySelector('meta[name="csrf-token"]').content;
+
+function jobUrl(id, ...parts)  { return [BASE, id, ...parts].join('/'); }
+function itemUrl(jid, iid, ...p) { return [BASE, jid, 'items', iid, ...p].join('/'); }
+
+// ── API helper ─────────────────────────────────────────────────────────────
+async function apiPost(url, payload = {}) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify(payload),
+  });
+  return r.json();
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function showToast(msg, type = 'success') {
+  const id  = 'toast-' + Date.now();
+  const col = type === 'success' ? 'bg-success' : 'bg-danger';
+  const ico = type === 'success' ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
+  document.getElementById('toast-container').insertAdjacentHTML('beforeend', `
+    <div id="${id}" class="toast align-items-center text-white ${col} border-0 show" role="alert">
+      <div class="d-flex">
+        <div class="toast-body"><i class="bi ${ico} me-2"></i>${msg}</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>
+    </div>`);
+  setTimeout(() => document.getElementById(id)?.remove(), 4000);
+}
+
+// ── Format ISO datetime for display ───────────────────────────────────────
+function fmtIso(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, '0');
+  const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return `${pad(d.getDate())} ${m} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ── Preset highlight ───────────────────────────────────────────────────────
+function highlightPreset(jobId, minutes) {
+  document.querySelectorAll(`.preset-btn[data-job="${jobId}"]`).forEach(btn => {
+    const match = parseInt(btn.dataset.minutes) === parseInt(minutes);
+    btn.classList.toggle('btn-primary', match);
+    btn.classList.toggle('btn-outline-secondary', !match);
+  });
+  const ci = document.querySelector(`.custom-interval[data-job="${jobId}"]`);
+  if (ci) ci.value = minutes;
+}
+
+// ── Build params from item's current panel state ───────────────────────────
+function buildItemParams(itemId, importerKey) {
+  if (importerKey === 'production_output') {
+    const mode = document.querySelector(`input[name="prod_mode_item_${itemId}"]:checked`)?.value;
+    if (!mode || mode === 'auto') return null;
+    if (mode === 'today') return { mode: 'today', DateFrom: '__today__', DateTo: '__today__' };
+    if (mode === 'range') {
+      const from = document.querySelector(`.prod-from[data-item="${itemId}"]`)?.value;
+      const to   = document.querySelector(`.prod-to[data-item="${itemId}"]`)?.value;
+      if (from && to) return { mode: 'range', DateFrom: from, DateTo: to };
+    }
+  }
+  if (importerKey === 'sales_closed') {
+    const mode = document.querySelector(`input[name="sc_mode_item_${itemId}"]:checked`)?.value;
+    if (!mode || mode === 'auto') return null;
+    if (mode === 'range') {
+      const from = document.querySelector(`.sc-from[data-item="${itemId}"]`)?.value;
+      const to   = document.querySelector(`.sc-to[data-item="${itemId}"]`)?.value;
+      if (from && to) return { mode: 'range', OrderDateFrom: from, OrderDateTo: to };
+    }
+  }
+  return null;
+}
+
+// ── Save item params ───────────────────────────────────────────────────────
+async function saveItemParams(itemId, jobId, importerKey) {
+  const params = buildItemParams(itemId, importerKey);
+  const data   = await apiPost(itemUrl(jobId, itemId), { action: 'save_params', schedule_params: params });
+  if (data.status !== 'ok') { showToast(data.message || 'Save failed', 'danger'); return; }
+
+  // Update the badge text
+  const badge = document.querySelector(`.params-badge-${itemId}`);
+  if (badge) {
+    badge.textContent = data.params_label;
+    badge.className = `badge ${params ? 'bg-info text-dark' : 'bg-light text-muted border'} small params-badge-${itemId}`;
+  }
+  // Update the sliders button colour
+  const toggleBtn = document.querySelector(`.params-toggle-btn[data-item="${itemId}"]`);
+  if (toggleBtn) {
+    toggleBtn.classList.toggle('btn-info', params !== null);
+    toggleBtn.classList.toggle('btn-outline-secondary', params === null);
+  }
+  showToast('Params saved');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EVENT LISTENERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Job name (rename on blur or Enter) ────────────────────────────────────
+document.querySelectorAll('.job-name-input').forEach(inp => {
+  const save = async () => {
+    const id  = inp.dataset.job;
+    const val = inp.value.trim();
+    if (!val) { inp.value = inp.defaultValue; return; }
+    if (val === inp.defaultValue) return;
+    const data = await apiPost(jobUrl(id), { name: val });
+    if (data.status !== 'ok') { showToast(data.message || 'Rename failed', 'danger'); inp.value = inp.defaultValue; return; }
+    inp.defaultValue = val;
+    showToast('Job renamed');
+  };
+  inp.addEventListener('blur', save);
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+});
+
+// ── Enable toggle ─────────────────────────────────────────────────────────
+document.querySelectorAll('.job-toggle').forEach(chk => {
+  chk.addEventListener('change', async function () {
+    const id      = this.dataset.job;
+    const enabled = this.checked;
+    const data    = await apiPost(jobUrl(id), { enabled });
+    if (data.status !== 'ok') { this.checked = !enabled; showToast(data.message || 'Failed', 'danger'); return; }
+    const timing = document.getElementById('job-timing-' + id);
+    if (timing && data.next_run_at) timing.textContent = `Next ${fmtIso(data.next_run_at)}`;
+    showToast(`Job ${enabled ? 'enabled' : 'disabled'}`);
+  });
+});
+
+// ── Interval preset buttons ────────────────────────────────────────────────
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', async function () {
+    const id      = this.dataset.job;
+    const minutes = parseInt(this.dataset.minutes);
+    const data    = await apiPost(jobUrl(id), { interval_minutes: minutes });
+    if (data.status !== 'ok') { showToast(data.message || 'Failed', 'danger'); return; }
+    highlightPreset(id, minutes);
+    showToast(`Interval → ${minutes} min`);
+  });
+});
+
+// ── Custom interval ────────────────────────────────────────────────────────
+document.querySelectorAll('.custom-interval').forEach(inp => {
+  let debounce;
+  inp.addEventListener('input', function () {
+    const id = this.dataset.job, minutes = parseInt(this.value);
+    if (!minutes || minutes < 1) return;
+    clearTimeout(debounce);
+    debounce = setTimeout(async () => {
+      const data = await apiPost(jobUrl(id), { interval_minutes: minutes });
+      if (data.status !== 'ok') { showToast(data.message || 'Failed', 'danger'); return; }
+      highlightPreset(id, minutes);
+      showToast(`Interval → ${minutes} min`);
+    }, 800);
+  });
+});
+
+// ── Format current time for "last run" cells ──────────────────────────────
+function fmtNow() {
+  const d   = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const m   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return `${pad(d.getDate())} ${m} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ── Animated progress bar inside a cell ───────────────────────────────────
+function startProgressBar(cell) {
+  const wrap = document.createElement('div');
+  wrap.className = 'progress mt-1';
+  wrap.style.cssText = 'height:3px;border-radius:2px;';
+  wrap.innerHTML = '<div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:0%;transition:width .4s ease-out;"></div>';
+  cell.appendChild(wrap);
+  const bar = wrap.querySelector('.progress-bar');
+  let pct = 0;
+  const timer = setInterval(() => {
+    const step = Math.max(0.3, (88 - pct) * 0.06);
+    pct = Math.min(88, pct + step);
+    bar.style.width = pct + '%';
+  }, 350);
+  return function stop(success) {
+    clearInterval(timer);
+    bar.style.transition = 'width .2s ease-in';
+    bar.style.width = '100%';
+    bar.classList.remove('progress-bar-animated','progress-bar-striped','bg-primary');
+    bar.classList.add(success ? 'bg-success' : 'bg-danger');
+    setTimeout(() => wrap.remove(), 600);
+  };
+}
+
+// ── Run a job live — sequential per-item with progress badges ─────────────
+async function runJobLive(jobId, btn) {
+  // 1. Expand collapse so the user can see the rows
+  const collapseEl = document.getElementById('job-body-' + jobId);
+  if (collapseEl) bootstrap.Collapse.getOrCreateInstance(collapseEl).show();
+
+  // 2. Collect all item rows in DOM order (= sort_order)
+  const rows = [...document.querySelectorAll(
+    `#items-table-${jobId} tbody tr[id^="item-row-"]`
+  )];
+  if (!rows.length) { showToast('No importers in this job', 'danger'); return; }
+
+  // 3. Mark all rows "Waiting" and disable their run buttons
+  rows.forEach(row => {
+    const id = row.dataset.item;
+    const sc = document.querySelector(`.item-status-${id}`);
+    if (sc) sc.innerHTML = '<span class="badge bg-secondary">Waiting</span>';
+  });
+
+  const jobStatusEl = document.getElementById('job-status-' + jobId);
+  if (jobStatusEl) jobStatusEl.innerHTML = '<span class="badge bg-warning text-dark">Running</span>';
+
+  // 4. Run each item in sequence
+  const results = [];
+  for (const row of rows) {
+    const itemId = row.dataset.item;
+    const sc = document.querySelector(`.item-status-${itemId}`);
+    const lr = document.querySelector(`.item-last-run-${itemId}`);
+
+    // Show spinner + animated progress bar
+    if (sc) {
+      sc.innerHTML = '<span class="spinner-border spinner-border-sm text-primary me-1"></span><span class="text-muted" style="font-size:.75rem">Running…</span>';
+    }
+    const stopBar = sc ? startProgressBar(sc) : null;
+
+    const url = `${BASE}/${jobId}/items/${itemId}/run-one`;
+    let ok = false;
+    try {
+      const data = await apiPost(url);
+      ok = data.status === 'ok';
+      await new Promise(r => setTimeout(r, 200)); // let bar reach 88 %
+      if (stopBar) stopBar(ok);
+      await new Promise(r => setTimeout(r, 250)); // let bar animate to 100 %
+      if (sc) {
+        sc.innerHTML = ok
+          ? `<span class="badge bg-success">OK · ${data.row_count ?? 0}</span>`
+          : `<span class="badge bg-danger" title="${(data.message||'').replace(/"/g,"'")}" data-bs-toggle="tooltip">Failed</span>`;
+        if (!ok) new bootstrap.Tooltip(sc.querySelector('[data-bs-toggle="tooltip"]'));
+      }
+      if (lr && ok) lr.textContent = fmtNow();
+    } catch (e) {
+      if (stopBar) stopBar(false);
+      if (sc) sc.innerHTML = '<span class="badge bg-danger">Error</span>';
+    }
+    results.push(ok);
+  }
+
+  // 5. Derive overall job status and persist to server
+  const allOk = results.every(Boolean);
+  const anyOk = results.some(Boolean);
+  const finalStatus = allOk ? 'success' : (anyOk ? 'partial' : 'failed');
+  const badgeCls    = allOk ? 'bg-success' : (anyOk ? 'bg-warning text-dark' : 'bg-danger');
+  const badgeLbl    = allOk ? 'OK' : (anyOk ? 'Partial' : 'Failed');
+  if (jobStatusEl) jobStatusEl.innerHTML = `<span class="badge ${badgeCls}">${badgeLbl}</span>`;
+
+  // Update timing display (next_run will refresh from server within 30 s)
+  const timingEl = document.getElementById('job-timing-' + jobId);
+  if (timingEl) {
+    const nextMatch = timingEl.textContent.match(/Next\s[\w\d: ]+/);
+    timingEl.textContent = `Last ${fmtNow()}${nextMatch ? ' \u00b7 ' + nextMatch[0] : ''}`;
+  }
+
+  // Persist last_status + recompute next_run_at on server
+  apiPost(jobUrl(jobId), { last_status: finalStatus }).catch(() => {});
+
+  showToast(`${jobId ? '' : ''}Job complete — ${results.filter(Boolean).length}/${results.length} importers OK`);
+}
+
+// ── Run now ───────────────────────────────────────────────────────────────
+document.querySelectorAll('.run-job-btn').forEach(btn => {
+  btn.addEventListener('click', async function () {
+    const jobId = this.dataset.job;
+    this.disabled = true;
+    this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Running…';
+    try {
+      await runJobLive(jobId, this);
+    } finally {
+      this.disabled = false;
+      this.innerHTML = '<i class="bi bi-play-fill"></i> Run now';
+    }
+  });
+});
+
+// ── Delete job ────────────────────────────────────────────────────────────
+document.querySelectorAll('.delete-job-btn').forEach(btn => {
+  btn.addEventListener('click', async function () {
+    const id   = this.dataset.job;
+    const card = document.getElementById('job-card-' + id);
+    const name = card?.querySelector('.job-name-input')?.value || 'this job';
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    const data = await apiPost(jobUrl(id, 'delete'));
+    if (data.status !== 'ok') { showToast(data.message || 'Delete failed', 'danger'); return; }
+    card?.remove();
+    showToast('Job deleted');
+  });
+});
+
+// ── Add item ──────────────────────────────────────────────────────────────
+document.querySelectorAll('.add-item-btn').forEach(btn => {
+  btn.addEventListener('click', async function () {
+    const jobId  = this.dataset.job;
+    const sel    = document.querySelector(`.add-item-select[data-job="${jobId}"]`);
+    const key    = sel?.value;
+    if (!key) { showToast('Select an importer first', 'danger'); return; }
+
+    const data = await apiPost(jobUrl(jobId, 'items'), { importer_key: key });
+    if (data.status !== 'ok') { showToast(data.message || 'Add failed', 'danger'); return; }
+
+    sel.value = '';
+    // Remove from dropdown
+    sel.querySelector(`option[value="${key}"]`)?.remove();
+
+    // Reload page so item renders with full template (including any params panel)
+    location.reload();
+  });
+});
+
+// ── Remove item ───────────────────────────────────────────────────────────
+document.querySelectorAll('.remove-item-btn').forEach(btn => {
+  btn.addEventListener('click', async function () {
+    const jobId  = this.dataset.job;
+    const itemId = this.dataset.item;
+    const data   = await apiPost(itemUrl(jobId, itemId, 'delete'));
+    if (data.status !== 'ok') { showToast(data.message || 'Remove failed', 'danger'); return; }
+    document.getElementById('item-row-' + itemId)?.remove();
+    document.getElementById('params-subrow-' + itemId)?.remove();
+    // Re-number visible rows
+    renumberItems(jobId);
+    showToast('Importer removed');
+    // Put key back in the dropdown
+    const sel = document.querySelector(`.add-item-select[data-job="${jobId}"]`);
+    if (sel) {
+      const opt = document.createElement('option');
+      opt.value = data.importer_key || '';
+      opt.textContent = (data.importer_key || '').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+      sel.appendChild(opt);
+    }
+  });
+});
+
+// ── Move up / down ────────────────────────────────────────────────────────
+document.querySelectorAll('.move-up-btn, .move-down-btn').forEach(btn => {
+  btn.addEventListener('click', async function () {
+    const jobId  = this.dataset.job;
+    const itemId = this.dataset.item;
+    const dir    = this.classList.contains('move-up-btn') ? 'move_up' : 'move_down';
+    const data   = await apiPost(itemUrl(jobId, itemId), { action: dir });
+    if (data.status !== 'ok') { showToast(data.message || 'Reorder failed', 'danger'); return; }
+    // Reload to reflect new order
+    location.reload();
+  });
+});
+
+// ── Params — production_output mode radios ────────────────────────────────
+document.querySelectorAll('.prod-mode-radio').forEach(radio => {
+  radio.addEventListener('change', function () {
+    const itemId = this.dataset.item;
+    const range  = document.getElementById('prod-range-' + itemId);
+    if (this.value === 'range') range?.classList.remove('d-none');
+    else range?.classList.add('d-none');
+    saveItemParams(itemId, this.dataset.job, 'production_output');
+  });
+});
+
+document.querySelectorAll('.prod-from, .prod-to').forEach(inp => {
+  let deb;
+  inp.addEventListener('change', function () {
+    const id = this.dataset.item;
+    clearTimeout(deb);
+    deb = setTimeout(() => saveItemParams(id, this.dataset.job, 'production_output'), 600);
+  });
+});
+
+// ── Params — sales_closed mode radios ────────────────────────────────────
+document.querySelectorAll('.sc-mode-radio').forEach(radio => {
+  radio.addEventListener('change', function () {
+    const itemId = this.dataset.item;
+    const range  = document.getElementById('sc-range-' + itemId);
+    if (this.value === 'range') range?.classList.remove('d-none');
+    else range?.classList.add('d-none');
+    saveItemParams(itemId, this.dataset.job, 'sales_closed');
+  });
+});
+
+document.querySelectorAll('.sc-from, .sc-to').forEach(inp => {
+  let deb;
+  inp.addEventListener('change', function () {
+    const id = this.dataset.item;
+    clearTimeout(deb);
+    deb = setTimeout(() => saveItemParams(id, this.dataset.job, 'sales_closed'), 600);
+  });
+});
+
+// ── Renumber item rows after removal ──────────────────────────────────────
+function renumberItems(jobId) {
+  let n = 1;
+  document.querySelectorAll(`#items-table-${jobId} tbody tr[id^="item-row-"]`).forEach(tr => {
+    const cell = tr.querySelector('td:first-child');
+    if (cell) cell.textContent = n++;
+  });
+}
+
+// ── Auto-refresh job status every 30 s ────────────────────────────────────
+setInterval(() => {
+  fetch(location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(r => r.text())
+    .then(html => {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      document.querySelectorAll('[id^="job-status-"]').forEach(el => {
+        const fresh = doc.getElementById(el.id);
+        if (fresh) el.innerHTML = fresh.innerHTML;
+      });
+      document.querySelectorAll('[id^="job-timing-"]').forEach(el => {
+        const fresh = doc.getElementById(el.id);
+        if (fresh) el.innerHTML = fresh.innerHTML;
+      });
+    })
+    .catch(() => {});
+}, 30000);
+
+// ── Tooltips ──────────────────────────────────────────────────────────────
+document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+
+// ── Chevron rotation on collapse toggle ───────────────────────────────────
+document.querySelectorAll('[id^="job-body-"]').forEach(collapseEl => {
+  const jobId   = collapseEl.id.replace('job-body-', '');
+  const chevron = document.querySelector(
+    `#job-card-${jobId} .job-chevron`
+  );
+  collapseEl.addEventListener('show.bs.collapse', () => {
+    if (chevron) chevron.style.transform = 'rotate(180deg)';
+  });
+  collapseEl.addEventListener('hide.bs.collapse', () => {
+    if (chevron) chevron.style.transform = 'rotate(0deg)';
+  });
+});
+</script>
+{% endblock %}

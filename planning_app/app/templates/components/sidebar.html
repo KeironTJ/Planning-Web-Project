@@ -242,7 +242,7 @@
                 <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">Administration</h6>
             </li>
             <li class="nav-item">
-                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.') and request.endpoint not in ('admin.dept_list', 'admin.dept_edit', 'admin.import_list', 'admin.import_upload', 'admin.import_detail', 'admin.system_settings') %}active{% endif %}"
+                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.') and request.endpoint not in ('admin.dept_list', 'admin.dept_edit', 'admin.import_list', 'admin.import_upload', 'admin.import_detail', 'admin.system_settings', 'admin.sync_schedules', 'admin.sync_job_create', 'admin.sync_job_update', 'admin.sync_job_delete', 'admin.sync_job_run_now', 'admin.sync_job_item_add', 'admin.sync_job_item_update', 'admin.sync_job_item_delete', 'admin.epicor_sync') %}active{% endif %}"
                    href="{{ url_for('admin.dashboard') }}">
                     <i class="bi bi-speedometer2 me-2"></i>Dashboard
                 </a>
@@ -271,6 +271,7 @@
                     <i class="bi bi-gear me-2"></i>Settings
                 </a>
             </li>
+
             {% endif %}
 
         </ul>

@@ -9,19 +9,34 @@
 </div>
 
 <!-- Type filter -->
-<div class="mb-3">
-    {% set type_filters = [
-        ('', 'All'), ('sales', 'Sales'), ('coois', 'COOIS'),
-        ('stock', 'Stock'), ('open_po', 'Open PO'),
-        ('main_material', 'Mat Reqs'),
-        ('labour_plan', 'Labour Plan'),
+<div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+    {% set csv_filters = [
+        ('', 'All'),
+        ('stock', 'Stock (CSV)'),
+        ('open_po', 'Open PO (CSV)'),
+        ('main_material', 'Mat Reqs (CSV)'),
+        ('labour_plan', 'Labour Plan (CSV)'),
     ] %}
-    <div class="btn-group btn-group-sm flex-wrap">
-        {% for t, l in type_filters %}
+    {% set api_filters = [
+        ('epicor_stock',                'Stock'),
+        ('epicor_purchase_orders',      'Purchase Orders'),
+        ('epicor_material_requirements','Material Reqs'),
+        ('epicor_works_orders',         'Works Orders'),
+        ('epicor_sales_open',           'Sales Open'),
+        ('epicor_sales_closed',         'Sales Closed'),
+        ('epicor_production_output',    'Production Output'),
+    ] %}
+    <div class="btn-group btn-group-sm">
+        {% for t, l in csv_filters %}
         <a href="{{ url_for('admin.import_list', type=t) }}"
-           class="btn btn-outline-secondary {{ 'active' if import_type == t else '' }}">
-            {{ l }}
-        </a>
+           class="btn btn-outline-secondary {{ 'active' if import_type == t else '' }}">{{ l }}</a>
+        {% endfor %}
+    </div>
+    <span class="text-muted small fw-semibold">Epicor API:</span>
+    <div class="btn-group btn-group-sm flex-wrap">
+        {% for t, l in api_filters %}
+        <a href="{{ url_for('admin.import_list', type=t) }}"
+           class="btn btn-outline-primary {{ 'active' if import_type == t else '' }}">{{ l }}</a>
         {% endfor %}
     </div>
 </div>

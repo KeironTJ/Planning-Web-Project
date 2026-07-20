@@ -42,6 +42,10 @@ def create_app(config_class=None) -> Flask:
     from .core.epicor_commands import epicor_cli
     app.cli.add_command(epicor_cli)
 
+    # --- Start Background Scheduler ---
+    from .core.scheduler import init_scheduler
+    init_scheduler(app)
+
     return app
 
 

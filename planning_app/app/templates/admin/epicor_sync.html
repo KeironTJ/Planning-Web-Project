@@ -6,6 +6,9 @@
 {% endblock %}
 
 {% block page_actions %}
+  <a href="{{ url_for('admin.sync_schedules') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-clock-history me-1"></i>Schedules
+  </a>
   <button id="sync-all-btn" class="btn btn-primary">
     <i class="bi bi-arrow-repeat me-1"></i>Sync All
   </button>
