@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+  <div class="d-flex align-items-center mb-4 gap-3">
+    <div class="rounded-3 p-3 bg-primary bg-opacity-10">
+      <i class="bi bi-house-fill fs-2 text-primary"></i>
+    </div>
+    <div>
+      <h4 class="mb-0 fw-semibold">Welcome, {{ current_user.full_name }}</h4>
+      <p class="text-muted mb-0 small">{{ app_name }} — select a section to get started</p>
+    </div>
+  </div>
+
+  <div class="row g-3">
+
+    {% if current_user.has_permission('view_orders') %}
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('sales.dashboard') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-3 bg-primary bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-graph-up-arrow fs-3 text-primary"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Sales</h6>
+              <p class="text-muted small mb-0">Order management and customer demand overview</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+    {% endif %}
+
+    {% if current_user.has_permission('view_capacity') %}
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('planning.dashboard') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-3 bg-info bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-calendar2-range fs-3 text-info"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Planning</h6>
+              <p class="text-muted small mb-0">Capacity planning and labour management</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+    {% endif %}
+
+    {% if current_user.has_permission('view_materials') %}
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('purchasing.dashboard') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-3 bg-warning bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-box-seam fs-3 text-warning"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Purchasing</h6>
+              <p class="text-muted small mb-0">Purchase orders, supplier spend and material availability</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+    {% endif %}
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('operations.dashboard') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-3 bg-success bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-gear-wide-connected fs-3 text-success"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Operations</h6>
+              <p class="text-muted small mb-0">Works in progress, production output and shop floor overview</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('transport.dashboard') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-3 bg-secondary bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-truck fs-3 text-secondary"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Transport</h6>
+              <p class="text-muted small mb-0">Logistics, delivery management and fleet tools</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('it.dashboard') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-3 bg-dark bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-hdd-network fs-3 text-dark"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">IT</h6>
+              <p class="text-muted small mb-0">System administration and technical tools</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    {% if current_user.is_admin %}
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('admin.dashboard') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-3 bg-danger bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-shield-lock fs-3 text-danger"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Administration</h6>
+              <p class="text-muted small mb-0">User management, imports and system settings</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

@@ -50,7 +50,13 @@
                     <div class="mb-3">
                         {{ form.flow_order.label(class="form-label fw-semibold") }}
                         {{ form.flow_order(class="form-control", placeholder="e.g. 1, 2, 3…") }}
-                        <div class="form-text">Position in the production flow (1 = first). Controls column order on the WIP Tracker.</div>
+                        <div class="form-text">Position in the production flow (1 = first). Controls row/column order on the WIP Overview.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        {{ form.op_code.label(class="form-label fw-semibold") }}
+                        {{ form.op_code(class="form-control text-uppercase", placeholder="e.g. SEW, FRAME, BATCH") }}
+                        <div class="form-text">Epicor <code>next_op</code> code for this department. Used to sort the WIP chart by routing order.</div>
                     </div>
 
                     <div class="mb-4">

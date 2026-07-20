@@ -2,297 +2,52 @@
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
-<!-- ── Header ─────────────────────────────────────────────────────── -->
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="container-fluid py-3">
+
+  <div class="d-flex align-items-center mb-4 gap-3">
+    <div class="rounded-3 p-3 bg-success bg-opacity-10">
+      <i class="bi bi-gear-wide-connected fs-2 text-success"></i>
+    </div>
     <div>
-        <h4 class="mb-0 fw-semibold">Operations WIP Overview</h4>
-        <p class="text-muted small mb-0">
-            Works in progress by section · ISO week
-            {% if last_imported %} · Last sync {{ last_imported.strftime('%d %b %Y %H:%M') }}{% endif %}
-        </p>
+      <h4 class="mb-0 fw-semibold">Operations</h4>
+      <p class="text-muted mb-0 small">Works in progress, production output, and shop floor overview</p>
     </div>
-    <a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-arrow-repeat me-1"></i>Sync Data
-    </a>
-</div>
+  </div>
 
-<!-- ── Summary cards ──────────────────────────────────────────────── -->
-<div class="row g-2 mb-3">
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3">
-            <div class="fs-2 fw-bold text-primary">{{ total }}</div>
-            <div class="text-muted small">Total Jobs</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3">
-            <div class="fs-2 fw-bold text-success">{{ released }}</div>
-            <div class="text-muted small">Released</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3">
-            <div class="fs-2 fw-bold text-warning">{{ shortages }}</div>
-            <div class="text-muted small">Material Shortage</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3">
-            <div class="fs-2 fw-bold text-info">{{ waiting }}</div>
-            <div class="text-muted small">Waiting Temp</div>
-        </div>
-    </div>
-</div>
+  <div class="row g-3">
 
-{% if wip_ops %}
-
-<!-- ── WIP chart ──────────────────────────────────────────────────── -->
-<div class="card border-0 shadow-sm mb-3">
-    <div class="card-header bg-transparent border-0 pb-0">
-        <h6 class="mb-0 fw-semibold">WIP by Week</h6>
-        <p class="text-muted small mb-0">Units queued per section, stacked by production week</p>
-    </div>
-    <div class="card-body pt-2" style="position:relative;height:280px;">
-        <canvas id="wipChart"></canvas>
-    </div>
-</div>
-
-<!-- ── WIP pivot table ────────────────────────────────────────────── -->
-<div class="card border-0 shadow-sm mb-3">
-    <div class="card-header bg-transparent border-0 pb-0">
-        <h6 class="mb-0 fw-semibold">Section × Week Breakdown</h6>
-        <p class="text-muted small mb-0">Units (jobs) waiting at each section per planned week</p>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-sm table-bordered mb-0 align-middle"
-                   style="font-size:0.78rem; white-space:nowrap;">
-                <thead class="table-light">
-                    <tr>
-                        <th class="ps-3" style="min-width:130px;">Section</th>
-                        {% for w in wip_weeks %}
-                        <th class="text-center px-2{% if w == 'Overdue' %} table-danger{% endif %}"
-                            style="min-width:64px;">
-                            {% if w == 'Overdue' %}
-                                <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ w }}
-                            {% else %}
-                                W{{ w[2:4] }}<span class="text-muted fw-normal">/{{ w[4:6] }}</span>
-                                <div class="text-muted fw-normal" style="font-size:0.65rem;">20{{ w[0:2] }}</div>
-                            {% endif %}
-                        </th>
-                        {% endfor %}
-                        <th class="text-end pe-3 fw-semibold" style="min-width:64px;">Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for op in wip_ops %}
-                    {% set op_data = op_totals.get(op, {}) %}
-                    <tr>
-                        <td class="ps-3 fw-semibold">{{ op }}</td>
-                        {% for w in wip_weeks %}
-                        {% set cell = wip_pivot.get(op, {}).get(w, {}) %}
-                        {% set qty = cell.get('qty', 0) %}
-                        {% set jobs = cell.get('jobs', 0) %}
-                        <td class="text-center px-2
-                            {%- if w == 'Overdue' %} table-danger{% endif %}
-                            {%- if qty > 0 %} fw-semibold{% else %} text-muted{% endif %}">
-                            {%- if qty > 0 -%}
-                                {{ "%.0f"|format(qty) }}
-                                <span class="text-muted fw-normal" style="font-size:0.65rem;">({{ jobs }})</span>
-                            {%- else -%}
-                                <span style="opacity:0.3">·</span>
-                            {%- endif -%}
-                        </td>
-                        {% endfor %}
-                        <td class="text-end pe-3 fw-bold text-primary">
-                            {{ "%.0f"|format(op_data.get('qty', 0)) }}
-                            <span class="text-muted fw-normal" style="font-size:0.65rem;">({{ op_data.get('jobs', 0) }})</span>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-                <tfoot class="table-light">
-                    <tr class="fw-bold">
-                        <td class="ps-3">Week Total</td>
-                        {% for w in wip_weeks %}
-                        {% set wt = week_totals.get(w, {}) %}
-                        <td class="text-center px-2
-                            {%- if w == 'Overdue' %} table-danger fw-bold
-                            {%- elif wt.get('qty', 0) > 0 %} text-primary
-                            {%- else %} text-muted{% endif %}">
-                            {{ "%.0f"|format(wt.get('qty', 0)) if wt.get('qty', 0) > 0 else '—' }}
-                        </td>
-                        {% endfor %}
-                        <td class="text-end pe-3 text-primary">
-                            {{ "%.0f"|format(week_totals.values() | sum(attribute='qty')) }}
-                        </td>
-                    </tr>
-                </tfoot>
-            </table>
-        </div>
-    </div>
-</div>
-
-{% else %}
-<div class="alert alert-info">
-    <i class="bi bi-info-circle me-2"></i>
-    No WIP data — works orders haven't been synced yet, or no jobs have a <code>next_op</code> set.
-    <a href="{{ url_for('admin.epicor_sync') }}" class="alert-link">Sync from Epicor</a>.
-</div>
-{% endif %}
-
-<!-- ── Job detail list (collapsible) ──────────────────────────────── -->
-<div class="card border-0 shadow-sm">
-    <div class="card-header bg-transparent d-flex justify-content-between align-items-center"
-         role="button" data-bs-toggle="collapse" data-bs-target="#jobCollapse"
-         aria-expanded="false" style="cursor:pointer;">
-        <h6 class="mb-0 fw-semibold">
-            <i class="bi bi-list-ul me-1 text-muted"></i>Job Detail
-        </h6>
-        <i class="bi bi-chevron-down text-muted small"></i>
-    </div>
-    <div class="collapse" id="jobCollapse">
-        <div class="card-body py-2 border-bottom">
-            <form method="GET" class="row g-2 align-items-end">
-                <div class="col-sm-5">
-                    <input type="search" name="q" class="form-control form-control-sm"
-                           placeholder="Job, customer, model…" value="{{ search }}">
-                </div>
-                <div class="col-auto">
-                    <button type="submit" class="btn btn-primary btn-sm">Search</button>
-                    {% if search %}
-                    <a href="{{ url_for('operations.dashboard') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
-                    {% endif %}
-                </div>
-            </form>
-        </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-sm table-hover mb-0 align-middle">
-                    <thead class="thead-subtle">
-                        <tr>
-                            <th>Job</th>
-                            <th>Customer</th>
-                            <th>Model / Size</th>
-                            <th>Next Op</th>
-                            <th class="text-center">Week</th>
-                            <th class="text-center">Due</th>
-                            <th class="text-center">Qty</th>
-                            <th class="text-center">Flags</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for job in jobs.items %}
-                        <tr class="{{ 'table-warning' if job.mtl_shortage else '' }}">
-                            <td class="fw-semibold font-monospace small">{{ job.job_num }}</td>
-                            <td class="text-muted small">{{ job.customer_name or '—' }}</td>
-                            <td>
-                                {% if job.model %}<span class="fw-semibold">{{ job.model }}</span>{% endif %}
-                                {% if job.size %}<span class="text-muted ms-1 small">{{ job.size }}</span>{% endif %}
-                            </td>
-                            <td>
-                                {% if job.next_op %}
-                                <span class="badge bg-secondary">{{ job.next_op }}</span>
-                                {% else %}—{% endif %}
-                            </td>
-                            <td class="text-center text-muted small">{{ job.prod_plnwk or '—' }}</td>
-                            <td class="text-center small {{ 'text-danger fw-semibold' if job.req_due_date and job.req_due_date < today else '' }}">
-                                {{ job.req_due_date.strftime('%d %b') if job.req_due_date else '—' }}
-                            </td>
-                            <td class="text-center small">
-                                {{ (job.qty_completed or 0)|int }} / {{ (job.required_qty or 0)|int }}
-                            </td>
-                            <td class="text-center">
-                                {% if job.mtl_shortage %}<span class="badge bg-warning text-dark me-1" title="Material shortage">MAT</span>{% endif %}
-                                {% if job.waiting_temp %}<span class="badge bg-info text-dark me-1" title="Waiting temp">TMP</span>{% endif %}
-                                {% if not job.job_released %}<span class="badge bg-light text-dark border" title="Not released">NR</span>{% endif %}
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="8" class="text-center py-4 text-muted">No works orders found.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('operations.wip_overview') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-success bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-diagram-3 fs-4 text-success"></i>
             </div>
-            {% if jobs.pages > 1 %}
-            <nav class="px-3 py-2">
-                <ul class="pagination pagination-sm justify-content-center mb-0">
-                    {% for p in jobs.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
-                        {% if p %}
-                            <li class="page-item {{ 'active' if p == jobs.page else '' }}">
-                                <a class="page-link" href="{{ url_for('operations.dashboard', page=p, q=search) }}">{{ p }}</a>
-                            </li>
-                        {% else %}
-                            <li class="page-item disabled"><span class="page-link">…</span></li>
-                        {% endif %}
-                    {% endfor %}
-                </ul>
-            </nav>
-            {% endif %}
+            <div>
+              <h6 class="fw-semibold mb-1">WIP Overview</h6>
+              <p class="text-muted small mb-0">Works in progress by section and planned week</p>
+            </div>
+          </div>
         </div>
+      </a>
     </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('operations.daily_output') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-primary bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-bar-chart-line fs-4 text-primary"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Production Output</h6>
+              <p class="text-muted small mb-0">Daily and weekly production completion report</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+  </div>
 </div>
-
-{% endblock %}
-
-{% block extra_js %}
-{% if wip_ops %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const labels   = {{ wip_chart_labels | tojson }};
-    const datasets = {{ wip_chart_datasets | tojson }};
-
-    const ctx = document.getElementById('wipChart');
-    if (!ctx) return;
-
-    new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels,
-            datasets: datasets.map(d => ({
-                label:           d.label,
-                data:            d.data,
-                backgroundColor: d.backgroundColor,
-                borderRadius:    2,
-                borderSkipped:   false,
-            })),
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: { boxWidth: 12, padding: 14, font: { size: 11 } },
-                },
-                tooltip: {
-                    callbacks: {
-                        footer(items) {
-                            const total = items.reduce((s, i) => s + i.parsed.y, 0);
-                            return total > 0 ? `Total: ${Math.round(total)}` : '';
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: {
-                    stacked: true,
-                    grid: { display: false },
-                    ticks: { font: { size: 11 } },
-                },
-                y: {
-                    stacked: true,
-                    beginAtZero: true,
-                    ticks: { font: { size: 11 } },
-                    grid: { color: 'rgba(0,0,0,0.05)' },
-                },
-            },
-        },
-    });
-});
-</script>
-{% endif %}
 {% endblock %}

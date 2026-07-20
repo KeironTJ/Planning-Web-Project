@@ -32,7 +32,7 @@ def load_user(user_id: str):
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for("capacity.dashboard"))
+        return redirect(url_for("index"))
 
     form = LoginForm()
     if form.validate_on_submit():
@@ -47,7 +47,7 @@ def login():
             # Security: only allow relative redirects to prevent open redirect
             if next_page and next_page.startswith("/"):
                 return redirect(next_page)
-            return redirect(url_for("capacity.dashboard"))
+            return redirect(url_for("index"))
         except AuthorisationError as e:
             flash(str(e), "danger")
 

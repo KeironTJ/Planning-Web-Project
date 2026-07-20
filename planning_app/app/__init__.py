@@ -123,12 +123,14 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(capacity_bp, url_prefix="/planning/capacity")
     app.register_blueprint(materials_bp, url_prefix="/purchasing/materials")
 
-    # Root redirect
-    from flask import redirect, url_for
+    # Root home page
+    from flask import redirect, url_for, render_template as _render
+    from flask_login import login_required as _login_required, current_user as _current_user
 
     @app.route("/")
+    @_login_required
     def index():
-        return redirect(url_for("sales.dashboard"))
+        return _render("home.html", title="Home")
 
 
 def _register_error_handlers(app: Flask) -> None:

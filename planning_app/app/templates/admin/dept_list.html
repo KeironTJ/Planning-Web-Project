@@ -22,6 +22,7 @@
                         <th class="text-center" style="width:60px;">Order</th>
                         <th>Code</th>
                         <th>Name</th>
+                        <th>Op Code</th>
                         <th class="text-end">Target Hrs/Day</th>
                         <th class="text-center">Tracked</th>
                         <th class="text-center">Status</th>
@@ -36,6 +37,7 @@
                         </td>
                         <td><code>{{ dept.code }}</code></td>
                         <td class="fw-semibold">{{ dept.name }}</td>
+                        <td><code class="text-primary">{{ dept.op_code or '—' }}</code></td>
                         <td class="text-end">
                             {% if dept.target_hours_per_day %}
                                 {{ dept.target_hours_per_day }}
@@ -66,7 +68,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center py-4 text-muted">
+                        <td colspan="8" class="text-center py-4 text-muted">
                             No departments found.
                             <a href="{{ url_for('admin.seed_departments') }}">Seed defaults</a> to get started.
                         </td>

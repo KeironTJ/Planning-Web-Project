@@ -2,8 +2,10 @@
 
 from collections import defaultdict
 import calendar
+import csv
+import io
 from datetime import date, timedelta
-from flask import current_app, flash, jsonify, render_template, request
+from flask import current_app, flash, jsonify, render_template, request, Response
 from flask_login import current_user, login_required
 from sqlalchemy import func
 from . import operations_bp
@@ -52,48 +54,113 @@ def daily_output_sync():
 @operations_bp.route('/dashboard')
 @login_required
 def dashboard():
+    return render_template('operations/dashboard.html', title='Operations')
+
+
+@operations_bp.route('/wip')
+@login_required
+def wip_overview():
     today = date.today()
-    total     = db.session.query(func.count(WorksOrder.id)).scalar() or 0
-    released  = db.session.query(func.count(WorksOrder.id)).filter(WorksOrder.job_released == True).scalar() or 0
-    shortages = db.session.query(func.count(WorksOrder.id)).filter(WorksOrder.mtl_shortage == True).scalar() or 0
-    waiting   = db.session.query(func.count(WorksOrder.id)).filter(WorksOrder.waiting_temp == True).scalar() or 0
-    last = WorksOrder.query.order_by(WorksOrder.imported_at.desc()).first()
+
+    # WIP overview shows released orders only.
+    category = request.args.get('category', 'models').strip().lower()
+    _is_model  = db.and_(
+        WorksOrder.model.isnot(None),
+        WorksOrder.model != '',
+        ~WorksOrder.model.ilike('%scatter%'),
+    )
+    _is_parts  = db.or_(
+        WorksOrder.model.is_(None),
+        WorksOrder.model == '',
+        WorksOrder.model.ilike('%scatter%'),
+    )
+    _cat_filter = (_is_model,) if category == 'models' else ((_is_parts,) if category == 'parts' else ())
+
+    # Search filter — read early so pivot/chart also respect it.
+    search = request.args.get('q', '').strip()
+    _search_filters = ()
+    if search:
+        term = f'%{search}%'
+        _search_filters = (db.or_(
+            WorksOrder.job_num.ilike(term),
+            WorksOrder.customer_name.ilike(term),
+            WorksOrder.description.ilike(term),
+            WorksOrder.model.ilike(term),
+        ),)
+
+    _base = (
+        WorksOrder.assembly_seq == 0,
+        WorksOrder.job_released == True,
+        db.or_(WorksOrder.job_complete == False, WorksOrder.job_complete.is_(None)),
+        WorksOrder.next_op.isnot(None),
+        WorksOrder.next_op != '',
+    ) + _cat_filter + _search_filters
+
+    # ── Summary counts ────────────────────────────────────────────────
+    from app.purchasing.materials.models import MaterialRequirementMain, MrpExemptMaterial
+
+    total   = db.session.query(func.count(WorksOrder.id)).filter(*_base).scalar() or 0
+    waiting = db.session.query(func.count(WorksOrder.id)).filter(*_base, WorksOrder.waiting_temp == True).scalar() or 0
+    last    = WorksOrder.query.order_by(WorksOrder.imported_at.desc()).first()
+
+    # Shortages: active released jobs (in current filter) that have at least one
+    # non-backflush, non-exempt material line not fully issued.
+    _exempt_codes = {
+        r.material_code
+        for r in db.session.query(MrpExemptMaterial.material_code).all()
+    }
+    # Get the job_num values that match _base
+    _active_job_nums = {
+        r.job_num
+        for r in db.session.query(WorksOrder.job_num).filter(*_base).all()
+        if r.job_num
+    }
+    if _active_job_nums and _exempt_codes:
+        _shortage_jobs = db.session.query(
+            func.count(db.distinct(MaterialRequirementMain.works_order))
+        ).filter(
+            MaterialRequirementMain.works_order.in_(_active_job_nums),
+            MaterialRequirementMain.issued_complete != True,
+            MaterialRequirementMain.backflush != True,
+            MaterialRequirementMain.material_code.notin_(_exempt_codes),
+            MaterialRequirementMain.qty_for_order > MaterialRequirementMain.qty_issued,
+        ).scalar() or 0
+    elif _active_job_nums:
+        _shortage_jobs = db.session.query(
+            func.count(db.distinct(MaterialRequirementMain.works_order))
+        ).filter(
+            MaterialRequirementMain.works_order.in_(_active_job_nums),
+            MaterialRequirementMain.issued_complete != True,
+            MaterialRequirementMain.backflush != True,
+            MaterialRequirementMain.qty_for_order > MaterialRequirementMain.qty_issued,
+        ).scalar() or 0
+    else:
+        _shortage_jobs = 0
+    shortages = _shortage_jobs
 
     # ── WIP pivot ─────────────────────────────────────────────────────
-    # Overdue: req_due_date is in the past (regardless of prod_plnwk)
     OVERDUE = 'Overdue'
-    overdue_rows = (
-        db.session.query(
-            WorksOrder.next_op,
-            func.count(WorksOrder.id).label('job_count'),
-            func.sum(WorksOrder.required_qty).label('total_qty'),
-        )
-        .filter(
-            WorksOrder.assembly_seq == 0,
-            WorksOrder.next_op.isnot(None),
-            WorksOrder.req_due_date < today,
-        )
-        .group_by(WorksOrder.next_op)
-        .all()
-    )
+    overdue_rows = db.session.query(
+        WorksOrder.next_op,
+        func.count(WorksOrder.id).label('job_count'),
+        func.sum(WorksOrder.required_qty).label('total_qty'),
+    ).filter(
+        *_base,
+        WorksOrder.next_op.isnot(None),
+        WorksOrder.req_due_date < today,
+    ).group_by(WorksOrder.next_op).all()
 
-    # Current / future: not yet overdue, group by planned week
-    current_rows = (
-        db.session.query(
-            WorksOrder.next_op,
-            WorksOrder.prod_plnwk,
-            func.count(WorksOrder.id).label('job_count'),
-            func.sum(WorksOrder.required_qty).label('total_qty'),
-        )
-        .filter(
-            WorksOrder.assembly_seq == 0,
-            WorksOrder.next_op.isnot(None),
-            WorksOrder.prod_plnwk.isnot(None),
-            db.or_(WorksOrder.req_due_date >= today, WorksOrder.req_due_date.is_(None)),
-        )
-        .group_by(WorksOrder.next_op, WorksOrder.prod_plnwk)
-        .all()
-    )
+    current_rows = db.session.query(
+        WorksOrder.next_op,
+        WorksOrder.prod_plnwk,
+        func.count(WorksOrder.id).label('job_count'),
+        func.sum(WorksOrder.required_qty).label('total_qty'),
+    ).filter(
+        *_base,
+        WorksOrder.next_op.isnot(None),
+        WorksOrder.prod_plnwk.isnot(None),
+        db.or_(WorksOrder.req_due_date >= today, WorksOrder.req_due_date.is_(None)),
+    ).group_by(WorksOrder.next_op, WorksOrder.prod_plnwk).all()
 
     _pivot    = defaultdict(dict)
     _op_tot   = defaultdict(lambda: {'jobs': 0, 'qty': 0.0})
@@ -128,13 +195,18 @@ def dashboard():
 
     wip_chart_labels = [_fmt_week(w) for w in wip_weeks]
 
-    # Departments: tracked first in flow_order, rest alphabetically after
+    # Departments ordered by production routing (flow_order).
+    # Keyed by op_code (Epicor next_op) when set, falling back to name.
     _all_depts = DeptModel.query.all()
-    _flow      = {d.name: (d.flow_order or 9999) for d in _all_depts}
-    _tracked   = {d.name for d in _all_depts if d.track}
-    wip_ops    = sorted(
+    _flow: dict[str, int] = {}
+    for d in _all_depts:
+        order = d.flow_order or 9999
+        if d.op_code:
+            _flow[d.op_code.upper()] = order
+        _flow[d.name] = order   # fallback
+    wip_ops = sorted(
         _op_tot.keys(),
-        key=lambda op: (0 if op in _tracked else 1, _flow.get(op, 9999), op),
+        key=lambda op: (_flow.get(op.upper(), _flow.get(op, 9999)), op),
     )
 
     PALETTE = [
@@ -152,26 +224,40 @@ def dashboard():
     ]
 
     # ── Job detail list ───────────────────────────────────────────────
-    search = request.args.get('q', '').strip()
-    page   = request.args.get('page', 1, type=int)
-    q = WorksOrder.query.filter(WorksOrder.assembly_seq == 0)
-    if search:
-        term = f'%{search}%'
-        q = q.filter(db.or_(
-            WorksOrder.job_num.ilike(term),
-            WorksOrder.customer_name.ilike(term),
-            WorksOrder.description.ilike(term),
-            WorksOrder.model.ilike(term),
-        ))
-    jobs = q.order_by(WorksOrder.prod_plnwk, WorksOrder.req_due_date).paginate(
-        page=page, per_page=50, error_out=False
+    page     = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    if per_page not in (25, 50, 100, 200):
+        per_page = 50
+    jobs = WorksOrder.query.filter(*_base).order_by(
+        WorksOrder.req_due_date.asc().nullslast(),
+        WorksOrder.prod_plnwk.asc().nullslast(),
+        WorksOrder.next_op.asc().nullslast(),
+    ).paginate(
+        page=page, per_page=per_page, error_out=False
     )
 
+    # Partial order: order_nums where at least one other assembly_seq=0 job is complete.
+    # Used to flag jobs where part of the same sales order has already shipped.
+    _completed_order_nums = {
+        row.order_num
+        for row in db.session.query(WorksOrder.order_num)
+        .filter(
+            WorksOrder.assembly_seq == 0,
+            WorksOrder.job_complete == True,
+            WorksOrder.order_num.isnot(None),
+        )
+        .distinct()
+        .all()
+        if row.order_num
+    }
+
     return render_template(
-        'operations/dashboard.html',
-        title='Operations',
+        'operations/wip_overview.html',
+        title='Operations — WIP Overview',
         today=today,
-        total=total, released=released, shortages=shortages, waiting=waiting,
+        total=total,
+        shortages=shortages,
+        waiting=waiting,
         last_imported=last.imported_at if last else None,
         wip_pivot=dict(_pivot),
         wip_ops=wip_ops,
@@ -182,7 +268,106 @@ def dashboard():
         wip_chart_labels=wip_chart_labels,
         jobs=jobs,
         search=search,
+        category=category,
+        per_page=per_page,
+        partial_order_nums=_completed_order_nums,
     )
+
+@operations_bp.route('/wip/export')
+@login_required
+def wip_export():
+    """Download WIP job detail as CSV, respecting the same category/search filters."""
+    today = date.today()
+
+    category = request.args.get('category', 'models').strip().lower()
+    _is_model = db.and_(
+        WorksOrder.model.isnot(None),
+        WorksOrder.model != '',
+        ~WorksOrder.model.ilike('%scatter%'),
+    )
+    _is_parts = db.or_(
+        WorksOrder.model.is_(None),
+        WorksOrder.model == '',
+        WorksOrder.model.ilike('%scatter%'),
+    )
+    _cat_filter = (_is_model,) if category == 'models' else ((_is_parts,) if category == 'parts' else ())
+
+    search = request.args.get('q', '').strip()
+    _search_filters = ()
+    if search:
+        term = f'%{search}%'
+        _search_filters = (db.or_(
+            WorksOrder.job_num.ilike(term),
+            WorksOrder.customer_name.ilike(term),
+            WorksOrder.description.ilike(term),
+            WorksOrder.model.ilike(term),
+        ),)
+
+    _base = (
+        WorksOrder.assembly_seq == 0,
+        WorksOrder.job_released == True,
+        db.or_(WorksOrder.job_complete == False, WorksOrder.job_complete.is_(None)),
+        WorksOrder.next_op.isnot(None),
+        WorksOrder.next_op != '',
+    ) + _cat_filter + _search_filters
+
+    _completed_order_nums = {
+        row.order_num
+        for row in db.session.query(WorksOrder.order_num)
+        .filter(WorksOrder.assembly_seq == 0, WorksOrder.job_complete == True, WorksOrder.order_num.isnot(None))
+        .distinct().all()
+        if row.order_num
+    }
+
+    rows = WorksOrder.query.filter(*_base).order_by(
+        WorksOrder.req_due_date.asc().nullslast(),
+        WorksOrder.prod_plnwk.asc().nullslast(),
+        WorksOrder.next_op.asc().nullslast(),
+    ).all()
+
+    def _fmt_plnwk(w):
+        if not w:
+            return ''
+        try:
+            return f'W{int(w[2:4]):02d}/{w[4:6]}'
+        except (ValueError, IndexError):
+            return w
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'Job Number', 'Plan Week', 'Due Date', 'Order #',
+        'Current Op', 'Model', 'Size', 'Customer',
+        'Mat 1', 'Comment', 'OB Comments', 'GRN', 'Partial Order',
+        'MAT Shortage', 'Waiting Temp',
+    ])
+    for job in rows:
+        is_partial = bool(job.order_num and job.order_num in _completed_order_nums and not job.job_complete)
+        writer.writerow([
+            job.job_num or '',
+            _fmt_plnwk(job.prod_plnwk),
+            job.req_due_date.strftime('%d/%m/%Y') if job.req_due_date else '',
+            job.order_num or '',
+            job.next_op or '',
+            job.model or '',
+            job.size_desc or job.size or '',
+            job.customer_name or '',
+            job.material_1_desc or '',
+            job.comment_text or '',
+            job.order_book_comments or '',
+            job.grn or '',
+            'Yes' if is_partial else '',
+            'Yes' if job.mtl_shortage else '',
+            'Yes' if job.waiting_temp else '',
+        ])
+
+    filename = f'wip_jobs_{date.today().isoformat()}.csv'
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
 
 @operations_bp.route('/daily-output')
 @login_required

@@ -28,6 +28,10 @@
     .release-row-not_started { background-color: rgba(108, 117, 125, 0.05); }
 
     .kpi-card-value { font-size: 1.75rem; font-weight: 700; line-height: 1.1; }
+
+    .kpi-clickable { cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+    .kpi-clickable:hover { transform: translateY(-2px); box-shadow: 0 .4rem 1rem rgba(0,0,0,.12) !important; }
+    .kpi-active { outline: 2px solid currentColor; outline-offset: 2px; }
 </style>
 {% endblock %}
 
@@ -46,49 +50,59 @@
 <div class="row g-3 mb-4">
 
     <div class="col-6 col-md-4 col-xl-2">
-        <div class="card border-0 shadow-sm h-100 text-center py-3">
-            <div class="kpi-card-value text-success">{{ summary.total_orders }}</div>
+        <a href="{{ url_for('transport.loading_bay', sort=sort) }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 text-center py-3 kpi-clickable {% if not status_f %}kpi-active{% endif %}">
+            <div class="kpi-card-value text-success">{{ kpi_summary.total_orders }}</div>
             <div class="small text-muted">Orders with Finished Goods</div>
         </div>
+        </a>
     </div>
 
     <div class="col-6 col-md-4 col-xl-2">
-        <div class="card border-success shadow-sm h-100 text-center py-3">
-            <div class="kpi-card-value text-success">{{ summary.ready_orders }}</div>
+        <a href="{{ url_for('transport.loading_bay', status='ready', sort=sort) }}" class="text-decoration-none">
+        <div class="card border-success shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'ready' %}kpi-active{% endif %}">
+            <div class="kpi-card-value text-success">{{ kpi_summary.ready_orders }}</div>
             <div class="small text-success">Fully Ready to Ship</div>
         </div>
+        </a>
     </div>
 
     <div class="col-6 col-md-4 col-xl-2">
-        <div class="card border-warning shadow-sm h-100 text-center py-3">
-            <div class="kpi-card-value text-warning">{{ summary.partial_orders }}</div>
+        <a href="{{ url_for('transport.loading_bay', status='partial', sort=sort) }}" class="text-decoration-none">
+        <div class="card border-warning shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'partial' %}kpi-active{% endif %}">
+            <div class="kpi-card-value text-warning">{{ kpi_summary.partial_orders }}</div>
             <div class="small text-warning">Partial (WIP Remaining)</div>
         </div>
+        </a>
     </div>
 
-    {% if summary.urgent_count %}
+    {% if kpi_summary.urgent_count %}
     <div class="col-6 col-md-4 col-xl-2">
-        <div class="card border-danger shadow-sm h-100 text-center py-3">
-            <div class="kpi-card-value text-danger">{{ summary.urgent_count }}</div>
+        <a href="{{ url_for('transport.loading_bay', status='urgent', sort='due_date') }}" class="text-decoration-none">
+        <div class="card border-danger shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'urgent' %}kpi-active{% endif %}">
+            <div class="kpi-card-value text-danger">{{ kpi_summary.urgent_count }}</div>
             <div class="small text-danger fw-semibold">Urgent — Overdue &amp; Ready</div>
         </div>
+        </a>
     </div>
     {% endif %}
 
-    {% if summary.held_count %}
+    {% if kpi_summary.held_count %}
     <div class="col-6 col-md-4 col-xl-2">
-        <div class="card border-danger border-opacity-50 shadow-sm h-100 text-center py-3">
-            <div class="kpi-card-value text-danger">{{ summary.held_count }}</div>
+        <a href="{{ url_for('transport.loading_bay', status='on_hold', sort=sort) }}" class="text-decoration-none">
+        <div class="card border-danger border-opacity-50 shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'on_hold' %}kpi-active{% endif %}">
+            <div class="kpi-card-value text-danger">{{ kpi_summary.held_count }}</div>
             <div class="small text-danger">Ready but On Hold</div>
-            <div class="text-muted" style="font-size:.72rem;">£{{ "{:,.0f}".format(summary.held_value) }} blocked</div>
+            <div class="text-muted" style="font-size:.72rem;">£{{ "{:,.0f}".format(kpi_summary.held_value) }} blocked</div>
         </div>
+        </a>
     </div>
     {% endif %}
 
-    {% if summary.intl_count %}
+    {% if kpi_summary.intl_count %}
     <div class="col-6 col-md-4 col-xl-2">
         <div class="card border-info border-opacity-50 shadow-sm h-100 text-center py-3">
-            <div class="kpi-card-value text-info">{{ summary.intl_count }}</div>
+            <div class="kpi-card-value text-info">{{ kpi_summary.intl_count }}</div>
             <div class="small text-info">Export / International</div>
         </div>
     </div>
@@ -129,133 +143,6 @@
     </div>
 </div>
 {% else %}
-
-{# ── Urgent dispatch alert ─────────────────────────────────────────── #}
-{% if urgent_orders %}
-{% set urgent_val = summary.urgent_value %}
-<div class="card border-danger shadow-sm mb-4">
-    <div class="card-header bg-danger text-white py-2"
-         role="button" data-bs-toggle="collapse" data-bs-target="#urgentCollapse"
-         aria-expanded="false" aria-controls="urgentCollapse"
-         style="cursor:pointer;">
-        <div class="d-flex align-items-center justify-content-between">
-            <h6 class="mb-0 fw-semibold">
-                <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                Urgent Dispatch — {{ urgent_orders | length }} order{{ 's' if urgent_orders | length != 1 }} overdue &amp; ready to ship
-                &mdash;
-                {% if urgent_val >= 1000000 %}£{{ "%.2f" | format(urgent_val / 1000000) }}m
-                {% elif urgent_val >= 1000 %}£{{ "%.0f" | format(urgent_val / 1000) }}k
-                {% else %}£{{ "%.0f" | format(urgent_val) }}
-                {% endif %} total
-            </h6>
-            <i class="bi bi-chevron-down ms-2"></i>
-        </div>
-    </div>
-    <div id="urgentCollapse" class="collapse">
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-sm mb-0 align-middle">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="ps-3">SO&nbsp;#</th>
-                            <th>Customer</th>
-                            <th>Cust PO</th>
-                            <th class="text-center">Days Overdue</th>
-                            <th class="text-end">Units</th>
-                            <th class="text-end pe-3">Value (GBP)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for o in urgent_orders %}
-                        <tr class="clickable-order-row" data-href="{{ url_for('orders.order_book', q=o.order_num) }}"
-                            style="cursor:pointer;">
-                            <td class="ps-3 fw-semibold font-monospace">{{ o.order_num }}</td>
-                            <td>
-                                {{ o.customer_name }}
-                                {% if o.is_international %}
-                                <i class="bi bi-globe2 ms-1 text-info" title="{{ o.customer_country }}"></i>
-                                {% endif %}
-                            </td>
-                            <td class="small text-muted font-monospace">{{ o.po_num or '—' }}</td>
-                            <td class="text-center">
-                                <span class="badge text-bg-danger fw-semibold">
-                                    {{ (o.days_delta | abs) }}d overdue
-                                </span>
-                            </td>
-                            <td class="text-end">{{ "%.0f" | format(o.units_ready) }}</td>
-                            <td class="text-end pe-3 fw-semibold text-danger">
-                                £{{ "{:,.2f}".format(o.invoiceable_value) }}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
-
-{# ── Dispatch consolidation ───────────────────────────────────────── #}
-{% if consolidation %}
-<div class="card border-primary border-opacity-25 shadow-sm mb-4 no-print">
-    <div class="card-header bg-transparent border-bottom-0 py-2"
-         role="button" data-bs-toggle="collapse" data-bs-target="#consolidationCollapse"
-         aria-expanded="false" aria-controls="consolidationCollapse"
-         style="cursor:pointer;">
-        <div class="d-flex align-items-center justify-content-between">
-            <h6 class="mb-0 fw-semibold">
-                <i class="bi bi-truck me-2 text-primary"></i>
-                Dispatch Run Opportunities
-                <span class="badge text-bg-primary ms-1">{{ consolidation | length }}</span>
-                <span class="text-muted fw-normal small ms-2">customers with multiple ready orders</span>
-            </h6>
-            <i class="bi bi-chevron-down ms-2 text-muted"></i>
-        </div>
-    </div>
-    <div id="consolidationCollapse" class="collapse">
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-sm table-hover mb-0 align-middle">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="ps-3">Customer</th>
-                            <th>Country</th>
-                            <th class="text-center">Orders</th>
-                            <th>SO Numbers</th>
-                            <th class="text-end">Units</th>
-                            <th class="text-end pe-3">Combined Value (GBP)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for run in consolidation %}
-                        <tr>
-                            <td class="ps-3 fw-semibold">
-                                {{ run.name }}
-                                {% if run.intl %}
-                                <i class="bi bi-globe2 ms-1 text-info" title="Export order"></i>
-                                {% endif %}
-                            </td>
-                            <td class="small text-muted">{{ run.country or '—' }}</td>
-                            <td class="text-center">
-                                <span class="badge text-bg-primary">{{ run.orders | length }}</span>
-                            </td>
-                            <td class="small font-monospace text-muted">
-                                {{ run.orders | join(', ') }}
-                            </td>
-                            <td class="text-end">{{ "%.0f" | format(run.units) }}</td>
-                            <td class="text-end pe-3 fw-semibold text-success">
-                                £{{ "{:,.2f}".format(run.value) }}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
 
 {# ── Charts row ────────────────────────────────────────────────────── #}
 <div class="row g-3 mb-4 no-print">
@@ -364,18 +251,18 @@
             </h6>
             <button class="btn btn-sm btn-outline-secondary no-print"
                     type="button" data-bs-toggle="collapse"
-                    data-bs-target="#filterPanel" aria-expanded="{{ 'true' if search or customer_f else 'false' }}">
+                    data-bs-target="#filterPanel" aria-expanded="{{ 'true' if search or customer_f or status_f else 'false' }}">
                 <i class="bi bi-funnel me-1"></i>Filters
-                {% if search or customer_f %}
+                {% if search or customer_f or status_f %}
                 <span class="badge text-bg-warning ms-1">active</span>
                 {% endif %}
             </button>
         </div>
 
-        <div class="collapse {% if search or customer_f %}show{% endif %}" id="filterPanel">
+        <div class="collapse {% if search or customer_f or status_f %}show{% endif %}" id="filterPanel">
             <form method="get" action="{{ url_for('transport.loading_bay') }}" class="mt-3">
                 <div class="row g-2 align-items-end">
-                    <div class="col-12 col-sm-6 col-md-4">
+                    <div class="col-12 col-sm-6 col-md-3">
                         <label class="form-label small mb-1">Search (SO / Customer / Part)</label>
                         <input type="text" name="q" value="{{ search }}"
                                class="form-control form-control-sm" placeholder="e.g. 12345 / ACME / ABC01">
@@ -386,6 +273,16 @@
                                class="form-control form-control-sm" placeholder="Customer name…">
                     </div>
                     <div class="col-6 col-md-2">
+                        <label class="form-label small mb-1">Status</label>
+                        <select name="status" class="form-select form-select-sm">
+                            <option value=""        {% if not status_f      %}selected{% endif %}>All</option>
+                            <option value="ready"   {% if status_f == 'ready'   %}selected{% endif %}>Ready to Ship</option>
+                            <option value="urgent"  {% if status_f == 'urgent'  %}selected{% endif %}>Urgent (Overdue &amp; Ready)</option>
+                            <option value="partial" {% if status_f == 'partial' %}selected{% endif %}>Partial</option>
+                            <option value="on_hold" {% if status_f == 'on_hold' %}selected{% endif %}>On Hold</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-2">
                         <label class="form-label small mb-1">Sort by</label>
                         <select name="sort" class="form-select form-select-sm">
                             <option value="due_date"   {% if sort == 'due_date'   %}selected{% endif %}>Due Date</option>
@@ -394,7 +291,7 @@
                             <option value="so_number"  {% if sort == 'so_number'  %}selected{% endif %}>SO Number</option>
                         </select>
                     </div>
-                    <div class="col-6 col-md-3 d-flex gap-1">
+                    <div class="col-12 col-md-2 d-flex gap-1">
                         <button type="submit" class="btn btn-sm btn-success flex-fill">Apply</button>
                         <a href="{{ url_for('transport.loading_bay') }}"
                            class="btn btn-sm btn-outline-secondary flex-fill">Reset</a>

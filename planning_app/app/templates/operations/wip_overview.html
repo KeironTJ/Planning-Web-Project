@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_title %}
+Operations WIP Overview
+<small class="text-muted fs-6 fw-normal ms-2">
+    Works in progress by section · ISO week
+    {% if last_imported %} · Last sync {{ last_imported.strftime('%d %b %Y %H:%M') }}{% endif %}
+</small>
+{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-repeat me-1"></i>Sync Data
+</a>
+{% endblock %}
+
+{% block content %}
+<!-- ── Summary cards ──────────────────────────────────────────────── -->
+<div class="row g-2 mb-3">
+    <div class="col-6 col-md-4">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-2 fw-bold text-success">{{ total }}</div>
+            <div class="text-muted small">Released Jobs</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-2 fw-bold text-warning">{{ shortages }}</div>
+            <div class="text-muted small">Material Shortages</div>
+            <div class="text-muted" style="font-size:0.65rem;">jobs with un-issued materials</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-2 fw-bold text-info">{{ waiting }}</div>
+            <div class="text-muted small">Waiting Temp</div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Filter bar ──────────────────────────────────────────────── -->
+<form method="GET" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <span class="text-muted small fw-semibold">Show:</span>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Category toggle">
+        <button type="submit" name="category" value=""
+                class="btn btn-outline-secondary {{ 'active' if not category }}">All</button>
+        <button type="submit" name="category" value="models"
+                class="btn btn-outline-secondary {{ 'active' if category == 'models' }}">
+            <i class="bi bi-box me-1"></i>Models
+        </button>
+        <button type="submit" name="category" value="parts"
+                class="btn btn-outline-secondary {{ 'active' if category == 'parts' }}">
+            <i class="bi bi-puzzle me-1"></i>Parts / Scatters
+        </button>
+    </div>
+    <div class="ms-2 d-flex align-items-center gap-2">
+        <input type="search" name="q" class="form-control form-control-sm" style="width:220px;"
+               placeholder="Job, customer, model…" value="{{ search }}">
+        <button type="submit" class="btn btn-primary btn-sm">Search</button>
+        {% if search or category %}
+        <a href="{{ url_for('operations.wip_overview') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+        {% endif %}
+    </div>
+    <input type="hidden" name="per_page" value="{{ per_page }}">
+</form>
+
+{% if wip_ops %}
+
+<!-- ── WIP chart ──────────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">WIP by Week</h6>
+        <p class="text-muted small mb-0">Released orders
+            {%- if category == 'models' %} · Models only
+            {%- elif category == 'parts' %} · Parts &amp; Scatters only
+            {%- endif %} · units queued per section, stacked by production week</p>
+    </div>
+    <div class="card-body pt-2" style="position:relative;height:280px;">
+        <canvas id="wipChart"></canvas>
+    </div>
+</div>
+
+<!-- ── WIP pivot table ────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">Section × Week Breakdown</h6>
+        <p class="text-muted small mb-0">Units (jobs) waiting at each section per planned week</p>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0 align-middle"
+                   style="font-size:0.78rem; white-space:nowrap;">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3" style="min-width:130px;">Section</th>
+                        {% for w in wip_weeks %}
+                        <th class="text-center px-2{% if w == 'Overdue' %} table-danger{% endif %}"
+                            style="min-width:64px;">
+                            {% if w == 'Overdue' %}
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ w }}
+                            {% else %}
+                                W{{ w[2:4] }}<span class="text-muted fw-normal">/{{ w[4:6] }}</span>
+                                <div class="text-muted fw-normal" style="font-size:0.65rem;">20{{ w[0:2] }}</div>
+                            {% endif %}
+                        </th>
+                        {% endfor %}
+                        <th class="text-end pe-3 fw-semibold" style="min-width:64px;">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for op in wip_ops %}
+                    {% set op_data = op_totals.get(op, {}) %}
+                    <tr>
+                        <td class="ps-3 fw-semibold">{{ op }}</td>
+                        {% for w in wip_weeks %}
+                        {% set cell = wip_pivot.get(op, {}).get(w, {}) %}
+                        {% set qty = cell.get('qty', 0) %}
+                        {% set jobs = cell.get('jobs', 0) %}
+                        <td class="text-center px-2
+                            {%- if w == 'Overdue' %} table-danger{% endif %}
+                            {%- if qty > 0 %} fw-semibold{% else %} text-muted{% endif %}">
+                            {%- if qty > 0 -%}
+                                {{ "%.0f"|format(qty) }}
+                                <span class="text-muted fw-normal" style="font-size:0.65rem;">({{ jobs }})</span>
+                            {%- else -%}
+                                <span style="opacity:0.3">·</span>
+                            {%- endif -%}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end pe-3 fw-bold text-primary">
+                            {{ "%.0f"|format(op_data.get('qty', 0)) }}
+                            <span class="text-muted fw-normal" style="font-size:0.65rem;">({{ op_data.get('jobs', 0) }})</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="table-light">
+                    <tr class="fw-bold">
+                        <td class="ps-3">Week Total</td>
+                        {% for w in wip_weeks %}
+                        {% set wt = week_totals.get(w, {}) %}
+                        <td class="text-center px-2
+                            {%- if w == 'Overdue' %} table-danger fw-bold
+                            {%- elif wt.get('qty', 0) > 0 %} text-primary
+                            {%- else %} text-muted{% endif %}">
+                            {{ "%.0f"|format(wt.get('qty', 0)) if wt.get('qty', 0) > 0 else '—' }}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end pe-3 text-primary">
+                            {{ "%.0f"|format(week_totals.values() | sum(attribute='qty')) }}
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i>
+    No WIP data — works orders haven't been synced yet, or no jobs have a <code>next_op</code> set.
+    <a href="{{ url_for('admin.epicor_sync') }}" class="alert-link">Sync from Epicor</a>.
+</div>
+{% endif %}
+
+<!-- ── Job detail list ──────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <h6 class="mb-0 fw-semibold">
+            <i class="bi bi-list-ul me-1 text-muted"></i>Job Detail
+        </h6>
+        <a href="{{ url_for('operations.wip_export', category=category, q=search) }}"
+           class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-download me-1"></i>Export CSV
+        </a>
+    </div>
+    <div id="jobCollapse">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 align-middle" style="font-size:0.78rem; white-space:nowrap;">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-2">Job</th>
+                            <th class="text-center" title="Scheduled production planning week">Plan Wk</th>
+                            <th class="text-center" title="Customer due date">Due Date</th>
+                            <th>Order #</th>
+                            <th>Current Op</th>
+                            <th>Model</th>
+                            <th>Size</th>
+                            <th>Customer</th>
+                            <th>Mat 1</th>
+                            <th>Comment</th>
+                            <th>OB Comments</th>
+                            <th>GRN</th>
+                            <th class="text-center">Flags</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for job in jobs.items %}
+                        {%- set is_partial = job.order_num and job.order_num in partial_order_nums and not job.job_complete %}
+                        <tr class="{{ 'table-primary bg-opacity-25' if is_partial else ('table-warning bg-opacity-50' if job.mtl_shortage else '') }}">
+                            <td class="ps-2 fw-semibold font-monospace">{{ job.job_num }}</td>
+                            <td class="text-center text-muted">
+                                {%- if job.prod_plnwk %}
+                                W{{ job.prod_plnwk[2:4] }}<span class="text-muted fw-normal">/{{ job.prod_plnwk[4:6] }}</span>
+                                {%- else %}—{%- endif %}
+                            </td>
+                            <td class="text-center">
+                                {%- if job.req_due_date and job.req_due_date < today %}
+                                <span class="badge bg-danger" title="Due {{ job.req_due_date.strftime('%d %b %Y') }}">Overdue</span>
+                                {%- elif job.req_due_date %}
+                                <span class="text-muted">{{ job.req_due_date.strftime('%d %b') }}</span>
+                                {%- else %}—{%- endif %}
+                            </td>
+                            <td class="text-muted">{{ job.order_num or '—' }}</td>
+                            <td>
+                                {%- if job.next_op %}<span class="badge bg-secondary">{{ job.next_op }}</span>{%- else %}—{%- endif %}
+                            </td>
+                            <td class="fw-semibold">{{ job.model or '—' }}</td>
+                            <td class="text-muted">{{ job.size_desc or job.size or '—' }}</td>
+                            <td>{{ job.customer_name or '—' }}</td>
+                            <td class="text-muted">{{ job.material_1_desc or '—' }}</td>
+                            <td class="text-muted" style="max-width:160px; overflow:hidden; text-overflow:ellipsis;" title="{{ job.comment_text or '' }}">
+                                {{ (job.comment_text or '')[:60] }}{{ '…' if (job.comment_text or '') | length > 60 }}
+                            </td>
+                            <td class="text-muted" style="max-width:160px; overflow:hidden; text-overflow:ellipsis;" title="{{ job.order_book_comments or '' }}">
+                                {{ (job.order_book_comments or '')[:60] }}{{ '…' if (job.order_book_comments or '') | length > 60 }}
+                            </td>
+                            <td class="text-muted">{{ job.grn or '—' }}</td>
+                            <td class="text-center">
+                                {%- if is_partial %}<span class="badge bg-primary me-1" title="Another job on this order is complete">Partial</span>{%- endif %}
+                                {%- if job.mtl_shortage %}<span class="badge bg-warning text-dark me-1" title="Material shortage">MAT</span>{%- endif %}
+                                {%- if job.waiting_temp %}<span class="badge bg-info text-dark" title="Waiting temp">TMP</span>{%- endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="13" class="text-center py-4 text-muted">No works orders found.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 px-3 py-2 border-top bg-light">
+                <!-- Count info -->
+                <span class="text-muted small">
+                    {% set _start = (jobs.page - 1) * per_page + 1 %}
+                    {% set _end   = [jobs.page * per_page, jobs.total] | min %}
+                    Showing {{ _start }}–{{ _end }} of <strong>{{ jobs.total }}</strong> jobs
+                </span>
+                <!-- Per-page selector -->
+                <div class="d-flex align-items-center gap-2 small">
+                    <span class="text-muted">Rows:</span>
+                    {% for n in [25, 50, 100, 200] %}
+                    <a href="{{ url_for('operations.wip_overview', page=1, q=search, category=category, per_page=n) }}"
+                       class="btn btn-xs btn-outline-secondary py-0 px-2 {{ 'active fw-semibold' if per_page == n }}"
+                       style="font-size:0.75rem;">{{ n }}</a>
+                    {% endfor %}
+                </div>
+                <!-- Page navigation -->
+                {% if jobs.pages > 1 %}
+                <nav aria-label="Job list pagination">
+                    <ul class="pagination pagination-sm mb-0">
+                        <li class="page-item {{ 'disabled' if not jobs.has_prev }}">
+                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.prev_num, q=search, category=category, per_page=per_page) if jobs.has_prev else '#' }}">
+                                <i class="bi bi-chevron-left"></i>
+                            </a>
+                        </li>
+                        {% for p in jobs.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                            {% if p %}
+                                <li class="page-item {{ 'active' if p == jobs.page }}">
+                                    <a class="page-link" href="{{ url_for('operations.wip_overview', page=p, q=search, category=category, per_page=per_page) }}">{{ p }}</a>
+                                </li>
+                            {% else %}
+                                <li class="page-item disabled"><span class="page-link">…</span></li>
+                            {% endif %}
+                        {% endfor %}
+                        <li class="page-item {{ 'disabled' if not jobs.has_next }}">
+                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.next_num, q=search, category=category, per_page=per_page) if jobs.has_next else '#' }}">
+                                <i class="bi bi-chevron-right"></i>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+{% if wip_ops %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const labels   = {{ wip_chart_labels | tojson }};
+    const datasets = {{ wip_chart_datasets | tojson }};
+
+    const ctx = document.getElementById('wipChart');
+    if (!ctx) return;
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: datasets.map(d => ({
+                label:           d.label,
+                data:            d.data,
+                backgroundColor: d.backgroundColor,
+                borderRadius:    2,
+                borderSkipped:   false,
+            })),
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { boxWidth: 12, padding: 14, font: { size: 11 } },
+                },
+                tooltip: {
+                    callbacks: {
+                        footer(items) {
+                            const total = items.reduce((s, i) => s + i.parsed.y, 0);
+                            return total > 0 ? `Total: ${Math.round(total)}` : '';
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    grid: { display: false },
+                    ticks: { font: { size: 11 } },
+                },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    ticks: { font: { size: 11 } },
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                },
+            },
+        },
+    });
+});
+</script>
+{% endif %}
+{% endblock %}

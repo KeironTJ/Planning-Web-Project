@@ -39,6 +39,7 @@ class Department(db.Model):
     )
     code = db.Column(db.String(50), nullable=False, index=True)
     name = db.Column(db.String(100), nullable=False, index=True)
+    op_code = db.Column(db.String(50), nullable=True, index=True)  # Epicor next_op code (e.g. SEW, FRAME)
     target_hours_per_day = db.Column(db.Numeric(5, 2), nullable=True)
     flow_order = db.Column(db.Integer, nullable=True)   # Position in production flow (1 = first); NULL = unset
     track = db.Column(db.Boolean, default=True, nullable=False)  # Include in Daily Output and other tracked views

@@ -58,6 +58,11 @@ class DeptHoursForm(FlaskForm):
         "Flow Order",
         validators=[Optional(), NumberRange(min=1, max=999)],
     )
+    op_code = StringField(
+        "Epicor Op Code",
+        validators=[Optional(), Length(max=50)],
+        description="The Epicor next_op code that maps to this department (e.g. SEW, FRAME, BATCH).",
+    )
     track = BooleanField("Track Department")
 
 
@@ -79,5 +84,10 @@ class DeptCreateForm(FlaskForm):
     flow_order = IntegerField(
         "Flow Order",
         validators=[Optional(), NumberRange(min=1, max=999)],
+    )
+    op_code = StringField(
+        "Epicor Op Code",
+        validators=[Optional(), Length(max=50)],
+        description="The Epicor next_op code that maps to this department (e.g. SEW, FRAME, BATCH).",
     )
     track = BooleanField("Track Department")

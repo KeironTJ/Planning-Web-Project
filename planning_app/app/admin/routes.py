@@ -440,6 +440,7 @@ def dept_add():
                 name=form.name.data.strip(),
                 target_hours_per_day=form.target_hours_per_day.data,
                 flow_order=form.flow_order.data,
+                op_code=form.op_code.data.strip().upper() or None,
                 track=form.track.data,
                 is_active=True,
             )
@@ -467,6 +468,7 @@ def dept_edit(dept_id: int):
         else:
             dept.target_hours_per_day = form.target_hours_per_day.data
             dept.flow_order = form.flow_order.data  # None clears it
+            dept.op_code = form.op_code.data.strip().upper() or None
             dept.track = form.track.data
             db.session.commit()
             flash(f"Settings updated for {dept.name}.", "success")

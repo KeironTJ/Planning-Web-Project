@@ -1,276 +1,151 @@
 {% extends 'base.html' %}
+{% block title %}{{ title }}{% endblock %}
 
 {% block content %}
+<div class="container-fluid py-3">
 
-<!-- Page header -->
-<div class="d-flex align-items-center mb-4 gap-3">
+  <div class="d-flex align-items-center mb-4 gap-3">
     <div class="rounded-3 p-3 bg-warning bg-opacity-10">
-        <i class="bi bi-box-seam fs-2 text-warning"></i>
+      <i class="bi bi-box-seam fs-2 text-warning"></i>
     </div>
     <div>
-        <h4 class="mb-0 fw-semibold">Purchasing</h4>
-        <p class="text-muted mb-0 small">Open purchase orders, supplier spend &amp; material availability</p>
+      <h4 class="mb-0 fw-semibold">Purchasing</h4>
+      <p class="text-muted mb-0 small">Open purchase orders, supplier spend &amp; material availability</p>
     </div>
+  </div>
+
+  <div class="row g-3">
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('purchasing.overview') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-warning bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-speedometer2 fs-4 text-warning"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Overview</h6>
+              <p class="text-muted small mb-0">KPIs, delivery schedule and supplier spend</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.index') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-danger bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-exclamation-triangle fs-4 text-danger"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Shortages</h6>
+              <p class="text-muted small mb-0">Jobs with unmet material requirements</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-danger bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-list-ul fs-4 text-danger"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Shortage Detail</h6>
+              <p class="text-muted small mb-0">Line-by-line material shortage breakdown</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.mrp') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-info bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-diagram-2 fs-4 text-info"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">MRP Pegging</h6>
+              <p class="text-muted small mb-0">Material requirements planning and demand tracing</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.stock_list') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-success bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-boxes fs-4 text-success"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Stock on Hand</h6>
+              <p class="text-muted small mb-0">Current inventory levels by part number</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.po_list') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-primary bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-cart fs-4 text-primary"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Open POs</h6>
+              <p class="text-muted small mb-0">All open purchase orders awaiting delivery</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.main_requirements') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-secondary bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-list-columns fs-4 text-secondary"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Main Material Reqs</h6>
+              <p class="text-muted small mb-0">Full material requirements list for production</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    {% if current_user.has_permission('manage_imports') %}
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.exempt_materials') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-secondary bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-shield-check fs-4 text-secondary"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">MRP Exemptions</h6>
+              <p class="text-muted small mb-0">Materials excluded from MRP shortage calculations</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+    {% endif %}
+
+  </div>
 </div>
-
-<!-- KPI row -->
-<div class="row g-3 mb-4">
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
-            <div class="fs-2 fw-bold text-primary">{{ '{:,}'.format(po_summary.total_lines) }}</div>
-            <div class="text-muted small">Open PO Lines</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
-            <div class="fs-2 fw-bold text-success">£{{ '{:,.0f}'.format(po_summary.total_value) }}</div>
-            <div class="text-muted small">Total Outstanding (GBP)</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 {{ 'border-danger border' if po_summary.overdue_lines else '' }}">
-            <div class="fs-2 fw-bold {{ 'text-danger' if po_summary.overdue_lines else 'text-success' }}">
-                {{ '{:,}'.format(po_summary.overdue_lines) }}
-            </div>
-            <div class="text-muted small">Overdue PO Lines</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 {{ 'border-danger border' if po_summary.overdue_value else '' }}">
-            <div class="fs-2 fw-bold {{ 'text-danger' if po_summary.overdue_value else 'text-success' }}">
-                £{{ '{:,.0f}'.format(po_summary.overdue_value) }}
-            </div>
-            <div class="text-muted small">Overdue Value (GBP)</div>
-        </div>
-    </div>
-</div>
-
-{% if po_summary.has_data and po_summary.weeks %}
-<!-- Delivery schedule + Suppliers -->
-<div class="row g-3 mb-4">
-
-    <!-- PO Delivery Schedule -->
-    <div class="col-lg-8">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-transparent fw-semibold">
-                <i class="bi bi-calendar3 me-2"></i>PO Delivery Schedule — Value by Week
-            </div>
-            <div class="card-body">
-                <canvas id="poScheduleChart" height="120"></canvas>
-            </div>
-            <div class="card-body p-0 border-top">
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.83rem;">
-                        <thead class="thead-subtle">
-                            <tr>
-                                <th>Week</th>
-                                <th class="text-end">Lines</th>
-                                <th class="text-end">Value (GBP)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for w in po_summary.weeks %}
-                            {% if w.is_overdue %}
-                            {% set row_url = url_for('materials.po_list', due_before=today.strftime('%Y-%m-%d')) %}
-                            {% else %}
-                            {% set row_url = url_for('materials.po_list', due_from=w.week_start, due_before=w.week_end) %}
-                            {% endif %}
-                            <tr onclick="window.location='{{ row_url }}'" style="cursor:pointer;"
-                                class="{{ 'table-danger' if w.is_overdue else '' }}">
-                                <td class="fw-semibold {{ 'text-danger fst-italic' if w.is_overdue else '' }}">
-                                    {{ w.week_label }}
-                                </td>
-                                <td class="text-end">{{ w.count }}</td>
-                                <td class="text-end fw-semibold">£{{ '{:,.0f}'.format(w.value) }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Top Suppliers -->
-    <div class="col-lg-4">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-transparent fw-semibold">
-                <i class="bi bi-buildings me-2"></i>Top Suppliers by Outstanding Value
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.83rem;">
-                    <thead class="thead-subtle">
-                        <tr>
-                            <th>Supplier</th>
-                            <th class="text-end">Value</th>
-                            <th class="text-end text-danger" title="Overdue value">Late</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for s in po_summary.top_suppliers %}
-                        <tr>
-                            <td class="text-truncate" style="max-width:180px;" title="{{ s.name }}">
-                                <a href="{{ url_for('materials.po_list', q=s.name) }}"
-                                   class="text-decoration-none text-body">{{ s.name }}</a>
-                            </td>
-                            <td class="text-end fw-semibold">£{{ '{:,.0f}'.format(s.value) }}</td>
-                            <td class="text-end {% if s.overdue_value %}text-danger fw-semibold{% else %}text-muted{% endif %}">
-                                {% if s.overdue_value %}£{{ '{:,.0f}'.format(s.overdue_value) }}{% else %}—{% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <div class="card-footer bg-transparent text-end">
-                <a href="{{ url_for('materials.po_list') }}" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-cart me-1"></i>All Open POs
-                </a>
-            </div>
-        </div>
-    </div>
-
-</div>
-{% endif %}
-
-<!-- Material availability overview -->
-<div class="row g-3 mb-4">
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
-            <div class="fs-2 fw-bold text-primary">{{ '{:,}'.format(mat_summary.stock_lines) }}</div>
-            <div class="text-muted small">Stock Lines</div>
-            {% if mat_summary.zero_stock %}
-            <div class="text-warning small">{{ mat_summary.zero_stock }} at zero</div>
-            {% endif %}
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
-            <div class="fs-2 fw-bold text-info">{{ '{:,}'.format(mat_summary.main_reqs) }}</div>
-            <div class="text-muted small">Material Requirements</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 {{ 'border-danger border' if mat_summary.shortage_est else '' }}">
-            <div class="fs-2 fw-bold {{ 'text-danger' if mat_summary.shortage_est else 'text-success' }}">
-                {{ '{:,}'.format(mat_summary.shortage_est) }}
-            </div>
-            <div class="text-muted small">Lines with Potential Shortage</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
-            <div class="fs-2 fw-bold text-secondary">{{ '{:,}'.format(mat_summary.po_lines) }}</div>
-            <div class="text-muted small">Total PO Releases</div>
-        </div>
-    </div>
-</div>
-
-<!-- Quick links -->
-<div class="row g-3 mb-4">
-    <div class="col-12 col-md-4">
-        <a href="{{ url_for('materials.index') }}"
-           class="card border-0 shadow-sm text-decoration-none h-100 {{ 'border-danger border' if mat_summary.shortage_est else '' }}">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="fs-3 {{ 'text-danger' if mat_summary.shortage_est else 'text-secondary' }}">
-                    <i class="bi bi-exclamation-triangle-fill"></i>
-                </div>
-                <div>
-                    <div class="fw-semibold">Shortages</div>
-                    <div class="text-muted small">Weekly SO material status overview</div>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-12 col-md-4">
-        <a href="{{ url_for('materials.stock_list') }}" class="card border-0 shadow-sm text-decoration-none h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="fs-3 text-primary"><i class="bi bi-boxes"></i></div>
-                <div>
-                    <div class="fw-semibold">Stock on Hand</div>
-                    <div class="text-muted small">{{ mat_summary.stock_lines }} product lines</div>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-12 col-md-4">
-        <a href="{{ url_for('materials.mrp') }}" class="card border-0 shadow-sm text-decoration-none h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="fs-3 text-success"><i class="bi bi-diagram-2"></i></div>
-                <div>
-                    <div class="fw-semibold">MRP Pegging</div>
-                    <div class="text-muted small">Time-phased supply vs demand</div>
-                </div>
-            </div>
-        </a>
-    </div>
-</div>
-
-{% if not po_summary.has_data %}
-<div class="alert alert-warning">
-    <i class="bi bi-exclamation-triangle me-2"></i>
-    No open purchase order data. Run <strong>flask epicor sync purchase_orders</strong>
-    or trigger a sync from Admin to populate this dashboard.
-</div>
-{% endif %}
-
 {% endblock %}
-
-{% block extra_js %}
-{% if po_summary.has_data and po_summary.weeks %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const weeks  = {{ po_summary.weeks | tojson }};
-    const labels = weeks.map(w => w.week_label);
-    const values = weeks.map(w => parseFloat(w.value));
-    const colors = weeks.map(w => w.is_overdue ? '#dc3545' : '#0d6efd');
-    const bords  = weeks.map(w => w.is_overdue ? '#b02a37' : '#0a58ca');
-
-    const ctx = document.getElementById('poScheduleChart');
-    if (!ctx) return;
-
-    new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels,
-            datasets: [{
-                label: 'Outstanding Value (£)',
-                data: values,
-                backgroundColor: colors,
-                borderColor: bords,
-                borderWidth: 1,
-                borderRadius: 3,
-            }],
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: item =>
-                            ' £' + item.raw.toLocaleString('en-GB', { maximumFractionDigits: 0 }),
-                        footer: items => {
-                            const w = weeks[items[0].dataIndex];
-                            return w.count + ' line' + (w.count !== 1 ? 's' : '');
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: { grid: { display: false } },
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: v => '£' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v),
-                    },
-                    title: { display: true, text: 'Outstanding value (£)' },
-                },
-            },
-        },
-    });
-});
-</script>
-{% endif %}
-{% endblock %}
-
