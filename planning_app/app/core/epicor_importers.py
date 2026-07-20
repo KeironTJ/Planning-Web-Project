@@ -793,6 +793,12 @@ class ProductionOutputImporter(EpicorBaqImporter):
         from app.extensions import db
         from app.operations.models import ProductionOutput
 
+        # Maximum window per incremental sync run.  Large windows cause the
+        # BAQ to paginate deeply and can exceed the web-server worker timeout.
+        # Backfill by running the sync multiple times; each run advances the
+        # window forward by up to MAX_DAYS_PER_RUN days.
+        MAX_DAYS_PER_RUN = 90
+
         today = date.today()
         last_date = db.session.query(
             db.func.max(ProductionOutput.clock_in_date)
@@ -807,9 +813,13 @@ class ProductionOutputImporter(EpicorBaqImporter):
             # First ever run — load full history.
             from_d = date.fromisoformat(self.HISTORY_START)
 
+        # Cap the window so a large gap never produces a single huge request.
+        max_to = from_d + timedelta(days=MAX_DAYS_PER_RUN - 1)
+        to_d = min(today, max_to)
+
         return {
             "DateFrom": from_d.isoformat(),
-            "DateTo":   today.isoformat(),
+            "DateTo":   to_d.isoformat(),
         }
 
     def _sync_records(self, records: list[dict], batch: ImportBatch, now: datetime) -> None:

@@ -432,7 +432,14 @@ async function syncOutput() {
             method:  'POST',
             headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' },
         });
-        const data = await resp.json();
+        const rawText = await resp.text();
+        let data;
+        try {
+            data = JSON.parse(rawText);
+        } catch (_) {
+            throw new Error('Server timed out — the sync is taking too long. '
+                + 'Please try again; if it keeps failing contact your administrator.');
+        }
         if (data.status === 'ok') {
             const inserted = data.rows_inserted ?? 0;
             const notes    = data.notes ? ' · ' + data.notes : '';
