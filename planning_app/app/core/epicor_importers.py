@@ -838,17 +838,33 @@ class ProductionOutputImporter(EpicorBaqImporter):
             try: return _dt.fromisoformat(v.replace("Z", "+00:00")).date()
             except (ValueError, AttributeError): return None
 
-        # Delete rows in the date range covered by this batch, then re-insert.
-        # row_ident values from this BAQ are fake sequential GUIDs and cannot
-        # be used as unique keys, so we always replace the full date range.
-        dates = {_date(r.get("LaborDtl_ClockInDate")) for r in records}
-        dates.discard(None)
+        # Delete the full *requested* date range, not just the dates that
+        # happened to appear in the returned records.  This prevents stale rows
+        # surviving for days in the range that have no production (e.g. weekends).
+        params = getattr(self, '_last_merged_params', {})
+        req_from_str = params.get('DateFrom')
+        req_to_str   = params.get('DateTo')
         deleted = 0
-        if dates:
-            from_d, to_d = min(dates), max(dates)
+        if req_from_str and req_to_str:
+            try:
+                from_del = _dt.fromisoformat(req_from_str).date()
+                to_del   = _dt.fromisoformat(req_to_str).date()
+            except ValueError:
+                from_del = to_del = None
+        else:
+            from_del = to_del = None
+
+        if from_del is None:
+            # Fallback: derive range from returned records
+            dates = {_date(r.get("LaborDtl_ClockInDate")) for r in records}
+            dates.discard(None)
+            if dates:
+                from_del, to_del = min(dates), max(dates)
+
+        if from_del is not None and to_del is not None:
             deleted = ProductionOutput.query.filter(
-                ProductionOutput.clock_in_date >= from_d,
-                ProductionOutput.clock_in_date <= to_d,
+                ProductionOutput.clock_in_date >= from_del,
+                ProductionOutput.clock_in_date <= to_del,
             ).delete()
             db.session.flush()
 

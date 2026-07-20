@@ -156,6 +156,18 @@ def epicor_sync_run_one():
                         params=params if params else None,
                         triggered_by_id=current_user.id,
                     )
+                # Build a human-readable summary for the flash message.
+                date_info = ""
+                if baq_key == "production_output" and params.get("DateFrom"):
+                    date_info = f" · {params['DateFrom']} → {params.get('DateTo', '')}"
+                elif baq_key == "sales_closed" and params.get("OrderDateFrom"):
+                    date_info = f" · {params['OrderDateFrom']} → {params.get('OrderDateTo', '')}"
+                flash(
+                    f"{baq_key} sync complete{date_info}"
+                    f" · {batch.row_count} fetched, {batch.rows_inserted} inserted"
+                    + (f" · {batch.notes}" if batch.notes else ""),
+                    "success",
+                )
                 return jsonify({
                     "status":        "ok",
                     "key":           baq_key,
@@ -166,9 +178,11 @@ def epicor_sync_run_one():
             except _OE as db_err:
                 last_exc = db_err
                 continue   # retry on SQLite lock
+        flash(f"{baq_key}: DB locked after retries — {last_exc}", "danger")
         return jsonify({"status": "error", "key": baq_key,
                         "message": f"DB locked after retries: {last_exc}"}), 500
     except Exception as exc:
+        flash(f"{baq_key} sync failed: {exc}", "danger")
         return jsonify({"status": "error", "key": baq_key, "message": str(exc)}), 500
 
 

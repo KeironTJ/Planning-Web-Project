@@ -160,6 +160,9 @@ class EpicorBaqImporter:
 
             logger.info("EpicorSync fetched %d records  BAQ=%s", len(records), self.BAQ_NAME)
 
+            # Store merged params so _sync_records can use the requested date
+            # range for deletion rather than deriving it from returned records.
+            self._last_merged_params = merged_params
             self._sync_records(records, batch, now)
 
             batch.status = ImportBatch.STATUS_SUCCESS

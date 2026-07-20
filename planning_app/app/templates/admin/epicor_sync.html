@@ -1,23 +1,17 @@
 {%- extends 'base.html' %}
-{% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <div>
-    <h4 class="mb-0">Epicor Data Sync</h4>
-    <p class="text-muted small mb-0">Pull live data from Epicor BAQs directly into the database.</p>
-  </div>
+{% block page_title %}
+  Epicor Data Sync
+  <p class="text-muted small fw-normal mb-0">Pull live data from Epicor BAQs directly into the database.</p>
+{% endblock %}
+
+{% block page_actions %}
   <button id="sync-all-btn" class="btn btn-primary">
     <i class="bi bi-arrow-repeat me-1"></i>Sync All
   </button>
-</div>
+{% endblock %}
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% for category, message in messages %}
-  <div class="alert alert-{{ category }} alert-dismissible fade show py-2" role="alert">
-    {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-  </div>
-  {% endfor %}
-{% endwith %}
+{% block content %}
 
 <div id="progress-panel" class="card border-0 shadow-sm mb-3 d-none">
   <div class="card-header bg-transparent fw-semibold small py-2">Sync Progress</div>
@@ -124,8 +118,35 @@ function mkRow(key, state, detail) {
          '<td class="text-center" style="width:80px">'+(badges[state]||'')+'</td>';
 }
 
+// Returns a stop(success) function. Call it when the request finishes.
+function startProgressBar(cell) {
+  const wrap = document.createElement('div');
+  wrap.className = 'progress mt-1';
+  wrap.style.cssText = 'height:3px;border-radius:2px;';
+  wrap.innerHTML = '<div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%;transition:width 0.4s ease-out;"></div>';
+  cell.appendChild(wrap);
+  const inner = wrap.querySelector('.progress-bar');
+  let pct = 0;
+  const timer = setInterval(() => {
+    const step = Math.max(0.2, (85 - pct) * 0.06);
+    pct = Math.min(85, pct + step);
+    inner.style.width = pct + '%';
+  }, 400);
+  return function stop(success) {
+    clearInterval(timer);
+    inner.style.transition = 'width 0.25s ease-in';
+    inner.style.width = '100%';
+    inner.classList.remove('progress-bar-animated', 'progress-bar-striped');
+    inner.classList.add(success ? 'bg-success' : 'bg-danger');
+  };
+}
+
+// Returns true on success, false on error.
+// Callers are responsible for reloading — do NOT reload inside runOne
+// or Sync All will reload after the first importer and skip the rest.
 async function runOne(key, params, tr) {
   tr.innerHTML = mkRow(key, 'run', 'Syncing '+key+'...');
+  const stopProgress = startProgressBar(tr.querySelectorAll('td')[1]);
   try {
     const r = await fetch(RUN_ONE, {
       method: 'POST',
@@ -137,19 +158,26 @@ async function runOne(key, params, tr) {
     try {
       data = JSON.parse(rawText);
     } catch (_) {
-      throw new Error('Server timed out or returned an unexpected response. '
-        + 'Try a smaller date range, or ask your administrator to increase the '
-        + 'Gunicorn worker timeout (currently 30 s by default).');
+      stopProgress(false);
+      await new Promise(r => setTimeout(r, 350));
+      tr.innerHTML = mkRow(key, 'err', 'Server timed out — try a smaller date range.');
+      return false;
     }
     if (data.status === 'ok' || data.status === 'success') {
-      const note = data.notes ? ' - ' + data.notes : '';
-      tr.innerHTML = mkRow(key, 'ok',
-        data.row_count + ' fetched / ' + data.rows_inserted + ' inserted' + note);
+      stopProgress(true);
+      tr.innerHTML = mkRow(key, 'ok', '');
+      return true;
     } else {
+      stopProgress(false);
+      await new Promise(r => setTimeout(r, 350));
       tr.innerHTML = mkRow(key, 'err', data.message || data.error || data.status);
+      return false;
     }
   } catch(e) {
+    stopProgress(false);
+    await new Promise(r => setTimeout(r, 350));
     tr.innerHTML = mkRow(key, 'err', 'Network error: ' + e.message);
+    return false;
   }
 }
 
@@ -163,12 +191,12 @@ document.querySelectorAll('.individual-sync').forEach(form => {
     panel.scrollIntoView({behavior: 'smooth'});
     const tr = document.createElement('tr');
     tbody.appendChild(tr);
-    await runOne(form.dataset.key, getFormParams(form), tr);
-    setTimeout(() => location.reload(), 1800);
+    const ok = await runOne(form.dataset.key, getFormParams(form), tr);
+    if (ok) location.reload();
   });
 });
 
-// Sync All: run every importer sequentially
+// Sync All: run every importer sequentially then reload once at the end.
 document.getElementById('sync-all-btn').addEventListener('click', async () => {
   const panel = document.getElementById('progress-panel');
   const tbody = document.getElementById('progress-rows');
@@ -189,9 +217,9 @@ document.getElementById('sync-all-btn').addEventListener('click', async () => {
 
   for (const {form, tr} of rows) {
     await runOne(form.dataset.key, getFormParams(form), tr);
-    await new Promise(r => setTimeout(r, 800)); // brief pause between syncs
+    await new Promise(r => setTimeout(r, 500));
   }
-  setTimeout(() => location.reload(), 2000);
+  location.reload();
 });
 
 document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));

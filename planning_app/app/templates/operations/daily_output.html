@@ -21,6 +21,13 @@
     </div>
 </div>
 
+<!-- Thin progress bar shown only during sync ──────────────────────────── -->
+<div id="sync-pb-wrap" class="d-none mb-3">
+    <div class="progress" style="height:5px;">
+        <div id="sync-pb" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%;transition:width 0.4s ease-out;"></div>
+    </div>
+</div>
+
 <!-- ── Unified filter bar ───────────────────────────────────────── -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
@@ -419,12 +426,31 @@ async function syncOutput() {
     const spinner = document.getElementById('sync-spinner');
     const icon    = document.getElementById('sync-icon');
     const result  = document.getElementById('sync-result');
+    const pbWrap  = document.getElementById('sync-pb-wrap');
+    const pb      = document.getElementById('sync-pb');
 
     btn.disabled = true;
     spinner.classList.remove('d-none');
     icon.classList.add('d-none');
-    result.className = 'd-none alert py-1 px-2 mb-0 small';
-    result.textContent = '';
+    result.className = 'alert alert-secondary py-1 px-2 mb-0 small';
+    result.textContent = 'Syncing from Epicor — this may take a moment…';
+
+    // Start progress bar animation
+    pbWrap.classList.remove('d-none');
+    let pct = 0;
+    const pbTimer = setInterval(() => {
+        const step = Math.max(0.2, (85 - pct) * 0.06);
+        pct = Math.min(85, pct + step);
+        pb.style.width = pct + '%';
+    }, 400);
+
+    function stopProgress(success) {
+        clearInterval(pbTimer);
+        pb.style.transition = 'width 0.25s ease-in';
+        pb.style.width = '100%';
+        pb.classList.remove('progress-bar-animated', 'progress-bar-striped');
+        pb.classList.add(success ? 'bg-success' : 'bg-danger');
+    }
 
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
     try {
@@ -441,19 +467,16 @@ async function syncOutput() {
                 + 'Please try again; if it keeps failing contact your administrator.');
         }
         if (data.status === 'ok') {
-            const inserted = data.rows_inserted ?? 0;
-            const notes    = data.notes ? ' · ' + data.notes : '';
-            result.className = 'alert alert-success py-1 px-2 mb-0 small';
-            result.textContent = `Synced — ${inserted} new rows${notes}`;
-            setTimeout(() => location.reload(), 1800);
+            stopProgress(true);
+            location.reload();
         } else {
+            stopProgress(false);
             result.className = 'alert alert-danger py-1 px-2 mb-0 small';
-            result.textContent = data.message || 'Sync failed';
-            btn.disabled = false;
-            spinner.classList.add('d-none');
-            icon.classList.remove('d-none');
+            result.textContent = data.message || 'Sync failed — see page for details.';
+            setTimeout(() => location.reload(), 3000);
         }
     } catch (err) {
+        stopProgress(false);
         result.className = 'alert alert-danger py-1 px-2 mb-0 small';
         result.textContent = 'Network error — ' + err.message;
         btn.disabled = false;

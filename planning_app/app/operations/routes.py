@@ -3,7 +3,7 @@
 from collections import defaultdict
 import calendar
 from datetime import date, timedelta
-from flask import current_app, jsonify, render_template, request
+from flask import current_app, flash, jsonify, render_template, request
 from flask_login import current_user, login_required
 from sqlalchemy import func
 from . import operations_bp
@@ -22,13 +22,29 @@ def daily_output_sync():
     try:
         with KineticClient.from_app(current_app._get_current_object()) as client:
             importer = REGISTRY['production_output'](client)
-            batch = importer.run(triggered_by_id=current_user.id)
+            # Pre-compute params so we can return them in the response for UI feedback.
+            sync_params = importer.get_dynamic_params()
+            batch = importer.run(params=sync_params, triggered_by_id=current_user.id)
+        date_from = sync_params.get('DateFrom', '')
+        date_to   = sync_params.get('DateTo',   '')
+        date_range = f'{date_from} → {date_to}' if date_from and date_to else ''
+        flash(
+            f'Production output sync complete'
+            + (f' · {date_range}' if date_range else '')
+            + f' · {batch.row_count} fetched, {batch.rows_inserted} inserted'
+            + (f' · {batch.notes}' if batch.notes else ''),
+            'success',
+        )
         return jsonify({
             'status':        'ok',
             'rows_inserted': batch.rows_inserted,
+            'row_count':     batch.row_count,
             'notes':         batch.notes or '',
+            'date_from':     date_from,
+            'date_to':       date_to,
         })
     except Exception as exc:
+        flash(f'Production output sync failed: {exc}', 'danger')
         return jsonify({'status': 'error', 'message': str(exc)}), 500
 
 
