@@ -88,6 +88,7 @@
 
             {# -- Purchasing -------------------------------------------- #}
             {% if current_user.has_permission('view_materials') %}
+            {% set purchasing_data_endpoints = ('materials.stock_list', 'materials.po_list', 'materials.main_requirements', 'materials.exempt_materials') %}
             <li class="mt-3">
                 <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">
                     <a href="{{ url_for('purchasing.dashboard') }}" class="text-body-secondary text-decoration-none">
@@ -104,7 +105,7 @@
             <li class="nav-item">
                 <a class="nav-link {% if request.endpoint == 'materials.index' %}active{% endif %}"
                    href="{{ url_for('materials.index') }}">
-                    <i class="bi bi-exclamation-triangle me-2"></i>Shortages
+                    <i class="bi bi-layers me-2"></i>Material Availability
                 </a>
             </li>
             <li class="nav-item">
@@ -120,31 +121,55 @@
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'materials.stock_list' %}active{% endif %}"
-                   href="{{ url_for('materials.stock_list') }}">
-                    <i class="bi bi-boxes me-2"></i>Stock on Hand
+                <a class="nav-link {% if request.endpoint == 'purchasing.supplier_delivery' %}active{% endif %}"
+                   href="{{ url_for('purchasing.supplier_delivery') }}">
+                    <i class="bi bi-truck me-2"></i>Supplier Delivery
                 </a>
             </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'materials.po_list' %}active{% endif %}"
-                   href="{{ url_for('materials.po_list') }}">
-                    <i class="bi bi-cart me-2"></i>Open POs
+
+            {# Collapsible data sub-menu #}
+            {% set _data_active = request.endpoint in purchasing_data_endpoints %}
+            <li class="nav-item mt-1">
+                <a class="nav-link d-flex align-items-center justify-content-between py-1
+                          {% if _data_active %}active{% endif %}"
+                   data-bs-toggle="collapse" href="#purchasingDataMenu" role="button"
+                   aria-expanded="{{ 'true' if _data_active else 'false' }}"
+                   aria-controls="purchasingDataMenu"
+                   style="cursor:pointer;">
+                    <span><i class="bi bi-database me-2"></i>Data &amp; Stock</span>
+                    <i class="bi bi-chevron-down small transition-icon"></i>
                 </a>
+                <div class="collapse {% if _data_active %}show{% endif %}" id="purchasingDataMenu">
+                    <ul class="nav flex-column ps-3 border-start ms-3 mt-1">
+                        <li class="nav-item">
+                            <a class="nav-link py-1 {% if request.endpoint == 'materials.stock_list' %}active{% endif %}"
+                               href="{{ url_for('materials.stock_list') }}">
+                                <i class="bi bi-boxes me-2"></i>Stock on Hand
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link py-1 {% if request.endpoint == 'materials.po_list' %}active{% endif %}"
+                               href="{{ url_for('materials.po_list') }}">
+                                <i class="bi bi-cart me-2"></i>Open POs
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link py-1 {% if request.endpoint == 'materials.main_requirements' %}active{% endif %}"
+                               href="{{ url_for('materials.main_requirements') }}">
+                                <i class="bi bi-list-columns me-2"></i>Material Reqs
+                            </a>
+                        </li>
+                        {% if current_user.has_permission('manage_imports') %}
+                        <li class="nav-item">
+                            <a class="nav-link py-1 {% if request.endpoint == 'materials.exempt_materials' %}active{% endif %}"
+                               href="{{ url_for('materials.exempt_materials') }}">
+                                <i class="bi bi-shield-check me-2"></i>MRP Exemptions
+                            </a>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </div>
             </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'materials.main_requirements' %}active{% endif %}"
-                   href="{{ url_for('materials.main_requirements') }}">
-                    <i class="bi bi-list-columns me-2"></i>Main Material Reqs
-                </a>
-            </li>
-            {% if current_user.has_permission('manage_imports') %}
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint and 'exempt' in request.endpoint %}active{% endif %}"
-                   href="{{ url_for('materials.exempt_materials') }}">
-                    <i class="bi bi-shield-check me-2"></i>MRP Exemptions
-                </a>
-            </li>
-            {% endif %}
             {% endif %}
 
             {# -- Operations -------------------------------------------- #}

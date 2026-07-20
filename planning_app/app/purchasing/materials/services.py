@@ -35,6 +35,25 @@ from .models import (
 )
 
 
+def _cached_unfiltered_report() -> dict:
+    """
+    Return get_shortage_report(source="all", shortages_only=False) for this request,
+    computing it only once and caching the result on flask.g.
+
+    Multiple callers on the same page load (get_stock_summary, get_weekly_availability_summary,
+    get_so_material_status) share the single computation instead of each running a
+    full MRP netting pass independently.
+    """
+    try:
+        from flask import g
+        if not hasattr(g, "_mrp_shortage_cache"):
+            g._mrp_shortage_cache = get_shortage_report(source="all", shortages_only=False)
+        return g._mrp_shortage_cache
+    except RuntimeError:
+        # Outside a request context (tests, CLI commands)
+        return get_shortage_report(source="all", shortages_only=False)
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -58,6 +77,7 @@ class ShortageRow:
     customer_id: Optional[str] = None
     customer: Optional[str] = None
     complete: Optional[str] = None
+    class_id: Optional[str] = None
 
 
 @dataclass
@@ -93,9 +113,22 @@ def _load_exempt_codes() -> frozenset[str]:
 
 
 def _load_stock() -> dict[str, Decimal]:
-    """Return {product_code: qty_on_hand} for all stock rows."""
-    rows = db.session.query(Stock.part_num, Stock.qty_on_hand).all()
-    return {r.part_num: (r.qty_on_hand or Decimal(0)) for r in rows}
+    """
+    Return {part_num: total_qty_on_hand} across all plants.
+
+    The PlanningStockReport BAQ returns one row per (part_num, plant).
+    Summing ensures multi-plant parts (e.g. fabric stored in STORES + PROD)
+    are not understated when only the last plant row would otherwise be kept.
+    """
+    rows = (
+        db.session.query(
+            Stock.part_num,
+            func.sum(Stock.qty_on_hand).label("total_qty"),
+        )
+        .group_by(Stock.part_num)
+        .all()
+    )
+    return {r.part_num: (r.total_qty or Decimal(0)) for r in rows}
 
 
 def _load_po_coverage() -> dict[str, list[tuple[date, Decimal]]]:
@@ -219,6 +252,7 @@ def get_shortage_report(
             "customer_id":  None,  # not available from BAQ
             "customer":     None,
             "complete":     "Y" if (req.job_closed or req.issued_complete) else "",
+            "class_id":     req.class_id or "",
             "_search_text": f"{mc} {req.material_description or ''} {req.works_order or ''}".lower(),
         })
 
@@ -313,6 +347,7 @@ def get_shortage_report(
             customer_id=r["customer_id"],
             customer=r["customer"],
             complete=r["complete"],
+            class_id=r.get("class_id") or None,
         ))
 
     # Sort by due_date, then worst shortage first
@@ -427,14 +462,14 @@ def get_so_material_status(
     """
     Compute material availability status for a list of SO numbers.
 
-    Checks both MainMaterialReq (main production) and ASMaterialReq (after sales).
-    The ERP encodes works order refs as SOPNO + 2-digit line suffix, so the join
-    strips the last 2 characters: works_order[:-2] == so_number.
+    Uses the same cumulative MRP netting as get_shortage_report() so that shared
+    materials (fabric, hide, etc.) are correctly allocated in due-date order.
+    The previous per-SO independent assessment was incorrect: it showed the full
+    stock pool as available to every SO simultaneously, so shortages only appeared
+    after total demand exceeded total supply — not when individual SOs ran out.
 
-    plan_start_map: optional {so_number: date} of planned production start dates.
-        When provided, PO coverage is checked against the planned start date rather
-        than the ERP's MRP due date — so materials are assessed against when
-        production is actually scheduled to begin.
+    plan_start_map: accepted for API compatibility; not currently applied in the
+        cumulative netting path (the ERP due_date is used directly).
 
     Coverage tiers (worst-case across all requirement lines for the SO):
         ok        — net requirement fully covered by stock on hand
@@ -442,77 +477,38 @@ def get_so_material_status(
         med_risk  — remaining covered by actual POs (Type=PO, due <= effective date)
         high_risk — still uncovered after stock + CO + PO
         no_data   — no MRP requirements found for this SO
-
-    Note: CO orders are treated as always-available (no date constraint) because
-    their ERP due dates are set to a far-future placeholder (~2099).
     """
     if not so_numbers:
         return {}
 
+    so_set = set(so_numbers)
     result: dict[str, str] = {so: "no_data" for so in so_numbers}
 
-    # ---- Query main production requirements via direct so_number field ----
-    main_reqs = (
-        MaterialRequirementMain.query
-        .filter(
-            MaterialRequirementMain.job_closed != True,
-            MaterialRequirementMain.issued_complete != True,
-            MaterialRequirementMain.so_number.in_(so_numbers),
-        )
-        .all()
-    )
+    # Use request-level cache so the netting is shared with other callers on
+    # the same page load (get_stock_summary, get_weekly_availability_summary).
+    report = _cached_unfiltered_report()
 
-    if not main_reqs:
-        return result
-
-    # ---- Load stock + PO coverage maps ----
-    exempt_codes = _load_exempt_codes()
-    stock_map = _load_stock()
-
-    po_rows = (
-        db.session.query(
-            PurchaseOrder.part_num,
-            PurchaseOrder.due_date,
-            PurchaseOrder.outstanding_qty,
-        )
-        .filter(
-            PurchaseOrder.part_num.isnot(None),
-            PurchaseOrder.outstanding_qty > 0,
-        )
-        .all()
-    )
-
-    lead_days    = _get_lead_days()       # days material must arrive before ship date
-    today        = date.today()
-    co_qty_map: dict[str, Decimal] = {}   # CO type not available in BAQ
-    po_entries: dict[str, list[tuple]] = defaultdict(list)
-
-    for r in po_rows:
-        if not r.part_num:
+    for row in report["rows"]:
+        so = row.so_number
+        if not so or so not in so_set:
             continue
-        qty = r.outstanding_qty or Decimal(0)
-        if r.due_date:
-            # Clamp overdue POs to today — still outstanding, but no earlier than now
-            effective = r.due_date if r.due_date >= today else today
-            po_entries[r.part_num].append((effective, qty))
 
-    # ---- Apply coverage — main requirements ----
-    _apply_coverage(
-        result, main_reqs,
-        so_key_fn=lambda r: r.so_number or "",
-        material_code_fn=lambda r: r.material_code,
-        net_req_fn=lambda r: max(
-            Decimal(0),
-            (r.qty_for_order or Decimal(0)) - (r.qty_issued or Decimal(0)),
-        ),
-        due_date_fn=lambda r: r.due_date,
-        stock_map=stock_map,
-        co_qty_map=co_qty_map,
-        po_entries=po_entries,
-        plan_start_map=plan_start_map,
-        exempt_codes=exempt_codes,
-        lead_days=lead_days,
-    )
+        # Derive coverage tier from the already-netted row.
+        # stock_on_hand = remaining stock BEFORE this requirement was processed.
+        if row.net_required == Decimal(0):
+            line_status = "ok"
+        elif row.shortage > Decimal(0):
+            line_status = "high_risk"
+        elif row.stock_on_hand < row.net_required:
+            # Stock alone was insufficient; PO (or CO when available) filled the gap.
+            # CO would map to "low_risk" but the CO pool is currently empty.
+            line_status = "med_risk"
+        else:
+            line_status = "ok"
+
+        # Worst-case across all material lines for this SO
+        if _MAT_STATUS_PRIORITY.get(line_status, 0) > _MAT_STATUS_PRIORITY.get(result[so], -1):
+            result[so] = line_status
 
     return result
 
@@ -869,8 +865,8 @@ def get_weekly_availability_summary(weeks_ahead: int = 12) -> list[dict]:
     """
     from datetime import timedelta
 
-    # Run full netting with no display filters
-    report = get_shortage_report(source="all", shortages_only=False)
+    # Use request-level cache to share the netting result with other callers
+    report = _cached_unfiltered_report()
     rows = report["rows"]
 
     today = date.today()
@@ -1003,17 +999,11 @@ def get_stock_summary() -> dict:
     total_po_lines = db.session.query(func.count(PurchaseOrder.id)).scalar() or 0
     main_req_count = db.session.query(func.count(MaterialRequirementMain.id)).scalar() or 0
 
-    # Quick shortage count (only materials with net_req > 0)
-    # Use a lightweight version — just count main reqs where qty_for_order > qty_issued
-    shortage_estimate = (
-        db.session.query(func.count(MaterialRequirementMain.id))
-        .filter(
-            MaterialRequirementMain.job_closed != True,
-            MaterialRequirementMain.issued_complete != True,
-            MaterialRequirementMain.qty_for_order > MaterialRequirementMain.qty_issued,
-        )
-        .scalar() or 0
-    )
+    # Actual netted shortage count — use the request-level cache so this shares
+    # the single MRP netting pass with get_weekly_availability_summary and
+    # get_so_material_status on the same page load.
+    cached           = _cached_unfiltered_report()
+    shortage_estimate = sum(1 for r in cached["rows"] if r.shortage > 0)
 
     from app.sales.orders.models import ImportBatch
     last_stock_import = (
@@ -1030,6 +1020,223 @@ def get_stock_summary() -> dict:
         "main_reqs":       main_req_count,
         "shortage_est":    shortage_estimate,
         "last_stock_import": last_stock_import,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Stock overview (for stock list page)
+# ---------------------------------------------------------------------------
+
+def get_stock_overview() -> dict:
+    """
+    Return class-level breakdown and summary KPIs for the Stock On Hand page.
+
+    Returns:
+        {
+            "total_lines":   int,
+            "zero_stock":    int,
+            "in_deficit":    int,
+            "classes":       [{"class_id", "count", "deficit_count", "total_qty"}, ...],
+        }
+    """
+    total_lines = db.session.query(func.count(Stock.id)).scalar() or 0
+    zero_stock = (
+        db.session.query(func.count(Stock.id))
+        .filter(Stock.qty_on_hand <= 0)
+        .scalar() or 0
+    )
+    in_deficit = (
+        db.session.query(func.count(Stock.id))
+        .filter(Stock.insufficient_stock == True)
+        .scalar() or 0
+    )
+
+    class_rows = (
+        db.session.query(
+            Stock.class_id,
+            func.count(Stock.id).label("count"),
+            func.coalesce(func.sum(Stock.qty_on_hand), 0).label("total_qty"),
+            func.sum(
+                func.cast(Stock.insufficient_stock == True, db.Integer)
+            ).label("deficit_count"),
+        )
+        .group_by(Stock.class_id)
+        .order_by(func.count(Stock.id).desc())
+        .all()
+    )
+    classes = [
+        {
+            "class_id":     r.class_id or "—",
+            "count":        r.count,
+            "total_qty":    float(r.total_qty or 0),
+            "deficit_count": int(r.deficit_count or 0),
+        }
+        for r in class_rows
+    ]
+    return {
+        "total_lines": total_lines,
+        "zero_stock":  zero_stock,
+        "in_deficit":  in_deficit,
+        "classes":     classes,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Shortage insight charts (for shortage report page)
+# ---------------------------------------------------------------------------
+
+def get_shortage_insights(rows: list) -> dict:
+    """
+    Derive chart data from already-computed shortage rows.
+
+    Returns:
+        {
+            "top_materials": [{"code", "description", "shortage", "earliest_due"}, ...],  # top 10 by shortage qty
+            "by_class":      [{"class_id", "shortage_qty", "line_count"}, ...],            # grouped by class_id
+            "total_shortage_qty": Decimal,
+            "unique_materials":   int,
+        }
+    """
+    short_rows = [r for r in rows if r.shortage > 0]
+
+    # ---- Top 10 materials by total shortage quantity ----
+    mat_totals: dict[str, dict] = {}
+    for r in short_rows:
+        mc = r.material_code
+        if mc not in mat_totals:
+            mat_totals[mc] = {
+                "code": mc,
+                "description": r.description,
+                "shortage": Decimal(0),
+                "earliest_due": r.due_date,
+            }
+        mat_totals[mc]["shortage"] += r.shortage
+        if r.due_date and (mat_totals[mc]["earliest_due"] is None or r.due_date < mat_totals[mc]["earliest_due"]):
+            mat_totals[mc]["earliest_due"] = r.due_date
+
+    top_materials = sorted(mat_totals.values(), key=lambda x: x["shortage"], reverse=True)[:10]
+
+    # ---- Shortage by material class ----
+    class_totals: dict[str, dict] = {}
+    for r in short_rows:
+        cid = r.class_id or "Unknown"
+        if cid not in class_totals:
+            class_totals[cid] = {"class_id": cid, "shortage_qty": Decimal(0), "line_count": 0}
+        class_totals[cid]["shortage_qty"] += r.shortage
+        class_totals[cid]["line_count"] += 1
+
+    by_class = sorted(class_totals.values(), key=lambda x: x["shortage_qty"], reverse=True)
+
+    total_shortage_qty = sum(r.shortage for r in short_rows)
+
+    return {
+        "top_materials":      top_materials,
+        "by_class":           by_class,
+        "total_shortage_qty": total_shortage_qty,
+        "unique_materials":   len(mat_totals),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Supplier delivery intelligence (for new supplier page)
+# ---------------------------------------------------------------------------
+
+def get_supplier_delivery(weeks_ahead: int = 8) -> dict:
+    """
+    Per-supplier summary of open and overdue PO lines for the
+    Supplier Delivery Intelligence page.
+
+    Returns:
+        {
+            "suppliers": [
+                {
+                    "name":           str,
+                    "total_lines":    int,
+                    "total_value":    Decimal,
+                    "overdue_lines":  int,
+                    "overdue_value":  Decimal,
+                    "this_week_lines": int,
+                    "this_week_value": Decimal,
+                    "overdue_pct":    float,   # 0-100
+                }, ...
+            ],
+            "weeks":          same structure as get_purchasing_dashboard()["weeks"],
+            "total_overdue_value": Decimal,
+            "total_value":         Decimal,
+            "has_data":            bool,
+        }
+    """
+    from datetime import timedelta
+
+    today = date.today()
+    iso_y_now, iso_w_now, _ = today.isocalendar()
+    current_week_start = date.fromisocalendar(iso_y_now, iso_w_now, 1)
+    current_week_end   = current_week_start + timedelta(days=6)
+
+    rows = (
+        db.session.query(
+            PurchaseOrder.supplier_name,
+            PurchaseOrder.supplier_id,
+            PurchaseOrder.due_date,
+            PurchaseOrder.outstanding_qty,
+            PurchaseOrder.unit_cost,
+            PurchaseOrder.cost_per_code,
+            PurchaseOrder.part_num,
+        )
+        .filter(PurchaseOrder.outstanding_qty > 0)
+        .all()
+    )
+
+    if not rows:
+        return {"suppliers": [], "total_overdue_value": Decimal(0), "total_value": Decimal(0), "has_data": False}
+
+    from collections import defaultdict
+
+    # Same cost_per_code divisor logic as get_purchasing_dashboard()
+    _DIVISORS: dict[str, Decimal] = {"C": Decimal(100), "M": Decimal(1000)}
+
+    sup: dict[str, dict] = {}
+    for r in rows:
+        name    = r.supplier_name or r.supplier_id or "Unknown"
+        qty     = r.outstanding_qty or Decimal(0)
+        divisor = _DIVISORS.get(r.cost_per_code or "E", Decimal(1))
+        val     = qty * (r.unit_cost or Decimal(0)) / divisor
+
+        if name not in sup:
+            sup[name] = {
+                "name": name,
+                "total_lines": 0,  "total_value": Decimal(0),
+                "overdue_lines": 0, "overdue_value": Decimal(0),
+                "this_week_lines": 0, "this_week_value": Decimal(0),
+            }
+        sup[name]["total_lines"]  += 1
+        sup[name]["total_value"]  += val
+
+        is_overdue = r.due_date and r.due_date < today
+        is_this_week = r.due_date and current_week_start <= r.due_date <= current_week_end
+
+        if is_overdue:
+            sup[name]["overdue_lines"] += 1
+            sup[name]["overdue_value"] += val
+        if is_this_week:
+            sup[name]["this_week_lines"] += 1
+            sup[name]["this_week_value"] += val
+
+    suppliers = sorted(sup.values(), key=lambda s: s["overdue_value"], reverse=True)
+    for s in suppliers:
+        s["overdue_pct"] = (
+            round(float(s["overdue_value"] / s["total_value"] * 100), 1)
+            if s["total_value"] else 0.0
+        )
+
+    total_value         = sum(s["total_value"] for s in suppliers)
+    total_overdue_value = sum(s["overdue_value"] for s in suppliers)
+
+    return {
+        "suppliers":            suppliers,
+        "total_value":          total_value,
+        "total_overdue_value":  total_overdue_value,
+        "has_data":             bool(suppliers),
     }
 
 
@@ -1188,9 +1395,9 @@ def get_po_list(
 # Stock search
 # ---------------------------------------------------------------------------
 
-def get_stock_list(search: Optional[str] = None, page: int = 1, per_page: int = 50):
-    """Return paginated stock lines, optionally filtered."""
-    q = Stock.query.order_by(Stock.part_num)
+def get_stock_list(search: Optional[str] = None, page: int = 1, per_page: int = 50, class_filter: Optional[str] = None):
+    """Return paginated stock lines, optionally filtered by search and class."""
+    q = Stock.query.order_by(Stock.insufficient_stock.desc(), Stock.part_num)
     if search:
         term = f"%{search.strip()}%"
         q = q.filter(
@@ -1199,4 +1406,6 @@ def get_stock_list(search: Optional[str] = None, page: int = 1, per_page: int = 
                 Stock.part_description.ilike(term),
             )
         )
+    if class_filter:
+        q = q.filter(Stock.class_id == class_filter)
     return q.paginate(page=page, per_page=per_page, error_out=False)

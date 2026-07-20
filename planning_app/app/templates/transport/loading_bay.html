@@ -203,8 +203,11 @@
                     <tr>
                         <th class="ps-3">Customer</th>
                         <th class="text-center">Orders</th>
-                        <th class="text-end">Units Ready</th>
-                        <th class="text-end pe-3">Invoiceable Value (GBP)</th>
+                        <th class="text-end">Ready&nbsp;/ Total Units</th>
+                        <th class="text-end text-success">Ready (GBP)</th>
+                        <th class="text-end text-warning">Partial (GBP)</th>
+                        <th class="text-end text-danger">On Hold (GBP)</th>
+                        <th class="text-end pe-3">Total (GBP)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -214,7 +217,19 @@
                         <td class="text-center">
                             <span class="badge text-bg-secondary">{{ c.orders }}</span>
                         </td>
-                        <td class="text-end">{{ "%.0f" | format(c.units) }}</td>
+                        <td class="text-end text-nowrap">
+                            <span class="text-success fw-semibold">{{ "%.0f" | format(c.units) }}</span>
+                            <span class="text-muted small">/ {{ "%.0f" | format(c.units_total) }}</span>
+                        </td>
+                        <td class="text-end text-success">
+                            {% if c.ready_value %}£{{ "{:,.2f}".format(c.ready_value) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                        </td>
+                        <td class="text-end text-warning">
+                            {% if c.partial_value %}£{{ "{:,.2f}".format(c.partial_value) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                        </td>
+                        <td class="text-end text-danger">
+                            {% if c.held_value %}£{{ "{:,.2f}".format(c.held_value) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                        </td>
                         <td class="text-end pe-3 fw-semibold text-success">
                             £{{ "{:,.2f}".format(c.value) }}
                         </td>
@@ -222,13 +237,27 @@
                     {% endfor %}
                 </tbody>
                 <tfoot class="table-light fw-semibold">
+                    {% set ns = namespace(ready=0.0, partial=0.0, held=0.0, total=0.0, units=0.0, units_total=0.0, orders=0) %}
+                    {% for c in customer_summary %}
+                        {% set ns.ready   = ns.ready   + c.ready_value %}
+                        {% set ns.partial = ns.partial + c.partial_value %}
+                        {% set ns.held    = ns.held    + c.held_value %}
+                        {% set ns.total   = ns.total   + c.value %}
+                        {% set ns.units       = ns.units       + c.units %}
+                        {% set ns.units_total = ns.units_total + c.units_total %}
+                        {% set ns.orders  = ns.orders  + c.orders %}
+                    {% endfor %}
                     <tr>
-                        <td class="ps-3">Total</td>
-                        <td class="text-center">{{ summary.total_orders }}</td>
-                        <td class="text-end">{{ "%.0f" | format(summary.total_units_ready) }}</td>
-                        <td class="text-end pe-3 text-success">
-                            £{{ "{:,.2f}".format(summary.total_invoiceable) }}
+                        <td class="ps-3">Total (top {{ customer_summary | length }})</td>
+                        <td class="text-center">{{ ns.orders }}</td>
+                        <td class="text-end text-nowrap">
+                            <span class="text-success fw-semibold">{{ "%.0f" | format(ns.units) }}</span>
+                            <span class="text-muted small">/ {{ "%.0f" | format(ns.units_total) }}</span>
                         </td>
+                        <td class="text-end text-success">£{{ "{:,.2f}".format(ns.ready) }}</td>
+                        <td class="text-end text-warning">£{{ "{:,.2f}".format(ns.partial) }}</td>
+                        <td class="text-end text-danger">£{{ "{:,.2f}".format(ns.held) }}</td>
+                        <td class="text-end pe-3 text-success">£{{ "{:,.2f}".format(ns.total) }}</td>
                     </tr>
                 </tfoot>
             </table>

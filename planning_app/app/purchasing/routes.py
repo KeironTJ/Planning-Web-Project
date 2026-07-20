@@ -32,3 +32,17 @@ def overview():
         today=date.today(),
         timedelta=timedelta,
     )
+
+
+@purchasing_bp.route("/suppliers")
+@login_required
+@permission_required("view_materials")
+def supplier_delivery():
+    from app.purchasing.materials import services
+    data = services.get_supplier_delivery()
+    return render_template(
+        "purchasing/supplier_delivery.html",
+        title="Supplier Delivery",
+        data=data,
+        today=date.today(),
+    )

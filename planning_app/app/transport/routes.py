@@ -308,13 +308,15 @@ def loading_bay():
                 "name":          cn,
                 "value":         0.0,
                 "units":         0.0,
+                "units_total":   0.0,
                 "orders":        0,
                 "ready_value":   0.0,
                 "partial_value": 0.0,
                 "held_value":    0.0,
             }
-        cust_map[cn]["value"]  += o["invoiceable_value"]
-        cust_map[cn]["units"]  += o["units_ready"]
+        cust_map[cn]["value"]       += o["invoiceable_value"]
+        cust_map[cn]["units"]       += o["units_ready"]
+        cust_map[cn]["units_total"] += o["units_total"]
         cust_map[cn]["orders"] += 1
         if o["on_hold"]:
             cust_map[cn]["held_value"]    += o["invoiceable_value"]

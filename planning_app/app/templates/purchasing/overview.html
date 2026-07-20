@@ -137,33 +137,39 @@
 <!-- Material availability overview -->
 <div class="row g-3 mb-4">
     <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
+        <a href="{{ url_for('materials.stock_list') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
             <div class="fs-2 fw-bold text-primary">{{ '{:,}'.format(mat_summary.stock_lines) }}</div>
             <div class="text-muted small">Stock Lines</div>
             {% if mat_summary.zero_stock %}
             <div class="text-warning small">{{ mat_summary.zero_stock }} at zero</div>
             {% endif %}
-        </div>
+        </div></a>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
+        <a href="{{ url_for('materials.main_requirements') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
             <div class="fs-2 fw-bold text-info">{{ '{:,}'.format(mat_summary.main_reqs) }}</div>
             <div class="text-muted small">Material Requirements</div>
-        </div>
+        </div></a>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 {{ 'border-danger border' if mat_summary.shortage_est else '' }}">
+        <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-danger border' if mat_summary.shortage_est else '' }}">
             <div class="fs-2 fw-bold {{ 'text-danger' if mat_summary.shortage_est else 'text-success' }}">
                 {{ '{:,}'.format(mat_summary.shortage_est) }}
             </div>
-            <div class="text-muted small">Lines with Potential Shortage</div>
-        </div>
+            <div class="text-muted small">Material Lines in Shortage</div>
+        </div></a>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
-            <div class="fs-2 fw-bold text-secondary">{{ '{:,}'.format(mat_summary.po_lines) }}</div>
-            <div class="text-muted small">Total PO Releases</div>
-        </div>
+        <a href="{{ url_for('purchasing.supplier_delivery') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-warning border' if po_summary.overdue_lines else '' }}">
+            <div class="fs-2 fw-bold {{ 'text-danger' if po_summary.overdue_lines else 'text-success' }}">
+                {{ '{:,}'.format(po_summary.overdue_lines) }}
+            </div>
+            <div class="text-muted small">Overdue PO Lines</div>
+        </div></a>
     </div>
 </div>
 
@@ -171,20 +177,20 @@
 <div class="row g-3 mb-4">
     <div class="col-12 col-md-4">
         <a href="{{ url_for('materials.index') }}"
-           class="card border-0 shadow-sm text-decoration-none h-100 {{ 'border-danger border' if mat_summary.shortage_est else '' }}">
+           class="card border-0 shadow-sm text-decoration-none h-100 card-hover {{ 'border-danger border' if mat_summary.shortage_est else '' }}">
             <div class="card-body d-flex align-items-center gap-3">
                 <div class="fs-3 {{ 'text-danger' if mat_summary.shortage_est else 'text-secondary' }}">
                     <i class="bi bi-exclamation-triangle-fill"></i>
                 </div>
                 <div>
-                    <div class="fw-semibold">Shortages</div>
+                    <div class="fw-semibold">Material Shortages</div>
                     <div class="text-muted small">Weekly SO material status overview</div>
                 </div>
             </div>
         </a>
     </div>
     <div class="col-12 col-md-4">
-        <a href="{{ url_for('materials.stock_list') }}" class="card border-0 shadow-sm text-decoration-none h-100">
+        <a href="{{ url_for('materials.stock_list') }}" class="card border-0 shadow-sm text-decoration-none h-100 card-hover">
             <div class="card-body d-flex align-items-center gap-3">
                 <div class="fs-3 text-primary"><i class="bi bi-boxes"></i></div>
                 <div>
@@ -195,12 +201,12 @@
         </a>
     </div>
     <div class="col-12 col-md-4">
-        <a href="{{ url_for('materials.mrp') }}" class="card border-0 shadow-sm text-decoration-none h-100">
+        <a href="{{ url_for('purchasing.supplier_delivery') }}" class="card border-0 shadow-sm text-decoration-none h-100 card-hover {{ 'border-warning border' if po_summary.overdue_lines else '' }}">
             <div class="card-body d-flex align-items-center gap-3">
-                <div class="fs-3 text-success"><i class="bi bi-diagram-2"></i></div>
+                <div class="fs-3 {{ 'text-warning' if po_summary.overdue_lines else 'text-success' }}"><i class="bi bi-truck"></i></div>
                 <div>
-                    <div class="fw-semibold">MRP Pegging</div>
-                    <div class="text-muted small">Time-phased supply vs demand</div>
+                    <div class="fw-semibold">Supplier Delivery</div>
+                    <div class="text-muted small">{{ po_summary.overdue_lines }} overdue PO lines</div>
                 </div>
             </div>
         </a>

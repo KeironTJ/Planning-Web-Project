@@ -64,6 +64,7 @@ def wip_overview():
 
     # WIP overview shows released orders only.
     category = request.args.get('category', 'models').strip().lower()
+    shortages_only = request.args.get('shortages_only', '0') == '1'
     _is_model  = db.and_(
         WorksOrder.model.isnot(None),
         WorksOrder.model != '',
@@ -98,69 +99,66 @@ def wip_overview():
 
     # ── Summary counts ────────────────────────────────────────────────
     from app.purchasing.materials.models import MaterialRequirementMain, MrpExemptMaterial
+    from app.purchasing.materials.services import get_so_material_status, MAT_STATUS_META
 
     total   = db.session.query(func.count(WorksOrder.id)).filter(*_base).scalar() or 0
     waiting = db.session.query(func.count(WorksOrder.id)).filter(*_base, WorksOrder.waiting_temp == True).scalar() or 0
     last    = WorksOrder.query.order_by(WorksOrder.imported_at.desc()).first()
 
-    # Shortages: active released jobs (in current filter) that have at least one
-    # non-backflush, non-exempt material line not fully issued.
-    _exempt_codes = {
-        r.material_code
-        for r in db.session.query(MrpExemptMaterial.material_code).all()
-    }
-    # Get the job_num values that match _base
-    _active_job_nums = {
-        r.job_num
-        for r in db.session.query(WorksOrder.job_num).filter(*_base).all()
-        if r.job_num
-    }
-    if _active_job_nums and _exempt_codes:
-        _shortage_jobs = db.session.query(
-            func.count(db.distinct(MaterialRequirementMain.works_order))
-        ).filter(
-            MaterialRequirementMain.works_order.in_(_active_job_nums),
-            MaterialRequirementMain.issued_complete != True,
-            MaterialRequirementMain.backflush != True,
-            MaterialRequirementMain.material_code.notin_(_exempt_codes),
-            MaterialRequirementMain.qty_for_order > MaterialRequirementMain.qty_issued,
-        ).scalar() or 0
-    elif _active_job_nums:
-        _shortage_jobs = db.session.query(
-            func.count(db.distinct(MaterialRequirementMain.works_order))
-        ).filter(
-            MaterialRequirementMain.works_order.in_(_active_job_nums),
-            MaterialRequirementMain.issued_complete != True,
-            MaterialRequirementMain.backflush != True,
-            MaterialRequirementMain.qty_for_order > MaterialRequirementMain.qty_issued,
-        ).scalar() or 0
-    else:
-        _shortage_jobs = 0
-    shortages = _shortage_jobs
+    # ── Per-SO material availability (cumulative netted) ──────────────
+    # Collect all order_nums from the filtered WIP (across all pages).
+    _all_order_nums = [
+        str(r.order_num)
+        for r in db.session.query(WorksOrder.order_num)
+        .filter(*_base, WorksOrder.order_num.isnot(None))
+        .distinct()
+        .all()
+        if r.order_num
+    ]
+    mat_status_map: dict[str, str] = get_so_material_status(_all_order_nums) if _all_order_nums else {}
+
+    # Shortage count = jobs whose SO has a high_risk material status.
+    # Convert SO strings back to integers to match the WorksOrder.order_num Integer column.
+    _high_risk_sos = {so for so, st in mat_status_map.items() if st == "high_risk"}
+    _high_risk_int = {int(so) for so in _high_risk_sos if so.isdigit()}
+    shortages = (
+        db.session.query(func.count(WorksOrder.id))
+        .filter(*_base, WorksOrder.order_num.in_(_high_risk_int))
+        .scalar() or 0
+    ) if _high_risk_int else 0
+
+    # Shortage-only filter applied to pivot and job list
+    _shortage_filter = (WorksOrder.order_num.in_(_high_risk_int),) if shortages_only and _high_risk_int else ()
+    # When shortages_only is set but nothing is high_risk, force zero results
+    _no_results = shortages_only and not _high_risk_int
 
     # ── WIP pivot ─────────────────────────────────────────────────────
     OVERDUE = 'Overdue'
-    overdue_rows = db.session.query(
-        WorksOrder.next_op,
-        func.count(WorksOrder.id).label('job_count'),
-        func.sum(WorksOrder.required_qty).label('total_qty'),
-    ).filter(
-        *_base,
-        WorksOrder.next_op.isnot(None),
-        WorksOrder.req_due_date < today,
-    ).group_by(WorksOrder.next_op).all()
+    if _no_results:
+        overdue_rows = []
+        current_rows = []
+    else:
+        overdue_rows = db.session.query(
+            WorksOrder.next_op,
+            func.count(WorksOrder.id).label('job_count'),
+            func.sum(WorksOrder.required_qty).label('total_qty'),
+        ).filter(
+            *_base, *_shortage_filter,
+            WorksOrder.next_op.isnot(None),
+            WorksOrder.req_due_date < today,
+        ).group_by(WorksOrder.next_op).all()
 
-    current_rows = db.session.query(
-        WorksOrder.next_op,
-        WorksOrder.prod_plnwk,
-        func.count(WorksOrder.id).label('job_count'),
-        func.sum(WorksOrder.required_qty).label('total_qty'),
-    ).filter(
-        *_base,
-        WorksOrder.next_op.isnot(None),
-        WorksOrder.prod_plnwk.isnot(None),
-        db.or_(WorksOrder.req_due_date >= today, WorksOrder.req_due_date.is_(None)),
-    ).group_by(WorksOrder.next_op, WorksOrder.prod_plnwk).all()
+        current_rows = db.session.query(
+            WorksOrder.next_op,
+            WorksOrder.prod_plnwk,
+            func.count(WorksOrder.id).label('job_count'),
+            func.sum(WorksOrder.required_qty).label('total_qty'),
+        ).filter(
+            *_base, *_shortage_filter,
+            WorksOrder.next_op.isnot(None),
+            WorksOrder.prod_plnwk.isnot(None),
+            db.or_(WorksOrder.req_due_date >= today, WorksOrder.req_due_date.is_(None)),
+        ).group_by(WorksOrder.next_op, WorksOrder.prod_plnwk).all()
 
     _pivot    = defaultdict(dict)
     _op_tot   = defaultdict(lambda: {'jobs': 0, 'qty': 0.0})
@@ -228,7 +226,7 @@ def wip_overview():
     per_page = request.args.get('per_page', 50, type=int)
     if per_page not in (25, 50, 100, 200):
         per_page = 50
-    jobs = WorksOrder.query.filter(*_base).order_by(
+    jobs = WorksOrder.query.filter(*_base, *_shortage_filter).order_by(
         WorksOrder.req_due_date.asc().nullslast(),
         WorksOrder.prod_plnwk.asc().nullslast(),
         WorksOrder.next_op.asc().nullslast(),
@@ -270,7 +268,10 @@ def wip_overview():
         search=search,
         category=category,
         per_page=per_page,
+        shortages_only=shortages_only,
         partial_order_nums=_completed_order_nums,
+        mat_status_map=mat_status_map,
+        mat_status_meta=MAT_STATUS_META,
     )
 
 @operations_bp.route('/wip/export')

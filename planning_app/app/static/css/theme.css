@@ -154,6 +154,23 @@ tr.table-detail-row {
     padding-left: 1.5rem;
 }
 
+/* ---- Sidebar collapsible sub-menu ---- */
+
+/* Nested links inside the collapse panel */
+#purchasingDataMenu .nav-link {
+    font-size: .82rem;
+    padding-top: .25rem;
+    padding-bottom: .25rem;
+}
+
+/* Rotate chevron icon when submenu is open */
+.sidebar [data-bs-toggle="collapse"] .transition-icon {
+    transition: transform .2s ease;
+}
+.sidebar [data-bs-toggle="collapse"][aria-expanded="true"] .transition-icon {
+    transform: rotate(-180deg);
+}
+
 /* ---- Auth page toast stack (above navbar) ---- */
 
 .toast-stack { z-index: 1100; }

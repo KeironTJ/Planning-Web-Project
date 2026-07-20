@@ -1,0 +1,257 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-3">
+        <div class="rounded-3 p-3 bg-warning bg-opacity-10">
+            <i class="bi bi-truck fs-2 text-warning"></i>
+        </div>
+        <div>
+            <h4 class="mb-0 fw-semibold">Supplier Delivery</h4>
+            <p class="text-muted mb-0 small">Outstanding and overdue purchase orders by supplier</p>
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('materials.po_list') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-cart me-1"></i>All Open POs
+        </a>
+        <a href="{{ url_for('purchasing.overview') }}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-speedometer2 me-1"></i>Overview
+        </a>
+    </div>
+</div>
+
+{% if data.has_data %}
+
+<!-- KPI cards -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3 h-100">
+            <div class="fs-2 fw-bold text-primary">{{ data.suppliers | length }}</div>
+            <div class="text-muted small">Active Suppliers</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3 h-100">
+            <div class="fs-2 fw-bold text-success">£{{ '{:,.0f}'.format(data.total_value | float) }}</div>
+            <div class="text-muted small">Total Outstanding</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 {{ 'border-danger border' if data.total_overdue_value else '' }}">
+            <div class="fs-2 fw-bold {{ 'text-danger' if data.total_overdue_value else 'text-success' }}">
+                £{{ '{:,.0f}'.format(data.total_overdue_value | float) }}
+            </div>
+            <div class="text-muted small">Overdue Value</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 {{ 'border-warning border' if data.total_overdue_value else '' }}">
+            {% set overdue_pct = (data.total_overdue_value / data.total_value * 100) | round(1) if data.total_value else 0 %}
+            <div class="fs-2 fw-bold {{ 'text-warning' if overdue_pct > 20 else ('text-danger' if overdue_pct > 40 else 'text-success') }}">
+                {{ overdue_pct }}%
+            </div>
+            <div class="text-muted small">% Overdue by Value</div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts row -->
+<div class="row g-3 mb-4">
+    <!-- Overdue by supplier bar chart -->
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent fw-semibold">
+                <i class="bi bi-bar-chart-fill me-2 text-danger"></i>Overdue Value by Supplier
+            </div>
+            <div class="card-body">
+                <canvas id="overdueChart" height="120"></canvas>
+            </div>
+        </div>
+    </div>
+    <!-- This week deliveries -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent fw-semibold">
+                <i class="bi bi-calendar-week me-2 text-primary"></i>Due This Week
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.82rem;">
+                    <thead class="thead-subtle">
+                        <tr>
+                            <th>Supplier</th>
+                            <th class="text-end">Lines</th>
+                            <th class="text-end">Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set this_week_suppliers = data.suppliers | selectattr('this_week_lines', '>', 0) | list %}
+                        {% for s in this_week_suppliers | sort(attribute='this_week_value', reverse=true) %}
+                        <tr>
+                            <td class="text-truncate" style="max-width:140px;" title="{{ s.name }}">
+                                <a href="{{ url_for('materials.po_list', q=s.name) }}" class="text-decoration-none text-body">{{ s.name }}</a>
+                            </td>
+                            <td class="text-end">{{ s.this_week_lines }}</td>
+                            <td class="text-end fw-semibold">£{{ '{:,.0f}'.format(s.this_week_value | float) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="3" class="text-muted text-center py-3">No deliveries due this week</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Supplier table -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-buildings me-2"></i>All Suppliers — Outstanding POs
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.83rem;">
+                <thead class="thead-subtle">
+                    <tr>
+                        <th>Supplier</th>
+                        <th class="text-end">Total Lines</th>
+                        <th class="text-end">Total Value</th>
+                        <th class="text-end text-danger">Overdue Lines</th>
+                        <th class="text-end text-danger">Overdue Value</th>
+                        <th style="min-width:140px;">Overdue %</th>
+                        <th class="text-end">This Week</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in data.suppliers %}
+                    <tr class="{{ 'table-danger' if s.overdue_pct > 50 else ('table-warning' if s.overdue_pct > 20 else '') }}">
+                        <td class="fw-semibold text-truncate" style="max-width:200px;" title="{{ s.name }}">{{ s.name }}</td>
+                        <td class="text-end">{{ s.total_lines }}</td>
+                        <td class="text-end">£{{ '{:,.0f}'.format(s.total_value | float) }}</td>
+                        <td class="text-end {{ 'text-danger fw-semibold' if s.overdue_lines else 'text-muted' }}">
+                            {{ s.overdue_lines or '—' }}
+                        </td>
+                        <td class="text-end {{ 'text-danger fw-bold' if s.overdue_value else 'text-muted' }}">
+                            {% if s.overdue_value %}£{{ '{:,.0f}'.format(s.overdue_value | float) }}{% else %}—{% endif %}
+                        </td>
+                        <td>
+                            {% if s.total_value %}
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="progress flex-grow-1" style="height:6px;">
+                                    <div class="progress-bar {{ 'bg-danger' if s.overdue_pct > 50 else ('bg-warning' if s.overdue_pct > 20 else 'bg-success') }}"
+                                         style="width:{{ [s.overdue_pct, 100] | min }}%"></div>
+                                </div>
+                                <small class="text-muted" style="min-width:35px;">{{ s.overdue_pct }}%</small>
+                            </div>
+                            {% else %}—{% endif %}
+                        </td>
+                        <td class="text-end {{ 'text-primary fw-semibold' if s.this_week_lines else 'text-muted' }}">
+                            {{ s.this_week_lines or '—' }}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('materials.po_list', q=s.name) }}"
+                               class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:.72rem;">
+                                View POs
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer bg-transparent small text-muted py-2">
+        <i class="bi bi-info-circle me-1"></i>
+        <span class="badge bg-danger me-1">Red</span> &gt;50% overdue by value &nbsp;
+        <span class="badge bg-warning text-dark me-1">Amber</span> 20–50% overdue &nbsp;
+        Overdue = PO due date before today with outstanding quantity.
+    </div>
+</div>
+
+{% else %}
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-truck fs-1 d-block mb-2"></i>
+    No open purchase order data. Run <strong>flask epicor sync purchase_orders</strong> to populate.
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+{% if data.has_data %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const _suppliers = {{ data.suppliers | tojson }};
+
+    // Show top 15 by overdue value
+    const top = _suppliers
+        .filter(s => s.overdue_value > 0)
+        .sort((a, b) => b.overdue_value - a.overdue_value)
+        .slice(0, 15);
+
+    const ctx = document.getElementById('overdueChart');
+    if (!ctx || !top.length) return;
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: top.map(s => s.name.length > 25 ? s.name.slice(0, 23) + '…' : s.name),
+            datasets: [
+                {
+                    label: 'Overdue',
+                    data: top.map(s => parseFloat(s.overdue_value)),
+                    backgroundColor: '#dc3545bb',
+                    borderColor: '#dc3545',
+                    borderWidth: 1,
+                    borderRadius: 3,
+                },
+                {
+                    label: 'On Time',
+                    data: top.map(s => parseFloat(s.total_value) - parseFloat(s.overdue_value)),
+                    backgroundColor: '#198754bb',
+                    borderColor: '#198754',
+                    borderWidth: 1,
+                    borderRadius: 3,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        label: item => ' ' + item.dataset.label + ': £' +
+                            item.raw.toLocaleString('en-GB', { maximumFractionDigits: 0 }),
+                        footer: items => {
+                            const s = top[items[0].dataIndex];
+                            return 'Overdue: ' + s.overdue_pct + '%  (' + s.overdue_lines + ' lines)';
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } },
+                y: {
+                    stacked: true, beginAtZero: true,
+                    title: { display: true, text: 'Outstanding value (£)' },
+                    ticks: { callback: v => '£' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
+                },
+            },
+            onClick: (e, els) => {
+                if (els.length) {
+                    const name = top[els[0].index].name;
+                    window.location = '{{ url_for("materials.po_list") }}?q=' + encodeURIComponent(name);
+                }
+            },
+        },
+    });
+});
+</script>
+{% endif %}
+{% endblock %}

@@ -67,6 +67,7 @@ def shortage():
         due_before=due_before,
         due_from=due_from,
     )
+    shortage_insights = services.get_shortage_insights(data["rows"])
     departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
 
     # plan_start_map is no longer populated from the old CSV WorksOrderOperation table.
@@ -78,6 +79,7 @@ def shortage():
         "materials/shortage.html",
         title="Material Shortage Report",
         data=data,
+        shortage_insights=shortage_insights,
         departments=departments,
         source=source,
         dept_filter=dept_filter,
@@ -95,13 +97,17 @@ def shortage():
 @permission_required("view_materials")
 def stock_list():
     search = request.args.get("q", "")
+    class_filter = request.args.get("cls", "")
     page   = request.args.get("page", 1, type=int)
-    stock  = services.get_stock_list(search=search or None, page=page)
+    stock  = services.get_stock_list(search=search or None, page=page, class_filter=class_filter or None)
+    overview = services.get_stock_overview()
     return render_template(
         "materials/stock_list.html",
         title="Stock On Hand",
         stock=stock,
+        overview=overview,
         search=search,
+        class_filter=class_filter,
     )
 
 

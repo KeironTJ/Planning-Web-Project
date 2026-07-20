@@ -25,11 +25,12 @@ Operations WIP Overview
         </div>
     </div>
     <div class="col-6 col-md-4">
-        <div class="card border-0 shadow-sm text-center p-3">
-            <div class="fs-2 fw-bold text-warning">{{ shortages }}</div>
-            <div class="text-muted small">Material Shortages</div>
-            <div class="text-muted" style="font-size:0.65rem;">jobs with un-issued materials</div>
-        </div>
+        <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 {{ 'border-danger border' if shortages else '' }}">
+            <div class="fs-2 fw-bold {{ 'text-danger' if shortages else 'text-success' }}">{{ shortages }}</div>
+            <div class="text-muted small">Jobs with Material Shortage</div>
+            <div class="text-muted" style="font-size:0.65rem;">netted against stock &amp; open POs</div>
+        </div></a>
     </div>
     <div class="col-6 col-md-4">
         <div class="card border-0 shadow-sm text-center p-3">
@@ -54,16 +55,35 @@ Operations WIP Overview
             <i class="bi bi-puzzle me-1"></i>Parts / Scatters
         </button>
     </div>
-    <div class="ms-2 d-flex align-items-center gap-2">
+    <div class="vr mx-1"></div>
+    {# Shortages toggle is a link so it preserves all other URL params cleanly #}
+    <a href="{{ url_for('operations.wip_overview',
+                        category=category, q=search, per_page=per_page,
+                        shortages_only=('0' if shortages_only else '1')) }}"
+       class="btn btn-sm {{ 'btn-danger' if shortages_only else 'btn-outline-danger' }}">
+        <i class="bi bi-exclamation-triangle{{ '-fill' if shortages_only else '' }} me-1"></i>
+        {{ 'Shortages only ×' if shortages_only else 'Shortages only' }}
+    </a>
+    <div class="ms-1 d-flex align-items-center gap-2">
         <input type="search" name="q" class="form-control form-control-sm" style="width:220px;"
                placeholder="Job, customer, model…" value="{{ search }}">
         <button type="submit" class="btn btn-primary btn-sm">Search</button>
-        {% if search or category %}
+        {% if search or category or shortages_only %}
         <a href="{{ url_for('operations.wip_overview') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
         {% endif %}
     </div>
     <input type="hidden" name="per_page" value="{{ per_page }}">
+    <input type="hidden" name="shortages_only" value="{{ '1' if shortages_only else '0' }}">
 </form>
+
+{% if shortages_only %}
+<div class="alert alert-danger py-2 mb-3 d-flex align-items-center gap-2">
+    <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+    <span>Showing <strong>{{ shortages }}</strong> job{{ 's' if shortages != 1 }} with confirmed material shortages — netted against stock &amp; open POs.</span>
+    <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page) }}"
+       class="btn btn-sm btn-outline-danger ms-auto py-0">Show all jobs</a>
+</div>
+{% endif %}
 
 {% if wip_ops %}
 
@@ -191,6 +211,7 @@ Operations WIP Overview
                             <th>Size</th>
                             <th>Customer</th>
                             <th>Mat 1</th>
+                            <th class="text-center">Materials</th>
                             <th>Comment</th>
                             <th>OB Comments</th>
                             <th>GRN</th>
@@ -199,8 +220,11 @@ Operations WIP Overview
                     </thead>
                     <tbody>
                         {% for job in jobs.items %}
+                        {%- set so_key = job.order_num | string if job.order_num else '' %}
+                        {%- set mat_st = mat_status_map.get(so_key, 'no_data') %}
                         {%- set is_partial = job.order_num and job.order_num in partial_order_nums and not job.job_complete %}
-                        <tr class="{{ 'table-primary bg-opacity-25' if is_partial else ('table-warning bg-opacity-50' if job.mtl_shortage else '') }}">
+                        {%- set row_class = 'table-primary bg-opacity-25' if is_partial else ('table-danger bg-opacity-25' if mat_st == 'high_risk' else ('table-warning bg-opacity-25' if mat_st == 'med_risk' else '')) %}
+                        <tr class="{{ row_class }}">
                             <td class="ps-2 fw-semibold font-monospace">{{ job.job_num }}</td>
                             <td class="text-center text-muted">
                                 {%- if job.prod_plnwk %}
@@ -222,6 +246,18 @@ Operations WIP Overview
                             <td class="text-muted">{{ job.size_desc or job.size or '—' }}</td>
                             <td>{{ job.customer_name or '—' }}</td>
                             <td class="text-muted">{{ job.material_1_desc or '—' }}</td>
+                            {%- set mat_label, mat_colour = mat_status_meta.get(mat_st, ('—', 'secondary')) %}
+                            <td class="text-center">
+                                {%- if mat_st == 'no_data' %}
+                                <span class="badge text-bg-success" style="font-size:.7rem;">Mat. OK</span>
+                                {%- else %}
+                                <a href="{{ url_for('materials.mrp') }}?so={{ so_key }}"
+                                   class="badge text-bg-{{ mat_colour }} text-decoration-none"
+                                   style="font-size:.7rem;"
+                                   title="Click to view MRP pegging for SO {{ so_key }}"
+                                   target="_blank">{{ mat_label }}</a>
+                                {%- endif %}
+                            </td>
                             <td class="text-muted" style="max-width:160px; overflow:hidden; text-overflow:ellipsis;" title="{{ job.comment_text or '' }}">
                                 {{ (job.comment_text or '')[:60] }}{{ '…' if (job.comment_text or '') | length > 60 }}
                             </td>
@@ -231,13 +267,12 @@ Operations WIP Overview
                             <td class="text-muted">{{ job.grn or '—' }}</td>
                             <td class="text-center">
                                 {%- if is_partial %}<span class="badge bg-primary me-1" title="Another job on this order is complete">Partial</span>{%- endif %}
-                                {%- if job.mtl_shortage %}<span class="badge bg-warning text-dark me-1" title="Material shortage">MAT</span>{%- endif %}
                                 {%- if job.waiting_temp %}<span class="badge bg-info text-dark" title="Waiting temp">TMP</span>{%- endif %}
                             </td>
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="13" class="text-center py-4 text-muted">No works orders found.</td>
+                            <td colspan="14" class="text-center py-4 text-muted">No works orders found.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -254,7 +289,7 @@ Operations WIP Overview
                 <div class="d-flex align-items-center gap-2 small">
                     <span class="text-muted">Rows:</span>
                     {% for n in [25, 50, 100, 200] %}
-                    <a href="{{ url_for('operations.wip_overview', page=1, q=search, category=category, per_page=n) }}"
+                    <a href="{{ url_for('operations.wip_overview', page=1, q=search, category=category, per_page=n, shortages_only='1' if shortages_only else '0') }}"
                        class="btn btn-xs btn-outline-secondary py-0 px-2 {{ 'active fw-semibold' if per_page == n }}"
                        style="font-size:0.75rem;">{{ n }}</a>
                     {% endfor %}
@@ -264,21 +299,21 @@ Operations WIP Overview
                 <nav aria-label="Job list pagination">
                     <ul class="pagination pagination-sm mb-0">
                         <li class="page-item {{ 'disabled' if not jobs.has_prev }}">
-                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.prev_num, q=search, category=category, per_page=per_page) if jobs.has_prev else '#' }}">
+                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.prev_num, q=search, category=category, per_page=per_page, shortages_only='1' if shortages_only else '0') if jobs.has_prev else '#' }}">
                                 <i class="bi bi-chevron-left"></i>
                             </a>
                         </li>
                         {% for p in jobs.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
                             {% if p %}
                                 <li class="page-item {{ 'active' if p == jobs.page }}">
-                                    <a class="page-link" href="{{ url_for('operations.wip_overview', page=p, q=search, category=category, per_page=per_page) }}">{{ p }}</a>
+                                    <a class="page-link" href="{{ url_for('operations.wip_overview', page=p, q=search, category=category, per_page=per_page, shortages_only='1' if shortages_only else '0') }}">{{ p }}</a>
                                 </li>
                             {% else %}
                                 <li class="page-item disabled"><span class="page-link">…</span></li>
                             {% endif %}
                         {% endfor %}
                         <li class="page-item {{ 'disabled' if not jobs.has_next }}">
-                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.next_num, q=search, category=category, per_page=per_page) if jobs.has_next else '#' }}">
+                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.next_num, q=search, category=category, per_page=per_page, shortages_only='1' if shortages_only else '0') if jobs.has_next else '#' }}">
                                 <i class="bi bi-chevron-right"></i>
                             </a>
                         </li>

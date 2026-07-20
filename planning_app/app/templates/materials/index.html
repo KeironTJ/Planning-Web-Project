@@ -15,33 +15,42 @@
 <!-- KPI cards -->
 <div class="row g-3 mb-4">
     <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
+        <a href="{{ url_for('materials.stock_list') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
             <div class="fs-2 fw-bold text-primary">{{ summary.stock_lines }}</div>
             <div class="text-muted small">Stock Lines</div>
             {% if summary.zero_stock %}
-            <div class="text-warning small">{{ summary.zero_stock }} at zero</div>
+            <div class="text-warning small"><i class="bi bi-exclamation-triangle me-1"></i>{{ summary.zero_stock }} at zero</div>
             {% endif %}
-        </div>
+        </div></a>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
+        <a href="{{ url_for('materials.po_list') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
             <div class="fs-2 fw-bold text-success">{{ summary.po_lines }}</div>
             <div class="text-muted small">Open PO Lines</div>
-        </div>
+        </div></a>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
+        <a href="{{ url_for('materials.main_requirements') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
             <div class="fs-2 fw-bold text-info">{{ summary.main_reqs }}</div>
             <div class="text-muted small">Material Requirements</div>
-        </div>
+        </div></a>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
+        <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-danger border' if summary.shortage_est else '' }}">
             <div class="fs-2 fw-bold {{ 'text-danger' if summary.shortage_est else 'text-success' }}">
                 {{ summary.shortage_est }}
             </div>
-            <div class="text-muted small">Lines with Potential Shortage</div>
-        </div>
+            <div class="text-muted small">Material Lines in Shortage</div>
+            {% if summary.shortage_est %}
+            <div class="text-danger small"><i class="bi bi-exclamation-circle me-1"></i>Action required</div>
+            {% else %}
+            <div class="text-success small"><i class="bi bi-check2 me-1"></i>All covered</div>
+            {% endif %}
+        </div></a>
     </div>
 </div>
 
@@ -202,11 +211,15 @@
 
 <!-- Data freshness notice -->
 {% if summary.last_stock_import %}
-<div class="alert alert-light border small">
-    <i class="bi bi-info-circle me-1"></i>
-    Stock last imported: <strong>{{ summary.last_stock_import.uploaded_at.strftime('%d %b %Y %H:%M') }}</strong>.
-    Data is refreshed by daily ERP export — import all CSVs each morning for accurate shortage figures.
-    <a href="{{ url_for('admin.import_upload') }}" class="alert-link ms-2">Upload now</a>
+<div class="alert alert-light border small d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span>
+        <i class="bi bi-clock me-1"></i>
+        Stock last synced: <strong>{{ summary.last_stock_import.uploaded_at.strftime('%d %b %Y %H:%M') }}</strong>.
+        Refresh daily for accurate figures.
+    </span>
+    <a href="{{ url_for('admin.import_upload') }}" class="btn btn-sm btn-outline-secondary py-0">
+        <i class="bi bi-arrow-clockwise me-1"></i>Sync now
+    </a>
 </div>
 {% else %}
 <div class="alert alert-warning">
