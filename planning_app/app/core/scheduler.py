@@ -181,6 +181,17 @@ def init_scheduler(app) -> None:
         logger.info("Scheduler: skipped (TESTING=True)")
         return
 
+    # Skip when running Flask CLI commands (flask db upgrade, flask shell, etc.).
+    # CLI commands invoke create_app() but don't need a background scheduler,
+    # and the daemon thread cleanup on exit causes a segfault on Python 3.13.
+    try:
+        import click
+        if click.get_current_context(silent=True) is not None:
+            logger.info("Scheduler: skipped (Flask CLI command)")
+            return
+    except ImportError:
+        pass
+
     # In debug mode Flask runs two processes; only start in the child.
     if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         logger.info("Scheduler: skipped (Werkzeug reloader parent process)")
