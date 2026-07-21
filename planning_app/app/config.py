@@ -73,6 +73,7 @@ class BaseConfig:
 
     # --- APScheduler ---
     SCHEDULER_API_ENABLED: bool = False  # disable REST management API (not needed)
+    SCHEDULER_TIMEZONE: str = "UTC"
 
 
 class DevelopmentConfig(BaseConfig):

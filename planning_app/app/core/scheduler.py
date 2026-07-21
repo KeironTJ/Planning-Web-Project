@@ -200,8 +200,9 @@ def init_scheduler(app) -> None:
     )
 
     scheduler.start()
+    jobs = scheduler.get_jobs()
+    next_run = jobs[0].next_run_time if jobs else "(no jobs)"
     logger.info(
-        "Epicor sync scheduler started (tick every 60 s) — "
-        "pid=%d debug=%s WERKZEUG_RUN_MAIN=%r",
-        os.getpid(), app.debug, os.environ.get("WERKZEUG_RUN_MAIN"),
+        "Epicor sync scheduler started — pid=%d debug=%s next_tick=%s",
+        os.getpid(), app.debug, next_run,
     )
