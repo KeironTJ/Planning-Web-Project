@@ -85,8 +85,8 @@
           {% else %}<span class="badge bg-secondary">Off</span>{% endif %}
         </span>
         <span id="job-timing-{{ job.id }}" class="text-muted" style="font-size:.72rem">
-          {% if job.last_run_at %}Last {{ job.last_run_at.strftime('%d %b %H:%M') }}{% endif %}
-          {% if job.enabled and job.next_run_at %} · Next {{ job.next_run_at.strftime('%d %b %H:%M') }}{% endif %}
+          {% if job.last_run_at %}Last <time class="fmt-utc" data-utc="{{ job.last_run_at.isoformat() }}"></time>{% endif %}
+          {% if job.enabled and job.next_run_at %} · Next <time class="fmt-utc" data-utc="{{ job.next_run_at.isoformat() }}"></time>{% endif %}
         </span>
         <button class="btn btn-sm btn-outline-primary run-job-btn" data-job="{{ job.id }}" title="Run now">
           <i class="bi bi-play-fill"></i> Run now
@@ -136,7 +136,7 @@
             </span>
           </td>
           <td class="small text-muted item-last-run-{{ item.id }}">
-            {% if item.last_run_at %}{{ item.last_run_at.strftime('%d %b %H:%M') }}{% else %}—{% endif %}
+            {% if item.last_run_at %}<time class="fmt-utc" data-utc="{{ item.last_run_at.isoformat() }}"></time>{% else %}—{% endif %}
           </td>
           <td class="text-center item-status-{{ item.id }}">
             {% if item.last_status == 'success' %}
@@ -355,14 +355,21 @@ function showToast(msg, type = 'success') {
   setTimeout(() => document.getElementById(id)?.remove(), 4000);
 }
 
-// ── Format ISO datetime for display ───────────────────────────────────────
+// ── Format ISO datetime for display (always browser local time) ───────────
 function fmtIso(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
+  // Append Z if no timezone offset present so the browser treats it as UTC
+  const normalised = /[Z+\-]\d*$/.test(iso) ? iso : iso + 'Z';
+  const d = new Date(normalised);
   const pad = n => String(n).padStart(2, '0');
   const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
   return `${pad(d.getDate())} ${m} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+// Convert all server-rendered UTC timestamps on page load
+document.querySelectorAll('time.fmt-utc[data-utc]').forEach(el => {
+  el.textContent = fmtIso(el.dataset.utc);
+});
 
 // ── Preset highlight ───────────────────────────────────────────────────────
 function highlightPreset(jobId, minutes) {

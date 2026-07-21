@@ -117,6 +117,16 @@ def run_due_jobs(app) -> None:
                             logger.exception("Scheduler: job %d item %r failed: %s", job.id, key, exc)
                         finally:
                             item.last_run_at = datetime.now(timezone.utc)
+                            # Commit each item result immediately so the SQLite write
+                            # lock is released before the next Epicor API call starts.
+                            # Without this, pending session changes trigger an autoflush
+                            # mid-loop, holding the write lock for the full duration of
+                            # all remaining API calls and blocking Flask requests.
+                            try:
+                                db.session.commit()
+                            except Exception:
+                                db.session.rollback()
+                                logger.exception("Scheduler: failed to save item result for %r in job %d", key, job.id)
 
                 # Derive overall job status from items
                 if not item_statuses or all(s == "success" for s in item_statuses):
@@ -151,24 +161,37 @@ def init_scheduler(app) -> None:
     from flask_apscheduler import APScheduler
 
     if app.config.get("TESTING"):
+        logger.info("Scheduler: skipped (TESTING=True)")
         return
 
     # In debug mode Flask runs two processes; only start in the child.
     if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        logger.info(
+            "Scheduler: skipped (debug reloader parent process — "
+            "FLASK_DEBUG=1 set but WERKZEUG_RUN_MAIN not present). "
+            "Remove FLASK_DEBUG from your .env to start the scheduler under Gunicorn."
+        )
         return
 
-    scheduler = APScheduler()
-    scheduler.init_app(app)
+    try:
+        scheduler = APScheduler()
+        scheduler.init_app(app)
 
-    scheduler.add_job(
-        id="epicor_sync_tick",
-        func=run_due_jobs,
-        args=[app],
-        trigger="interval",
-        seconds=60,
-        misfire_grace_time=30,
-        replace_existing=True,
-    )
+        scheduler.add_job(
+            id="epicor_sync_tick",
+            func=run_due_jobs,
+            args=[app],
+            trigger="interval",
+            seconds=60,
+            misfire_grace_time=30,
+            replace_existing=True,
+        )
 
-    scheduler.start()
-    logger.info("Epicor sync scheduler started (tick every 60 s)")
+        scheduler.start()
+        logger.info(
+            "Epicor sync scheduler started (tick every 60 s) — "
+            "pid=%d debug=%s WERKZEUG_RUN_MAIN=%r",
+            os.getpid(), app.debug, os.environ.get("WERKZEUG_RUN_MAIN"),
+        )
+    except Exception:
+        logger.exception("Scheduler: failed to start")
