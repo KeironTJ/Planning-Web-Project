@@ -56,109 +56,114 @@ def run_due_jobs(app) -> None:
     Args:
         app: The Flask application instance (not the proxy).
     """
+    import os
     from datetime import timedelta
 
-    from app.admin.models import SyncJob, SyncJobItem
-    from app.core.epicor_client import KineticClient
-    from app.core.epicor_importers import REGISTRY
-    from app.extensions import db
+    # Log BEFORE entering the app context so we know APScheduler called us.
+    logger.info("Scheduler tick fired (pid=%d)", os.getpid())
 
-    with app.app_context():
-        now = datetime.now(timezone.utc)
+    try:
+        from app.admin.models import SyncJob, SyncJobItem
+        from app.core.epicor_client import KineticClient
+        from app.core.epicor_importers import REGISTRY
+        from app.extensions import db
 
-        # Jobs with NULL next_run_at were never scheduled; treat them as
-        # immediately due so they run on the first tick after being enabled.
-        due_jobs = (
-            SyncJob.query
-            .filter(
-                SyncJob.enabled == True,       # noqa: E712
-                SyncJob.is_running == False,   # noqa: E712
-            )
-            .filter(
-                db.or_(
-                    SyncJob.next_run_at == None,   # noqa: E711
-                    SyncJob.next_run_at <= now,
+        with app.app_context():
+            now = datetime.now(timezone.utc)
+
+            # Jobs with NULL next_run_at were never scheduled; treat them as
+            # immediately due so they run on the first tick after being enabled.
+            due_jobs = (
+                SyncJob.query
+                .filter(
+                    SyncJob.enabled == True,       # noqa: E712
+                    SyncJob.is_running == False,   # noqa: E712
                 )
+                .filter(
+                    db.or_(
+                        SyncJob.next_run_at == None,   # noqa: E711
+                        SyncJob.next_run_at <= now,
+                    )
+                )
+                .all()
             )
-            .all()
-        )
 
-        # Always log the tick so it's visible in production logs.
-        enabled_total = SyncJob.query.filter(SyncJob.enabled == True).count()  # noqa: E712
-        logger.info(
-            "Scheduler tick: %d due (of %d enabled) — now=%s",
-            len(due_jobs), enabled_total, now.strftime("%H:%M:%S"),
-        )
+            # Always log the tick so it's visible in production logs.
+            enabled_total = SyncJob.query.filter(SyncJob.enabled == True).count()  # noqa: E712
+            logger.info(
+                "Scheduler tick: %d due (of %d enabled) — now=%s",
+                len(due_jobs), enabled_total, now.strftime("%H:%M:%S"),
+            )
 
-        if not due_jobs:
-            return
+            if not due_jobs:
+                return
 
-        for job in due_jobs:
-            # Mark as running and push next_run_at forward immediately.
-            job.is_running  = True
-            job.next_run_at = now + timedelta(minutes=job.interval_minutes)
-            try:
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-                logger.exception("Scheduler: failed to lock job %d %r", job.id, job.name)
-                continue
-
-            logger.info("Scheduler: starting job %d %r (%d items)", job.id, job.name, len(job.items))
-            item_statuses: list[str] = []
-
-            try:
-                with KineticClient.from_app(app) as client:
-                    for item in job.items:
-                        key = item.importer_key
-                        if key not in REGISTRY:
-                            logger.warning("Scheduler: unknown importer key %r in job %d — skipping", key, job.id)
-                            continue
-
-                        try:
-                            batch = REGISTRY[key](client).run(params=_resolve_item_params(item))
-                            item.last_status    = SyncJobItem.STATUS_SUCCESS
-                            item.last_row_count = batch.row_count
-                            item.last_error     = None
-                            item_statuses.append("success")
-                            logger.info("Scheduler: job %d item %r → %d rows", job.id, key, batch.row_count)
-                        except Exception as exc:
-                            item.last_status = SyncJobItem.STATUS_FAILED
-                            item.last_error  = str(exc)
-                            item_statuses.append("failed")
-                            logger.exception("Scheduler: job %d item %r failed: %s", job.id, key, exc)
-                        finally:
-                            item.last_run_at = datetime.now(timezone.utc)
-                            # Commit each item result immediately so the SQLite write
-                            # lock is released before the next Epicor API call starts.
-                            # Without this, pending session changes trigger an autoflush
-                            # mid-loop, holding the write lock for the full duration of
-                            # all remaining API calls and blocking Flask requests.
-                            try:
-                                db.session.commit()
-                            except Exception:
-                                db.session.rollback()
-                                logger.exception("Scheduler: failed to save item result for %r in job %d", key, job.id)
-
-                # Derive overall job status from items
-                if not item_statuses or all(s == "success" for s in item_statuses):
-                    job.last_status = SyncJob.STATUS_SUCCESS
-                elif all(s == "failed" for s in item_statuses):
-                    job.last_status = SyncJob.STATUS_FAILED
-                else:
-                    job.last_status = SyncJob.STATUS_PARTIAL
-
-            except Exception as exc:
-                job.last_status = SyncJob.STATUS_FAILED
-                logger.exception("Scheduler: job %d %r crashed: %s", job.id, job.name, exc)
-            finally:
-                job.is_running  = False
-                job.last_run_at = datetime.now(timezone.utc)
+            for job in due_jobs:
+                # Mark as running and push next_run_at forward immediately.
+                job.is_running  = True
+                job.next_run_at = now + timedelta(minutes=job.interval_minutes)
                 try:
                     db.session.commit()
                 except Exception:
                     db.session.rollback()
-                    logger.exception("Scheduler: failed to save results for job %d", job.id)
+                    logger.exception("Scheduler: failed to lock job %d %r", job.id, job.name)
+                    continue
+
+                logger.info("Scheduler: starting job %d %r (%d items)", job.id, job.name, len(job.items))
+                item_statuses: list[str] = []
+
+                try:
+                    with KineticClient.from_app(app) as client:
+                        for item in job.items:
+                            key = item.importer_key
+                            if key not in REGISTRY:
+                                logger.warning("Scheduler: unknown importer key %r in job %d — skipping", key, job.id)
+                                continue
+
+                            try:
+                                batch = REGISTRY[key](client).run(params=_resolve_item_params(item))
+                                item.last_status    = SyncJobItem.STATUS_SUCCESS
+                                item.last_row_count = batch.row_count
+                                item.last_error     = None
+                                item_statuses.append("success")
+                                logger.info("Scheduler: job %d item %r → %d rows", job.id, key, batch.row_count)
+                            except Exception as exc:
+                                item.last_status = SyncJobItem.STATUS_FAILED
+                                item.last_error  = str(exc)
+                                item_statuses.append("failed")
+                                logger.exception("Scheduler: job %d item %r failed: %s", job.id, key, exc)
+                            finally:
+                                item.last_run_at = datetime.now(timezone.utc)
+                                # Commit each item result immediately so the SQLite write
+                                # lock is released before the next Epicor API call starts.
+                                try:
+                                    db.session.commit()
+                                except Exception:
+                                    db.session.rollback()
+                                    logger.exception("Scheduler: failed to save item result for %r in job %d", key, job.id)
+
+                    # Derive overall job status from items
+                    if not item_statuses or all(s == "success" for s in item_statuses):
+                        job.last_status = SyncJob.STATUS_SUCCESS
+                    elif all(s == "failed" for s in item_statuses):
+                        job.last_status = SyncJob.STATUS_FAILED
+                    else:
+                        job.last_status = SyncJob.STATUS_PARTIAL
+
+                except Exception as exc:
+                    job.last_status = SyncJob.STATUS_FAILED
+                    logger.exception("Scheduler: job %d %r crashed: %s", job.id, job.name, exc)
+                finally:
+                    job.is_running  = False
+                    job.last_run_at = datetime.now(timezone.utc)
+                    try:
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+                        logger.exception("Scheduler: failed to save results for job %d", job.id)
+
+    except Exception:
+        logger.exception("Scheduler tick: unhandled exception in run_due_jobs")
 
 
 def init_scheduler(app) -> None:
