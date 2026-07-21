@@ -116,8 +116,10 @@ class ProductionConfig(BaseConfig):
     DEBUG: bool = False
     TESTING: bool = False
     SQLALCHEMY_DATABASE_URI: str = os.environ.get("DATABASE_URL", "")
-    SESSION_COOKIE_SECURE: bool = True   # HTTPS only
-    REMEMBER_COOKIE_SECURE: bool = True
+    # True by default (HTTPS only); set SESSION_COOKIE_SECURE=false in .env
+    # when running over plain HTTP (e.g. a staging server without TLS).
+    SESSION_COOKIE_SECURE: bool = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() != "false"
+    REMEMBER_COOKIE_SECURE: bool = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() != "false"
     CACHE_TYPE: str = os.environ.get("CACHE_TYPE", "RedisCache")
     CACHE_REDIS_URL: str = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
