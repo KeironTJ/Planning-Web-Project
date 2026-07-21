@@ -171,7 +171,7 @@ def init_scheduler(app) -> None:
     Attach the APScheduler tick job to the Flask app and start it.
 
     Called from the app factory.  Skipped in TESTING mode and in the
-    Werkzeug parent process (debug reloader guard).
+    Werkzeug parent reloader process.
     """
     import os
 
@@ -183,32 +183,25 @@ def init_scheduler(app) -> None:
 
     # In debug mode Flask runs two processes; only start in the child.
     if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-        logger.info(
-            "Scheduler: skipped (debug reloader parent process — "
-            "FLASK_DEBUG=1 set but WERKZEUG_RUN_MAIN not present). "
-            "Remove FLASK_DEBUG from your .env to start the scheduler under Gunicorn."
-        )
+        logger.info("Scheduler: skipped (Werkzeug reloader parent process)")
         return
 
-    try:
-        scheduler = APScheduler()
-        scheduler.init_app(app)
+    scheduler = APScheduler()
+    scheduler.init_app(app)
 
-        scheduler.add_job(
-            id="epicor_sync_tick",
-            func=run_due_jobs,
-            args=[app],
-            trigger="interval",
-            seconds=60,
-            misfire_grace_time=30,
-            replace_existing=True,
-        )
+    scheduler.add_job(
+        id="epicor_sync_tick",
+        func=run_due_jobs,
+        args=[app],
+        trigger="interval",
+        seconds=60,
+        misfire_grace_time=30,
+        replace_existing=True,
+    )
 
-        scheduler.start()
-        logger.info(
-            "Epicor sync scheduler started (tick every 60 s) — "
-            "pid=%d debug=%s WERKZEUG_RUN_MAIN=%r",
-            os.getpid(), app.debug, os.environ.get("WERKZEUG_RUN_MAIN"),
-        )
-    except Exception:
-        logger.exception("Scheduler: failed to start")
+    scheduler.start()
+    logger.info(
+        "Epicor sync scheduler started (tick every 60 s) — "
+        "pid=%d debug=%s WERKZEUG_RUN_MAIN=%r",
+        os.getpid(), app.debug, os.environ.get("WERKZEUG_RUN_MAIN"),
+    )

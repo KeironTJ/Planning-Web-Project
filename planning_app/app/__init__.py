@@ -59,22 +59,10 @@ def create_app(config_class=None) -> Flask:
     app.cli.add_command(epicor_cli)
 
     # --- Start Background Scheduler ---
-    # Under Gunicorn the scheduler is started in a single worker via the
-    # post_fork hook in gunicorn.conf.py.  For the Flask dev server the
-    # scheduler is started here directly (WERKZEUG_RUN_MAIN guard inside
-    # init_scheduler prevents duplicate instances under the reloader).
-    import os
-    if not os.environ.get("GUNICORN_CMD_ARGS") and not _is_gunicorn():
-        from .core.scheduler import init_scheduler
-        init_scheduler(app)
+    from .core.scheduler import init_scheduler
+    init_scheduler(app)
 
     return app
-
-
-def _is_gunicorn() -> bool:
-    """Return True when the current process was launched by Gunicorn."""
-    import sys
-    return any("gunicorn" in arg for arg in sys.argv)
 
 
 def _init_extensions(app: Flask) -> None:
