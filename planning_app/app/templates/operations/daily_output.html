@@ -9,7 +9,7 @@
         <p class="text-muted small mb-0">
             {{ 'Weekly' if view == 'weekly' else 'Daily' }} view &middot; {{ date_from.strftime('%d %b %Y') }} &ndash; {{ date_to.strftime('%d %b %Y') }}
             {%- if total_qty > 0 %} &middot; <strong class="text-dark">{{ "{:,.0f}".format(total_qty | int) }}</strong> units{%- endif %}
-            {% if last_imported %} &middot; Last sync {{ last_imported.strftime('%d %b %Y %H:%M') }}{% endif %}
+            {% if last_imported %} &middot; Last sync {{ last_imported | utcfmt('datetime-year') }}{% endif %}
         </p>
     </div>
     <div class="d-flex align-items-center gap-2">
@@ -577,4 +577,9 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 {% endif %}
+
+<script>
+// Auto-reload every 2 minutes, preserving the current date/view filters.
+setTimeout(() => location.reload(), 2 * 60 * 1000);
+</script>
 {% endblock %}

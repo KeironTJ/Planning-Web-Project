@@ -746,6 +746,10 @@ setInterval(() => {
         const fresh = doc.getElementById(el.id);
         if (fresh) el.innerHTML = fresh.innerHTML;
       });
+      // Convert any newly-injected UTC timestamps to local time
+      document.querySelectorAll('time.fmt-utc[data-utc]').forEach(el => {
+        el.textContent = fmtIso(el.dataset.utc);
+      });
     })
     .catch(() => {});
 }, 30000);

@@ -173,6 +173,36 @@ def _register_error_handlers(app: Flask) -> None:
 def _register_template_globals(app: Flask) -> None:
     """Inject variables and helpers available in all templates."""
 
+    from markupsafe import Markup
+
+    @app.template_filter("utcfmt")
+    def utcfmt_filter(dt, fmt: str = "datetime") -> str:
+        """
+        Render a UTC-aware datetime as a <time class="fmt-utc"> element.
+        The browser-side fmtIso() in base.html converts it to local time.
+
+        Usage:
+            {{ batch.uploaded_at | utcfmt }}            → dd Mon HH:MM (local)
+            {{ user.created_at   | utcfmt('date-only')  → dd Mon YYYY  (local)
+            {{ batch.uploaded_at | utcfmt('datetime-year') → dd Mon YYYY HH:MM
+        """
+        if dt is None:
+            return Markup("—")
+        iso = dt.isoformat()
+        # Fallback text (shown before JS runs)
+        from datetime import timezone as _tz
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_tz.utc)
+        if fmt == "date-only":
+            fallback = dt.strftime("%d %b %Y")
+        elif fmt == "datetime-year":
+            fallback = dt.strftime("%d %b %Y %H:%M")
+        else:
+            fallback = dt.strftime("%d %b %H:%M")
+        return Markup(
+            f'<time class="fmt-utc" data-utc="{iso}" data-fmt="{fmt}">{fallback}</time>'
+        )
+
     @app.template_filter("hm")
     def hours_minutes_filter(decimal_hours) -> str:
         """Format a decimal hours value as '2hrs 30mins'."""

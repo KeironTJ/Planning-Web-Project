@@ -374,15 +374,14 @@ def wip_export():
 @login_required
 def daily_output():
     today         = date.today()
-    default_from  = today - timedelta(days=today.weekday())   # Monday of current week
     date_7d       = today - timedelta(days=6)
-    date_from_str = request.args.get('date_from', default_from.isoformat())
+    date_from_str = request.args.get('date_from', today.isoformat())
     date_to_str   = request.args.get('date_to',   today.isoformat())
     try:
         date_from = date.fromisoformat(date_from_str)
         date_to   = date.fromisoformat(date_to_str)
     except ValueError:
-        date_from = default_from
+        date_from = today
         date_to   = today
 
     view = request.args.get('view', 'daily')

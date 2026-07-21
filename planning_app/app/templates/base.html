@@ -66,6 +66,28 @@
             crossorigin="anonymous" defer></script>
     <!-- App JS -->
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+    <!-- UTC → browser-local time conversion (runs on every page) -->
+    <script>
+    function fmtIso(iso, includeDate) {
+      if (!iso) return '';
+      const normalised = /[Z+\-]\d*$/.test(iso) ? iso : iso + 'Z';
+      const d = new Date(normalised);
+      if (isNaN(d)) return iso;
+      const pad = n => String(n).padStart(2, '0');
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      const date = `${pad(d.getDate())} ${months[d.getMonth()]}`;
+      const year = d.getFullYear();
+      if (includeDate === 'date-only') return `${date} ${year}`;
+      if (includeDate === 'datetime-year') return `${date} ${year} ${time}`;
+      return `${date} ${time}`;
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('time.fmt-utc[data-utc]').forEach(el => {
+        el.textContent = fmtIso(el.dataset.utc, el.dataset.fmt);
+      });
+    });
+    </script>
     {% block extra_js %}{% endblock %}
 
 </body>
