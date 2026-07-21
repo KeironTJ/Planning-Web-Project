@@ -201,7 +201,11 @@ def init_scheduler(app) -> None:
 
     scheduler.start()
     jobs = scheduler.get_jobs()
-    next_run = jobs[0].next_run_time if jobs else "(no jobs)"
+    if jobs:
+        job_obj = jobs[0]
+        next_run = getattr(job_obj, 'next_run_time', None) or getattr(job_obj, 'next_fire_time', None)
+    else:
+        next_run = "(no jobs)"
     logger.info(
         "Epicor sync scheduler started — pid=%d debug=%s next_tick=%s",
         os.getpid(), app.debug, next_run,
