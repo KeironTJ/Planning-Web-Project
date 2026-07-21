@@ -168,14 +168,14 @@ def run_due_jobs(app) -> None:
 
 def init_scheduler(app) -> None:
     """
-    Attach the APScheduler tick job to the Flask app and start it.
+    Start a daemon thread that calls run_due_jobs every 60 seconds.
 
     Called from the app factory.  Skipped in TESTING mode and in the
     Werkzeug parent reloader process.
     """
     import os
-
-    from flask_apscheduler import APScheduler
+    import threading
+    import time
 
     if app.config.get("TESTING"):
         logger.info("Scheduler: skipped (TESTING=True)")
@@ -186,27 +186,18 @@ def init_scheduler(app) -> None:
         logger.info("Scheduler: skipped (Werkzeug reloader parent process)")
         return
 
-    scheduler = APScheduler()
-    scheduler.init_app(app)
+    def _tick_loop():
+        logger.info("Scheduler thread started (pid=%d)", os.getpid())
+        while True:
+            time.sleep(60)
+            try:
+                run_due_jobs(app)
+            except Exception:
+                logger.exception("Scheduler: tick crashed — will retry next cycle")
 
-    scheduler.add_job(
-        id="epicor_sync_tick",
-        func=run_due_jobs,
-        args=[app],
-        trigger="interval",
-        seconds=60,
-        misfire_grace_time=30,
-        replace_existing=True,
-    )
-
-    scheduler.start()
-    jobs = scheduler.get_jobs()
-    if jobs:
-        job_obj = jobs[0]
-        next_run = getattr(job_obj, 'next_run_time', None) or getattr(job_obj, 'next_fire_time', None)
-    else:
-        next_run = "(no jobs)"
+    t = threading.Thread(target=_tick_loop, daemon=True, name="epicor-sync-tick")
+    t.start()
     logger.info(
-        "Epicor sync scheduler started — pid=%d debug=%s next_tick=%s",
-        os.getpid(), app.debug, next_run,
+        "Epicor sync scheduler started (tick every 60 s) — pid=%d debug=%s",
+        os.getpid(), app.debug,
     )
