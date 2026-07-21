@@ -66,20 +66,32 @@ def run_due_jobs(app) -> None:
     with app.app_context():
         now = datetime.now(timezone.utc)
 
+        # Jobs with NULL next_run_at were never scheduled; treat them as
+        # immediately due so they run on the first tick after being enabled.
         due_jobs = (
             SyncJob.query
             .filter(
                 SyncJob.enabled == True,       # noqa: E712
-                SyncJob.next_run_at <= now,
                 SyncJob.is_running == False,   # noqa: E712
+            )
+            .filter(
+                db.or_(
+                    SyncJob.next_run_at == None,   # noqa: E711
+                    SyncJob.next_run_at <= now,
+                )
             )
             .all()
         )
 
+        # Always log the tick so it's visible in production logs.
+        enabled_total = SyncJob.query.filter(SyncJob.enabled == True).count()  # noqa: E712
+        logger.info(
+            "Scheduler tick: %d due (of %d enabled) — now=%s",
+            len(due_jobs), enabled_total, now.strftime("%H:%M:%S"),
+        )
+
         if not due_jobs:
             return
-
-        logger.info("Scheduler tick: %d job(s) due", len(due_jobs))
 
         for job in due_jobs:
             # Mark as running and push next_run_at forward immediately.

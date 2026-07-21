@@ -24,5 +24,12 @@ def post_fork(server, worker):
     if worker.age == 1:
         from wsgi import app
         from app.core.scheduler import init_scheduler
+        server.log.info(
+            "post_fork: starting scheduler in worker pid=%d "
+            "(app.debug=%s FLASK_DEBUG=%r FLASK_ENV=%r)",
+            os.getpid(),
+            app.debug,
+            os.environ.get("FLASK_DEBUG"),
+            os.environ.get("FLASK_ENV"),
+        )
         init_scheduler(app)
-        server.log.info("Scheduler started in worker pid=%d", os.getpid())
