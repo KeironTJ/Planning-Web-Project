@@ -8,6 +8,19 @@ the WSGI server can import a fully configured app without side effects.
 from flask import Flask, render_template
 from .config import get_config
 from .extensions import db, migrate, login_manager, bcrypt, csrf, jwt, cache, cors
+import logging
+
+
+def _configure_logging(app: Flask) -> None:
+    """Send INFO+ from all app loggers to stderr so Gunicorn/journald captures them."""
+    if not app.debug and not app.config.get("TESTING"):
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        )
+        # Suppress noisy third-party loggers
+        logging.getLogger("apscheduler").setLevel(logging.WARNING)
+        logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
 
 def create_app(config_class=None) -> Flask:
@@ -25,6 +38,9 @@ def create_app(config_class=None) -> Flask:
 
     # --- Configuration ---
     app.config.from_object(config_class or get_config())
+
+    # --- Logging ---
+    _configure_logging(app)
 
     # --- Initialise Extensions ---
     _init_extensions(app)
