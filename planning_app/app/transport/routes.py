@@ -247,17 +247,60 @@ def loading_bay():
     _kpi_urgent = [o for o in orders_list
                    if o["order_status"] == "ready" and not o["on_hold"]
                    and o["days_delta"] is not None and o["days_delta"] < 0]
+    _kpi_ready  = [o for o in orders_list if o["order_status"] == "ready" and not o["on_hold"]]
+    _kpi_partial = [o for o in orders_list if o["order_status"] == "partial"]
     kpi_summary = {
-        "total_orders":   len(orders_list),
-        "ready_orders":   total_ready_orders,
-        "partial_orders": total_partial_orders,
-        "held_count":     len(_kpi_held),
-        "held_value":     sum(o["invoiceable_value"] for o in _kpi_held),
-        "urgent_count":   len(_kpi_urgent),
-        "urgent_value":   sum(o["invoiceable_value"] for o in _kpi_urgent),
-        "intl_count":     sum(1 for o in orders_list
+        "total_orders":    len(orders_list),
+        "ready_orders":    total_ready_orders,
+        "partial_orders":  total_partial_orders,
+        "held_count":      len(_kpi_held),
+        "held_value":      sum(o["invoiceable_value"] for o in _kpi_held),
+        "urgent_count":    len(_kpi_urgent),
+        "urgent_value":    sum(o["invoiceable_value"] for o in _kpi_urgent),
+        "intl_count":      sum(1 for o in orders_list
                                if o["is_international"] and o["order_status"] == "ready"
                                and not o["on_hold"]),
+        # Value breakdowns for KPI cards
+        "ready_value":       sum(o["invoiceable_value"] for o in _kpi_ready),
+        "partial_fin_value": sum(o["invoiceable_value"] for o in _kpi_partial),
+        "total_value":       sum(o["invoiceable_value"] for o in orders_list),
+        # Full potential: finished + all WIP lines if they were to complete
+        "full_potential":    sum(o["total_value"] for o in orders_list),
+    }
+
+    # ── Shipping Horizon (unfiltered — ready orders by days to due) ──────
+    _h_labels = ["Overdue", "Today", "1–3 days", "4–7 days", "8–14 days", "15+ days", "No date"]
+    _h_ready  = [0.0] * 7
+    _h_held   = [0.0] * 7
+
+    for o in orders_list:
+        if o["order_status"] != "ready":
+            continue
+        v = o["invoiceable_value"]
+        d = o["days_delta"]
+        if d is None:
+            idx = 6
+        elif d < 0:
+            idx = 0
+        elif d == 0:
+            idx = 1
+        elif d <= 3:
+            idx = 2
+        elif d <= 7:
+            idx = 3
+        elif d <= 14:
+            idx = 4
+        else:
+            idx = 5
+        if o["on_hold"]:
+            _h_held[idx] += v
+        else:
+            _h_ready[idx] += v
+
+    shipping_horizon = {
+        "labels": _h_labels,
+        "ready":  [round(v, 2) for v in _h_ready],
+        "held":   [round(v, 2) for v in _h_held],
     }
 
     # ── Status filter (applied after classification) ────────────────────
@@ -324,9 +367,40 @@ def loading_bay():
             cust_map[cn]["ready_value"]   += o["invoiceable_value"]
         else:
             cust_map[cn]["partial_value"] += o["invoiceable_value"]
-    customer_summary = sorted(
-        cust_map.values(), key=lambda x: x["value"], reverse=True
-    )[:15]
+    _all_customers  = sorted(cust_map.values(), key=lambda x: x["value"], reverse=True)
+    customer_chart = _all_customers[:15]          # chart — top 15 only
+    customer_table = _all_customers               # full list for the summary table
+
+    # ── Material shortage status for WIP orders ────────────────────────────
+    try:
+        from app.purchasing.materials.services import (
+            get_so_material_status, get_job_material_status, MAT_STATUS_META,
+        )
+        _PRIO = {"no_data": -1, "ok": 0, "low_risk": 1, "med_risk": 2, "high_risk": 3}
+        _so_strs  = [str(o["order_num"]) for o in orders_list]
+        _mat_map  = get_so_material_status(_so_strs) if _so_strs else {}
+        _all_jobs = [
+            j["job_num"]
+            for o in orders_list
+            for rel in o["releases"]
+            for j in rel["jobs"]
+            if j["job_num"] and rel["status"] != "finished"
+        ]
+        _job_mat = get_job_material_status(_all_jobs) if _all_jobs else {}
+        for o in orders_list:
+            o["mat_status"] = _mat_map.get(str(o["order_num"]), "no_data")
+            for rel in o["releases"]:
+                if rel["status"] == "finished":
+                    rel["mat_status"] = "no_data"
+                else:
+                    job_stats = [_job_mat.get(j["job_num"], "no_data") for j in rel["jobs"] if j["job_num"]]
+                    rel["mat_status"] = max(job_stats, key=lambda s: _PRIO.get(s, -1)) if job_stats else "no_data"
+    except Exception:
+        MAT_STATUS_META = {}
+        for o in orders_list:
+            o["mat_status"] = "no_data"
+            for rel in o["releases"]:
+                rel["mat_status"] = "no_data"
 
     # ── Summary KPIs (all computed from filtered orders_list) ────────────
     held_ready   = [o for o in orders_list if o["on_hold"] and o["order_status"] == "ready"]
@@ -360,11 +434,101 @@ def loading_bay():
         orders=orders_list,
         summary=summary,
         kpi_summary=kpi_summary,
-        customer_summary=customer_summary,
+        customer_chart=customer_chart,
+        customer_table=customer_table,
+        mat_status_meta=MAT_STATUS_META,
         urgent_orders=urgent_orders,
+        shipping_horizon=shipping_horizon,
         today=today,
         sort=sort,
         search=search,
         customer_f=customer_f,
         status_f=status_f,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Loading Bay — Physical State
+# ---------------------------------------------------------------------------
+
+@transport_bp.route("/bay-state")
+@login_required
+def bay_state():
+    """
+    Physical loading bay state.
+
+    Shows every finished-goods release grouped by its wip_bin location so
+    the transport team can see what is physically staged and where.
+    """
+    today = date.today()
+    _domestic = {"united kingdom", "uk", "gb", "great britain", "northern ireland"}
+
+    rows = (
+        db.session.query(SalesOrder)
+        .filter(
+            SalesOrder.open_order == True,   # noqa: E712
+            SalesOrder.assembly_seq == 0,
+            SalesOrder.required_qty > 0,
+            SalesOrder.qty_completed >= SalesOrder.required_qty,
+        )
+        .order_by(
+            SalesOrder.wip_bin,
+            SalesOrder.need_by_date.asc().nullslast(),
+            SalesOrder.order_num,
+        )
+        .all()
+    )
+
+    _bay_map: dict[str, list] = defaultdict(list)
+    for row in rows:
+        bin_name = (row.wip_bin or "").strip() or "Unstaged"
+        on_hold  = bool(row.so_credit_hold or row.customer_credit_hold or row.order_held)
+        days_delta = (row.need_by_date - today).days if row.need_by_date else None
+        _bay_map[bin_name].append({
+            "order_num":         row.order_num,
+            "customer_name":     row.customer_name or "",
+            "customer_country":  row.customer_country or "",
+            "part_num":          row.part_num or "",
+            "part_desc":         row.part_desc or "",
+            "model":             row.model or "",
+            "size_desc":         row.size_desc or "",
+            "order_line":        row.order_line,
+            "rel_num":           row.rel_num,
+            "qty_completed":     float(row.qty_completed or 0),
+            "release_price_gbp": float(row.release_price_gbp or 0),
+            "need_by_date":      row.need_by_date,
+            "days_delta":        days_delta,
+            "on_hold":           on_hold,
+            "is_international":  bool(
+                row.customer_country and
+                row.customer_country.lower() not in _domestic
+            ),
+        })
+
+    bay_board = sorted(
+        [
+            {
+                "bin":   k,
+                "lines": sorted(v, key=lambda i: (i["need_by_date"] or date.max)),
+                "value": round(sum(i["release_price_gbp"] for i in v), 2),
+                "qty":   sum(i["qty_completed"] for i in v),
+                "count": len(v),
+            }
+            for k, v in _bay_map.items()
+        ],
+        key=lambda b: ("zzzzz" if b["bin"] == "Unstaged" else b["bin"].lower()),
+    )
+
+    total_value = round(sum(b["value"] for b in bay_board), 2)
+    total_qty   = sum(b["qty"]   for b in bay_board)
+    total_lines = sum(b["count"] for b in bay_board)
+
+    return render_template(
+        "transport/bay_state.html",
+        title="Loading Bay State",
+        bay_board=bay_board,
+        today=today,
+        total_value=total_value,
+        total_qty=total_qty,
+        total_lines=total_lines,
     )

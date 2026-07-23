@@ -47,6 +47,9 @@
 </div>
 
 {# ── KPI Cards ─────────────────────────────────────────────────────── #}
+{# Helper macro for compact £ formatting #}
+{% macro fmt_val(v) %}{% if v >= 1000000 %}£{{ "%.1f"|format(v/1000000) }}m{% elif v >= 1000 %}£{{ "{:,.0f}".format(v/1000) }}k{% else %}£{{ "{:,.0f}".format(v) }}{% endif %}{% endmacro %}
+
 <div class="row g-3 mb-4">
 
     <div class="col-6 col-md-4 col-xl-2">
@@ -54,6 +57,7 @@
         <div class="card border-0 shadow-sm h-100 text-center py-3 kpi-clickable {% if not status_f %}kpi-active{% endif %}">
             <div class="kpi-card-value text-success">{{ kpi_summary.total_orders }}</div>
             <div class="small text-muted">Orders with Finished Goods</div>
+            <div class="text-muted mt-1" style="font-size:.75rem;">{{ fmt_val(kpi_summary.total_value) }} total</div>
         </div>
         </a>
     </div>
@@ -63,6 +67,7 @@
         <div class="card border-success shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'ready' %}kpi-active{% endif %}">
             <div class="kpi-card-value text-success">{{ kpi_summary.ready_orders }}</div>
             <div class="small text-success">Fully Ready to Ship</div>
+            <div class="text-success fw-semibold mt-1" style="font-size:.8rem;">{{ fmt_val(kpi_summary.ready_value) }}</div>
         </div>
         </a>
     </div>
@@ -72,6 +77,7 @@
         <div class="card border-warning shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'partial' %}kpi-active{% endif %}">
             <div class="kpi-card-value text-warning">{{ kpi_summary.partial_orders }}</div>
             <div class="small text-warning">Partial (WIP Remaining)</div>
+            <div class="text-warning mt-1" style="font-size:.75rem;">{{ fmt_val(kpi_summary.partial_fin_value) }} finished</div>
         </div>
         </a>
     </div>
@@ -82,6 +88,7 @@
         <div class="card border-danger shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'urgent' %}kpi-active{% endif %}">
             <div class="kpi-card-value text-danger">{{ kpi_summary.urgent_count }}</div>
             <div class="small text-danger fw-semibold">Urgent — Overdue &amp; Ready</div>
+            <div class="text-danger fw-semibold mt-1" style="font-size:.8rem;">{{ fmt_val(kpi_summary.urgent_value) }}</div>
         </div>
         </a>
     </div>
@@ -93,7 +100,7 @@
         <div class="card border-danger border-opacity-50 shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'on_hold' %}kpi-active{% endif %}">
             <div class="kpi-card-value text-danger">{{ kpi_summary.held_count }}</div>
             <div class="small text-danger">Ready but On Hold</div>
-            <div class="text-muted" style="font-size:.72rem;">£{{ "{:,.0f}".format(kpi_summary.held_value) }} blocked</div>
+            <div class="text-danger fw-semibold mt-1" style="font-size:.8rem;">{{ fmt_val(kpi_summary.held_value) }} blocked</div>
         </div>
         </a>
     </div>
@@ -110,23 +117,35 @@
 
     <div class="col-6 col-md-4 col-xl-2">
         <div class="card border-0 shadow-sm h-100 text-center py-3">
-            <div class="kpi-card-value text-primary">{{ "%.0f" | format(summary.total_units_ready) }}</div>
+            <div class="kpi-card-value text-primary">{{ "%.0f"|format(summary.total_units_ready) }}</div>
             <div class="small text-muted">Units Ready</div>
         </div>
     </div>
 
-    <div class="col-12 col-md-8 col-xl-4">
+    {# ── Two value cards: Ready to Invoice + Total Potential ── #}
+    <div class="col-6 col-md-4 col-xl-2">
+        <a href="{{ url_for('transport.loading_bay', status='ready', sort=sort) }}" class="text-decoration-none">
+        <div class="card border-success border-opacity-75 shadow-sm h-100 text-center py-3 px-2 kpi-clickable">
+            <div class="kpi-card-value text-success">{{ fmt_val(kpi_summary.ready_value) }}</div>
+            <div class="small text-success fw-semibold">Ready to Invoice</div>
+            <div class="text-muted mt-1" style="font-size:.7rem;">Clear orders, no holds</div>
+        </div>
+        </a>
+    </div>
+
+    <div class="col-6 col-md-4 col-xl-2">
         <div class="card border-0 shadow-sm h-100 text-center py-3 px-2">
-            {% set v = summary.total_invoiceable %}
-            {% if v >= 1000000 %}
-                {% set v_fmt = "£{:,.0f}m".format(v / 1000000) %}
-            {% elif v >= 1000 %}
-                {% set v_fmt = "£{:,.0f}k".format(v / 1000) %}
-            {% else %}
-                {% set v_fmt = "£{:,.0f}".format(v) %}
-            {% endif %}
-            <div class="kpi-card-value text-success">{{ v_fmt }}</div>
-            <div class="small text-muted">Invoicing Potential (GBP, finished lines)</div>
+            <div class="kpi-card-value text-secondary">{{ fmt_val(kpi_summary.total_value) }}</div>
+            <div class="small text-muted">All Finished Goods</div>
+            <div class="text-muted mt-1" style="font-size:.7rem;">Ready + held + partial finished</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-0 shadow-sm h-100 text-center py-3 px-2" style="border-left:3px solid #6f42c1 !important;">
+            <div class="kpi-card-value" style="color:#6f42c1;">{{ fmt_val(kpi_summary.full_potential) }}</div>
+            <div class="small text-muted">Full Potential</div>
+            <div class="text-muted mt-1" style="font-size:.7rem;">If all WIP completes</div>
         </div>
     </div>
 
@@ -144,37 +163,41 @@
 </div>
 {% else %}
 
-{# ── Charts row ────────────────────────────────────────────────────── #}
-<div class="row g-3 mb-4 no-print">
-    <div class="col-12 col-lg-7">
+
+{# -- Bay State link -------------------------------------------- #}
+<div class="d-flex align-items-center justify-content-end mb-3 no-print">
+    <a href="{{ url_for('transport.bay_state') }}" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-geo-alt-fill me-1"></i>View Loading Bay State
+    </a>
+</div>
+
+{# -- Charts: Invoicing Potential + Order Readiness ------------------- #}
+<div class="row g-3 mb-3 no-print">
+    {% if customer_chart %}
+    <div class="col-12 col-lg-8">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-transparent border-0 pb-0">
                 <h6 class="mb-0 fw-semibold">
                     <i class="bi bi-bar-chart-horizontal me-2 text-success"></i>
-                    Invoicing Potential by Customer (top 15)
+                    Invoicing Potential by Customer
+                    <span class="badge text-bg-light border text-muted fw-normal ms-1" style="font-size:.7rem;">top 15</span>
                 </h6>
-                <p class="text-muted small mb-0">Ready / partial / on-hold breakdown per customer</p>
+                <p class="text-muted small mb-0">Ready / partial / on-hold &mdash; full list in table below</p>
             </div>
             <div class="card-body">
-                {% if customer_summary %}
-                <canvas id="chartCustomer"
-                        style="height:{{ [customer_summary | length * 28 + 20, 140] | max }}px;"></canvas>
-                {% else %}
-                <div class="text-center text-muted py-4 small">No data.</div>
-                {% endif %}
+                <canvas id="chartCustomer" style="height:280px;"></canvas>
             </div>
         </div>
     </div>
-
-    <div class="col-12 col-lg-5">
+    {% endif %}
+    <div class="col-12 col-lg-4">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-transparent border-0 pb-0 d-flex align-items-start justify-content-between">
                 <div>
                     <h6 class="mb-0 fw-semibold">
-                        <i class="bi bi-pie-chart me-2 text-warning"></i>
-                        Order Readiness
+                        <i class="bi bi-pie-chart me-2 text-warning"></i>Order Readiness
                     </h6>
-                    <p class="text-muted small mb-0">Ready to ship vs. partial vs. on hold</p>
+                    <p class="text-muted small mb-0">Ready vs. partial vs. on hold</p>
                 </div>
                 <div class="btn-group btn-group-sm no-print" role="group">
                     <button id="readinessByValue" class="btn btn-primary btn-sm active">Value</button>
@@ -182,20 +205,27 @@
                 </div>
             </div>
             <div class="card-body d-flex align-items-center justify-content-center">
-                <canvas id="chartReadiness" style="max-height:200px; max-width:200px;"></canvas>
+                <canvas id="chartReadiness" style="max-height:220px; max-width:220px;"></canvas>
             </div>
         </div>
     </div>
 </div>
 
 {# ── Customer invoice-potential summary table ──────────────────────── #}
-{% if customer_summary %}
+{% if customer_table %}
 <div class="card border-0 shadow-sm mb-4">
-    <div class="card-header bg-transparent border-0">
+    <div class="card-header bg-transparent border-0 d-flex align-items-center justify-content-between">
         <h6 class="mb-0 fw-semibold">
             <i class="bi bi-receipt me-2 text-primary"></i>Invoicing Summary by Customer
+            <span class="badge text-bg-secondary ms-1 fw-normal">{{ customer_table | length }}</span>
         </h6>
+        <button class="btn btn-sm btn-outline-secondary no-print"
+                type="button" data-bs-toggle="collapse"
+                data-bs-target="#custTablePanel" aria-expanded="true">
+            <i class="bi bi-table me-1"></i>Show / Hide
+        </button>
     </div>
+    <div class="collapse show" id="custTablePanel">
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0 align-middle">
@@ -211,8 +241,8 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for c in customer_summary %}
-                    <tr>
+                    {% for c in customer_table %}
+                    <tr {% if loop.index > 15 %}class="cust-extra-row" style="display:none;"{% endif %}>
                         <td class="ps-3 fw-semibold">{{ c.name }}</td>
                         <td class="text-center">
                             <span class="badge text-bg-secondary">{{ c.orders }}</span>
@@ -238,7 +268,7 @@
                 </tbody>
                 <tfoot class="table-light fw-semibold">
                     {% set ns = namespace(ready=0.0, partial=0.0, held=0.0, total=0.0, units=0.0, units_total=0.0, orders=0) %}
-                    {% for c in customer_summary %}
+                    {% for c in customer_table %}
                         {% set ns.ready   = ns.ready   + c.ready_value %}
                         {% set ns.partial = ns.partial + c.partial_value %}
                         {% set ns.held    = ns.held    + c.held_value %}
@@ -248,7 +278,7 @@
                         {% set ns.orders  = ns.orders  + c.orders %}
                     {% endfor %}
                     <tr>
-                        <td class="ps-3">Total (top {{ customer_summary | length }})</td>
+                        <td class="ps-3">All {{ customer_table | length }} customers</td>
                         <td class="text-center">{{ ns.orders }}</td>
                         <td class="text-end text-nowrap">
                             <span class="text-success fw-semibold">{{ "%.0f" | format(ns.units) }}</span>
@@ -262,11 +292,19 @@
                 </tfoot>
             </table>
         </div>
+        {% if customer_table | length > 15 %}
+        <div class="text-center py-2 border-top" id="custShowMoreRow">
+            <button class="btn btn-link btn-sm text-muted" id="custShowMoreBtn">
+                <i class="bi bi-chevron-down me-1"></i>Show all {{ customer_table | length }} customers
+            </button>
+        </div>
+        {% endif %}
+    </div>
     </div>
 </div>
 {% endif %}
 
-{# ── Filter & Order Detail ─────────────────────────────────────────── #}
+{# ── Filter & Order Detail ──────────────────────────────────── #}
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-header bg-transparent border-0">
         <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
@@ -341,6 +379,7 @@
                         <th>Cust PO Ref</th>
                         <th>Due Date</th>
                         <th class="text-center">Status</th>
+                        <th class="text-center" title="Material availability">Mat.</th>
                         <th class="text-center">Lines</th>
                         <th class="text-end">Units Ready</th>
                         <th class="text-end pe-3">Invoiceable (GBP)</th>
@@ -409,6 +448,22 @@
                             </span>
                             {% endif %}
                         </td>
+                        {# ── Material status column ── #}
+                        <td class="text-center">
+                            {% if o.mat_status != 'no_data' %}
+                            <a href="{{ url_for('materials.mrp', so=o.order_num) }}" target="_blank" class="text-decoration-none">
+                            {% if o.mat_status == 'high_risk' %}
+                            <span class="badge text-bg-danger" style="font-size:.65rem;" title="Material shortage — click for MRP pegging"><i class="bi bi-exclamation-triangle-fill me-1"></i>Short</span>
+                            {% elif o.mat_status == 'med_risk' %}
+                            <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="Material at risk — click for MRP pegging"><i class="bi bi-clock-fill me-1"></i>At Risk</span>
+                            {% elif o.mat_status == 'low_risk' %}
+                            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="CO cover — click for MRP pegging"><i class="bi bi-info-circle me-1"></i>CO Cover</span>
+                            {% elif o.mat_status == 'ok' %}
+                            <span class="badge text-bg-success" style="font-size:.65rem;" title="Materials OK — click for MRP pegging"><i class="bi bi-check2 me-1"></i>OK</span>
+                            {% endif %}
+                            </a>
+                            {% endif %}
+                        </td>
                         <td class="text-center small">
                             <span class="text-success fw-bold">{{ o.finished_count }}</span>
                             <span class="text-muted">/ {{ o.total_lines }}</span>
@@ -463,6 +518,22 @@
                                     <i class="bi bi-geo-alt-fill me-1 text-primary"></i>{{ rel.wip_bin }}
                                 </span>
                             </div>
+                            {% endif %}
+                        </td>
+                        {# ── Release-level material status ── #}
+                        <td class="text-center">
+                            {% if rel.mat_status != 'no_data' %}
+                            <a href="{{ url_for('materials.mrp', so=o.order_num) }}" target="_blank" class="text-decoration-none">
+                            {% if rel.mat_status == 'high_risk' %}
+                            <span class="badge text-bg-danger" style="font-size:.65rem;" title="Material shortage"><i class="bi bi-exclamation-triangle-fill me-1"></i>Short</span>
+                            {% elif rel.mat_status == 'med_risk' %}
+                            <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="At risk"><i class="bi bi-clock-fill me-1"></i>At Risk</span>
+                            {% elif rel.mat_status == 'low_risk' %}
+                            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="CO cover"><i class="bi bi-info-circle me-1"></i>CO Cover</span>
+                            {% elif rel.mat_status == 'ok' %}
+                            <span class="badge text-bg-success" style="font-size:.65rem;" title="Materials OK"><i class="bi bi-check2 me-1"></i>OK</span>
+                            {% endif %}
+                            </a>
                             {% endif %}
                         </td>
                         <td class="text-center small text-muted">
@@ -530,7 +601,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // ── Charts ─────────────────────────────────────────────────────────
-    var custData   = {{ customer_summary | tojson }};
+    var custData   = {{ customer_chart | tojson }};
     var readyCount = {{ summary.ready_orders - summary.held_count }};
     var partCount  = {{ summary.partial_orders }};
     var heldCount  = {{ summary.held_count }};
@@ -653,6 +724,31 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
     }
+
+    // ── Customer table show-more ───────────────────────────────────────
+    var custMoreBtn = document.getElementById('custShowMoreBtn');
+    if (custMoreBtn) {
+        custMoreBtn.addEventListener('click', function () {
+            document.querySelectorAll('.cust-extra-row').forEach(function (tr) {
+                tr.style.display = '';
+            });
+            document.getElementById('custShowMoreRow').style.display = 'none';
+        });
+    }
+
+    // ── Bay board "show more" ───────────────────────────────────────────
+    document.querySelectorAll('.bay-show-more').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var bayIdx = btn.dataset.bay;
+            var card   = document.getElementById('bay-' + bayIdx);
+            if (!card) return;
+            card.querySelectorAll('.bay-extra-item').forEach(function (li) {
+                li.style.display = '';
+            });
+            var moreRow = document.getElementById('bay-more-' + bayIdx);
+            if (moreRow) moreRow.style.display = 'none';
+        });
+    });
 });
 </script>
 {% endblock %}

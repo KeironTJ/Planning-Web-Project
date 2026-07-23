@@ -205,7 +205,13 @@
             <li class="nav-item">
                 <a class="nav-link py-1 {% if request.endpoint == 'transport.loading_bay' %}active{% endif %}"
                    href="{{ url_for('transport.loading_bay') }}">
-                    <i class="bi bi-boxes me-2"></i>Loading Bay
+                    <i class="bi bi-graph-up-arrow me-2"></i>Shipping Value
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link py-1 {% if request.endpoint == 'transport.bay_state' %}active{% endif %}"
+                   href="{{ url_for('transport.bay_state') }}">
+                    <i class="bi bi-geo-alt-fill me-2"></i>Bay State
                 </a>
             </li>
 

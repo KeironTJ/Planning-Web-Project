@@ -513,6 +513,44 @@ def get_so_material_status(
     return result
 
 
+def get_job_material_status(job_nums: list[str]) -> dict[str, str]:
+    """
+    Compute material availability status per production job number.
+
+    Uses the same cached MRP netting as get_so_material_status() so there is no
+    extra database cost when both are called on the same request.
+
+    Returns {job_num: status} with the same tier codes:
+        ok / low_risk / med_risk / high_risk / no_data
+    """
+    if not job_nums:
+        return {}
+
+    job_set = set(job_nums)
+    result: dict[str, str] = {j: "no_data" for j in job_nums}
+
+    report = _cached_unfiltered_report()
+
+    for row in report["rows"]:
+        job = row.works_order
+        if not job or job not in job_set:
+            continue
+
+        if row.net_required == Decimal(0):
+            line_status = "ok"
+        elif row.shortage > Decimal(0):
+            line_status = "high_risk"
+        elif row.stock_on_hand < row.net_required:
+            line_status = "med_risk"
+        else:
+            line_status = "ok"
+
+        if _MAT_STATUS_PRIORITY.get(line_status, 0) > _MAT_STATUS_PRIORITY.get(result[job], -1):
+            result[job] = line_status
+
+    return result
+
+
 def get_mrp_pegging(
     search: Optional[str] = None,
     so_number: Optional[str] = None,

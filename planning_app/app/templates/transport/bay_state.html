@@ -1,0 +1,228 @@
+{% extends 'base.html' %}
+
+{% block page_actions %}
+<a href="{{ url_for('transport.loading_bay') }}" class="btn btn-sm btn-outline-secondary no-print">
+    <i class="bi bi-graph-up-arrow me-1"></i>Shipping Value
+</a>
+<a href="{{ url_for('transport.dashboard') }}" class="btn btn-sm btn-outline-secondary no-print">
+    <i class="bi bi-truck me-1"></i>Transport
+</a>
+<button onclick="window.print()" class="btn btn-sm btn-outline-secondary no-print">
+    <i class="bi bi-printer me-1"></i>Print
+</button>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    @media print {
+        .no-print { display: none !important; }
+        .card { break-inside: avoid; }
+    }
+    .bay-card-header { background: linear-gradient(90deg, rgba(13,110,253,.06) 0%, transparent 100%); }
+    .bay-card-header.unstaged { background: rgba(108,117,125,.05); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── Header ───────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+    <div class="d-flex align-items-center gap-3">
+        <div class="rounded-3 p-2 bg-primary bg-opacity-10 flex-shrink-0">
+            <i class="bi bi-geo-alt-fill fs-3 text-primary"></i>
+        </div>
+        <div>
+            <h5 class="mb-0 fw-semibold">Loading Bay — Current State</h5>
+            <p class="text-muted mb-0 small">
+                Finished goods staged by physical bin location
+                &mdash; {{ today.strftime('%d %B %Y') }}
+            </p>
+        </div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap no-print">
+        <a href="{{ url_for('transport.loading_bay') }}" class="btn btn-sm btn-outline-success">
+            <i class="bi bi-graph-up-arrow me-1"></i>Shipping Value Report
+        </a>
+    </div>
+</div>
+
+{# ── KPI bar ──────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center py-3 h-100">
+            <div class="fs-2 fw-bold text-primary">{{ bay_board | length }}</div>
+            <div class="small text-muted">Bay Locations</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center py-3 h-100">
+            <div class="fs-2 fw-bold text-success">{{ total_lines }}</div>
+            <div class="small text-muted">Release Lines</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center py-3 h-100">
+            <div class="fs-2 fw-bold text-primary">{{ "%.0f" | format(total_qty) }}</div>
+            <div class="small text-muted">Units Ready</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center py-3 h-100">
+            <div class="fs-2 fw-bold text-success">£{{ "{:,.0f}".format(total_value) }}</div>
+            <div class="small text-muted">Total Value (GBP)</div>
+        </div>
+    </div>
+</div>
+
+{% if not bay_board %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-inbox fs-1 text-muted d-block mb-2"></i>
+        <h5 class="fw-semibold text-muted mb-1">Loading bay is empty</h5>
+        <p class="text-muted mb-0 small">No finished goods have completed production at this time.</p>
+    </div>
+</div>
+{% else %}
+
+{# ── Bay Board ────────────────────────────────────────────────────── #}
+<div class="row g-3">
+    {% for bay in bay_board %}
+    {% set is_unstaged = bay.bin == 'Unstaged' %}
+    <div class="col-12 col-sm-6 col-xl-4">
+        <div class="card border-0 shadow h-100">
+
+            <div class="card-header border-bottom py-2
+                        {% if is_unstaged %}bay-card-header unstaged{% else %}bay-card-header{% endif %}
+                        d-flex align-items-start justify-content-between">
+                <div>
+                    <span class="fw-semibold fs-6
+                                 {% if is_unstaged %}text-secondary{% else %}text-primary{% endif %}">
+                        <i class="bi bi-{% if is_unstaged %}question-circle{% else %}geo-alt-fill{% endif %} me-1"></i>
+                        {{ bay.bin }}
+                    </span>
+                    {% if is_unstaged %}
+                    <div class="text-muted small">No bin assigned to these lines</div>
+                    {% endif %}
+                </div>
+                <div class="text-end flex-shrink-0 ms-2">
+                    <span class="badge text-bg-primary">{{ bay.count }} line{{ 's' if bay.count != 1 }}</span>
+                    <div class="small text-muted mt-1">
+                        <strong>{{ "%.0f" | format(bay.qty) }}</strong> units
+                        &middot; <strong>£{{ "{:,.0f}".format(bay.value) }}</strong>
+                    </div>
+                </div>
+            </div>
+
+            <ul class="list-group list-group-flush" id="bay-{{ loop.index }}">
+                {% for item in bay.lines[:8] %}
+                {% set urgent = item.days_delta is not none and item.days_delta < 0 %}
+                {% set due_today = item.days_delta == 0 %}
+                {% set due_soon  = item.days_delta is not none and item.days_delta <= 3 %}
+                <li class="list-group-item py-2 px-3
+                    {% if item.on_hold %}list-group-item-danger
+                    {% elif urgent %}list-group-item-warning{% endif %}"
+                    style="font-size:.83rem;">
+
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div class="text-truncate">
+                            <span class="fw-semibold">{{ item.customer_name }}</span>
+                            {% if item.is_international %}
+                            <i class="bi bi-globe2 ms-1 text-info" title="Export: {{ item.customer_country }}"></i>
+                            {% endif %}
+                            <span class="badge text-bg-secondary font-monospace ms-1" style="font-size:.64rem;">
+                                {{ item.order_num }}
+                            </span>
+                            {% if item.on_hold %}
+                            <i class="bi bi-slash-circle text-danger ms-1" title="On Hold"></i>
+                            {% endif %}
+                        </div>
+                        <div class="text-end text-nowrap flex-shrink-0">
+                            <span class="text-success fw-semibold">{{ "%.0f" | format(item.qty_completed) }}</span>
+                            <span class="text-muted"> u</span>
+                        </div>
+                    </div>
+
+                    <div class="text-muted text-truncate small">
+                        {{ item.part_num }}
+                        {% if item.model %}&thinsp;<span class="text-dark">{{ item.model }}</span>{% endif %}
+                        {% if item.size_desc %}&thinsp;<span class="badge text-bg-light border text-dark" style="font-size:.65rem;">{{ item.size_desc }}</span>{% endif %}
+                    </div>
+
+                    {% if item.need_by_date %}
+                    <div class="mt-1">
+                        {% if urgent %}
+                        <span class="badge text-bg-danger" style="font-size:.65rem;">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                            {{ item.days_delta | abs }}d overdue &mdash; {{ item.need_by_date.strftime('%d %b') }}
+                        </span>
+                        {% elif due_today %}
+                        <span class="badge text-bg-warning text-dark" style="font-size:.65rem;">
+                            <i class="bi bi-clock-fill me-1"></i>Due today
+                        </span>
+                        {% elif due_soon %}
+                        <span class="badge text-bg-warning text-dark" style="font-size:.65rem;">
+                            Due {{ item.need_by_date.strftime('%d %b') }} ({{ item.days_delta }}d)
+                        </span>
+                        {% else %}
+                        <span class="text-muted" style="font-size:.72rem;">
+                            Due {{ item.need_by_date.strftime('%d %b %Y') }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+
+                </li>
+                {% endfor %}
+
+                {% if bay.lines | length > 8 %}
+                {% for item in bay.lines[8:] %}
+                <li class="list-group-item py-2 px-3 bay-extra-item" style="font-size:.83rem; display:none;">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div class="text-truncate">
+                            <span class="fw-semibold">{{ item.customer_name }}</span>
+                            <span class="badge text-bg-secondary font-monospace ms-1" style="font-size:.64rem;">{{ item.order_num }}</span>
+                        </div>
+                        <div class="text-end text-nowrap flex-shrink-0">
+                            <span class="text-success fw-semibold">{{ "%.0f" | format(item.qty_completed) }}</span>
+                            <span class="text-muted"> u</span>
+                        </div>
+                    </div>
+                    <div class="text-muted text-truncate small">
+                        {{ item.part_num }}
+                        {% if item.size_desc %}&thinsp;<span class="badge text-bg-light border text-dark" style="font-size:.65rem;">{{ item.size_desc }}</span>{% endif %}
+                    </div>
+                </li>
+                {% endfor %}
+                <li class="list-group-item py-2 px-3 text-center" id="bay-more-{{ loop.index }}">
+                    <button class="btn btn-link btn-sm p-0 small text-muted bay-show-more"
+                            data-bay="{{ loop.index }}">
+                        <i class="bi bi-chevron-down me-1"></i>Show {{ bay.lines | length - 8 }} more line{{ 's' if (bay.lines | length - 8) != 1 }}
+                    </button>
+                </li>
+                {% endif %}
+
+            </ul>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.bay-show-more').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var bayIdx = btn.dataset.bay;
+            var ul = document.getElementById('bay-' + bayIdx);
+            if (!ul) return;
+            ul.querySelectorAll('.bay-extra-item').forEach(function (li) { li.style.display = ''; });
+            var moreRow = document.getElementById('bay-more-' + bayIdx);
+            if (moreRow) moreRow.style.display = 'none';
+        });
+    });
+});
+</script>
+{% endblock %}

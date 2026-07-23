@@ -115,6 +115,22 @@ def order_book():
         for line in o.get("lines", []):
             line["next_op"] = next_op_map.get(line["job_num"], "")
 
+    # ── Material availability status ─────────────────────────────────────
+    try:
+        from app.purchasing.materials.services import get_so_material_status, get_job_material_status
+        _so_mat   = get_so_material_status([o["so_number"] for o in orders])
+        _all_jobs = [line["job_num"] for o in orders for line in o.get("lines", []) if line["job_num"]]
+        _job_mat  = get_job_material_status(_all_jobs) if _all_jobs else {}
+        for o in orders:
+            o["mat_status"] = _so_mat.get(o["so_number"], "no_data")
+            for line in o.get("lines", []):
+                line["mat_status"] = _job_mat.get(line["job_num"], "no_data") if line["job_num"] else "no_data"
+    except Exception:
+        for o in orders:
+            o["mat_status"] = "no_data"
+            for line in o.get("lines", []):
+                line["mat_status"] = "no_data"
+
     return render_template(
         "orders/order_book.html",
         title="Open Order Book",
