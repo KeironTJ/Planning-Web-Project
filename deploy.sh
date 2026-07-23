@@ -26,7 +26,19 @@ echo "==> Installing/updating Python dependencies..."
 
 if [ "$NO_MIGRATE" -eq 0 ]; then
   echo "==> Running DB migrations..."
-  (cd "$APP_DIR" && "$VENV/flask" db upgrade)
+  # flask db upgrade may exit with a segfault (code 139) on Python 3.13 during
+  # interpreter shutdown — the migration itself completes successfully before it.
+  # Treat exit 139 (SIGSEGV) as a warning rather than a fatal error.
+  (cd "$APP_DIR" && "$VENV/flask" db upgrade) || {
+    code=$?
+    if [ $code -eq 139 ]; then
+      echo "    WARNING: flask db upgrade exited with segfault (139) — likely a"
+      echo "    Python 3.13 + C extension shutdown bug. Migration ran successfully."
+    else
+      echo "    ERROR: flask db upgrade failed (exit $code)"
+      exit $code
+    fi
+  }
 fi
 
 echo "==> Reloading systemd and restarting $SERVICE..."

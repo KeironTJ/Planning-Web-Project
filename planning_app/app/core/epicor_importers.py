@@ -34,9 +34,10 @@ class StockImporter(EpicorBaqImporter):
     Full replace on every run (truncate + reload).
     """
 
-    BAQ_NAME = "PlanningStockReport"
+    BAQ_NAME  = "PlanningStockReport"
     IMPORT_TYPE = "epicor_stock"
-    BAQ_PARAMS = {"JobReqByDateSTKPLAN": ""}   # required param; empty string = no date filter
+    BAQ_PARAMS  = {"JobReqByDateSTKPLAN": ""}   # required param; empty string = no date filter
+    PAGE_SIZE   = 2000
 
     def _target_table(self) -> str:
         return "stock"
@@ -107,11 +108,12 @@ class PurchaseOrderImporter(EpicorBaqImporter):
     Full replace on every run (truncate + reload).
     """
 
-    BAQ_NAME = "OSPurchaseOrders"
+    BAQ_NAME    = "OSPurchaseOrders"
     IMPORT_TYPE = "epicor_purchase_orders"
     # No static params needed — BAQ returns all open POs without filtering.
     # Pass params at runtime if you need to filter: importer.run(params={"PartNum": "ABC"})
-    BAQ_PARAMS = {}
+    BAQ_PARAMS  = {}
+    PAGE_SIZE   = 2000
 
     def _target_table(self) -> str:
         return "purchase_orders"
@@ -778,6 +780,16 @@ class ProductionOutputImporter(EpicorBaqImporter):
     # Adjust if you need to go further back.
     HISTORY_START = "2020-01-01"
 
+    # Epicor's PlanningOutPut BAQ applies $skip before the date filter, so a
+    # large date range that requires pagination returns wrong/missing rows for
+    # weeks that straddle a page boundary.  Break the range into slices small
+    # enough to always fit within a single page (no $skip needed).
+    # At ~50 workers × 2 entries/day, 7 days ≈ 700 rows — safely under the
+    # 500-row default page size only if you reduce PAGE_SIZE, so use 7 days
+    # with a matching PAGE_SIZE cap.
+    CHUNK_DAYS = 7
+    PAGE_SIZE  = 5000  # high cap so each weekly chunk is never paginated
+
     def _target_table(self) -> str:
         return "production_output"
 
@@ -868,10 +880,35 @@ class ProductionOutputImporter(EpicorBaqImporter):
             ).delete()
             db.session.flush()
 
+        # De-duplicate BAQ rows: PlanningOutPut joins LaborDtl to JobHead /
+        # OrderDtl / OrderHed.  When a job has multiple order releases, the
+        # same LaborDtl row appears once per matching release, inflating sums.
+        #
+        # RowIdent in this BAQ is a sequential BAQ-generated row number
+        # (e.g. 00000001-...) — NOT the stored LaborDtl GUID — so it cannot
+        # be used for de-duplication.  The proper fix is to ask the Epicor
+        # admin to add LaborDtl_LaborDtlSeq to the PlanningOutPut BAQ; until
+        # then we use the best available composite key.  Including labor_qty
+        # avoids collapsing two genuine same-day sessions with different qtys.
+        seen: set = set()
         inserted = 0
+        skipped  = 0
         for r in records:
+            row_ident = r.get("RowIdent") or None
+            key = (
+                r.get("LaborDtl_JobNum"),
+                r.get("LaborDtl_OprSeq"),
+                r.get("LaborDtl_EmployeeNum"),
+                r.get("LaborDtl_ClockInDate"),
+                r.get("LaborDtl_LaborQty"),
+            )
+            if key in seen:
+                skipped += 1
+                continue
+            seen.add(key)
+
             db.session.add(ProductionOutput(
-                row_ident    = r.get("RowIdent") or None,
+                row_ident    = row_ident,
                 job_num      = r.get("LaborDtl_JobNum") or None,
                 assembly_seq = r.get("JobAsmbl_AssemblySeq"),
                 opr_seq      = r.get("LaborDtl_OprSeq"),
@@ -897,7 +934,11 @@ class ProductionOutputImporter(EpicorBaqImporter):
             inserted += 1
 
         batch.rows_inserted = inserted
-        batch.notes = f"Deleted {deleted} stale rows in date range; {inserted} inserted"
+        batch.notes = (
+            f"Deleted {deleted} stale rows in date range; "
+            f"{inserted} inserted"
+            + (f"; {skipped} BAQ duplicates skipped" if skipped else "")
+        )
 
 
 # ---------------------------------------------------------------------------
