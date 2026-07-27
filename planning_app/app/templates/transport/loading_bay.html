@@ -210,7 +210,24 @@
         </div>
     </div>
 </div>
-
+{# ── Weekly Loading Timeline ──────────────────────────────────────────── #}
+<div class="row g-3 mb-3 no-print">
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent border-0 pb-0">
+                <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-calendar-week me-2 text-primary"></i>Loading Value by Planned Week
+                    <span class="text-muted small fw-normal ms-2">Finished-goods invoicing value &mdash; ready / partial / on hold</span>
+                </h6>
+            </div>
+            <div class="card-body py-2">
+                <div style="height:280px; position:relative;">
+                    <canvas id="chartWeeklyLoading"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {# ── Customer invoice-potential summary table ──────────────────────── #}
 {% if customer_table %}
 <div class="card border-0 shadow-sm mb-4">
@@ -723,6 +740,72 @@ document.addEventListener('DOMContentLoaded', function () {
                 btnVal.classList.replace('btn-primary', 'btn-outline-primary');
             });
         }
+    }
+
+    // ── Weekly Loading Timeline chart ─────────────────────────────────
+    var wlData = {{ weekly_loading | tojson }};
+    if (document.getElementById('chartWeeklyLoading')) {
+        new Chart(document.getElementById('chartWeeklyLoading'), {
+            type: 'bar',
+            data: {
+                labels: wlData.labels,
+                datasets: [
+                    {
+                        label: 'Ready to Ship',
+                        data: wlData.ready,
+                        backgroundColor: '#198754',
+                        borderRadius: 2,
+                    },
+                    {
+                        label: 'Partial (WIP remaining)',
+                        data: wlData.partial,
+                        backgroundColor: '#fd7e14',
+                        borderRadius: 0,
+                    },
+                    {
+                        label: 'Ready but On Hold',
+                        data: wlData.held,
+                        backgroundColor: '#dc3545',
+                        borderRadius: 0,
+                    },
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                if (!ctx.raw) return null;
+                                return ' ' + ctx.dataset.label + ': £' + ctx.raw.toLocaleString('en-GB', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+                            },
+                            footer: function(items) {
+                                var total = items.reduce(function(s, i) { return s + (i.raw || 0); }, 0);
+                                return total ? 'Total: £' + total.toLocaleString('en-GB', {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        ticks: { font: { size: 11 } }
+                    },
+                    y: {
+                        stacked: true,
+                        ticks: {
+                            callback: function(v) {
+                                if (v >= 1000000) return '£' + (v / 1000000).toFixed(1) + 'm';
+                                if (v >= 1000)    return '£' + (v / 1000).toFixed(0) + 'k';
+                                return '£' + v;
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     // ── Customer table show-more ───────────────────────────────────────

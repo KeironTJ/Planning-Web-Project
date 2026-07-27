@@ -1,7 +1,7 @@
 """Transport department portal routes."""
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 
 from flask import render_template, request
 from flask_login import login_required
@@ -303,6 +303,51 @@ def loading_bay():
         "held":   [round(v, 2) for v in _h_held],
     }
 
+    # ── Weekly Loading Timeline (unfiltered — all orders by need_by_date week) ──
+    _wk_start = today - timedelta(days=today.weekday())   # Monday of current week
+    _NUM_WEEKS = 6
+
+    _wk_buckets: list = []
+    for _i in range(_NUM_WEEKS):
+        _ws = _wk_start + timedelta(weeks=_i)
+        _we = _ws + timedelta(days=6)
+        _iso_yr, _iso_wn, _ = _ws.isocalendar()
+        _wk_label = (f"Wk {_iso_wn}" if _iso_yr == today.year
+                     else f"Wk {_iso_wn} '{str(_iso_yr)[-2:]}")
+        _wk_buckets.append((_wk_label, _ws, _we))
+
+    _wl_labels  = ["Overdue"] + [b[0] for b in _wk_buckets] + ["Later / No Date"]
+    _wl_ready   = [0.0] * len(_wl_labels)
+    _wl_held    = [0.0] * len(_wl_labels)
+    _wl_partial = [0.0] * len(_wl_labels)
+
+    for _o in orders_list:
+        _v  = _o["invoiceable_value"]
+        _nd = _o["due_date"]
+        if _nd is None:
+            _wl_idx = len(_wl_labels) - 1          # Later / No Date
+        elif _nd < _wk_start:
+            _wl_idx = 0                             # Overdue
+        else:
+            _wl_idx = len(_wl_labels) - 1          # Later / No Date (default)
+            for _wi, (_wl, _wbs, _wbe) in enumerate(_wk_buckets):
+                if _wbs <= _nd <= _wbe:
+                    _wl_idx = 1 + _wi
+                    break
+        if _o["on_hold"]:
+            _wl_held[_wl_idx]    += _v
+        elif _o["order_status"] == "ready":
+            _wl_ready[_wl_idx]   += _v
+        else:
+            _wl_partial[_wl_idx] += _v
+
+    weekly_loading = {
+        "labels":  _wl_labels,
+        "ready":   [round(v, 2) for v in _wl_ready],
+        "held":    [round(v, 2) for v in _wl_held],
+        "partial": [round(v, 2) for v in _wl_partial],
+    }
+
     # ── Status filter (applied after classification) ────────────────────
     if status_f == "ready":
         orders_list = [o for o in orders_list if o["order_status"] == "ready" and not o["on_hold"]]
@@ -439,6 +484,7 @@ def loading_bay():
         mat_status_meta=MAT_STATUS_META,
         urgent_orders=urgent_orders,
         shipping_horizon=shipping_horizon,
+        weekly_loading=weekly_loading,
         today=today,
         sort=sort,
         search=search,
