@@ -69,6 +69,7 @@ def _init_extensions(app: Flask) -> None:
     """Bind all extensions to the app instance."""
     db.init_app(app)
     _configure_sqlite(app)
+    _configure_postgres(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
     bcrypt.init_app(app)
@@ -97,6 +98,24 @@ def _configure_sqlite(app: Flask) -> None:
         if isinstance(dbapi_conn, sqlite3.Connection):
             dbapi_conn.execute("PRAGMA journal_mode=WAL")
             dbapi_conn.execute("PRAGMA busy_timeout=30000")
+
+
+def _configure_postgres(app: Flask) -> None:
+    """Force UTF-8 client encoding on PostgreSQL connections.
+
+    Without this, servers with a non-UTF-8 locale (e.g. LANG=C) cause
+    psycopg2 to raise 'ascii codec can't encode character' when Epicor
+    returns product descriptions containing accented letters or special
+    characters.  No-ops silently for non-PostgreSQL databases.
+    """
+    import psycopg2.extensions
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    @event.listens_for(Engine, "connect")
+    def _set_encoding(dbapi_conn, _record):
+        if isinstance(dbapi_conn, psycopg2.extensions.connection):
+            dbapi_conn.set_client_encoding("UTF8")
 
 
 def _register_blueprints(app: Flask) -> None:
