@@ -791,7 +791,13 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
             SalesOrder.req_date.isnot(None),
             SalesOrder.req_date <= cutoff,
         )
-        .group_by(SalesOrder.order_num, SalesOrder.order_line, SalesOrder.rel_num)
+        .group_by(
+            SalesOrder.order_num,
+            SalesOrder.order_line,
+            SalesOrder.rel_num,
+            SalesOrder.req_date,
+            SalesOrder.release_price_gbp,
+        )
         .subquery()
     )
 
