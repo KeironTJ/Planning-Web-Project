@@ -49,7 +49,7 @@ class WorksOrder(db.Model):
     ship_to_name     = db.Column(db.String(150), nullable=True)
     ship_to_zip      = db.Column(db.String(20),  nullable=True)
     order_book_comments = db.Column(db.Text,     nullable=True)
-    grn              = db.Column(db.String(100),  nullable=True)
+    grn              = db.Column(db.Text,         nullable=True)
     net_unit_price     = db.Column(db.Numeric(14, 4), nullable=True)
     net_unit_price_gbp = db.Column(db.Numeric(14, 4), nullable=True)
     part_num      = db.Column(db.String(50),  nullable=True, index=True)
