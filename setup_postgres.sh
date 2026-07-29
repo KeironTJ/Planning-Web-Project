@@ -29,7 +29,8 @@ if command -v psql &>/dev/null; then
 else
   echo "==> Installing PostgreSQL..."
   sudo apt-get update -q
-  sudo apt-get install -y postgresql postgresql-contrib
+  sudo apt-get install -y postgresql postgresql-contrib \
+      python3-dev libpq-dev build-essential
   sudo systemctl enable postgresql
   sudo systemctl start postgresql
   echo "==> PostgreSQL installed and started."
