@@ -209,7 +209,7 @@ class SalesOrder(db.Model):
 
     # --- Order type / channel ---
     so_type          = db.Column(db.String(20),  nullable=True, index=True)   # OrderHed_SOType_c
-    so_type_desc     = db.Column(db.String(100), nullable=True)               # UDCodes_CodeDesc
+    so_type_desc     = db.Column(db.Text,        nullable=True)               # UDCodes_CodeDesc
     channel          = db.Column(db.String(50),  nullable=True, index=True)   # ICCode_Description
     prod_code        = db.Column(db.String(50),  nullable=True, index=True)   # OrderDtl_ProdCode
 
