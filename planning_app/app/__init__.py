@@ -106,9 +106,14 @@ def _configure_postgres(app: Flask) -> None:
     Without this, servers with a non-UTF-8 locale (e.g. LANG=C) cause
     psycopg2 to raise 'ascii codec can't encode character' when Epicor
     returns product descriptions containing accented letters or special
-    characters.  No-ops silently for non-PostgreSQL databases.
+    characters.  No-ops silently if psycopg2 is not installed (e.g. dev
+    machines using SQLite).
     """
-    import psycopg2.extensions
+    try:
+        import psycopg2.extensions
+    except ImportError:
+        return  # psycopg2 not installed — SQLite dev environment, skip
+
     from sqlalchemy import event
     from sqlalchemy.engine import Engine
 
