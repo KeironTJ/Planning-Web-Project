@@ -1171,7 +1171,8 @@ def get_customer_report(customer_ids: list[str], closed_months: int = 12) -> Opt
     intake_from = today - timedelta(days=365)
     monthly_rows = (
         db.session.query(
-            func.strftime("%Y-%m", SalesOrder.order_date).label("ym"),
+            extract("year",  SalesOrder.order_date).label("yr"),
+            extract("month", SalesOrder.order_date).label("mn"),
             func.sum(SalesOrder.release_price_gbp).label("val"),
             func.sum(SalesOrder.selling_qty).label("qty"),
             func.count(SalesOrder.order_num.distinct()).label("cnt"),
@@ -1182,13 +1183,13 @@ def get_customer_report(customer_ids: list[str], closed_months: int = 12) -> Opt
             SalesOrder.order_date >= intake_from,
             SalesOrder.order_date.isnot(None),
         )
-        .group_by(func.strftime("%Y-%m", SalesOrder.order_date))
-        .order_by(func.strftime("%Y-%m", SalesOrder.order_date))
+        .group_by(extract("year", SalesOrder.order_date), extract("month", SalesOrder.order_date))
+        .order_by(extract("year", SalesOrder.order_date), extract("month", SalesOrder.order_date))
         .all()
     )
     monthly_intake = [
         {
-            "month":  r.ym,
+            "month":  f"{int(r.yr)}-{int(r.mn):02d}",
             "value":  round(float(r.val or 0), 2),
             "units":  round(float(r.qty or 0), 0),
             "orders": r.cnt,
