@@ -71,6 +71,35 @@ def run_due_jobs(app) -> None:
         with app.app_context():
             now = datetime.now(timezone.utc)
 
+            # --- Stuck-job watchdog -------------------------------------------
+            # If a job has is_running=True but its next_run_at has already
+            # passed, it has been "running" longer than its own interval and
+            # is almost certainly stuck (process restart, unhandled crash, etc.).
+            stuck_jobs = (
+                SyncJob.query
+                .filter(
+                    SyncJob.is_running == True,    # noqa: E712
+                    SyncJob.next_run_at <= now,
+                )
+                .all()
+            )
+            if stuck_jobs:
+                for stuck in stuck_jobs:
+                    logger.warning(
+                        "Scheduler: resetting stuck job %d %r "
+                        "(is_running=True past next_run_at %s)",
+                        stuck.id, stuck.name,
+                        stuck.next_run_at.strftime("%H:%M:%S") if stuck.next_run_at else "None",
+                    )
+                    stuck.is_running = False
+                    stuck.last_status = SyncJob.STATUS_FAILED
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                    logger.exception("Scheduler: failed to reset stuck jobs")
+            # -----------------------------------------------------------------
+
             # Jobs with NULL next_run_at were never scheduled; treat them as
             # immediately due so they run on the first tick after being enabled.
             due_jobs = (
@@ -197,6 +226,37 @@ def init_scheduler(app) -> None:
         logger.info("Scheduler: skipped (Werkzeug reloader parent process)")
         return
 
+    # With multiple gunicorn workers each worker starts its own scheduler thread.
+    # The is_running DB flag prevents double-execution, but wastes resources.
+    # Restrict the scheduler to worker 1 only (WORKER_ID is set in gunicorn.conf.py).
+    worker_id = os.environ.get("WORKER_ID")
+    if worker_id is not None and worker_id != "1":
+        logger.info("Scheduler: skipped (worker %s — only worker 1 runs the scheduler)", worker_id)
+        return
+
+    def _reset_stuck_jobs_at_startup():
+        """Reset is_running flags left over from a previous crash or restart."""
+        try:
+            from app.admin.models import SyncJob
+            from app.extensions import db
+            with app.app_context():
+                stuck = SyncJob.query.filter(SyncJob.is_running == True).all()  # noqa: E712
+                if stuck:
+                    for job in stuck:
+                        logger.warning(
+                            "Scheduler startup: resetting stuck job %d %r (was is_running=True)",
+                            job.id, job.name,
+                        )
+                        job.is_running = False
+                        job.last_status = SyncJob.STATUS_FAILED
+                    try:
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+                        logger.exception("Scheduler startup: failed to reset stuck jobs")
+        except Exception:
+            logger.exception("Scheduler startup: error during stuck-job reset")
+
     def _tick_loop():
         logger.info("Scheduler thread started (pid=%d)", os.getpid())
         while True:
@@ -205,6 +265,8 @@ def init_scheduler(app) -> None:
                 run_due_jobs(app)
             except Exception:
                 logger.exception("Scheduler: tick crashed — will retry next cycle")
+
+    _reset_stuck_jobs_at_startup()
 
     t = threading.Thread(target=_tick_loop, daemon=True, name="epicor-sync-tick")
     t.start()

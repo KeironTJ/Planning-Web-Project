@@ -1,6 +1,12 @@
 #!/bin/bash
 # deploy.sh — pull latest, update deps, migrate DB, restart service.
 # Usage: ./deploy.sh [--no-migrate] [--no-logs]
+#
+# First-time PostgreSQL setup (run once before the first deploy):
+#   PLANNING_DB_PASS=secret ./setup_postgres.sh
+#   # then set DATABASE_URL in planning_app/.env
+#   ./deploy.sh                                    # builds schema via flask db upgrade
+#   python planning_app/migrate_to_postgres.py     # copies users/roles/departments/etc.
 
 set -e  # exit on first error
 
