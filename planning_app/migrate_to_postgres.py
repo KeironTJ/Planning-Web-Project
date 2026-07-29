@@ -116,7 +116,12 @@ def migrate(sqlite_url: str, postgres_url: str, force: bool = False) -> None:
     print(f"Target :  {postgres_url}\n")
 
     src_engine = create_engine(sqlite_url)
-    dst_engine = create_engine(postgres_url)
+    # Force UTF-8 on the PostgreSQL connection so non-ASCII characters
+    # (em dashes, accented letters, etc.) in text columns don't fail.
+    dst_engine = create_engine(
+        postgres_url,
+        connect_args={"client_encoding": "utf8"},
+    )
 
     # Reflect source schema
     src_meta = MetaData()
