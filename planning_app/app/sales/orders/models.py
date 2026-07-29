@@ -226,7 +226,7 @@ class SalesOrder(db.Model):
 
     # --- Part / product ---
     part_num      = db.Column(db.String(50),  nullable=True, index=True)      # Calculated_PartNum
-    part_desc     = db.Column(db.String(255), nullable=True)                  # Calculated_PartDesc
+    part_desc     = db.Column(db.Text, nullable=True)                         # Calculated_PartDesc
     base_part_num = db.Column(db.String(50),  nullable=True)                  # OrderDtl_BasePartNum
     xpart_num     = db.Column(db.String(50),  nullable=True)                  # OrderDtl_XPartNum
     ium           = db.Column(db.String(10),  nullable=True)                  # OrderDtl_IUM

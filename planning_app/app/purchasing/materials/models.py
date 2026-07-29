@@ -33,7 +33,7 @@ class Stock(db.Model):
 
     # --- Identity ---
     part_num          = db.Column(db.String(50),  nullable=False, index=True)   # Part_PartNum
-    part_description  = db.Column(db.String(200), nullable=True)                # Part_PartDescription
+    part_description  = db.Column(db.Text, nullable=True)                      # Part_PartDescription
     class_id          = db.Column(db.String(50),  nullable=True, index=True)    # Part_ClassID
     unit_of_measure   = db.Column(db.String(10),  nullable=True)                # Part_IUM
     plant             = db.Column(db.String(20),  nullable=True, index=True)    # PartPlant_Plant
@@ -92,7 +92,7 @@ class PurchaseOrder(db.Model):
 
     # --- Part / line detail ---
     part_num        = db.Column(db.String(50),  nullable=True, index=True) # PODetail_PartNum
-    line_desc       = db.Column(db.String(255), nullable=True)             # PODetail_LineDesc
+    line_desc       = db.Column(db.Text, nullable=True)                    # PODetail_LineDesc
     unit_of_measure = db.Column(db.String(10),  nullable=True)             # PODetail_PUM
 
     # --- Quantities ---
@@ -140,7 +140,7 @@ class MaterialRequirementMain(db.Model):
     job_closed        = db.Column(db.Boolean,     nullable=True, index=True)
     due_date          = db.Column(db.Date,        nullable=True, index=True)  # JobHead_ReqDueDate
     finished_part_num = db.Column(db.String(50),  nullable=True, index=True)  # JobHead_PartNum
-    finished_part_desc= db.Column(db.String(200), nullable=True)
+    finished_part_desc= db.Column(db.Text, nullable=True)
     prod_qty          = db.Column(db.Numeric(14, 3), nullable=True)
     plant             = db.Column(db.String(20),  nullable=True, index=True)
     prod_plnwk        = db.Column(db.String(20),  nullable=True)
@@ -151,12 +151,12 @@ class MaterialRequirementMain(db.Model):
 
     # --- Assembly ---
     assembly_seq  = db.Column(db.Integer,     nullable=True)
-    assembly_desc = db.Column(db.String(200), nullable=True)
+    assembly_desc = db.Column(db.Text, nullable=True)
 
     # --- Material line ---
     mtl_seq              = db.Column(db.Integer,      nullable=True)
     material_code        = db.Column(db.String(50),   nullable=True, index=True)  # JobMtl_PartNum
-    material_description = db.Column(db.String(200),  nullable=True)
+    material_description = db.Column(db.Text, nullable=True)
     backflush            = db.Column(db.Boolean,      nullable=True)
     qty_per              = db.Column(db.Numeric(14, 4), nullable=True)
     qty_for_order        = db.Column(db.Numeric(14, 3), nullable=True)  # JobMtl_RequiredQty
