@@ -10,7 +10,7 @@ import math
 from datetime import date, timedelta
 from typing import Optional
 
-from sqlalchemy import func, case
+from sqlalchemy import func, case, extract
 
 from app.extensions import db
 from app.core.exceptions import ValidationError
@@ -596,8 +596,8 @@ def get_order_book_dashboard() -> dict:
     intake_dedup_sub = _so_dedup_subq(open_only=False)
     intake_raw = (
         db.session.query(
-            func.strftime("%Y", SalesOrder.order_date).label("yr"),
-            func.strftime("%m", SalesOrder.order_date).label("mn"),
+            extract("year", SalesOrder.order_date).label("yr"),
+            extract("month", SalesOrder.order_date).label("mn"),
             func.sum(SalesOrder.release_price_gbp).label("val"),
             func.sum(_unit_qty_so).label("qty"),
         )
@@ -608,12 +608,12 @@ def get_order_book_dashboard() -> dict:
             SalesOrder.void_line.isnot(True),
         )
         .group_by(
-            func.strftime("%Y", SalesOrder.order_date),
-            func.strftime("%m", SalesOrder.order_date),
+            extract("year", SalesOrder.order_date),
+            extract("month", SalesOrder.order_date),
         )
         .order_by(
-            func.strftime("%Y", SalesOrder.order_date),
-            func.strftime("%m", SalesOrder.order_date),
+            extract("year", SalesOrder.order_date),
+            extract("month", SalesOrder.order_date),
         )
         .all()
     )
@@ -621,7 +621,7 @@ def get_order_book_dashboard() -> dict:
                     "Jul","Aug","Sep","Oct","Nov","Dec"]
     intake_by_year: dict = {}
     for r in intake_raw:
-        yr = r.yr
+        yr = str(int(r.yr))  # extract() returns float on PostgreSQL; normalise to string key
         if yr not in intake_by_year:
             intake_by_year[yr] = {"amounts": [0.0]*12, "units": [0.0]*12, "avg": [None]*12}
         m_idx = int(r.mn) - 1
