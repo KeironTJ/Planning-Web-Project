@@ -70,7 +70,7 @@
     <script>
     function fmtIso(iso, includeDate) {
       if (!iso) return '';
-      const normalised = /[Z+\-]\d*$/.test(iso) ? iso : iso + 'Z';
+      const normalised = /Z$|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z';
       const d = new Date(normalised);
       if (isNaN(d)) return iso;
       const pad = n => String(n).padStart(2, '0');

@@ -358,9 +358,11 @@ function showToast(msg, type = 'success') {
 // ── Format ISO datetime for display (always browser local time) ───────────
 function fmtIso(iso) {
   if (!iso) return '';
-  // Append Z if no timezone offset present so the browser treats it as UTC
-  const normalised = /[Z+\-]\d*$/.test(iso) ? iso : iso + 'Z';
+  // Append Z if no timezone offset present so the browser treats it as UTC.
+  // Handles both Z and +HH:MM / -HH:MM offsets produced by Python's isoformat().
+  const normalised = /Z$|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z';
   const d = new Date(normalised);
+  if (isNaN(d)) return iso;
   const pad = n => String(n).padStart(2, '0');
   const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
   return `${pad(d.getDate())} ${m} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
