@@ -233,36 +233,36 @@ class SalesOrder(db.Model):
     wip_bin       = db.Column(db.String(20),  nullable=True)                  # PartWip_BinNum
 
     # --- Product configuration ---
-    model         = db.Column(db.String(100), nullable=True)                  # Calculated_Model
+    model         = db.Column(db.Text, nullable=True)                          # Calculated_Model
     size_desc     = db.Column(db.Text,        nullable=True)                  # Calculated_SizeDesc
     prod_size     = db.Column(db.Text,        nullable=True)                  # Calculated_ProdSize
-    cover         = db.Column(db.String(50),  nullable=True)                  # Calculated_Cover
+    cover         = db.Column(db.Text, nullable=True)                         # Calculated_Cover
     cover_desc    = db.Column(db.Text,        nullable=True)                  # Calculated_CoverDesc
     leg           = db.Column(db.Text,        nullable=True)                  # Calculated_Leg
-    leg_mtl       = db.Column(db.String(100), nullable=True)                  # Calculated_LegMtl
-    castor_mtl    = db.Column(db.String(100), nullable=True)                  # Calculated_CastorMtl
-    stud1_mtl     = db.Column(db.String(100), nullable=True)                  # Calculated_Stud1Mtl
-    stud2_mtl     = db.Column(db.String(100), nullable=True)                  # Calculated_Stud2Mtl
-    seat_interior_mtl = db.Column(db.String(100), nullable=True)               # Calculated_SeatInteriorMtl
-    back_interior_mtl = db.Column(db.String(100), nullable=True)               # Calculated_BackInteriorMtl
-    scat_interior_mtl = db.Column(db.String(100), nullable=True)               # Calculated_ScatInteriorMtl
+    leg_mtl       = db.Column(db.Text, nullable=True)                         # Calculated_LegMtl
+    castor_mtl    = db.Column(db.Text, nullable=True)                         # Calculated_CastorMtl
+    stud1_mtl     = db.Column(db.Text, nullable=True)                         # Calculated_Stud1Mtl
+    stud2_mtl     = db.Column(db.Text, nullable=True)                         # Calculated_Stud2Mtl
+    seat_interior_mtl = db.Column(db.Text, nullable=True)                      # Calculated_SeatInteriorMtl
+    back_interior_mtl = db.Column(db.Text, nullable=True)                      # Calculated_BackInteriorMtl
+    scat_interior_mtl = db.Column(db.Text, nullable=True)                      # Calculated_ScatInteriorMtl
 
     # --- Materials (cover codes 1–8 + descriptions) ---
-    material_1 = db.Column(db.String(100), nullable=True)                      # Calculated_Material1
+    material_1 = db.Column(db.Text, nullable=True)                             # Calculated_Material1
     material_1_desc = db.Column(db.Text,   nullable=True)                      # Calculated_Cover1PartDesc
-    material_2 = db.Column(db.String(100), nullable=True)
+    material_2 = db.Column(db.Text, nullable=True)
     material_2_desc = db.Column(db.Text,   nullable=True)
-    material_3 = db.Column(db.String(100), nullable=True)
+    material_3 = db.Column(db.Text, nullable=True)
     material_3_desc = db.Column(db.Text,   nullable=True)
-    material_4 = db.Column(db.String(100), nullable=True)
+    material_4 = db.Column(db.Text, nullable=True)
     material_4_desc = db.Column(db.Text,   nullable=True)
-    material_5 = db.Column(db.String(100), nullable=True)
+    material_5 = db.Column(db.Text, nullable=True)
     material_5_desc = db.Column(db.Text,   nullable=True)
-    material_6 = db.Column(db.String(100), nullable=True)
+    material_6 = db.Column(db.Text, nullable=True)
     material_6_desc = db.Column(db.Text,   nullable=True)
-    material_7 = db.Column(db.String(100), nullable=True)
+    material_7 = db.Column(db.Text, nullable=True)
     material_7_desc = db.Column(db.Text,   nullable=True)
-    material_8 = db.Column(db.String(100), nullable=True)
+    material_8 = db.Column(db.Text, nullable=True)
     material_8_desc = db.Column(db.Text,   nullable=True)
 
     # --- Quantities ---
