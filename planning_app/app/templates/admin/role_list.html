@@ -1,6 +1,9 @@
 {% extends 'base.html' %}
 
 {% block page_actions %}
+<a href="{{ url_for('admin.role_create') }}" class="btn btn-sm btn-primary me-2">
+    <i class="bi bi-plus-lg me-1"></i>New Role
+</a>
 <a href="{{ url_for('admin.seed') }}" class="btn btn-sm btn-outline-secondary"
    onclick="return confirm('Re-seed default roles and permissions?')">
     <i class="bi bi-arrow-repeat me-1"></i>Seed Defaults
@@ -13,8 +16,17 @@
     <div class="col-md-6">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
-                <span class="fw-semibold text-capitalize">{{ role.name }}</span>
-                <span class="badge text-bg-secondary">{{ role.permissions | length }} permissions</span>
+                <a href="{{ url_for('admin.role_detail', role_id=role.id) }}"
+                   class="fw-semibold text-capitalize text-decoration-none text-body">
+                    {{ role.name.replace('_', ' ') }}
+                </a>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge text-bg-secondary">{{ role.permissions | length }} permissions</span>
+                    <a href="{{ url_for('admin.role_detail', role_id=role.id) }}"
+                       class="btn btn-sm btn-outline-secondary py-0" title="Edit role">
+                        <i class="bi bi-pencil"></i>
+                    </a>
+                </div>
             </div>
             <div class="card-body">
                 <p class="text-muted small">{{ role.description or '—' }}</p>

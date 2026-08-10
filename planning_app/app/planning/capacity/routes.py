@@ -96,7 +96,7 @@ def override_bucket(bucket_id: int):
 
 @capacity_bp.route("/labour-plan")
 @login_required
-@permission_required("override_capacity")
+@permission_required("view_capacity")
 def labour_plan_list():
     today = date.today()
     default_from = today - timedelta(days=today.weekday())

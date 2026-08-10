@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+
+{% block page_actions %}
+<a href="{{ url_for('admin.role_list') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>All Roles
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent fw-semibold">New Role</div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">
+                            Role Name <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" name="name" class="form-control"
+                               value="{{ form_data.get('name', '') if form_data else '' }}"
+                               placeholder="e.g. leadership_team" required>
+                        <div class="form-text">Use lowercase with underscores — this is the internal identifier.</div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label fw-semibold">Description</label>
+                        <textarea name="description" class="form-control" rows="2"
+                                  placeholder="Briefly describe who this role is for">{{ form_data.get('description', '') if form_data else '' }}</textarea>
+                    </div>
+
+                    <hr>
+                    <p class="fw-semibold mb-3">Assign Initial Permissions</p>
+
+                    {% for module, perms in grouped_perms.items() %}
+                    <div class="mb-3">
+                        <p class="text-uppercase text-muted fw-bold mb-2" style="font-size:0.7rem;letter-spacing:.05em;">
+                            {{ module }}
+                        </p>
+                        {% for perm in perms %}
+                        <div class="form-check mb-1">
+                            <input class="form-check-input" type="checkbox"
+                                   name="permission_ids" value="{{ perm.id }}"
+                                   id="perm_{{ perm.id }}"
+                                   {% if form_data and perm.id|string in form_data.getlist('permission_ids') %}checked{% endif %}>
+                            <label class="form-check-label small" for="perm_{{ perm.id }}">
+                                <span class="fw-semibold">{{ perm.name }}</span>
+                                {% if perm.description %}
+                                — <span class="text-muted">{{ perm.description }}</span>
+                                {% endif %}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endfor %}
+
+                    <div class="d-flex gap-2 mt-4 pt-2 border-top">
+                        <button type="submit" class="btn btn-primary">Create Role</button>
+                        <a href="{{ url_for('admin.role_list') }}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

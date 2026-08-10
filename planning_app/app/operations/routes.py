@@ -7,6 +7,7 @@ import io
 from datetime import date, timedelta
 from flask import current_app, flash, jsonify, render_template, request, Response
 from flask_login import current_user, login_required
+from app.core.decorators import permission_required
 from sqlalchemy import func
 from . import operations_bp
 from .models import WorksOrder, ProductionOutput
@@ -16,6 +17,7 @@ from app.admin.models import SystemSetting, SETTING_DAILY_OUTPUT_TARGET, SETTING
 
 @operations_bp.route('/daily-output/sync', methods=['POST'])
 @login_required
+@permission_required("manage_orders")
 def daily_output_sync():
     """AJAX endpoint: run the incremental production output sync and return JSON."""
     from app.core.epicor_client import KineticClient
@@ -53,12 +55,14 @@ def daily_output_sync():
 @operations_bp.route('/')
 @operations_bp.route('/dashboard')
 @login_required
+@permission_required("view_orders")
 def dashboard():
     return render_template('operations/dashboard.html', title='Operations')
 
 
 @operations_bp.route('/wip')
 @login_required
+@permission_required("view_orders")
 def wip_overview():
     today = date.today()
 
@@ -276,6 +280,8 @@ def wip_overview():
 
 @operations_bp.route('/wip/export')
 @login_required
+@permission_required("view_orders")
+@permission_required("export_data")
 def wip_export():
     """Download WIP job detail as CSV, respecting the same category/search filters."""
     today = date.today()
@@ -372,6 +378,7 @@ def wip_export():
 
 @operations_bp.route('/daily-output')
 @login_required
+@permission_required("view_orders")
 def daily_output():
     today         = date.today()
     date_7d       = today - timedelta(days=6)

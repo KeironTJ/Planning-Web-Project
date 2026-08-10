@@ -185,7 +185,7 @@ def main_requirements():
 
 @materials_bp.route("/exempt", methods=["GET"])
 @login_required
-@permission_required("manage_imports")
+@permission_required("manage_imports", "manage_purchasing")
 def exempt_materials():
     search = request.args.get("q", "").strip()
     items = services.get_exempt_materials(search=search or None)
@@ -199,7 +199,7 @@ def exempt_materials():
 
 @materials_bp.route("/exempt/add", methods=["POST"])
 @login_required
-@permission_required("manage_imports")
+@permission_required("manage_imports", "manage_purchasing")
 def exempt_add():
     raw_codes = request.form.get("codes", "")
     reason = request.form.get("reason", "")
@@ -219,7 +219,7 @@ def exempt_add():
 
 @materials_bp.route("/exempt/remove", methods=["POST"])
 @login_required
-@permission_required("manage_imports")
+@permission_required("manage_imports", "manage_purchasing")
 def exempt_remove_bulk():
     raw_codes = request.form.get("codes", "")
     codes = [c for part in raw_codes.replace(",", "\n").splitlines() for c in [part.strip()] if c]
@@ -236,7 +236,7 @@ def exempt_remove_bulk():
 
 @materials_bp.route("/exempt/<string:code>/delete", methods=["POST"])
 @login_required
-@permission_required("manage_imports")
+@permission_required("manage_imports", "manage_purchasing")
 def exempt_delete(code):
     deleted = services.remove_exemptions([code])
     if deleted:

@@ -14,7 +14,7 @@ from flask_login import login_required, current_user
 from . import admin_bp
 from .forms import ImportUploadForm, DeptHoursForm, SystemSettingsForm, DeptCreateForm
 from .models import SystemSetting, SETTING_AUTO_COMPLETE_DESPATCH, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS, SETTING_MRP_LEAD_DAYS
-from app.auth.models import User, Role, AuditLog
+from app.auth.models import User, Role, Permission, AuditLog
 from app.auth.services import RoleService
 from app.extensions import db
 from app.core.decorators import admin_required, permission_required
@@ -664,6 +664,123 @@ def user_create():
 def role_list():
     roles = Role.query.order_by(Role.name).all()
     return render_template("admin/role_list.html", title="Roles & Permissions", roles=roles)
+
+
+@admin_bp.route("/roles/create", methods=["GET", "POST"])
+@login_required
+@admin_required
+def role_create():
+    all_permissions = Permission.query.order_by(Permission.module, Permission.name).all()
+    grouped_perms = {}
+    for perm in all_permissions:
+        grouped_perms.setdefault(perm.module or "other", []).append(perm)
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        description = request.form.get("description", "").strip()
+        perm_ids = request.form.getlist("permission_ids", type=int)
+
+        errors = []
+        if not name:
+            errors.append("Role name is required.")
+        elif Role.query.filter_by(name=name).first():
+            errors.append(f"Role '{name}' already exists.")
+        if errors:
+            for e in errors:
+                flash(e, "danger")
+            return render_template(
+                "admin/role_create.html",
+                title="Create Role",
+                all_permissions=all_permissions,
+                grouped_perms=grouped_perms,
+                form_data=request.form,
+            )
+
+        role = Role(name=name, description=description)
+        for perm in Permission.query.filter(Permission.id.in_(perm_ids)).all():
+            role.permissions.append(perm)
+        db.session.add(role)
+        db.session.commit()
+        flash(f"Role '{name}' created.", "success")
+        return redirect(url_for("admin.role_detail", role_id=role.id))
+
+    return render_template(
+        "admin/role_create.html",
+        title="Create Role",
+        all_permissions=all_permissions,
+        grouped_perms=grouped_perms,
+        form_data=None,
+    )
+
+
+@admin_bp.route("/roles/<int:role_id>", methods=["GET", "POST"])
+@login_required
+@admin_required
+def role_detail(role_id: int):
+    role = Role.query.get_or_404(role_id)
+    all_permissions = Permission.query.order_by(Permission.module, Permission.name).all()
+    grouped_perms = {}
+    for perm in all_permissions:
+        grouped_perms.setdefault(perm.module or "other", []).append(perm)
+
+    if request.method == "POST":
+        action = request.form.get("action")
+
+        if action == "update_info":
+            name = request.form.get("name", "").strip()
+            description = request.form.get("description", "").strip()
+            if not name:
+                flash("Role name is required.", "danger")
+            elif name != role.name and Role.query.filter_by(name=name).first():
+                flash(f"Role name '{name}' is already taken.", "danger")
+            else:
+                role.name = name
+                role.description = description
+                db.session.commit()
+                flash("Role updated.", "success")
+
+        elif action == "grant_permission":
+            perm_id = request.form.get("permission_id", type=int)
+            perm = Permission.query.get(perm_id)
+            if perm and perm not in role.permissions:
+                role.permissions.append(perm)
+                db.session.commit()
+                flash(f"Permission '{perm.name}' granted.", "success")
+
+        elif action == "revoke_permission":
+            perm_id = request.form.get("permission_id", type=int)
+            perm = Permission.query.get(perm_id)
+            if perm and perm in role.permissions:
+                role.permissions.remove(perm)
+                db.session.commit()
+                flash(f"Permission '{perm.name}' revoked.", "warning")
+
+        return redirect(url_for("admin.role_detail", role_id=role_id))
+
+    return render_template(
+        "admin/role_detail.html",
+        title=f"Role: {role.name}",
+        role=role,
+        grouped_perms=grouped_perms,
+    )
+
+
+@admin_bp.route("/roles/<int:role_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def role_delete(role_id: int):
+    role = Role.query.get_or_404(role_id)
+    if role.name == "admin":
+        flash("The admin role cannot be deleted.", "danger")
+        return redirect(url_for("admin.role_list"))
+    user_count = role.users.count()
+    if user_count > 0:
+        flash(f"Cannot delete '{role.name}' — it is assigned to {user_count} user(s). Revoke it first.", "danger")
+        return redirect(url_for("admin.role_detail", role_id=role_id))
+    db.session.delete(role)
+    db.session.commit()
+    flash(f"Role '{role.name}' deleted.", "warning")
+    return redirect(url_for("admin.role_list"))
 
 
 @admin_bp.route("/seed")

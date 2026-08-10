@@ -35,24 +35,27 @@ def roles_required(*role_names: str):
     return decorator
 
 
-def permission_required(permission_name: str):
+def permission_required(*permission_names: str):
     """
-    Restrict a route to users who hold a specific permission.
+    Restrict a route to users who hold **any** of the named permissions (OR).
 
-    Usage::
+    For AND logic, stack two decorators — both must pass::
 
-        @bp.route("/plan/create")
-        @login_required
-        @permission_required("create_work_order")
-        def create_work_order():
-            ...
+        @permission_required("view_orders")          # must have this
+        @permission_required("export_data")          # AND this
+        def export(): ...
+
+    For OR logic, pass multiple names in one call::
+
+        @permission_required("view_orders", "manage_orders")   # either suffices
+        def order_view(): ...
     """
     def decorator(f):
         @wraps(f)
         def decorated(*args, **kwargs):
             if not current_user.is_authenticated:
                 return redirect(url_for("auth.login", next=request.url))
-            if not current_user.has_permission(permission_name):
+            if not any(current_user.has_permission(p) for p in permission_names):
                 abort(403)
             return f(*args, **kwargs)
         return decorated

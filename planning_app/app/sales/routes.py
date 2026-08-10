@@ -12,14 +12,14 @@ from app.core.decorators import permission_required
 @sales_bp.route("/")
 @sales_bp.route("/dashboard")
 @login_required
-@permission_required("view_orders")
+@permission_required("view_sales", "view_orders")
 def dashboard():
     return render_template("sales/dashboard.html", title="Sales")
 
 
 @sales_bp.route("/customer-report")
 @login_required
-@permission_required("view_orders")
+@permission_required("view_sales")
 def customer_report():
     customer_ids  = [v.strip() for v in request.args.getlist("customer_id") if v.strip()]
     closed_months = request.args.get("closed_months", 12, type=int)

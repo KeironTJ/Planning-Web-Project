@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+
+{% block page_actions %}
+<a href="{{ url_for('admin.role_list') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>All Roles
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+    {# Left: role info + delete #}
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-transparent fw-semibold">Role Details</div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="update_info">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Name</label>
+                        <input type="text" name="name" class="form-control form-control-sm"
+                               value="{{ role.name }}"
+                               {% if role.name == 'admin' %}readonly{% endif %}>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Description</label>
+                        <textarea name="description" class="form-control form-control-sm"
+                                  rows="3">{{ role.description or '' }}</textarea>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <button type="submit" class="btn btn-sm btn-primary">Save Changes</button>
+                        <span class="text-muted small">{{ role.users.count() }} user(s)</span>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {% if role.name != 'admin' %}
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <p class="small text-muted mb-2">
+                    Permanently delete this role. Only possible when no users are assigned.
+                </p>
+                <form method="POST" action="{{ url_for('admin.role_delete', role_id=role.id) }}"
+                      onsubmit="return confirm('Delete role \'{{ role.name }}\'? This cannot be undone.')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger w-100"
+                            {% if role.users.count() > 0 %}disabled title="Revoke from all users first"{% endif %}>
+                        <i class="bi bi-trash me-1"></i>Delete Role
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    {# Right: permissions grouped by module #}
+    <div class="col-md-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+                <span class="fw-semibold">Permissions</span>
+                <span class="badge text-bg-primary">{{ role.permissions | length }} assigned</span>
+            </div>
+            <div class="card-body p-0">
+                {% for module, perms in grouped_perms.items() %}
+                <div class="px-3 pt-3 pb-1">
+                    <span class="text-uppercase text-muted fw-bold" style="font-size:0.7rem;letter-spacing:.05em;">
+                        {{ module }}
+                    </span>
+                </div>
+                {% for perm in perms %}
+                {% set has_perm = perm in role.permissions %}
+                <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom
+                            {% if has_perm %}bg-success-subtle{% endif %}">
+                    <div>
+                        <span class="small fw-semibold">{{ perm.name }}</span>
+                        {% if perm.description %}
+                        <br><span class="text-muted" style="font-size:0.78rem;">{{ perm.description }}</span>
+                        {% endif %}
+                    </div>
+                    {% if has_perm %}
+                    <form method="POST" class="d-inline ms-3 flex-shrink-0">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="revoke_permission">
+                        <input type="hidden" name="permission_id" value="{{ perm.id }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-dash-circle me-1"></i>Revoke
+                        </button>
+                    </form>
+                    {% else %}
+                    <form method="POST" class="d-inline ms-3 flex-shrink-0">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="grant_permission">
+                        <input type="hidden" name="permission_id" value="{{ perm.id }}">
+                        <button type="submit" class="btn btn-sm btn-outline-success">
+                            <i class="bi bi-plus-circle me-1"></i>Grant
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

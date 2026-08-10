@@ -2,6 +2,7 @@
 
 from flask import render_template
 from flask_login import login_required
+from app.core.decorators import permission_required
 
 from . import it_bp
 
@@ -9,5 +10,6 @@ from . import it_bp
 @it_bp.route("/")
 @it_bp.route("/dashboard")
 @login_required
+@permission_required("view_it")
 def dashboard():
     return render_template("it/dashboard.html", title="IT")

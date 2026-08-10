@@ -190,6 +190,24 @@ class RoleService:
             ("override_capacity", "Override capacity bucket available hours", "capacity"),
             # Materials
             ("view_materials", "View stock, purchase orders, and shortage report", "materials"),
+            # Sales
+            ("view_sales", "View sales orders and customer data", "sales"),
+            ("manage_sales", "Create and manage sales orders", "sales"),
+            # Purchasing
+            ("view_purchasing", "View purchase orders and supplier data", "purchasing"),
+            ("manage_purchasing", "Raise and manage purchase orders", "purchasing"),
+            # Planning
+            ("view_planning", "View planning schedules and forecasts", "planning"),
+            ("manage_planning", "Edit planning schedules and scenarios", "planning"),
+            # Transport
+            ("view_transport", "View transport schedules and bookings", "transport"),
+            ("manage_transport", "Manage transport bookings and despatch", "transport"),
+            # IT
+            ("view_it", "Access IT module and asset register", "it"),
+            ("manage_it", "Manage IT assets, requests and configuration", "it"),
+            # Reports
+            ("view_reports", "View cross-module reports and dashboards", "reports"),
+            ("export_data", "Export data to CSV or Excel", "reports"),
             # Admin
             ("manage_imports", "Upload and manage CSV data imports", "admin"),
             ("manage_departments", "Configure department settings", "admin"),
@@ -217,13 +235,16 @@ class RoleService:
                     "view_orders", "update_order_status", "manage_orders",
                     "view_capacity", "override_capacity",
                     "view_materials",
-                    "manage_imports",
+                    "view_planning", "manage_planning",
+                    "manage_imports", "view_reports",
                 ],
             },
             "viewer": {
-                "description": "Read-only access",
+                "description": "Read-only access across all modules",
                 "permissions": [
                     "view_orders", "view_capacity", "view_materials",
+                    "view_sales", "view_purchasing", "view_planning",
+                    "view_transport", "view_reports",
                 ],
             },
             "production_operative": {
@@ -245,6 +266,71 @@ class RoleService:
                     "view_orders", "update_order_status", "manage_orders",
                     "view_capacity", "override_capacity",
                     "view_materials",
+                ],
+            },
+            "leadership_team": {
+                "description": "Leadership Team — cross-functional read-only visibility with reporting access",
+                "permissions": [
+                    "view_orders", "view_capacity", "view_materials",
+                    "view_sales", "view_purchasing", "view_planning",
+                    "view_transport", "view_it",
+                    "view_reports", "export_data",
+                ],
+            },
+            "management_team": {
+                "description": "Management Team — cross-functional read/write access",
+                "permissions": [
+                    "view_orders", "update_order_status", "manage_orders",
+                    "view_capacity", "override_capacity",
+                    "view_materials",
+                    "view_sales", "manage_sales",
+                    "view_purchasing", "manage_purchasing",
+                    "view_planning", "manage_planning",
+                    "view_transport", "manage_transport",
+                    "view_reports", "export_data",
+                ],
+            },
+            "production_team": {
+                "description": "Production Team — operations, capacity and materials",
+                "permissions": [
+                    "view_orders", "update_order_status", "manage_orders",
+                    "view_capacity", "view_materials",
+                ],
+            },
+            "sales_team": {
+                "description": "Sales Team — sales orders and customer visibility",
+                "permissions": [
+                    "view_sales", "manage_sales",
+                    "view_orders", "view_materials", "view_reports",
+                ],
+            },
+            "purchasing_team": {
+                "description": "Purchasing Team — procurement and purchase orders",
+                "permissions": [
+                    "view_purchasing", "manage_purchasing",
+                    "view_materials", "view_orders",
+                ],
+            },
+            "planning_team": {
+                "description": "Planning Team — scheduling, capacity and forecasting",
+                "permissions": [
+                    "view_planning", "manage_planning",
+                    "view_orders", "manage_orders",
+                    "view_capacity", "override_capacity",
+                    "view_materials", "view_reports",
+                ],
+            },
+            "transport_team": {
+                "description": "Transport Team — logistics and despatch",
+                "permissions": [
+                    "view_transport", "manage_transport",
+                    "view_orders", "view_sales",
+                ],
+            },
+            "it_team": {
+                "description": "IT Team — IT assets, helpdesk and system configuration",
+                "permissions": [
+                    "view_it", "manage_it", "view_reports",
                 ],
             },
         }

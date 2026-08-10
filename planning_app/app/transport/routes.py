@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from flask import render_template, request
 from flask_login import login_required
+from app.core.decorators import permission_required
 from sqlalchemy import func
 
 from app.extensions import db
@@ -15,6 +16,7 @@ from . import transport_bp
 @transport_bp.route("/")
 @transport_bp.route("/dashboard")
 @login_required
+@permission_required("view_transport")
 def dashboard():
     return render_template("transport/dashboard.html", title="Transport")
 
@@ -25,6 +27,7 @@ def dashboard():
 
 @transport_bp.route("/loading-bay")
 @login_required
+@permission_required("view_transport")
 def loading_bay():
     """
     Finished-goods / Loading Bay report.
@@ -499,6 +502,7 @@ def loading_bay():
 
 @transport_bp.route("/bay-state")
 @login_required
+@permission_required("view_transport")
 def bay_state():
     """
     Physical loading bay state.
