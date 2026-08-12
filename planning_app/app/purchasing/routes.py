@@ -22,13 +22,17 @@ def dashboard():
 @permission_required("view_purchasing", "view_materials")
 def overview():
     from app.purchasing.materials import services
-    po_summary  = services.get_purchasing_dashboard(weeks_ahead=8)
-    mat_summary = services.get_stock_summary()
+    po_summary   = services.get_purchasing_dashboard(weeks_ahead=8)
+    mat_summary  = services.get_stock_summary()
+    so_breakdown = services.get_weekly_so_breakdown(weeks_ahead=12)
+    stock_overview = services.get_stock_overview()
     return render_template(
         "purchasing/overview.html",
-        title="Purchasing Overview",
+        title="Procurement Dashboard",
         po_summary=po_summary,
         mat_summary=mat_summary,
+        so_breakdown=so_breakdown,
+        stock_overview=stock_overview,
         today=date.today(),
         timedelta=timedelta,
     )

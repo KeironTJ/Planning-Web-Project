@@ -1,63 +1,152 @@
-{% extends 'base.html' %}
+﻿{% extends 'base.html' %}
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
 
 <!-- Page header -->
 <div class="d-flex align-items-center mb-4 gap-3">
-    <div class="rounded-3 p-3 bg-warning bg-opacity-10">
-        <i class="bi bi-box-seam fs-2 text-warning"></i>
+    {% if mat_summary.last_sync %}
+    <div class="ms-auto text-muted small text-end">
+        <i class="bi bi-arrow-repeat me-1"></i>Last synced: <strong>{{ mat_summary.last_sync.uploaded_at | utcfmt('datetime-year') }}</strong>
     </div>
-    <div>
-        <h4 class="mb-0 fw-semibold">Purchasing</h4>
-        <p class="text-muted mb-0 small">Open purchase orders, supplier spend &amp; material availability</p>
-    </div>
+    {% endif %}
 </div>
 
-<!-- KPI row -->
+<!-- Section 1: Procurement health KPIs -->
 <div class="row g-3 mb-4">
     <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
-            <div class="fs-2 fw-bold text-primary">{{ '{:,}'.format(po_summary.total_lines) }}</div>
-            <div class="text-muted small">Open PO Lines</div>
-        </div>
+        <a href="{{ url_for('materials.po_list') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
+            <div class="fs-3 fw-bold text-primary">£{{ '{:,.0f}'.format(po_summary.total_value) }}</div>
+            <div class="text-muted small">Open PO Value</div>
+            <div class="text-muted" style="font-size:.75rem;">{{ '{:,}'.format(po_summary.total_lines) }} lines</div>
+        </div></a>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
-            <div class="fs-2 fw-bold text-success">£{{ '{:,.0f}'.format(po_summary.total_value) }}</div>
-            <div class="text-muted small">Total Outstanding (GBP)</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 {{ 'border-danger border' if po_summary.overdue_lines else '' }}">
-            <div class="fs-2 fw-bold {{ 'text-danger' if po_summary.overdue_lines else 'text-success' }}">
-                {{ '{:,}'.format(po_summary.overdue_lines) }}
-            </div>
-            <div class="text-muted small">Overdue PO Lines</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 {{ 'border-danger border' if po_summary.overdue_value else '' }}">
-            <div class="fs-2 fw-bold {{ 'text-danger' if po_summary.overdue_value else 'text-success' }}">
+        <a href="{{ url_for('purchasing.supplier_delivery') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-danger border-top border-3' if po_summary.overdue_value else '' }}">
+            <div class="fs-3 fw-bold {{ 'text-danger' if po_summary.overdue_value else 'text-success' }}">
                 £{{ '{:,.0f}'.format(po_summary.overdue_value) }}
             </div>
-            <div class="text-muted small">Overdue Value (GBP)</div>
+            <div class="text-muted small">Overdue PO Value</div>
+            <div class="text-muted" style="font-size:.75rem;">{{ '{:,}'.format(po_summary.overdue_lines) }} lines</div>
+        </div></a>
+    </div>
+    <div class="col-6 col-md-3">
+        <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-danger border-top border-3' if mat_summary.shortage_est else '' }}">
+            <div class="fs-3 fw-bold {{ 'text-danger' if mat_summary.shortage_est else 'text-success' }}">
+                {{ '{:,}'.format(mat_summary.shortage_est) }}
+            </div>
+            <div class="text-muted small">Material Lines in Shortage</div>
+            {% if mat_summary.shortage_est %}
+            <div class="text-danger" style="font-size:.75rem;"><i class="bi bi-exclamation-circle me-1"></i>Action required</div>
+            {% else %}
+            <div class="text-success" style="font-size:.75rem;"><i class="bi bi-check2 me-1"></i>All covered</div>
+            {% endif %}
+        </div></a>
+    </div>
+    <div class="col-6 col-md-3">
+        <a href="{{ url_for('materials.index') }}" class="text-decoration-none">
+        {% if so_breakdown.has_data %}
+        {% set _tc  = so_breakdown.total_count %}
+        {% set _bad = so_breakdown.totals.get('med_risk',{}).get('count',0)
+                    + so_breakdown.totals.get('late_po',{}).get('count',0)
+                    + so_breakdown.totals.get('high_risk',{}).get('count',0) %}
+        {% set _pct_bad = (_bad / _tc * 100) | round(1) if _tc else 0 %}
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-warning border-top border-3' if _bad else '' }}">
+            <div class="fs-3 fw-bold {{ 'text-warning' if _bad else 'text-success' }}">{{ _pct_bad }}%</div>
+            <div class="text-muted small">SOs at Material Risk</div>
+            <div class="text-muted" style="font-size:.75rem;">{{ _bad }} of {{ _tc }} orders</div>
         </div>
+        {% else %}
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
+            <div class="fs-3 fw-bold text-muted">—</div>
+            <div class="text-muted small">SOs at Material Risk</div>
+        </div>
+        {% endif %}
+        </a>
     </div>
 </div>
 
-{% if po_summary.has_data and po_summary.weeks %}
-<!-- Delivery schedule + Suppliers -->
-<div class="row g-3 mb-4">
+<!-- Section 2: SO Coverage breakdown -->
+{% if so_breakdown.has_data %}
+{% set _tc   = so_breakdown.total_count %}
+{% set _ok   = so_breakdown.totals.get('ok',        {}).get('count', 0) %}
+{% set _lr   = so_breakdown.totals.get('low_risk',  {}).get('count', 0) %}
+{% set _mr   = so_breakdown.totals.get('med_risk',  {}).get('count', 0) %}
+{% set _lp   = so_breakdown.totals.get('late_po',   {}).get('count', 0) %}
+{% set _hr   = so_breakdown.totals.get('high_risk', {}).get('count', 0) %}
+{% set _vok  = so_breakdown.totals.get('ok',        {}).get('value', 0) %}
+{% set _vlr  = so_breakdown.totals.get('low_risk',  {}).get('value', 0) %}
+{% set _vmr  = so_breakdown.totals.get('med_risk',  {}).get('value', 0) %}
+{% set _vlp  = so_breakdown.totals.get('late_po',   {}).get('value', 0) %}
+{% set _vhr  = so_breakdown.totals.get('high_risk', {}).get('value', 0) %}
+{% set _pok  = (_ok / _tc * 100) | round(1) if _tc else 0 %}
+{% set _plr  = (_lr / _tc * 100) | round(1) if _tc else 0 %}
+{% set _pmr  = (_mr / _tc * 100) | round(1) if _tc else 0 %}
+{% set _plp  = (_lp / _tc * 100) | round(1) if _tc else 0 %}
+{% set _phr  = (_hr / _tc * 100) | round(1) if _tc else 0 %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-transparent d-flex align-items-center gap-2">
+        <span class="fw-semibold">Sales Order Coverage</span>
+        <span class="text-muted small">— {{ _tc }} open orders</span>
+        <a tabindex="0" role="button" class="text-muted ms-1"
+           data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="right" data-bs-html="true"
+           data-bs-title="Coverage Status Definitions"
+           data-bs-content="
+            <dl class='mb-0' style='font-size:.82rem;'>
+              <dt><span style='color:#198754;'>&#9632;</span> Mat. OK</dt><dd class='mb-2'>Stock on hand fully covers all material requirements.</dd>
+              <dt><span style='color:#0dcaf0;'>&#9632;</span> Soft Risk</dt><dd class='mb-2'>Gap exists but job not yet released — time to resolve.</dd>
+              <dt><span style='color:#ffc107;'>&#9632;</span> PO Reliant</dt><dd class='mb-2'>Gap covered by PO, job released — relying on delivery.</dd>
+              <dt><span style='color:#fd7e14;'>&#9632;</span> Late PO</dt><dd class='mb-2'>PO exists but overdue or insufficient — supplier needs chasing.</dd>
+              <dt><span style='color:#dc3545;'>&#9632;</span> Shortage</dt><dd class='mb-0'>Uncovered shortage, no PO — immediate action required.</dd>
+            </dl>">
+            <i class="bi bi-info-circle"></i>
+        </a>
+        <a href="{{ url_for('materials.index') }}" class="ms-auto btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-right me-1"></i>Full View
+        </a>
+    </div>
+    <div class="card-body pt-2 pb-3">
+        <div class="row g-2 mb-2">
+            {% for label, pct, count, val, color in [
+                ('Mat. OK',    _pok, _ok, _vok, '#198754'),
+                ('Soft Risk',  _plr, _lr, _vlr, '#0dcaf0'),
+                ('PO Reliant', _pmr, _mr, _vmr, '#ffc107'),
+                ('Late PO',    _plp, _lp, _vlp, '#fd7e14'),
+                ('Shortage',   _phr, _hr, _vhr, '#dc3545'),
+            ] %}
+            <div class="col">
+                <div class="text-center border rounded p-2 h-100" style="border-color:{{ color }} !important;">
+                    <div class="fw-bold" style="color:{{ color }};font-size:1rem;">£{{ '{:,.0f}'.format(val) }}</div>
+                    <div class="small fw-semibold">{{ label }}</div>
+                    <div class="text-muted" style="font-size:.72rem;">{{ count }} SO{{ 's' if count != 1 }} · {{ pct }}%</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="progress" style="height:6px;border-radius:3px;">
+            <div class="progress-bar" style="width:{{ _pok }}%;background:#198754;"></div>
+            <div class="progress-bar" style="width:{{ _plr }}%;background:#0dcaf0;"></div>
+            <div class="progress-bar" style="width:{{ _pmr }}%;background:#ffc107;"></div>
+            <div class="progress-bar" style="width:{{ _plp }}%;background:#fd7e14;"></div>
+            <div class="progress-bar" style="width:{{ _phr }}%;background:#dc3545;"></div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
-    <!-- PO Delivery Schedule -->
+<!-- Section 3: PO Schedule + Suppliers -->
+{% if po_summary.has_data and po_summary.weeks %}
+<div class="row g-3 mb-4">
     <div class="col-lg-8">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-transparent fw-semibold">
                 <i class="bi bi-calendar3 me-2"></i>PO Delivery Schedule — Value by Week
             </div>
             <div class="card-body">
-                <canvas id="poScheduleChart" height="120"></canvas>
+                <canvas id="poScheduleChart" height="110"></canvas>
             </div>
             <div class="card-body p-0 border-top">
                 <div class="table-responsive">
@@ -78,9 +167,7 @@
                             {% endif %}
                             <tr onclick="window.location='{{ row_url }}'" style="cursor:pointer;"
                                 class="{{ 'table-danger' if w.is_overdue else '' }}">
-                                <td class="fw-semibold {{ 'text-danger fst-italic' if w.is_overdue else '' }}">
-                                    {{ w.week_label }}
-                                </td>
+                                <td class="fw-semibold {{ 'text-danger fst-italic' if w.is_overdue else '' }}">{{ w.week_label }}</td>
                                 <td class="text-end">{{ w.count }}</td>
                                 <td class="text-end fw-semibold">£{{ '{:,.0f}'.format(w.value) }}</td>
                             </tr>
@@ -91,8 +178,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Top Suppliers -->
     <div class="col-lg-4">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-transparent fw-semibold">
@@ -110,7 +195,7 @@
                     <tbody>
                         {% for s in po_summary.top_suppliers %}
                         <tr>
-                            <td class="text-truncate" style="max-width:180px;" title="{{ s.name }}">
+                            <td class="text-truncate" style="max-width:160px;" title="{{ s.name }}">
                                 <a href="{{ url_for('materials.po_list', q=s.name) }}"
                                    class="text-decoration-none text-body">{{ s.name }}</a>
                             </td>
@@ -127,89 +212,75 @@
                 <a href="{{ url_for('materials.po_list') }}" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-cart me-1"></i>All Open POs
                 </a>
+                <a href="{{ url_for('purchasing.supplier_delivery') }}" class="btn btn-sm btn-outline-secondary ms-1">
+                    <i class="bi bi-truck me-1"></i>Supplier Delivery
+                </a>
             </div>
         </div>
     </div>
-
 </div>
 {% endif %}
 
-<!-- Material availability overview -->
-<div class="row g-3 mb-4">
-    <div class="col-6 col-md-3">
-        <a href="{{ url_for('materials.stock_list') }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
-            <div class="fs-2 fw-bold text-primary">{{ '{:,}'.format(mat_summary.stock_lines) }}</div>
-            <div class="text-muted small">Stock Lines</div>
-            {% if mat_summary.zero_stock %}
-            <div class="text-warning small">{{ mat_summary.zero_stock }} at zero</div>
-            {% endif %}
-        </div></a>
+<!-- Section 4: Inventory -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-boxes me-2"></i>Inventory
     </div>
-    <div class="col-6 col-md-3">
-        <a href="{{ url_for('materials.main_requirements') }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
-            <div class="fs-2 fw-bold text-info">{{ '{:,}'.format(mat_summary.main_reqs) }}</div>
-            <div class="text-muted small">Material Requirements</div>
-        </div></a>
-    </div>
-    <div class="col-6 col-md-3">
-        <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-danger border' if mat_summary.shortage_est else '' }}">
-            <div class="fs-2 fw-bold {{ 'text-danger' if mat_summary.shortage_est else 'text-success' }}">
-                {{ '{:,}'.format(mat_summary.shortage_est) }}
+    <div class="card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-6 col-md-3">
+                <a href="{{ url_for('materials.stock_list') }}" class="text-decoration-none">
+                <div class="card border-0 bg-light text-center p-3 h-100 card-hover">
+                    <div class="fs-4 fw-bold text-primary">{{ '{:,}'.format(stock_overview.total_lines) }}</div>
+                    <div class="text-muted small">Stock Lines</div>
+                </div></a>
             </div>
-            <div class="text-muted small">Material Lines in Shortage</div>
-        </div></a>
-    </div>
-    <div class="col-6 col-md-3">
-        <a href="{{ url_for('purchasing.supplier_delivery') }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-warning border' if po_summary.overdue_lines else '' }}">
-            <div class="fs-2 fw-bold {{ 'text-danger' if po_summary.overdue_lines else 'text-success' }}">
-                {{ '{:,}'.format(po_summary.overdue_lines) }}
-            </div>
-            <div class="text-muted small">Overdue PO Lines</div>
-        </div></a>
-    </div>
-</div>
-
-<!-- Quick links -->
-<div class="row g-3 mb-4">
-    <div class="col-12 col-md-4">
-        <a href="{{ url_for('materials.index') }}"
-           class="card border-0 shadow-sm text-decoration-none h-100 card-hover {{ 'border-danger border' if mat_summary.shortage_est else '' }}">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="fs-3 {{ 'text-danger' if mat_summary.shortage_est else 'text-secondary' }}">
-                    <i class="bi bi-exclamation-triangle-fill"></i>
-                </div>
-                <div>
-                    <div class="fw-semibold">Material Shortages</div>
-                    <div class="text-muted small">Weekly SO material status overview</div>
+            <div class="col-6 col-md-3">
+                <div class="card border-0 bg-light text-center p-3 h-100 {{ 'border-warning border-top border-3' if stock_overview.zero_stock else '' }}">
+                    <div class="fs-4 fw-bold {{ 'text-warning' if stock_overview.zero_stock else 'text-success' }}">{{ '{:,}'.format(stock_overview.zero_stock) }}</div>
+                    <div class="text-muted small">Lines at Zero Stock</div>
                 </div>
             </div>
-        </a>
-    </div>
-    <div class="col-12 col-md-4">
-        <a href="{{ url_for('materials.stock_list') }}" class="card border-0 shadow-sm text-decoration-none h-100 card-hover">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="fs-3 text-primary"><i class="bi bi-boxes"></i></div>
-                <div>
-                    <div class="fw-semibold">Stock on Hand</div>
-                    <div class="text-muted small">{{ mat_summary.stock_lines }} product lines</div>
+            <div class="col-6 col-md-3">
+                <div class="card border-0 bg-light text-center p-3 h-100 {{ 'border-danger border-top border-3' if stock_overview.in_deficit else '' }}">
+                    <div class="fs-4 fw-bold {{ 'text-danger' if stock_overview.in_deficit else 'text-success' }}">{{ '{:,}'.format(stock_overview.in_deficit) }}</div>
+                    <div class="text-muted small">In Deficit</div>
                 </div>
             </div>
-        </a>
-    </div>
-    <div class="col-12 col-md-4">
-        <a href="{{ url_for('purchasing.supplier_delivery') }}" class="card border-0 shadow-sm text-decoration-none h-100 card-hover {{ 'border-warning border' if po_summary.overdue_lines else '' }}">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="fs-3 {{ 'text-warning' if po_summary.overdue_lines else 'text-success' }}"><i class="bi bi-truck"></i></div>
-                <div>
-                    <div class="fw-semibold">Supplier Delivery</div>
-                    <div class="text-muted small">{{ po_summary.overdue_lines }} overdue PO lines</div>
-                </div>
+            <div class="col-6 col-md-3">
+                <a href="{{ url_for('materials.main_requirements') }}" class="text-decoration-none">
+                <div class="card border-0 bg-light text-center p-3 h-100 card-hover">
+                    <div class="fs-4 fw-bold text-info">{{ '{:,}'.format(mat_summary.main_reqs) }}</div>
+                    <div class="text-muted small">Material Requirements</div>
+                </div></a>
             </div>
-        </a>
+        </div>
+        {% if stock_overview.classes %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.83rem;">
+                <thead class="thead-subtle">
+                    <tr>
+                        <th>Material Class</th>
+                        <th class="text-end">Lines</th>
+                        <th class="text-end">Total Qty on Hand</th>
+                        <th class="text-end text-danger">In Deficit</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in stock_overview.classes %}
+                    <tr>
+                        <td class="fw-semibold">{{ c.class_id }}</td>
+                        <td class="text-end">{{ c.count }}</td>
+                        <td class="text-end">{{ '{:,.1f}'.format(c.total_qty) }}</td>
+                        <td class="text-end {% if c.deficit_count %}text-danger fw-semibold{% else %}text-muted{% endif %}">
+                            {{ c.deficit_count or '—' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -224,6 +295,11 @@
 {% endblock %}
 
 {% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => new bootstrap.Popover(el));
+});
+</script>
 {% if po_summary.has_data and po_summary.weeks %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -241,7 +317,7 @@ document.addEventListener('DOMContentLoaded', function () {
         data: {
             labels,
             datasets: [{
-                label: 'Outstanding Value (£)',
+                label: 'Outstanding Value (GBP)',
                 data: values,
                 backgroundColor: colors,
                 borderColor: bords,
@@ -255,8 +331,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        label: item =>
-                            ' £' + item.raw.toLocaleString('en-GB', { maximumFractionDigits: 0 }),
+                        label: item => ' £' + item.raw.toLocaleString('en-GB', { maximumFractionDigits: 0 }),
                         footer: items => {
                             const w = weeks[items[0].dataIndex];
                             return w.count + ' line' + (w.count !== 1 ? 's' : '');
@@ -268,9 +343,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 x: { grid: { display: false } },
                 y: {
                     beginAtZero: true,
-                    ticks: {
-                        callback: v => '£' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v),
-                    },
+                    ticks: { callback: v => '£' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
                     title: { display: true, text: 'Outstanding value (£)' },
                 },
             },

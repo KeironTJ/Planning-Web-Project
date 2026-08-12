@@ -43,7 +43,7 @@ def loading_bay():
     search        = request.args.get("q", "").strip()
     customer_f    = request.args.get("customer", "").strip()
     status_f      = request.args.get("status", "").strip()
-    if status_f not in ("", "ready", "partial", "on_hold", "urgent"):
+    if status_f not in ("", "ready", "ready_hold", "partial", "partial_hold"):
         status_f = ""
     sort          = request.args.get("sort", "due_date")
     if sort not in ("due_date", "customer", "value", "so_number"):
@@ -175,10 +175,6 @@ def loading_bay():
     _domestic = {"united kingdom", "uk", "gb", "great britain", "northern ireland"}
 
     orders_list: list[dict] = []
-    total_invoiceable    = 0.0
-    total_ready_orders   = 0
-    total_partial_orders = 0
-    total_units_ready    = 0.0
 
     for onum in order_keys:
         order    = orders_map[onum]
@@ -233,48 +229,41 @@ def loading_bay():
         # Status
         if not (in_prog or not_started):
             order["order_status"] = "ready"
-            total_ready_orders   += 1
         else:
             order["order_status"] = "partial"
-            total_partial_orders += 1
 
         # Sort releases: finished first, then in_progress, then not_started
         order["releases"] = finished + in_prog + not_started
 
-        total_invoiceable += order["invoiceable_value"]
-        total_units_ready += order["units_ready"]
         orders_list.append(order)
 
     # ── Snapshot unfiltered counts for KPI navigation cards ─────────────
-    _kpi_held   = [o for o in orders_list if o["on_hold"] and o["order_status"] == "ready"]
-    _kpi_urgent = [o for o in orders_list
-                   if o["order_status"] == "ready" and not o["on_hold"]
-                   and o["days_delta"] is not None and o["days_delta"] < 0]
-    _kpi_ready  = [o for o in orders_list if o["order_status"] == "ready" and not o["on_hold"]]
-    _kpi_partial = [o for o in orders_list if o["order_status"] == "partial"]
+    _kpi_ready        = [o for o in orders_list if o["order_status"] == "ready" and not o["on_hold"]]
+    _kpi_ready_hold   = [o for o in orders_list if o["on_hold"] and o["order_status"] == "ready"]
+    _kpi_partial      = [o for o in orders_list if o["order_status"] == "partial" and not o["on_hold"]]
+    _kpi_partial_hold = [o for o in orders_list if o["on_hold"] and o["order_status"] == "partial"]
     kpi_summary = {
-        "total_orders":    len(orders_list),
-        "ready_orders":    total_ready_orders,
-        "partial_orders":  total_partial_orders,
-        "held_count":      len(_kpi_held),
-        "held_value":      sum(o["invoiceable_value"] for o in _kpi_held),
-        "urgent_count":    len(_kpi_urgent),
-        "urgent_value":    sum(o["invoiceable_value"] for o in _kpi_urgent),
-        "intl_count":      sum(1 for o in orders_list
-                               if o["is_international"] and o["order_status"] == "ready"
-                               and not o["on_hold"]),
+        "total_orders":        len(orders_list),
+        "ready_count":         len(_kpi_ready),
+        "ready_hold_count":    len(_kpi_ready_hold),
+        "partial_count":       len(_kpi_partial),
+        "partial_hold_count":  len(_kpi_partial_hold),
+        "intl_count":          sum(1 for o in orders_list
+                                    if o["is_international"] and o["order_status"] == "ready"
+                                    and not o["on_hold"]),
         # Value breakdowns for KPI cards
-        "ready_value":       sum(o["invoiceable_value"] for o in _kpi_ready),
-        "partial_fin_value": sum(o["invoiceable_value"] for o in _kpi_partial),
-        "total_value":       sum(o["invoiceable_value"] for o in orders_list),
-        # Full potential: finished + all WIP lines if they were to complete
-        "full_potential":    sum(o["total_value"] for o in orders_list),
+        "ready_value":         sum(o["invoiceable_value"] for o in _kpi_ready),
+        "ready_hold_value":    sum(o["invoiceable_value"] for o in _kpi_ready_hold),
+        "partial_value":       sum(o["invoiceable_value"] for o in _kpi_partial),
+        "partial_hold_value":  sum(o["invoiceable_value"] for o in _kpi_partial_hold),
+        "total_value":         sum(o["invoiceable_value"] for o in orders_list),
+        "full_potential":      sum(o["total_value"] for o in orders_list),
     }
 
     # ── Shipping Horizon (unfiltered — ready orders by days to due) ──────
     _h_labels = ["Overdue", "Today", "1–3 days", "4–7 days", "8–14 days", "15+ days", "No date"]
-    _h_ready  = [0.0] * 7
-    _h_held   = [0.0] * 7
+    _h_ready      = [0.0] * 7
+    _h_ready_hold = [0.0] * 7
 
     for o in orders_list:
         if o["order_status"] != "ready":
@@ -296,14 +285,14 @@ def loading_bay():
         else:
             idx = 5
         if o["on_hold"]:
-            _h_held[idx] += v
+            _h_ready_hold[idx] += v
         else:
             _h_ready[idx] += v
 
     shipping_horizon = {
-        "labels": _h_labels,
-        "ready":  [round(v, 2) for v in _h_ready],
-        "held":   [round(v, 2) for v in _h_held],
+        "labels":     _h_labels,
+        "ready":      [round(v, 2) for v in _h_ready],
+        "ready_hold": [round(v, 2) for v in _h_ready_hold],
     }
 
     # ── Weekly Loading Timeline (unfiltered — all orders by need_by_date week) ──
@@ -319,10 +308,11 @@ def loading_bay():
                      else f"Wk {_iso_wn} '{str(_iso_yr)[-2:]}")
         _wk_buckets.append((_wk_label, _ws, _we))
 
-    _wl_labels  = ["Overdue"] + [b[0] for b in _wk_buckets] + ["Later / No Date"]
-    _wl_ready   = [0.0] * len(_wl_labels)
-    _wl_held    = [0.0] * len(_wl_labels)
-    _wl_partial = [0.0] * len(_wl_labels)
+    _wl_labels        = ["Overdue"] + [b[0] for b in _wk_buckets] + ["Later / No Date"]
+    _wl_ready        = [0.0] * len(_wl_labels)
+    _wl_ready_hold   = [0.0] * len(_wl_labels)
+    _wl_partial      = [0.0] * len(_wl_labels)
+    _wl_partial_hold = [0.0] * len(_wl_labels)
 
     for _o in orders_list:
         _v  = _o["invoiceable_value"]
@@ -337,41 +327,32 @@ def loading_bay():
                 if _wbs <= _nd <= _wbe:
                     _wl_idx = 1 + _wi
                     break
-        if _o["on_hold"]:
-            _wl_held[_wl_idx]    += _v
+        if _o["on_hold"] and _o["order_status"] == "ready":
+            _wl_ready_hold[_wl_idx]   += _v
+        elif _o["on_hold"]:
+            _wl_partial_hold[_wl_idx] += _v
         elif _o["order_status"] == "ready":
-            _wl_ready[_wl_idx]   += _v
+            _wl_ready[_wl_idx]        += _v
         else:
-            _wl_partial[_wl_idx] += _v
+            _wl_partial[_wl_idx]      += _v
 
     weekly_loading = {
-        "labels":  _wl_labels,
-        "ready":   [round(v, 2) for v in _wl_ready],
-        "held":    [round(v, 2) for v in _wl_held],
-        "partial": [round(v, 2) for v in _wl_partial],
+        "labels":        _wl_labels,
+        "ready":         [round(v, 2) for v in _wl_ready],
+        "ready_hold":    [round(v, 2) for v in _wl_ready_hold],
+        "partial":       [round(v, 2) for v in _wl_partial],
+        "partial_hold":  [round(v, 2) for v in _wl_partial_hold],
     }
 
     # ── Status filter (applied after classification) ────────────────────
     if status_f == "ready":
         orders_list = [o for o in orders_list if o["order_status"] == "ready" and not o["on_hold"]]
-    elif status_f == "urgent":
-        orders_list = [o for o in orders_list
-                       if o["order_status"] == "ready" and not o["on_hold"]
-                       and o["days_delta"] is not None and o["days_delta"] < 0]
-    elif status_f == "partial":
-        orders_list = [o for o in orders_list if o["order_status"] == "partial"]
-    elif status_f == "on_hold":
+    elif status_f == "ready_hold":
         orders_list = [o for o in orders_list if o["on_hold"] and o["order_status"] == "ready"]
-
-    # ── Urgent dispatch: ready + overdue + no hold ──────────────────────
-    urgent_orders = sorted(
-        [o for o in orders_list
-         if o["order_status"] == "ready"
-         and not o["on_hold"]
-         and o["days_delta"] is not None
-         and o["days_delta"] < 0],
-        key=lambda o: o["days_delta"],   # most overdue first
-    )
+    elif status_f == "partial":
+        orders_list = [o for o in orders_list if o["order_status"] == "partial" and not o["on_hold"]]
+    elif status_f == "partial_hold":
+        orders_list = [o for o in orders_list if o["on_hold"] and o["order_status"] == "partial"]
 
     # ── Apply sort ──────────────────────────────────────────────────────
     if sort == "customer":
@@ -380,12 +361,11 @@ def loading_bay():
         orders_list.sort(key=lambda o: o["invoiceable_value"], reverse=True)
     elif sort == "so_number":
         orders_list.sort(key=lambda o: o["order_num"])
-    else:  # due_date default: urgent first, then ready by date, then partial
+    else:  # due_date: ready first (overdue sorts to top naturally), then ready-hold, partial, partial-hold
         orders_list.sort(key=lambda o: (
-            0 if (o["order_status"] == "ready" and not o["on_hold"] and
-                  o["days_delta"] is not None and o["days_delta"] < 0) else
-            1 if (o["order_status"] == "ready" and not o["on_hold"]) else
-            2 if o["order_status"] == "ready" else
+            0 if (o["order_status"] == "ready" and not o["on_hold"]) else
+            1 if (o["on_hold"] and o["order_status"] == "ready") else
+            2 if (o["order_status"] == "partial" and not o["on_hold"]) else
             3,
             o["due_date"] or date.max,
         ))
@@ -396,25 +376,28 @@ def loading_bay():
         cn = o["customer_name"] or "Unknown"
         if cn not in cust_map:
             cust_map[cn] = {
-                "name":          cn,
-                "value":         0.0,
-                "units":         0.0,
-                "units_total":   0.0,
-                "orders":        0,
-                "ready_value":   0.0,
-                "partial_value": 0.0,
-                "held_value":    0.0,
+                "name":               cn,
+                "value":              0.0,
+                "units":              0.0,
+                "units_total":        0.0,
+                "orders":             0,
+                "ready_value":       0.0,
+                "ready_hold_value":  0.0,
+                "partial_value":     0.0,
+                "partial_hold_value": 0.0,
             }
         cust_map[cn]["value"]       += o["invoiceable_value"]
         cust_map[cn]["units"]       += o["units_ready"]
         cust_map[cn]["units_total"] += o["units_total"]
         cust_map[cn]["orders"] += 1
-        if o["on_hold"]:
-            cust_map[cn]["held_value"]    += o["invoiceable_value"]
+        if o["on_hold"] and o["order_status"] == "ready":
+            cust_map[cn]["ready_hold_value"]  += o["invoiceable_value"]
+        elif o["on_hold"]:
+            cust_map[cn]["partial_hold_value"] += o["invoiceable_value"]
         elif o["order_status"] == "ready":
-            cust_map[cn]["ready_value"]   += o["invoiceable_value"]
+            cust_map[cn]["ready_value"]        += o["invoiceable_value"]
         else:
-            cust_map[cn]["partial_value"] += o["invoiceable_value"]
+            cust_map[cn]["partial_value"]      += o["invoiceable_value"]
     _all_customers  = sorted(cust_map.values(), key=lambda x: x["value"], reverse=True)
     customer_chart = _all_customers[:15]          # chart — top 15 only
     customer_table = _all_customers               # full list for the summary table
@@ -451,29 +434,27 @@ def loading_bay():
                 rel["mat_status"] = "no_data"
 
     # ── Summary KPIs (all computed from filtered orders_list) ────────────
-    held_ready   = [o for o in orders_list if o["on_hold"] and o["order_status"] == "ready"]
-    ready_clear  = [o for o in orders_list if o["order_status"] == "ready" and not o["on_hold"]]
-    partial_list = [o for o in orders_list if o["order_status"] == "partial"]
+    ready_list        = [o for o in orders_list if o["order_status"] == "ready" and not o["on_hold"]]
+    ready_hold_list   = [o for o in orders_list if o["on_hold"] and o["order_status"] == "ready"]
+    partial_list      = [o for o in orders_list if o["order_status"] == "partial" and not o["on_hold"]]
+    partial_hold_list = [o for o in orders_list if o["on_hold"] and o["order_status"] == "partial"]
     summary = {
-        # Filtered display values — update with status filter
         "total_orders":       len(orders_list),
-        "ready_orders":       len(ready_clear),
-        "partial_orders":     len(partial_list),
+        "ready_count":        len(ready_list),
+        "ready_hold_count":   len(ready_hold_list),
+        "partial_count":      len(partial_list),
+        "partial_hold_count": len(partial_hold_list),
         "total_invoiceable":  sum(o["invoiceable_value"] for o in orders_list),
         "total_units_ready":  sum(o["units_ready"]       for o in orders_list),
-        "held_count":         len(held_ready),
-        "held_value":         sum(o["invoiceable_value"] for o in held_ready),
-        "held_units":         sum(o["units_ready"]       for o in held_ready),
-        "urgent_count":       len(urgent_orders),
-        "urgent_value":       sum(o["invoiceable_value"] for o in urgent_orders),
-        "intl_count":         sum(1 for o in orders_list
-                                  if o["is_international"] and o["order_status"] == "ready"
-                                  and not o["on_hold"]),
         # Chart breakdown (value & units per segment)
-        "ready_clear_value":  sum(o["invoiceable_value"] for o in ready_clear),
+        "ready_value":        sum(o["invoiceable_value"] for o in ready_list),
+        "ready_hold_value":   sum(o["invoiceable_value"] for o in ready_hold_list),
         "partial_value":      sum(o["invoiceable_value"] for o in partial_list),
-        "ready_clear_units":  sum(o["units_ready"]       for o in ready_clear),
+        "partial_hold_value": sum(o["invoiceable_value"] for o in partial_hold_list),
+        "ready_units":        sum(o["units_ready"]       for o in ready_list),
+        "ready_hold_units":   sum(o["units_ready"]       for o in ready_hold_list),
         "partial_units":      sum(o["units_ready"]       for o in partial_list),
+        "partial_hold_units": sum(o["units_ready"]       for o in partial_hold_list),
     }
 
     return render_template(
@@ -485,7 +466,6 @@ def loading_bay():
         customer_chart=customer_chart,
         customer_table=customer_table,
         mat_status_meta=MAT_STATUS_META,
-        urgent_orders=urgent_orders,
         shipping_horizon=shipping_horizon,
         weekly_loading=weekly_loading,
         today=today,

@@ -20,14 +20,14 @@
     }
     .print-header { display: none; }
 
-    .status-finished    { border-left: 3px solid #198754; }
-    .status-partial     { border-left: 3px solid #fd7e14; }
+    .status-ready        { border-left: 4px solid #198754; }
+    .status-ready-hold   { background-color: rgba(220, 53, 69, 0.10); border-left: 4px solid #dc3545; }
+    .status-partial      { border-left: 4px solid #ffc107; }
+    .status-partial-hold { background-color: rgba(253, 126, 20, 0.08); border-left: 4px solid #fd7e14; }
 
     .release-row-finished    { background-color: rgba(25, 135, 84, 0.05); }
     .release-row-in_progress { background-color: rgba(255, 193, 7, 0.08); }
     .release-row-not_started { background-color: rgba(108, 117, 125, 0.05); }
-
-    .kpi-card-value { font-size: 1.75rem; font-weight: 700; line-height: 1.1; }
 
     .kpi-clickable { cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
     .kpi-clickable:hover { transform: translateY(-2px); box-shadow: 0 .4rem 1rem rgba(0,0,0,.12) !important; }
@@ -50,106 +50,114 @@
 {# Helper macro for compact £ formatting #}
 {% macro fmt_val(v) %}{% if v >= 1000000 %}£{{ "%.1f"|format(v/1000000) }}m{% elif v >= 1000 %}£{{ "{:,.0f}".format(v/1000) }}k{% else %}£{{ "{:,.0f}".format(v) }}{% endif %}{% endmacro %}
 
-<div class="row g-3 mb-4">
+{% if kpi_summary.total_orders %}
+{% set _t = kpi_summary.total_orders %}
+{% set _pct_ready        = (kpi_summary.ready_count        / _t * 100) | round(1) %}
+{% set _pct_ready_hold   = (kpi_summary.ready_hold_count   / _t * 100) | round(1) %}
+{% set _pct_partial      = (kpi_summary.partial_count      / _t * 100) | round(1) %}
+{% set _pct_partial_hold = (kpi_summary.partial_hold_count / _t * 100) | round(1) %}
+{% endif %}
+
+<div class="row g-3 mb-3">
 
     <div class="col-6 col-md-4 col-xl-2">
         <a href="{{ url_for('transport.loading_bay', sort=sort) }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm h-100 text-center py-3 kpi-clickable {% if not status_f %}kpi-active{% endif %}">
-            <div class="kpi-card-value text-success">{{ kpi_summary.total_orders }}</div>
-            <div class="small text-muted">Orders with Finished Goods</div>
-            <div class="text-muted mt-1" style="font-size:.75rem;">{{ fmt_val(kpi_summary.total_value) }} total</div>
+        <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if not status_f %}kpi-active{% endif %}"
+             style="border-top:3px solid #198754 !important;">
+            <div class="fs-5 fw-bold text-success">{{ kpi_summary.total_orders }}</div>
+            <div class="fw-semibold small text-muted">All FG Orders</div>
+            <div class="text-muted" style="font-size:.75rem;">{{ kpi_summary.partial_count + kpi_summary.partial_hold_count }} in WIP &middot; {{ kpi_summary.ready_hold_count + kpi_summary.partial_hold_count }} on hold</div>
         </div>
         </a>
     </div>
 
     <div class="col-6 col-md-4 col-xl-2">
         <a href="{{ url_for('transport.loading_bay', status='ready', sort=sort) }}" class="text-decoration-none">
-        <div class="card border-success shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'ready' %}kpi-active{% endif %}">
-            <div class="kpi-card-value text-success">{{ kpi_summary.ready_orders }}</div>
-            <div class="small text-success">Fully Ready to Ship</div>
-            <div class="text-success fw-semibold mt-1" style="font-size:.8rem;">{{ fmt_val(kpi_summary.ready_value) }}</div>
+        <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if status_f == 'ready' %}kpi-active{% endif %}"
+             style="border-top:3px solid #198754 !important;">
+            <div class="fs-5 fw-bold" style="color:#198754;">{{ kpi_summary.ready_count }}</div>
+            <div class="fw-semibold small" style="color:#198754;">Ready to Ship</div>
+            <div class="text-muted" style="font-size:.75rem;">{{ fmt_val(kpi_summary.ready_value) }}</div>
         </div>
         </a>
     </div>
+
+    {% if kpi_summary.ready_hold_count %}
+    <div class="col-6 col-md-4 col-xl-2">
+        <a href="{{ url_for('transport.loading_bay', status='ready_hold', sort=sort) }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if status_f == 'ready_hold' %}kpi-active{% endif %}"
+             style="border-top:3px solid #dc3545 !important;">
+            <div class="fs-5 fw-bold text-danger">{{ kpi_summary.ready_hold_count }}</div>
+            <div class="fw-semibold small text-danger">Ready &mdash; On Hold</div>
+            <div class="text-muted" style="font-size:.75rem;">{{ fmt_val(kpi_summary.ready_hold_value) }} blocked</div>
+        </div>
+        </a>
+    </div>
+    {% endif %}
 
     <div class="col-6 col-md-4 col-xl-2">
         <a href="{{ url_for('transport.loading_bay', status='partial', sort=sort) }}" class="text-decoration-none">
-        <div class="card border-warning shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'partial' %}kpi-active{% endif %}">
-            <div class="kpi-card-value text-warning">{{ kpi_summary.partial_orders }}</div>
-            <div class="small text-warning">Partial (WIP Remaining)</div>
-            <div class="text-warning mt-1" style="font-size:.75rem;">{{ fmt_val(kpi_summary.partial_fin_value) }} finished</div>
+        <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if status_f == 'partial' %}kpi-active{% endif %}"
+             style="border-top:3px solid #ffc107 !important;">
+            <div class="fs-5 fw-bold" style="color:#e6a800;">{{ kpi_summary.partial_count }}</div>
+            <div class="fw-semibold small" style="color:#e6a800;">Partial WIP</div>
+            <div class="text-muted" style="font-size:.75rem;">{{ fmt_val(kpi_summary.partial_value) }} finished</div>
         </div>
         </a>
     </div>
 
-    {% if kpi_summary.urgent_count %}
+    {% if kpi_summary.partial_hold_count %}
     <div class="col-6 col-md-4 col-xl-2">
-        <a href="{{ url_for('transport.loading_bay', status='urgent', sort='due_date') }}" class="text-decoration-none">
-        <div class="card border-danger shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'urgent' %}kpi-active{% endif %}">
-            <div class="kpi-card-value text-danger">{{ kpi_summary.urgent_count }}</div>
-            <div class="small text-danger fw-semibold">Urgent — Overdue &amp; Ready</div>
-            <div class="text-danger fw-semibold mt-1" style="font-size:.8rem;">{{ fmt_val(kpi_summary.urgent_value) }}</div>
-        </div>
-        </a>
-    </div>
-    {% endif %}
-
-    {% if kpi_summary.held_count %}
-    <div class="col-6 col-md-4 col-xl-2">
-        <a href="{{ url_for('transport.loading_bay', status='on_hold', sort=sort) }}" class="text-decoration-none">
-        <div class="card border-danger border-opacity-50 shadow-sm h-100 text-center py-3 kpi-clickable {% if status_f == 'on_hold' %}kpi-active{% endif %}">
-            <div class="kpi-card-value text-danger">{{ kpi_summary.held_count }}</div>
-            <div class="small text-danger">Ready but On Hold</div>
-            <div class="text-danger fw-semibold mt-1" style="font-size:.8rem;">{{ fmt_val(kpi_summary.held_value) }} blocked</div>
+        <a href="{{ url_for('transport.loading_bay', status='partial_hold', sort=sort) }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if status_f == 'partial_hold' %}kpi-active{% endif %}"
+             style="border-top:3px solid #fd7e14 !important;">
+            <div class="fs-5 fw-bold" style="color:#fd7e14;">{{ kpi_summary.partial_hold_count }}</div>
+            <div class="fw-semibold small" style="color:#fd7e14;">Partial WIP &mdash; On Hold</div>
+            <div class="text-muted" style="font-size:.75rem;">{{ fmt_val(kpi_summary.partial_hold_value) }} finished</div>
         </div>
         </a>
     </div>
     {% endif %}
 
-    {% if kpi_summary.intl_count %}
-    <div class="col-6 col-md-4 col-xl-2">
-        <div class="card border-info border-opacity-50 shadow-sm h-100 text-center py-3">
-            <div class="kpi-card-value text-info">{{ kpi_summary.intl_count }}</div>
-            <div class="small text-info">Export / International</div>
-        </div>
-    </div>
-    {% endif %}
-
-    <div class="col-6 col-md-4 col-xl-2">
-        <div class="card border-0 shadow-sm h-100 text-center py-3">
-            <div class="kpi-card-value text-primary">{{ "%.0f"|format(summary.total_units_ready) }}</div>
-            <div class="small text-muted">Units Ready</div>
-        </div>
-    </div>
-
-    {# ── Two value cards: Ready to Invoice + Total Potential ── #}
     <div class="col-6 col-md-4 col-xl-2">
         <a href="{{ url_for('transport.loading_bay', status='ready', sort=sort) }}" class="text-decoration-none">
-        <div class="card border-success border-opacity-75 shadow-sm h-100 text-center py-3 px-2 kpi-clickable">
-            <div class="kpi-card-value text-success">{{ fmt_val(kpi_summary.ready_value) }}</div>
-            <div class="small text-success fw-semibold">Ready to Invoice</div>
-            <div class="text-muted mt-1" style="font-size:.7rem;">Clear orders, no holds</div>
+        <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable"
+             style="border-top:3px solid #198754 !important;">
+            <div class="fs-5 fw-bold" style="color:#198754;">{{ fmt_val(kpi_summary.ready_value) }}</div>
+            <div class="fw-semibold small" style="color:#198754;">Ready to Invoice</div>
+            <div class="text-muted" style="font-size:.75rem;">Clear, no holds</div>
         </div>
         </a>
     </div>
 
     <div class="col-6 col-md-4 col-xl-2">
-        <div class="card border-0 shadow-sm h-100 text-center py-3 px-2">
-            <div class="kpi-card-value text-secondary">{{ fmt_val(kpi_summary.total_value) }}</div>
-            <div class="small text-muted">All Finished Goods</div>
-            <div class="text-muted mt-1" style="font-size:.7rem;">Ready + held + partial finished</div>
+        <div class="card border-0 shadow-sm text-center p-3 h-100"
+             style="border-top:3px solid #6c757d !important;">
+            <div class="fs-5 fw-bold text-secondary">{{ fmt_val(summary.total_invoiceable) }}</div>
+            <div class="fw-semibold small text-muted">All Finished Goods</div>
+            <div class="text-muted" style="font-size:.75rem;">Ready + held + partial finished</div>
         </div>
     </div>
 
     <div class="col-6 col-md-4 col-xl-2">
-        <div class="card border-0 shadow-sm h-100 text-center py-3 px-2" style="border-left:3px solid #6f42c1 !important;">
-            <div class="kpi-card-value" style="color:#6f42c1;">{{ fmt_val(kpi_summary.full_potential) }}</div>
-            <div class="small text-muted">Full Potential</div>
-            <div class="text-muted mt-1" style="font-size:.7rem;">If all WIP completes</div>
+        <div class="card border-0 shadow-sm text-center p-3 h-100"
+             style="border-top:3px solid #6f42c1 !important;">
+            <div class="fs-5 fw-bold" style="color:#6f42c1;">{{ fmt_val(kpi_summary.full_potential) }}</div>
+            <div class="fw-semibold small text-muted">Full Potential</div>
+            <div class="text-muted" style="font-size:.75rem;">If all WIP completes</div>
         </div>
     </div>
 
 </div>
+
+{% if kpi_summary.total_orders %}
+<div class="progress mb-4 no-print" style="height:6px;border-radius:3px;">
+    <div class="progress-bar" style="width:{{ _pct_ready }}%;background:#198754;"        title="Ready to Ship ({{ kpi_summary.ready_count }})"></div>
+    <div class="progress-bar" style="width:{{ _pct_partial }}%;background:#ffc107;"       title="Partial WIP ({{ kpi_summary.partial_count }})"></div>
+    <div class="progress-bar" style="width:{{ _pct_partial_hold }}%;background:#fd7e14;"  title="Partial WIP — On Hold ({{ kpi_summary.partial_hold_count }})"></div>
+    <div class="progress-bar" style="width:{{ _pct_ready_hold }}%;background:#dc3545;"   title="Ready — On Hold ({{ kpi_summary.ready_hold_count }})"></div>
+</div>
+{% endif %}
 
 {% if summary.total_orders == 0 %}
 <div class="card border-0 shadow-sm mb-4">
@@ -252,8 +260,8 @@
                         <th class="text-center">Orders</th>
                         <th class="text-end">Ready&nbsp;/ Total Units</th>
                         <th class="text-end text-success">Ready (GBP)</th>
-                        <th class="text-end text-warning">Partial (GBP)</th>
-                        <th class="text-end text-danger">On Hold (GBP)</th>
+                        <th class="text-end text-warning">Partial WIP (GBP)</th>
+                        <th class="text-end" style="color:#fd7e14;">On Hold (GBP)</th>
                         <th class="text-end pe-3">Total (GBP)</th>
                     </tr>
                 </thead>
@@ -274,8 +282,9 @@
                         <td class="text-end text-warning">
                             {% if c.partial_value %}£{{ "{:,.2f}".format(c.partial_value) }}{% else %}<span class="text-muted">—</span>{% endif %}
                         </td>
-                        <td class="text-end text-danger">
-                            {% if c.held_value %}£{{ "{:,.2f}".format(c.held_value) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                        <td class="text-end" style="color:#fd7e14;">
+                            {% set _on_hold = c.ready_hold_value + c.partial_hold_value %}
+                            {% if _on_hold %}£{{ "{:,.2f}".format(_on_hold) }}{% else %}<span class="text-muted">—</span>{% endif %}
                         </td>
                         <td class="text-end pe-3 fw-semibold text-success">
                             £{{ "{:,.2f}".format(c.value) }}
@@ -288,7 +297,7 @@
                     {% for c in customer_table %}
                         {% set ns.ready   = ns.ready   + c.ready_value %}
                         {% set ns.partial = ns.partial + c.partial_value %}
-                        {% set ns.held    = ns.held    + c.held_value %}
+                        {% set ns.held    = ns.held    + c.ready_hold_value + c.partial_hold_value %}
                         {% set ns.total   = ns.total   + c.value %}
                         {% set ns.units       = ns.units       + c.units %}
                         {% set ns.units_total = ns.units_total + c.units_total %}
@@ -303,7 +312,7 @@
                         </td>
                         <td class="text-end text-success">£{{ "{:,.2f}".format(ns.ready) }}</td>
                         <td class="text-end text-warning">£{{ "{:,.2f}".format(ns.partial) }}</td>
-                        <td class="text-end text-danger">£{{ "{:,.2f}".format(ns.held) }}</td>
+                        <td class="text-end" style="color:#fd7e14;">£{{ "{:,.2f}".format(ns.held) }}</td>
                         <td class="text-end pe-3 text-success">£{{ "{:,.2f}".format(ns.total) }}</td>
                     </tr>
                 </tfoot>
@@ -329,8 +338,11 @@
                 <i class="bi bi-list-check me-2 text-success"></i>
                 Order Detail
                 <span class="badge text-bg-success ms-1">{{ summary.total_orders }}</span>
-                {% if summary.partial_orders %}
-                <span class="badge text-bg-warning ms-1">{{ summary.partial_orders }} partial</span>
+                {% if summary.ready_hold_count %}
+                <span class="badge text-bg-danger ms-1">{{ summary.ready_hold_count }} ready on hold</span>
+                {% endif %}
+                {% if summary.partial_hold_count %}
+                <span class="badge ms-1" style="background-color:#fd7e14; color:#fff;">{{ summary.partial_hold_count }} partial on hold</span>
                 {% endif %}
             </h6>
             <button class="btn btn-sm btn-outline-secondary no-print"
@@ -359,11 +371,11 @@
                     <div class="col-6 col-md-2">
                         <label class="form-label small mb-1">Status</label>
                         <select name="status" class="form-select form-select-sm">
-                            <option value=""        {% if not status_f      %}selected{% endif %}>All</option>
-                            <option value="ready"   {% if status_f == 'ready'   %}selected{% endif %}>Ready to Ship</option>
-                            <option value="urgent"  {% if status_f == 'urgent'  %}selected{% endif %}>Urgent (Overdue &amp; Ready)</option>
-                            <option value="partial" {% if status_f == 'partial' %}selected{% endif %}>Partial</option>
-                            <option value="on_hold" {% if status_f == 'on_hold' %}selected{% endif %}>On Hold</option>
+                            <option value=""            {% if not status_f           %}selected{% endif %}>All FG Orders</option>
+                            <option value="ready"        {% if status_f == 'ready'        %}selected{% endif %}>Ready to Ship</option>
+                            <option value="ready_hold"   {% if status_f == 'ready_hold'   %}selected{% endif %}>Ready &mdash; On Hold</option>
+                            <option value="partial"      {% if status_f == 'partial'      %}selected{% endif %}>Partial WIP</option>
+                            <option value="partial_hold" {% if status_f == 'partial_hold' %}selected{% endif %}>Partial WIP &mdash; On Hold</option>
                         </select>
                     </div>
                     <div class="col-6 col-md-2">
@@ -407,7 +419,7 @@
                     {% set row_id = "order-" ~ loop.index %}
 
                     {# ── Order header row ── #}
-                    <tr class="{% if o.on_hold %}table-danger{% elif o.order_status == 'ready' %}status-finished{% else %}status-partial{% endif %} fw-semibold clickable-order-row"
+                    <tr class="{% if o.on_hold and o.order_status == 'ready' %}status-ready-hold{% elif o.on_hold %}status-partial-hold{% elif o.order_status == 'ready' %}status-ready{% else %}status-partial{% endif %} fw-semibold clickable-order-row"
                         data-href="{{ url_for('orders.order_book', q=o.order_num) }}"
                         style="cursor:pointer;">
                         <td class="ps-2 text-center">
@@ -447,8 +459,19 @@
                             {% else %}—{% endif %}
                         </td>
                         <td class="text-center">
-                            {% if o.on_hold %}
+                            {% if o.on_hold and o.order_status == 'ready' %}
                             <span class="badge text-bg-danger">
+                                <i class="bi bi-slash-circle me-1"></i>Ready &mdash; On Hold
+                            </span>
+                            {% if o.so_credit_hold or o.customer_credit_hold %}
+                            <span class="badge text-bg-danger bg-opacity-75 ms-1" style="font-size:.65rem;">Credit</span>
+                            {% endif %}
+                            {% elif o.on_hold %}
+                            <span class="badge text-bg-warning text-dark">
+                                <i class="bi bi-hourglass-split me-1"></i>Partial WIP
+                                <span class="ms-1">({{ o.wip_count }})</span>
+                            </span>
+                            <span class="badge ms-1" style="background-color:#fd7e14; color:#fff; font-size:.65rem;">
                                 <i class="bi bi-slash-circle me-1"></i>On Hold
                             </span>
                             {% if o.so_credit_hold or o.customer_credit_hold %}
@@ -460,8 +483,8 @@
                             </span>
                             {% else %}
                             <span class="badge text-bg-warning text-dark">
-                                <i class="bi bi-hourglass-split me-1"></i>Partial
-                                <span class="ms-1">({{ o.wip_count }} WIP)</span>
+                                <i class="bi bi-hourglass-split me-1"></i>Partial WIP
+                                <span class="ms-1">({{ o.wip_count }})</span>
                             </span>
                             {% endif %}
                         </td>
@@ -470,13 +493,15 @@
                             {% if o.mat_status != 'no_data' %}
                             <a href="{{ url_for('materials.mrp', so=o.order_num) }}" target="_blank" class="text-decoration-none">
                             {% if o.mat_status == 'high_risk' %}
-                            <span class="badge text-bg-danger" style="font-size:.65rem;" title="Material shortage — click for MRP pegging"><i class="bi bi-exclamation-triangle-fill me-1"></i>Short</span>
+                            <span class="badge text-bg-danger" style="font-size:.65rem;" title="Shortage — no PO in system"><i class="bi bi-exclamation-triangle-fill me-1"></i>Shortage</span>
+                            {% elif o.mat_status == 'late_po' %}
+                            <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Late PO — PO overdue or too late"><i class="bi bi-clock-history me-1"></i>Late PO</span>
                             {% elif o.mat_status == 'med_risk' %}
-                            <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="Material at risk — click for MRP pegging"><i class="bi bi-clock-fill me-1"></i>At Risk</span>
+                            <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="PO Reliant — gap covered by open PO"><i class="bi bi-receipt me-1"></i>PO Reliant</span>
                             {% elif o.mat_status == 'low_risk' %}
-                            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="CO cover — click for MRP pegging"><i class="bi bi-info-circle me-1"></i>CO Cover</span>
+                            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Soft Risk — gap exists but job not yet released"><i class="bi bi-info-circle me-1"></i>Soft Risk</span>
                             {% elif o.mat_status == 'ok' %}
-                            <span class="badge text-bg-success" style="font-size:.65rem;" title="Materials OK — click for MRP pegging"><i class="bi bi-check2 me-1"></i>OK</span>
+                            <span class="badge text-bg-success" style="font-size:.65rem;" title="Mat. OK"><i class="bi bi-check2 me-1"></i>Mat. OK</span>
                             {% endif %}
                             </a>
                             {% endif %}
@@ -542,13 +567,15 @@
                             {% if rel.mat_status != 'no_data' %}
                             <a href="{{ url_for('materials.mrp', so=o.order_num) }}" target="_blank" class="text-decoration-none">
                             {% if rel.mat_status == 'high_risk' %}
-                            <span class="badge text-bg-danger" style="font-size:.65rem;" title="Material shortage"><i class="bi bi-exclamation-triangle-fill me-1"></i>Short</span>
+                            <span class="badge text-bg-danger" style="font-size:.65rem;" title="Shortage"><i class="bi bi-exclamation-triangle-fill me-1"></i>Shortage</span>
+                            {% elif rel.mat_status == 'late_po' %}
+                            <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Late PO"><i class="bi bi-clock-history me-1"></i>Late PO</span>
                             {% elif rel.mat_status == 'med_risk' %}
-                            <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="At risk"><i class="bi bi-clock-fill me-1"></i>At Risk</span>
+                            <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="PO Reliant"><i class="bi bi-receipt me-1"></i>PO Reliant</span>
                             {% elif rel.mat_status == 'low_risk' %}
-                            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="CO cover"><i class="bi bi-info-circle me-1"></i>CO Cover</span>
+                            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Soft Risk"><i class="bi bi-info-circle me-1"></i>Soft Risk</span>
                             {% elif rel.mat_status == 'ok' %}
-                            <span class="badge text-bg-success" style="font-size:.65rem;" title="Materials OK"><i class="bi bi-check2 me-1"></i>OK</span>
+                            <span class="badge text-bg-success" style="font-size:.65rem;" title="Mat. OK"><i class="bi bi-check2 me-1"></i>Mat. OK</span>
                             {% endif %}
                             </a>
                             {% endif %}
@@ -619,14 +646,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // ── Charts ─────────────────────────────────────────────────────────
     var custData   = {{ customer_chart | tojson }};
-    var readyCount = {{ summary.ready_orders - summary.held_count }};
-    var partCount  = {{ summary.partial_orders }};
-    var heldCount  = {{ summary.held_count }};
+    var readyCount       = {{ summary.ready_count }};
+    var readyHoldCount   = {{ summary.ready_hold_count }};
+    var partCount        = {{ summary.partial_count }};
+    var partHoldCount    = {{ summary.partial_hold_count }};
 
     // Chart data for value and units modes
     var readinessChartData = {
-        value: [{{ summary.ready_clear_value | round(2) }}, {{ summary.partial_value | round(2) }}, {{ summary.held_value | round(2) }}],
-        units: [{{ summary.ready_clear_units | round(0) | int }}, {{ summary.partial_units | round(0) | int }}, {{ summary.held_units | round(0) | int }}],
+        value: [{{ summary.ready_value | round(2) }}, {{ summary.partial_value | round(2) }}, {{ summary.partial_hold_value | round(2) }}, {{ summary.ready_hold_value | round(2) }}],
+        units: [{{ summary.ready_units | round(0) | int }}, {{ summary.partial_units | round(0) | int }}, {{ summary.partial_hold_units | round(0) | int }}, {{ summary.ready_hold_units | round(0) | int }}],
     };
 
     // Customer invoicing potential — stacked by status (mirrors doughnut colours)
@@ -643,14 +671,20 @@ document.addEventListener('DOMContentLoaded', function () {
                         borderRadius: 0,
                     },
                     {
-                        label: 'Partial (WIP remaining)',
+                        label: 'Partial WIP',
                         data: custData.map(function (c) { return c.partial_value; }),
+                        backgroundColor: '#ffc107',
+                        borderRadius: 0,
+                    },
+                    {
+                        label: 'Partial WIP — On Hold',
+                        data: custData.map(function (c) { return c.partial_hold_value; }),
                         backgroundColor: '#fd7e14',
                         borderRadius: 0,
                     },
                     {
-                        label: 'Ready but On Hold',
-                        data: custData.map(function (c) { return c.held_value; }),
+                        label: 'Ready — On Hold',
+                        data: custData.map(function (c) { return c.ready_hold_value; }),
                         backgroundColor: '#dc3545',
                         borderRadius: 0,
                     },
@@ -693,10 +727,10 @@ document.addEventListener('DOMContentLoaded', function () {
         readinessChart = new Chart(document.getElementById('chartReadiness'), {
             type: 'doughnut',
             data: {
-                labels: ['Ready to Ship', 'Partial (WIP remaining)', 'Ready but On Hold'],
+                labels: ['Ready to Ship', 'Partial WIP', 'Partial WIP — On Hold', 'Ready — On Hold'],
                 datasets: [{
                     data: readinessChartData.value,
-                    backgroundColor: ['#198754', '#fd7e14', '#dc3545'],
+                    backgroundColor: ['#198754', '#ffc107', '#fd7e14', '#dc3545'],
                     borderWidth: 2,
                 }]
             },
@@ -757,14 +791,20 @@ document.addEventListener('DOMContentLoaded', function () {
                         borderRadius: 2,
                     },
                     {
-                        label: 'Partial (WIP remaining)',
+                        label: 'Partial WIP',
                         data: wlData.partial,
+                        backgroundColor: '#ffc107',
+                        borderRadius: 0,
+                    },
+                    {
+                        label: 'Partial WIP — On Hold',
+                        data: wlData.partial_hold,
                         backgroundColor: '#fd7e14',
                         borderRadius: 0,
                     },
                     {
-                        label: 'Ready but On Hold',
-                        data: wlData.held,
+                        label: 'Ready — On Hold',
+                        data: wlData.ready_hold,
                         backgroundColor: '#dc3545',
                         borderRadius: 0,
                     },

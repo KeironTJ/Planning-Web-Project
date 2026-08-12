@@ -78,6 +78,8 @@ class ShortageRow:
     customer: Optional[str] = None
     complete: Optional[str] = None
     class_id: Optional[str] = None
+    job_released: Optional[bool] = None
+    po_exists: bool = False  # any open PO for this material exists (may be overdue/insufficient)
 
 
 @dataclass
@@ -253,6 +255,7 @@ def get_shortage_report(
             "customer":     None,
             "complete":     "Y" if (req.job_closed or req.issued_complete) else "",
             "class_id":     req.class_id or "",
+            "job_released": req.job_released,
             "_search_text": f"{mc} {req.material_description or ''} {req.works_order or ''}".lower(),
         })
 
@@ -312,6 +315,7 @@ def get_shortage_report(
             req["_stock_on_hand"] = stock_before
             req["_po_coverage"]   = po_avail + co_before   # CO + PO available at this point
             req["_shortage"]      = shortage
+            req["_po_exists"]     = bool(po_lines)
             all_netted.append(req)
 
     # ---- Phase 3: apply display filters and build ShortageRows ----
@@ -348,6 +352,8 @@ def get_shortage_report(
             customer=r["customer"],
             complete=r["complete"],
             class_id=r.get("class_id") or None,
+            job_released=r.get("job_released"),
+            po_exists=r.get("_po_exists", False),
         ))
 
     # Sort by due_date, then worst shortage first
@@ -374,16 +380,18 @@ _MAT_STATUS_PRIORITY: dict[str, int] = {
     "ok":         0,
     "low_risk":   1,
     "med_risk":   2,
-    "high_risk":  3,
+    "late_po":    3,
+    "high_risk":  4,
 }
 
 #: Display metadata: status -> (label, Bootstrap colour)
 MAT_STATUS_META: dict[str, tuple[str, str]] = {
-    "ok":        ("Mat. OK",    "success"),
-    "low_risk":  ("Low Risk",   "info"),
-    "med_risk":  ("Med Risk",   "warning"),
-    "high_risk": ("Shortage",   "danger"),
-    "no_data":   ("—",          "secondary"),
+    "ok":        ("Mat. OK",       "success"),
+    "low_risk":  ("Soft Risk",    "info"),     # gap exists but job not yet released
+    "med_risk":  ("PO Reliant",   "warning"),  # gap covered by PO, job released
+    "late_po":   ("Late PO",       "orange"),   # shortage but a PO exists (overdue/insufficient)
+    "high_risk": ("Shortage",      "danger"),   # uncovered shortage, no PO, job released
+    "no_data":   ("\u2014",         "secondary"),
 }
 
 
@@ -493,16 +501,24 @@ def get_so_material_status(
         if not so or so not in so_set:
             continue
 
-        # Derive coverage tier from the already-netted row.
-        # stock_on_hand = remaining stock BEFORE this requirement was processed.
+        #   ok        — stock fully covers the requirement
+        #   low_risk  — gap exists but job not yet released (time to resolve before production)
+        #   med_risk  — gap covered by PO, job IS released (relying on incoming supply)
+        #   late_po   — shortage, job released, but a PO exists (overdue/insufficient — expedite)
+        #   high_risk — uncovered shortage, job IS released, no PO at all
+        released = bool(row.job_released)
         if row.net_required == Decimal(0):
             line_status = "ok"
         elif row.shortage > Decimal(0):
-            line_status = "high_risk"
+            if not released:
+                line_status = "low_risk"
+            elif row.po_exists:
+                line_status = "late_po"
+            else:
+                line_status = "high_risk"
         elif row.stock_on_hand < row.net_required:
-            # Stock alone was insufficient; PO (or CO when available) filled the gap.
-            # CO would map to "low_risk" but the CO pool is currently empty.
-            line_status = "med_risk"
+            # Gap covered by PO
+            line_status = "med_risk" if released else "low_risk"
         else:
             line_status = "ok"
 
@@ -536,12 +552,18 @@ def get_job_material_status(job_nums: list[str]) -> dict[str, str]:
         if not job or job not in job_set:
             continue
 
+        released = bool(row.job_released)
         if row.net_required == Decimal(0):
             line_status = "ok"
         elif row.shortage > Decimal(0):
-            line_status = "high_risk"
+            if not released:
+                line_status = "low_risk"
+            elif row.po_exists:
+                line_status = "late_po"
+            else:
+                line_status = "high_risk"
         elif row.stock_on_hand < row.net_required:
-            line_status = "med_risk"
+            line_status = "med_risk" if released else "low_risk"
         else:
             line_status = "ok"
 
@@ -776,7 +798,7 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
     today   = date.today()
     cutoff  = today + timedelta(weeks=weeks_ahead)
 
-    STATUSES = ("ok", "low_risk", "med_risk", "high_risk")
+    STATUSES = ("ok", "low_risk", "med_risk", "late_po", "high_risk")
 
     # Collapse to one row per (order_num, order_line, rel_num) to avoid
     # counting the same release price multiple times across assemblies/jobs.
@@ -847,11 +869,14 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
                 b["week_label"] = "Overdue"
                 b["week_start"] = date.min
                 b["is_overdue"] = True
+                b["due_from"]   = None
+                b["due_before"] = today.isoformat()
                 buckets[key]    = b
         else:
             iso_y, iso_w, _ = d.isocalendar()
             key        = f"{iso_y}-W{iso_w:02d}"
             week_start = date.fromisocalendar(iso_y, iso_w, 1)
+            week_end   = week_start + timedelta(days=6)
 
             if key not in buckets:
                 b = _empty_bucket()
@@ -859,6 +884,8 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
                 b["week_label"] = f"W{iso_w:02d}  {week_start.strftime('%d %b')}"
                 b["week_start"] = week_start
                 b["is_overdue"] = False
+                b["due_from"]   = week_start.isoformat()
+                b["due_before"] = week_end.isoformat()
                 buckets[key]    = b
 
         buckets[key][status]["count"] += 1
@@ -1050,9 +1077,9 @@ def get_stock_summary() -> dict:
     shortage_estimate = sum(1 for r in cached["rows"] if r.shortage > 0)
 
     from app.sales.orders.models import ImportBatch
-    last_stock_import = (
+    last_sync = (
         ImportBatch.query
-        .filter_by(import_type=ImportBatch.TYPE_STOCK, status="success")
+        .filter_by(import_type="epicor_stock", status="success")
         .order_by(ImportBatch.uploaded_at.desc())
         .first()
     )
@@ -1063,7 +1090,7 @@ def get_stock_summary() -> dict:
         "po_lines":        total_po_lines,
         "main_reqs":       main_req_count,
         "shortage_est":    shortage_estimate,
-        "last_stock_import": last_stock_import,
+        "last_sync":       last_sync,
     }
 
 

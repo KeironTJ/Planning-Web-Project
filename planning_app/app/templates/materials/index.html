@@ -1,261 +1,227 @@
 {% extends 'base.html' %}
-{% set page_title = 'Shortages — Material Status' %}
+{% set page_title = 'Material Availability' %}
 
 {% block content %}
 <!-- Page header -->
 <div class="d-flex align-items-center mb-4 gap-3">
-    <div class="rounded-3 p-3 bg-danger bg-opacity-10">
-        <i class="bi bi-exclamation-triangle-fill fs-2 text-danger"></i>
+    {% if summary.last_sync %}
+    <div class="ms-auto text-muted small text-end">
+        <i class="bi bi-arrow-repeat me-1"></i>Last synced: <strong>{{ summary.last_sync.uploaded_at | utcfmt('datetime-year') }}</strong>
     </div>
-    <div>
-        <h4 class="mb-0 fw-semibold">Shortages</h4>
-        <p class="text-muted mb-0 small">Weekly material status across open sales orders — stock, PO coverage and shortage risk</p>
-    </div>
+    {% endif %}
 </div>
-<!-- KPI cards -->
+<!-- SO Coverage cards -->
+{% if so_breakdown.has_data %}
+{% set _tc = so_breakdown.total_count %}
+{% set _ok = so_breakdown.totals.get('ok', {}).get('count', 0) %}
+{% set _lr = so_breakdown.totals.get('low_risk', {}).get('count', 0) %}
+{% set _mr = so_breakdown.totals.get('med_risk', {}).get('count', 0) %}
+{% set _lp = so_breakdown.totals.get('late_po', {}).get('count', 0) %}
+{% set _hr = so_breakdown.totals.get('high_risk', {}).get('count', 0) %}
+{% set _val_ok = so_breakdown.totals.get('ok', {}).get('value', 0) %}
+{% set _val_lr = so_breakdown.totals.get('low_risk', {}).get('value', 0) %}
+{% set _val_mr = so_breakdown.totals.get('med_risk', {}).get('value', 0) %}
+{% set _val_lp = so_breakdown.totals.get('late_po', {}).get('value', 0) %}
+{% set _val_hr = so_breakdown.totals.get('high_risk', {}).get('value', 0) %}
+{% set _pct_ok = (_ok / _tc * 100) | round(1) if _tc else 0 %}
+{% set _pct_lr = (_lr / _tc * 100) | round(1) if _tc else 0 %}
+{% set _pct_mr = (_mr / _tc * 100) | round(1) if _tc else 0 %}
+{% set _pct_lp = (_lp / _tc * 100) | round(1) if _tc else 0 %}
+{% set _pct_hr = (_hr / _tc * 100) | round(1) if _tc else 0 %}
+<div class="d-flex align-items-center mb-2 gap-2">
+    <span class="text-muted small">{{ _tc }} open sales orders</span>
+    <a tabindex="0" role="button" class="text-muted"
+       data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="right" data-bs-html="true"
+       data-bs-title="Coverage Status Definitions"
+       data-bs-content="
+        <dl class='mb-0' style='font-size:.82rem;'>
+          <dt><span style='color:#198754;'>&#9632;</span> Mat. OK</dt>
+          <dd class='mb-2'>Stock on hand fully covers all material requirements.</dd>
+          <dt><span style='color:#0dcaf0;'>&#9632;</span> Soft Risk</dt>
+          <dd class='mb-2'>Material gap exists but the job has not yet been released to production — time remains to resolve before the floor needs it.</dd>
+          <dt><span style='color:#ffc107;'>&#9632;</span> PO Reliant</dt>
+          <dd class='mb-2'>Gap is covered by an open Purchase Order, and the job is released — production is dependent on that PO arriving on time.</dd>
+          <dt><span style='color:#fd7e14;'>&#9632;</span> Late PO</dt>
+          <dd class='mb-2'>Shortage exists and a PO is open, but it is overdue or will not arrive within the required lead time — supplier needs chasing.</dd>
+          <dt><span style='color:#dc3545;'>&#9632;</span> Shortage</dt>
+          <dd class='mb-0'>Uncovered shortage with no Purchase Order in the system — immediate action required.</dd>
+        </dl>">
+        <i class="bi bi-info-circle"></i>
+    </a>
+</div>
 <div class="row g-3 mb-4">
-    <div class="col-6 col-md-3">
-        <a href="{{ url_for('materials.stock_list') }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
-            <div class="fs-2 fw-bold text-primary">{{ summary.stock_lines }}</div>
-            <div class="text-muted small">Stock Lines</div>
-            {% if summary.zero_stock %}
-            <div class="text-warning small"><i class="bi bi-exclamation-triangle me-1"></i>{{ summary.zero_stock }} at zero</div>
-            {% endif %}
-        </div></a>
-    </div>
-    <div class="col-6 col-md-3">
-        <a href="{{ url_for('materials.po_list') }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
-            <div class="fs-2 fw-bold text-success">{{ summary.po_lines }}</div>
-            <div class="text-muted small">Open PO Lines</div>
-        </div></a>
-    </div>
-    <div class="col-6 col-md-3">
-        <a href="{{ url_for('materials.main_requirements') }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
-            <div class="fs-2 fw-bold text-info">{{ summary.main_reqs }}</div>
-            <div class="text-muted small">Material Requirements</div>
-        </div></a>
-    </div>
-    <div class="col-6 col-md-3">
+    {% for label, pct, count, val, color in [
+        ('Mat. OK',    _pct_ok, _ok, _val_ok, '#198754'),
+        ('Soft Risk',  _pct_lr, _lr, _val_lr, '#0dcaf0'),
+        ('PO Reliant', _pct_mr, _mr, _val_mr, '#ffc107'),
+        ('Late PO',    _pct_lp, _lp, _val_lp, '#fd7e14'),
+        ('Shortage',   _pct_hr, _hr, _val_hr, '#dc3545'),
+    ] %}
+    <div class="col-6 col-md">
         <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-danger border' if summary.shortage_est else '' }}">
-            <div class="fs-2 fw-bold {{ 'text-danger' if summary.shortage_est else 'text-success' }}">
-                {{ summary.shortage_est }}
-            </div>
-            <div class="text-muted small">Material Lines in Shortage</div>
-            {% if summary.shortage_est %}
-            <div class="text-danger small"><i class="bi bi-exclamation-circle me-1"></i>Action required</div>
-            {% else %}
-            <div class="text-success small"><i class="bi bi-check2 me-1"></i>All covered</div>
-            {% endif %}
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-top border-3' if count else '' }}" style="{{ 'border-color:' ~ color ~ ' !important;' if count else '' }}">
+            <div class="fs-5 fw-bold" style="color:{{ color }};">£{{ '{:,.0f}'.format(val) }}</div>
+            <div class="fw-semibold small">{{ label }}</div>
+            <div class="text-muted" style="font-size:.75rem;">{{ count }} SO{{ 's' if count != 1 }} &middot; {{ pct }}%</div>
         </div></a>
     </div>
+    {% endfor %}
 </div>
-
-<!-- Quick links -->
-<div class="row g-3 mb-4">
-    <div class="col-md-3">
-        <a href="{{ url_for('materials.mrp') }}" class="card border-0 shadow-sm text-decoration-none h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="fs-2 text-primary"><i class="bi bi-graph-up"></i></div>
-                <div>
-                    <div class="fw-semibold">MRP Pegging</div>
-                    <div class="text-muted small">Time-phased supply vs demand</div>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-md-3">
-        <a href="{{ url_for('materials.shortage') }}" class="card border-0 shadow-sm text-decoration-none h-100 {{ 'border-danger border' if summary.shortage_est else '' }}">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="fs-2 {{ 'text-danger' if summary.shortage_est else 'text-secondary' }}">
-                    <i class="bi bi-exclamation-triangle-fill"></i>
-                </div>
-                <div>
-                    <div class="fw-semibold">Shortage Report</div>
-                    <div class="text-muted small">Requirements vs stock vs open POs</div>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-md-3">
-        <a href="{{ url_for('materials.stock_list') }}" class="card border-0 shadow-sm text-decoration-none h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="fs-2 text-primary"><i class="bi bi-box-seam"></i></div>
-                <div>
-                    <div class="fw-semibold">Stock On Hand</div>
-                    <div class="text-muted small">{{ summary.stock_lines }} products</div>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-md-3">
-        <a href="{{ url_for('materials.po_list') }}" class="card border-0 shadow-sm text-decoration-none h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="fs-2 text-success"><i class="bi bi-truck"></i></div>
-                <div>
-                    <div class="fw-semibold">Open Purchase Orders</div>
-                    <div class="text-muted small">{{ summary.po_lines }} lines</div>
-                </div>
-            </div>
-        </a>
-    </div>
+<div class="progress mb-4" style="height:8px;border-radius:4px;">
+    <div class="progress-bar" style="width:{{ _pct_ok }}%;background:#198754;" title="Mat. OK"></div>
+    <div class="progress-bar" style="width:{{ _pct_lr }}%;background:#0dcaf0;" title="Soft Risk"></div>
+    <div class="progress-bar" style="width:{{ _pct_mr }}%;background:#ffc107;" title="PO Reliant"></div>
+    <div class="progress-bar" style="width:{{ _pct_lp }}%;background:#fd7e14;" title="Late PO"></div>
+    <div class="progress-bar" style="width:{{ _pct_hr }}%;background:#dc3545;" title="Shortage"></div>
 </div>
+{% endif %}
 
 <!-- Combined SO breakdown chart -->
 {% if so_breakdown.has_data %}
-{% set status_meta = [('ok','Mat. OK','#198754'), ('low_risk','Low Risk','#0dcaf0'), ('med_risk','Med Risk','#ffc107'), ('high_risk','Shortage','#dc3545')] %}
+{% set status_meta = [('ok','Mat. OK','#198754'), ('low_risk','Soft Risk','#0dcaf0'), ('med_risk','PO Reliant','#ffc107'), ('late_po','Late PO','#fd7e14'), ('high_risk','Shortage','#dc3545')] %}
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-header bg-transparent">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <span class="fw-semibold" id="soChartTitle">Open Orders by Material Status — Value</span>
-            <div class="d-flex align-items-center gap-3">
-                <div class="btn-group btn-group-sm" role="group">
-                    <button type="button" class="btn btn-primary active" id="btnValue" onclick="setSoChartMode('value')">
-                        <i class="bi bi-currency-pound me-1"></i>Value
-                    </button>
-                    <button type="button" class="btn btn-outline-primary" id="btnVolume" onclick="setSoChartMode('volume')">
-                        <i class="bi bi-stack me-1"></i>Volume
-                    </button>
-                </div>
-                <span class="text-muted small" id="soChartTotal">
-                    Total: <strong>£{{ '{:,.0f}'.format(so_breakdown.total_value) }}</strong>
-                </span>
+            <div class="btn-group btn-group-sm" role="group">
+                <button type="button" class="btn btn-primary active" id="btnValue" onclick="setSoChartMode('value')">
+                    <i class="bi bi-currency-pound me-1"></i>Value
+                </button>
+                <button type="button" class="btn btn-outline-primary" id="btnVolume" onclick="setSoChartMode('volume')">
+                    <i class="bi bi-stack me-1"></i>Volume
+                </button>
+                <button type="button" class="btn btn-outline-primary" id="btnPct" onclick="setSoChartMode('pct')">
+                    <i class="bi bi-percent me-1"></i>%
+                </button>
             </div>
-        </div>
-        <!-- Status legend / totals -->
-        <div class="d-flex flex-wrap gap-3 mt-2">
-            {% for key, label, colour in status_meta %}
-            {% set t = so_breakdown.totals.get(key, {}) %}
-            {% if t.get('count', 0) > 0 %}
-            <div class="d-flex align-items-center gap-1 small" data-status="{{ key }}">
-                <div style="width:10px;height:10px;border-radius:2px;background:{{ colour }};flex-shrink:0;"></div>
-                <span class="fw-semibold">{{ label }}</span>
-                <span class="text-muted ms-1 so-legend-value">£{{ '{:,.0f}'.format(t.value) }}</span>
-                <span class="text-muted ms-1 so-legend-vol d-none">{{ t.count }} SO{{ 's' if t.count != 1 }}</span>
-            </div>
-            {% endif %}
-            {% endfor %}
         </div>
     </div>
     <div class="card-body">
         <canvas id="soBreakdownChart" height="90"></canvas>
     </div>
 </div>
+<div id="soTableContainer" class="mb-4"></div>
 {% endif %}
 
-<!-- Weekly SO status table -->
-{% if so_breakdown.has_data %}
-<div class="card border-0 shadow-sm mb-4">
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.83rem;">
-                <thead class="thead-subtle">
-                    <tr>
-                        <th>Week</th>
-                        <th class="text-end">Total SOs</th>
-                        <th class="text-end" style="color:#198754;">Mat. OK</th>
-                        <th class="text-end" style="color:#0dcaf0;">Low Risk</th>
-                        <th class="text-end" style="color:#e6a800;">Med Risk</th>
-                        <th class="text-end text-danger">Shortage</th>
-                        <th style="min-width:160px;">Coverage</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for w in so_breakdown.weeks %}
-                    {% if w.is_overdue %}
-                    {% set week_url = url_for('materials.shortage', due_before=today.strftime('%Y-%m-%d'), shortages_only='0') %}
-                    {% else %}
-                    {% set week_url = url_for('materials.shortage', due_from=w.week_start.strftime('%Y-%m-%d'), due_before=(w.week_start + timedelta(days=6)).strftime('%Y-%m-%d'), shortages_only='0') %}
-                    {% endif %}
-                    {% set high = w.high_risk.count %}
-                    {% set med  = w.med_risk.count %}
-                    <tr onclick="window.location='{{ week_url }}'" style="cursor:pointer;"
-                        class="{{ 'table-danger' if high > 0 else ('table-warning' if med > 0 else '') }}{{ ' border-top border-2' if w.is_overdue else '' }}">
-                        <td class="fw-semibold {{ 'text-secondary fst-italic' if w.is_overdue else '' }}">{{ w.week_label }}</td>
-                        <td class="text-end">{{ w.total_count }}</td>
-                        <td class="text-end fw-semibold" style="color:#198754;">
-                            {{ w.ok.count or '—' }}
-                        </td>
-                        <td class="text-end fw-semibold" style="color:#0dcaf0;">
-                            {{ w.low_risk.count or '—' }}
-                        </td>
-                        <td class="text-end fw-semibold" style="color:#e6a800;">
-                            {{ w.med_risk.count or '—' }}
-                        </td>
-                        <td class="text-end fw-semibold text-danger">
-                            {{ w.high_risk.count or '—' }}
-                        </td>
-                        <td>
-                            {% if w.total_count %}
-                            <div class="progress" style="height:8px;">
-                                {% for key, col in [('ok','#198754'),('low_risk','#0dcaf0'),('med_risk','#ffc107'),('high_risk','#dc3545')] %}
-                                {% set pct = (w[key].count / w.total_count * 100) | round(1) %}
-                                {% if pct > 0 %}
-                                <div class="progress-bar" style="width:{{ pct }}%;background:{{ col }};"></div>
-                                {% endif %}
-                                {% endfor %}
-                            </div>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-{% endif %}
 
-<!-- Data freshness notice -->
-{% if summary.last_stock_import %}
-<div class="alert alert-light border small d-flex align-items-center justify-content-between flex-wrap gap-2">
-    <span>
-        <i class="bi bi-clock me-1"></i>
-        Stock last synced: <strong>{{ summary.last_stock_import.uploaded_at.strftime('%d %b %Y %H:%M') }}</strong>.
-        Refresh daily for accurate figures.
-    </span>
-    <a href="{{ url_for('admin.import_upload') }}" class="btn btn-sm btn-outline-secondary py-0">
-        <i class="bi bi-arrow-clockwise me-1"></i>Sync now
-    </a>
-</div>
-{% else %}
-<div class="alert alert-warning">
-    <i class="bi bi-exclamation-triangle me-2"></i>
-    No stock data imported yet.
-    <a href="{{ url_for('admin.import_upload') }}" class="alert-link">Upload StockOnHand_HIDE.csv</a> to get started.
-</div>
-{% endif %}
 {% endblock %}
 
 {% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => new bootstrap.Popover(el));
+});
+</script>
 {% if so_breakdown.has_data %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const STATUSES = ['ok', 'low_risk', 'med_risk', 'high_risk'];
-    const LABELS   = {ok: 'Mat. OK', low_risk: 'Low Risk', med_risk: 'Med Risk', high_risk: 'Shortage'};
-    const COLORS   = {ok: '#198754', low_risk: '#0dcaf0', med_risk: '#ffc107', high_risk: '#dc3545'};
+    const STATUSES = ['ok', 'low_risk', 'med_risk', 'late_po', 'high_risk'];
+    const LABELS   = {ok: 'Mat. OK', low_risk: 'Soft Risk', med_risk: 'PO Reliant', late_po: 'Late PO', high_risk: 'Shortage'};
+    const COLORS   = {ok: '#198754', low_risk: '#0dcaf0', med_risk: '#ffc107', late_po: '#fd7e14', high_risk: '#dc3545'};
 
     const raw    = {{ so_breakdown.weeks | tojson }};
     const totals = {{ so_breakdown.total_value | float | tojson }};
     const totCnt = {{ so_breakdown.total_count | tojson }};
+    const SHORTAGE_URL = {{ url_for('materials.shortage') | tojson }};
 
-    // Exclude the Overdue bucket from the chart — it has no meaningful week position
-    const chartRaw = raw.filter(w => !w.is_overdue);
-    const weekLabels = chartRaw.map(w => w.week_label);
+    function weekUrl(w) {
+        if (w.is_overdue) return SHORTAGE_URL + '?due_before=' + w.due_before + '&shortages_only=0';
+        return SHORTAGE_URL + '?due_from=' + w.due_from + '&due_before=' + w.due_before + '&shortages_only=0';
+    }
+
+    function fmt(v) { return '£' + parseFloat(v).toLocaleString('en-GB', {maximumFractionDigits: 0}); }
+
+    function renderTable(m) {
+        try {
+        const isValue = m === 'value', isPct = m === 'pct';
+        const colHeader = isValue ? 'Value' : isPct ? '% Share' : 'SOs';
+        let th = `<th>Week</th><th class="text-end">${colHeader}</th>`;
+        STATUSES.forEach(s => { th += `<th class="text-end" style="color:${COLORS[s]};">${LABELS[s]}</th>`; });
+        th += `<th class="text-end">% OK</th><th style="min-width:130px;">Coverage</th>`;
+
+        let rows = '';
+        for (const w of chartRaw) {
+            const high = w.high_risk.count, med = w.med_risk.count;
+            const rowCls = high > 0 ? 'table-danger' : (med > 0 ? 'table-warning' : '');
+            const borderCls = w.is_overdue ? 'border-top border-2' : '';
+            const labelCls  = w.is_overdue ? 'text-secondary fst-italic' : '';
+
+            let totalCell;
+            if (isValue)      totalCell = fmt(w.total_value || 0);
+            else if (isPct)   totalCell = w.total_count;
+            else               totalCell = w.total_count;
+
+            let cells = '';
+            STATUSES.forEach(s => {
+                let val;
+                if (isValue)    val = parseFloat(w[s].value) > 0 ? fmt(w[s].value) : '—';
+                else if (isPct) val = w.total_count ? (w[s].count / w.total_count * 100).toFixed(1) + '%' : '—';
+                else            val = w[s].count || '—';
+                cells += `<td class="text-end fw-semibold" style="color:${COLORS[s]};">${val}</td>`;
+            });
+
+            const pctOk  = w.total_count ? Math.round(w.ok.count / w.total_count * 100) : null;
+            const pctCol = pctOk >= 80 ? '#198754' : (pctOk >= 50 ? '#e6a800' : '#dc3545');
+            const pctCell = pctOk != null ? `<span style="color:${pctCol};">${pctOk}%</span>` : '—';
+
+            let barSegs = '';
+            if (w.total_count) STATUSES.forEach(s => {
+                const p = (w[s].count / w.total_count * 100).toFixed(1);
+                if (p > 0) barSegs += `<div class="progress-bar" style="width:${p}%;background:${COLORS[s]};"></div>`;
+            });
+            const bar = barSegs ? `<div class="progress" style="height:8px;">${barSegs}</div>` : '';
+
+            rows += `<tr onclick="window.location='${weekUrl(w)}'" style="cursor:pointer;" class="${rowCls} ${borderCls}">
+                <td class="fw-semibold ${labelCls}">${w.week_label}</td>
+                <td class="text-end">${totalCell}</td>
+                ${cells}
+                <td class="text-end fw-semibold">${pctCell}</td>
+                <td>${bar}</td>
+            </tr>`;
+        }
+        document.getElementById('soTableContainer').innerHTML = `
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent">
+                <span class="fw-semibold">Sales Orders by Week</span>
+                <span class="text-muted small ms-2">— one row per sales order, worst-case coverage across all its lines</span>
+            </div>
+            <div class="card-body p-0"><div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.83rem;">
+                    <thead class="thead-subtle"><tr>${th}</tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div></div>
+        </div>`;
+        } catch(e) { console.error('renderTable error:', e); }
+    }
+
+    // Overdue bucket first, then future weeks in date order
+    const overdueWeek = raw.filter(w => w.is_overdue);
+    const chartRaw    = [...overdueWeek, ...raw.filter(w => !w.is_overdue)];
+    const weekLabels  = chartRaw.map(w => w.week_label);
+
+    // Overdue bar gets a hatched/darker background to visually separate it
+    function _bg(s, idx) {
+        return (chartRaw[idx]?.is_overdue) ? COLORS[s] + 'bb' : COLORS[s];
+    }
 
     // Build dataset arrays for each status
     const valueDatasets = STATUSES.map(s => ({
         label:           LABELS[s],
         data:            chartRaw.map(w => parseFloat(w[s].value)),
-        backgroundColor: COLORS[s],
+        backgroundColor: chartRaw.map((_, i) => _bg(s, i)),
         borderRadius:    2,
     }));
     const countDatasets = STATUSES.map(s => ({
         label:           LABELS[s],
         data:            chartRaw.map(w => w[s].count),
+        backgroundColor: chartRaw.map((_, i) => _bg(s, i)),
+        borderRadius:    2,
+    }));
+    // Pre-compute % of total SOs per week per status
+    const pctDatasets = STATUSES.map(s => ({
+        label:           LABELS[s],
+        data:            chartRaw.map(w => w.total_count ? parseFloat((w[s].count / w.total_count * 100).toFixed(1)) : 0),
         backgroundColor: COLORS[s],
         borderRadius:    2,
     }));
@@ -273,17 +239,31 @@ document.addEventListener('DOMContentLoaded', function () {
             plugins: {
                 legend: { position: 'top' },
                 tooltip: {
+                    mode: 'index',
+                    intersect: false,
                     callbacks: {
                         label: (item) => {
+                            const w = chartRaw[item.dataIndex];
+                            const s = STATUSES[item.datasetIndex];
+                            const cnt = w[s].count;
+                            const pct = w.total_count ? (cnt / w.total_count * 100).toFixed(1) : 0;
                             if (mode === 'value') {
-                                return ` ${item.dataset.label}: £${item.raw.toLocaleString('en-GB', {maximumFractionDigits: 0})}`;
+                                return ` ${item.dataset.label}: £${item.raw.toLocaleString('en-GB', {maximumFractionDigits: 0})}  ·  ${cnt} SO${cnt !== 1 ? 's' : ''} (${pct}%)`;
                             }
-                            return ` ${item.dataset.label}: ${item.raw} SO${item.raw !== 1 ? 's' : ''}`;
+                            if (mode === 'pct') {
+                                return ` ${item.dataset.label}: ${item.raw}% (${cnt} SO${cnt !== 1 ? 's' : ''})`;
+                            }
+                            return ` ${item.dataset.label}: ${cnt} SO${cnt !== 1 ? 's' : ''} (${pct}%)`;
                         },
                         footer: (items) => {
-                            const total = items.reduce((s, i) => s + i.raw, 0);
-                            if (mode === 'value') return `Total: £${total.toLocaleString('en-GB', {maximumFractionDigits: 0})}`;
-                            return `Total: ${total} SOs`;
+                            const wi = items[0]?.dataIndex;
+                            const w  = wi != null ? chartRaw[wi] : null;
+                            if (mode === 'value') {
+                                const total = items.reduce((s, i) => s + i.raw, 0);
+                                return `Total: £${total.toLocaleString('en-GB', {maximumFractionDigits: 0})}  ·  ${w?.total_count ?? ''} SOs`;
+                            }
+                            if (mode === 'pct') return `Total SOs: ${w?.total_count ?? ''}`;
+                            return `Total: ${w?.total_count ?? ''} SOs`;
                         },
                     },
                 },
@@ -297,47 +277,45 @@ document.addEventListener('DOMContentLoaded', function () {
                     ticks: {
                         callback: v => mode === 'value'
                             ? '£' + (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v)
-                            : v,
+                            : mode === 'pct' ? v + '%' : v,
                     },
                 },
             },
         },
     });
-
+    renderTable('value');
     window.setSoChartMode = function (newMode) {
         mode = newMode;
-        const isValue = mode === 'value';
+        const isValue  = mode === 'value';
+        const isPct    = mode === 'pct';
+        const isVolume = mode === 'volume';
 
         // Swap datasets
-        chart.data.datasets = isValue ? valueDatasets : countDatasets;
-        chart.options.scales.y.title.text = isValue ? 'Order value (£)' : 'Sales orders';
+        chart.data.datasets = isValue ? valueDatasets : isPct ? pctDatasets : countDatasets;
+        chart.options.scales.y.title.text = isValue ? 'Order value (£)' : isPct ? 'Share of SOs (%)' : 'Sales orders';
+        chart.options.scales.y.max = isPct ? 100 : undefined;
 
         // Force y-axis tick recalculation
         chart.options.scales.y.ticks.callback = v => isValue
             ? '£' + (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v)
-            : v;
+            : isPct ? v + '%' : v;
 
         chart.update();
 
-        // Update header
-        document.getElementById('soChartTitle').textContent =
-            'Open Orders by Material Status — ' + (isValue ? 'Value' : 'Volume');
-        document.getElementById('soChartTotal').innerHTML =
-            'Total: <strong>' + (isValue
-                ? '£' + totals.toLocaleString('en-GB', {maximumFractionDigits: 0})
-                : totCnt + ' SOs') + '</strong>';
+        renderTable(mode);
 
-        // Toggle legend spans
-        document.querySelectorAll('.so-legend-value').forEach(el => el.classList.toggle('d-none', !isValue));
-        document.querySelectorAll('.so-legend-vol').forEach(el => el.classList.toggle('d-none', isValue));
+        // Update header title
+        document.getElementById('soChartTitle').textContent =
+            'Open Orders by Material Status — ' + (isValue ? 'Value' : isPct ? '% Share' : 'Volume');
 
         // Toggle buttons
-        document.getElementById('btnValue').classList.toggle('active', isValue);
-        document.getElementById('btnValue').classList.toggle('btn-primary', isValue);
-        document.getElementById('btnValue').classList.toggle('btn-outline-primary', !isValue);
-        document.getElementById('btnVolume').classList.toggle('active', !isValue);
-        document.getElementById('btnVolume').classList.toggle('btn-primary', !isValue);
-        document.getElementById('btnVolume').classList.toggle('btn-outline-primary', isValue);
+        ['btnValue','btnVolume','btnPct'].forEach(id => {
+            const active = (id === 'btnValue' && isValue) || (id === 'btnVolume' && isVolume) || (id === 'btnPct' && isPct);
+            const btn = document.getElementById(id);
+            btn.classList.toggle('active', active);
+            btn.classList.toggle('btn-primary', active);
+            btn.classList.toggle('btn-outline-primary', !active);
+        });
     };
 });
 </script>

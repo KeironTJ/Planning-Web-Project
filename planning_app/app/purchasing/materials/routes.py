@@ -21,7 +21,7 @@ def index():
     so_breakdown = services.get_weekly_so_breakdown(weeks_ahead=12)
     return render_template(
         "materials/index.html",
-        title="Materials",
+        title="Material Availability",
         summary=summary,
         weekly=weekly,
         so_breakdown=so_breakdown,
