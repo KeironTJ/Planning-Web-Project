@@ -332,6 +332,11 @@ def wip_export():
         WorksOrder.next_op.asc().nullslast(),
     ).all()
 
+    from app.purchasing.materials.services import get_so_material_status, MAT_STATUS_META
+    _order_nums = [str(job.order_num) for job in rows if job.order_num]
+    mat_status_map = get_so_material_status(_order_nums) if _order_nums else {}
+    _mat_label_map = {k: v[0] for k, v in MAT_STATUS_META.items()}
+
     def _fmt_plnwk(w):
         if not w:
             return ''
@@ -339,6 +344,12 @@ def wip_export():
             return f'W{int(w[2:4]):02d}/{w[4:6]}'
         except (ValueError, IndexError):
             return w
+
+    def _clean(text):
+        """Strip embedded newlines/carriage-returns so Excel parses rows correctly."""
+        if not text:
+            return ''
+        return ' '.join(text.splitlines())
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -350,28 +361,32 @@ def wip_export():
     ])
     for job in rows:
         is_partial = bool(job.order_num and job.order_num in _completed_order_nums and not job.job_complete)
+        mat_st = mat_status_map.get(str(job.order_num), 'no_data') if job.order_num else 'no_data'
+        mat_label = _mat_label_map.get(mat_st, '')
         writer.writerow([
             job.job_num or '',
             _fmt_plnwk(job.prod_plnwk),
             job.req_due_date.strftime('%d/%m/%Y') if job.req_due_date else '',
             job.order_num or '',
             job.next_op or '',
-            job.model or '',
-            job.size_desc or job.size or '',
-            job.customer_name or '',
-            job.material_1_desc or '',
-            job.comment_text or '',
-            job.order_book_comments or '',
-            job.grn or '',
+            _clean(job.model),
+            _clean(job.size_desc or job.size),
+            _clean(job.customer_name),
+            _clean(job.material_1_desc),
+            _clean(job.comment_text),
+            _clean(job.order_book_comments),
+            _clean(job.grn),
             'Yes' if is_partial else '',
-            'Yes' if job.mtl_shortage else '',
+            mat_label,
             'Yes' if job.waiting_temp else '',
         ])
 
     filename = f'wip_jobs_{date.today().isoformat()}.csv'
+    # UTF-8 BOM ensures Excel opens the file with correct encoding.
+    csv_bytes = '\ufeff' + output.getvalue()
     return Response(
-        output.getvalue(),
-        mimetype='text/csv',
+        csv_bytes.encode('utf-8'),
+        mimetype='text/csv; charset=utf-8',
         headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
 
