@@ -244,7 +244,19 @@ class MaterialRequirementsImporter(EpicorBaqImporter):
         MaterialRequirementMain.query.delete()
         db.session.flush()
 
+        seen: set[tuple] = set()
         for r in records:
+            # Deduplicate on the natural key — the BAQ can return duplicate rows.
+            key = (
+                r.get("JobHead_JobNum"),
+                r.get("JobAsmbl_AssemblySeq"),
+                r.get("JobMtl_MtlSeq"),
+                r.get("OrderHed_OrderNum"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+
             db.session.add(MaterialRequirementMain(
                 works_order        = r.get("JobHead_JobNum") or None,
                 job_released       = r.get("JobHead_JobReleased"),

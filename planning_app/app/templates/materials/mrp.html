@@ -66,14 +66,20 @@
 {% endif %}
 
 {% if data.material_count %}
-<div class="mb-2 d-flex align-items-center gap-2">
+<div class="mb-2 d-flex align-items-center gap-2 flex-wrap">
     <span class="text-muted small">{{ data.material_count }} material{{ 's' if data.material_count != 1 }}</span>
-    {% set shortage_count = data.materials | selectattr('has_shortage') | list | length %}
-    {% if shortage_count %}
-    <span class="badge text-bg-danger">{{ shortage_count }} with shortage</span>
-    {% else %}
-    <span class="badge text-bg-success">All covered</span>
+    {% for st_key, st_label, st_color in [
+        ('high_risk', 'Shortage',   '#dc3545'),
+        ('late_po',   'Late PO',    '#fd7e14'),
+        ('med_risk',  'PO Reliant', '#ffc107'),
+        ('low_risk',  'Soft Risk',  '#0dcaf0'),
+        ('ok',        'Mat. OK',    '#198754'),
+    ] %}
+    {% set count = data.materials | selectattr('mat_status', 'equalto', st_key) | list | length %}
+    {% if count %}
+    <span class="badge" style="background:{{ st_color }};">{{ count }} {{ st_label }}</span>
     {% endif %}
+    {% endfor %}
     {% if so_number %}
     <span class="badge text-bg-secondary">SO {{ so_number }}</span>
     {% endif %}
@@ -81,17 +87,19 @@
 {% endif %}
 
 {% for mat in data.materials %}
-<div class="card border-0 shadow-sm mb-3 {{ 'border-danger border' if mat.has_shortage else '' }}">
-    <div class="card-header py-2 d-flex align-items-center gap-2 {{ 'bg-danger bg-opacity-10' if mat.has_shortage else '' }}">
+{% set _is_critical = mat.mat_status in ('high_risk', 'late_po') %}
+<div class="card border-0 shadow-sm mb-3 {{ 'border-danger border' if _is_critical else '' }}">
+    <div class="card-header py-2 d-flex align-items-center gap-2 {{ 'bg-danger bg-opacity-10' if _is_critical else '' }}">
         <span class="fw-bold">{{ mat.material_code }}</span>
         {% if mat.description %}
         <span class="text-muted small">{{ mat.description }}</span>
         {% endif %}
         <span class="ms-auto d-flex gap-2 align-items-center">
-            {% if mat.has_shortage %}
-            <span class="badge text-bg-danger">Shortage</span>
+            {% set mat_label, mat_colour = mat_status_meta.get(mat.mat_status, ('—', 'secondary')) %}
+            {% if mat.mat_status == 'late_po' %}
+            <span class="badge text-bg-orange">{{ mat_label }}</span>
             {% else %}
-            <span class="badge text-bg-success">Covered</span>
+            <span class="badge text-bg-{{ mat_colour }}">{{ mat_label }}</span>
             {% endif %}
             <span class="text-muted small">Opening: {{ mat.opening_stock | round(2) }}</span>
         </span>
@@ -104,6 +112,9 @@
                         <th style="width:90px">Date</th>
                         <th>Type</th>
                         <th>Reference</th>
+                        <th>Firmed</th>
+                        <th>Released</th>
+                        <th>Status</th>
                         <th>Dept / Supplier</th>
                         <th class="text-end">Demand</th>
                         <th class="text-end">Receipt</th>
@@ -134,6 +145,31 @@
                             {% if is_filtered_so %}<i class="bi bi-arrow-right-short text-primary"></i>{% endif %}
                             {{ ev.reference }}
                         </td>
+                        <td>
+                            {% if ev.row_type == 'requirement' %}
+                            {% if ev.job_firm %}
+                            <span class="badge text-bg-primary">Firmed</span>
+                            {% else %}
+                            <span class="badge text-bg-secondary">Unfirmed</span>
+                            {% endif %}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ev.row_type == 'requirement' %}
+                            {% if ev.job_released %}
+                            <span class="badge text-bg-success">Released</span>
+                            {% else %}
+                            <span class="badge text-bg-warning text-dark">Unreleased</span>
+                            {% endif %}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ev.row_type == 'requirement' and ev.mat_status %}
+                            {% set st_label, st_colour = mat_status_meta.get(ev.mat_status, ('—', 'secondary')) %}
+                            <span class="badge text-bg-{{ st_colour }}">{{ st_label }}</span>
+                            {% endif %}
+                        </td>
+
                         <td class="text-muted small">{{ ev.department }}</td>
                         <td class="text-end {{ 'text-danger' if ev.demand else '' }}">
                             {{ ev.demand | round(2) if ev.demand else '—' }}

@@ -252,6 +252,7 @@ def exempt_delete(code):
 def mrp():
     search    = request.args.get("q", "").strip()
     so_number = request.args.get("so", "").strip()
+    from app.purchasing.materials.services import MAT_STATUS_META
     data = services.get_mrp_pegging(
         search=search or None,
         so_number=so_number or None,
@@ -262,4 +263,5 @@ def mrp():
         data=data,
         search=search,
         so_number=so_number,
+        mat_status_meta=MAT_STATUS_META,
     )

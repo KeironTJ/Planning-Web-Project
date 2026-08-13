@@ -263,6 +263,9 @@
 /* Expanded operation detail rows */
 #wipTable tbody tr.order-detail-row { background-color: var(--ph-table-detail-row-bg); }
 
+/* Bootstrap doesn't ship text-bg-orange — extend it to match Bootstrap orange-500 */
+.text-bg-orange { background-color: #fd7e14 !important; color: #fff !important; }
+
 /* Uniform badge and action-button size across the table */
 #wipTable .badge,
 #wipTable .advance-so-dept-btn,

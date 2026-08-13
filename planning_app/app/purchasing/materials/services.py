@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
@@ -93,6 +93,9 @@ class MrpEvent:
     receipt: Optional[Decimal]
     balance: Decimal
     is_short: bool = False
+    job_released: Optional[bool] = None  # None for non-requirement rows
+    job_firm: Optional[bool] = None      # None for non-requirement rows
+    mat_status: Optional[str] = None     # 5-tier coverage status for requirement rows
 
 
 @dataclass
@@ -102,6 +105,7 @@ class MrpMaterial:
     opening_stock: Decimal
     has_shortage: bool
     events: list
+    mat_status: str = "no_data"
 
 
 # ---------------------------------------------------------------------------
@@ -278,6 +282,7 @@ def get_shortage_report(
         remaining_co    = co_qty_map.get(mc, Decimal(0))
         po_lines        = sorted(po_map.get(mc, []), key=lambda x: x[0])  # (effective_date, qty)
         po_consumed     = Decimal(0)
+        po_total_qty    = sum(qty for _, qty in po_lines)  # fixed; used to detect exhaustion
 
         for req in reqs:
             net_req = req["net_required"]
@@ -315,7 +320,9 @@ def get_shortage_report(
             req["_stock_on_hand"] = stock_before
             req["_po_coverage"]   = po_avail + co_before   # CO + PO available at this point
             req["_shortage"]      = shortage
-            req["_po_exists"]     = bool(po_lines)
+            # po_exists: True if a PO could still help (available for this req, or remaining
+            # unconsumed quantity exists). False when the PO pool is fully exhausted.
+            req["_po_exists"]     = po_avail > 0 or (po_total_qty - po_consumed) > 0
             all_netted.append(req)
 
     # ---- Phase 3: apply display filters and build ShortageRows ----
@@ -389,78 +396,29 @@ MAT_STATUS_META: dict[str, tuple[str, str]] = {
     "ok":        ("Mat. OK",       "success"),
     "low_risk":  ("Soft Risk",    "info"),     # gap exists but job not yet released
     "med_risk":  ("PO Reliant",   "warning"),  # gap covered by PO, job released
-    "late_po":   ("Late PO",       "orange"),   # shortage but a PO exists (overdue/insufficient)
-    "high_risk": ("Shortage",      "danger"),   # uncovered shortage, no PO, job released
+    "late_po":   ("Late PO",       "orange"),   # genuine shortage but a PO exists
+    "high_risk": ("Shortage",      "danger"),   # genuine shortage, no PO exists
     "no_data":   ("\u2014",         "secondary"),
 }
 
 
-def _apply_coverage(
-    result: dict[str, str],
-    reqs: list,
-    so_key_fn,
-    material_code_fn,
-    net_req_fn,
-    due_date_fn,
-    stock_map: dict,
-    co_qty_map: dict,
-    po_entries: dict,
-    plan_start_map: Optional[dict] = None,
-    exempt_codes: frozenset = frozenset(),
-    lead_days: int = 14,
-) -> None:
-    """
-    Apply worst-case coverage tier to result dict for a list of requirement rows.
-
-    For the PO date constraint, the effective ship deadline is:
-      - plan_start_map[so]  if a planned start date has been set (planner's date)
-      - req.due_date        otherwise (ERP's MRP date)
-
-    A PO counts as coverage only if its effective_date <= (ship_deadline - lead_days).
-    This ensures materials are on-site at least ``lead_days`` days before production
-    is due to start.  Overdue PO dates should already be clamped to today by the
-    caller before being placed in po_entries.
-    """
-    from datetime import timedelta
-    plan_start_map = plan_start_map or {}
-    for req in reqs:
-        so = so_key_fn(req)
-        if not so or so not in result:
-            continue
-
-        mc = material_code_fn(req) or ""
-        # Exempt materials are treated as fully covered — skip to avoid false positives
-        if mc in exempt_codes:
-            if result[so] == "no_data":
-                result[so] = "ok"
-            continue
-        net_req = net_req_fn(req)
-
-        if net_req == 0:
-            line_status = "ok"
-        else:
-            remaining = net_req - stock_map.get(mc, Decimal(0))
-            if remaining <= 0:
-                line_status = "ok"
-            else:
-                remaining -= co_qty_map.get(mc, Decimal(0))
-                if remaining <= 0:
-                    line_status = "low_risk"
-                else:
-                    # Use planner's start date if set; fall back to ERP MRP date
-                    ship_date = plan_start_map.get(so) or due_date_fn(req)
-                    # PO must arrive at least lead_days before ship date
-                    po_deadline = (ship_date - timedelta(days=lead_days)) if ship_date else None
-                    po_cov = sum(
-                        (qty for d, qty in po_entries.get(mc, [])
-                         if po_deadline is None or d <= po_deadline),
-                        Decimal(0),
-                    )
-                    remaining -= po_cov
-                    line_status = "high_risk" if remaining > 0 else "med_risk"
-
-        if _MAT_STATUS_PRIORITY.get(line_status, 0) > _MAT_STATUS_PRIORITY.get(result[so], -1):
-            result[so] = line_status
+def _row_status(
+    net_required: Decimal,
+    shortage: Decimal,
+    stock_on_hand: Decimal,
+    released: Optional[bool],
+    po_exists: bool,
+) -> str:
+    """Single source of truth for the 5-tier material coverage status."""
+    if net_required == Decimal(0):
+        return "ok"
+    if shortage > Decimal(0):
+        # Genuine shortage — escalate regardless of release status.
+        return "late_po" if po_exists else "high_risk"
+    if stock_on_hand < net_required:
+        # Gap covered by PO: urgency depends on whether job is in production.
+        return "med_risk" if released else "low_risk"
+    return "ok"
 
 
 def get_so_material_status(
@@ -501,28 +459,9 @@ def get_so_material_status(
         if not so or so not in so_set:
             continue
 
-        #   ok        — stock fully covers the requirement
-        #   low_risk  — gap exists but job not yet released (time to resolve before production)
-        #   med_risk  — gap covered by PO, job IS released (relying on incoming supply)
-        #   late_po   — shortage, job released, but a PO exists (overdue/insufficient — expedite)
-        #   high_risk — uncovered shortage, job IS released, no PO at all
-        released = bool(row.job_released)
-        if row.net_required == Decimal(0):
-            line_status = "ok"
-        elif row.shortage > Decimal(0):
-            if not released:
-                line_status = "low_risk"
-            elif row.po_exists:
-                line_status = "late_po"
-            else:
-                line_status = "high_risk"
-        elif row.stock_on_hand < row.net_required:
-            # Gap covered by PO
-            line_status = "med_risk" if released else "low_risk"
-        else:
-            line_status = "ok"
-
-        # Worst-case across all material lines for this SO
+        line_status = _row_status(
+            row.net_required, row.shortage, row.stock_on_hand, row.job_released, row.po_exists,
+        )
         if _MAT_STATUS_PRIORITY.get(line_status, 0) > _MAT_STATUS_PRIORITY.get(result[so], -1):
             result[so] = line_status
 
@@ -552,21 +491,9 @@ def get_job_material_status(job_nums: list[str]) -> dict[str, str]:
         if not job or job not in job_set:
             continue
 
-        released = bool(row.job_released)
-        if row.net_required == Decimal(0):
-            line_status = "ok"
-        elif row.shortage > Decimal(0):
-            if not released:
-                line_status = "low_risk"
-            elif row.po_exists:
-                line_status = "late_po"
-            else:
-                line_status = "high_risk"
-        elif row.stock_on_hand < row.net_required:
-            line_status = "med_risk" if released else "low_risk"
-        else:
-            line_status = "ok"
-
+        line_status = _row_status(
+            row.net_required, row.shortage, row.stock_on_hand, row.job_released, row.po_exists,
+        )
         if _MAT_STATUS_PRIORITY.get(line_status, 0) > _MAT_STATUS_PRIORITY.get(result[job], -1):
             result[job] = line_status
 
@@ -675,6 +602,8 @@ def get_mrp_pegging(
                 "department": req.warehouse_code or "",
                 "demand": net_req,
                 "receipt": None,
+                "job_released": req.job_released,
+                "job_firm": req.job_firm,
                 "_sort": (2, req.due_date or date.max, 1),
             })
 
@@ -694,6 +623,20 @@ def get_mrp_pegging(
         })
 
     # ---- Build MrpMaterial objects ----
+    # Use the same properly-netted report as the rest of the app so status labels
+    # are consistent. Build a (works_order, material_code) → worst-status lookup.
+    report = _cached_unfiltered_report()
+    netted_status: dict[tuple[str, str], str] = {}
+    for _row in report["rows"]:
+        if not _row.works_order or not _row.material_code:
+            continue
+        _key = (_row.works_order, _row.material_code)
+        _st = _row_status(
+            _row.net_required, _row.shortage, _row.stock_on_hand,
+            _row.job_released, _row.po_exists,
+        )
+        if _MAT_STATUS_PRIORITY.get(_st, 0) > _MAT_STATUS_PRIORITY.get(netted_status.get(_key, "no_data"), -1):
+            netted_status[_key] = _st
     materials: list[MrpMaterial] = []
 
     for mc in mc_list:
@@ -705,9 +648,12 @@ def get_mrp_pegging(
 
         co_total = co_totals.get(mc, Decimal(0))
         events_raw = sorted(raw_events.get(mc, []), key=lambda e: e["_sort"])
+        # True if any PO receipt exists in the pegging timeline for this material.
+        po_exists_in_pegging = any(e["row_type"] == "po" for e in events_raw)
 
         events: list[MrpEvent] = []
-        running = opening_stock
+        running    = opening_stock
+        po_applied = Decimal(0)  # cumulative PO receipts applied so far in the timeline
 
         # Opening stock row
         events.append(MrpEvent(
@@ -728,9 +674,30 @@ def get_mrp_pegging(
         # Dated events: PO receipts then requirements (same-date POs land first)
         for e in events_raw:
             if e["row_type"] == "po":
-                running += e["receipt"]
+                running    += e["receipt"]
+                po_applied += e["receipt"]
             else:
                 running -= e["demand"]
+                netted_st = netted_status.get((e["reference"], mc))
+                is_short  = running < 0
+                if is_short:
+                    # Pegging balance has gone negative.  Distinguish two cases:
+                    #   po_applied > 0  → PO already in the balance but still short:
+                    #                    quantity is insufficient → Shortage
+                    #   po_applied == 0 → future PO exists but hasn't arrived yet:
+                    #                    timing issue → Late PO
+                    if po_applied > 0 or not po_exists_in_pegging:
+                        pegging_st = "high_risk"
+                    else:
+                        pegging_st = "late_po"
+                    e["_mat_status"] = (
+                        pegging_st
+                        if _MAT_STATUS_PRIORITY.get(pegging_st, 0)
+                           > _MAT_STATUS_PRIORITY.get(netted_st or "no_data", -1)
+                        else netted_st
+                    )
+                else:
+                    e["_mat_status"] = netted_st
             events.append(MrpEvent(
                 event_date=e["event_date"],
                 row_type=e["row_type"],
@@ -741,15 +708,28 @@ def get_mrp_pegging(
                 receipt=e["receipt"],
                 balance=running,
                 is_short=running < 0,
+                job_released=e.get("job_released"),
+                job_firm=e.get("job_firm"),
+                mat_status=e.get("_mat_status"),
             ))
 
         has_shortage = any(ev.is_short for ev in events)
+        req_statuses = [
+            ev.mat_status for ev in events
+            if ev.row_type == "requirement" and ev.mat_status
+        ]
+        worst_status = max(
+            req_statuses,
+            key=lambda s: _MAT_STATUS_PRIORITY.get(s, -1),
+            default="no_data",
+        )
         materials.append(MrpMaterial(
             material_code=mc,
             description=desc,
             opening_stock=opening_stock,
             has_shortage=has_shortage,
             events=events,
+            mat_status=worst_status,
         ))
 
     # Shortages first, then alphabetical
