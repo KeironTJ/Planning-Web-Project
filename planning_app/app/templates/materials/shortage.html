@@ -26,68 +26,11 @@
     </div>
 </div>
 
-<!-- KPI banner -->
-<div class="row g-2 mb-3">
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 {{ 'border-danger border' if data.shortage_count else '' }}">
-            <div class="fs-3 fw-bold {{ 'text-danger' if data.shortage_count else 'text-success' }}">{{ data.shortage_count }}</div>
-            <div class="text-muted small">Shortage Lines</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
-            <div class="fs-3 fw-bold text-secondary">{{ data.total_rows }}</div>
-            <div class="text-muted small">Requirements Shown</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 {{ 'border-warning border' if shortage_insights.unique_materials else '' }}">
-            <div class="fs-3 fw-bold {{ 'text-warning' if shortage_insights.unique_materials else 'text-success' }}">{{ shortage_insights.unique_materials }}</div>
-            <div class="text-muted small">Materials Short</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card border-0 shadow-sm text-center p-3 h-100">
-            <div class="fs-3 fw-bold text-danger">{{ '{:,.1f}'.format(shortage_insights.total_shortage_qty | float) }}</div>
-            <div class="text-muted small">Total Shortage Qty</div>
-        </div>
-    </div>
-</div>
-
-<!-- Insight charts -->
-{% if shortage_insights.top_materials or shortage_insights.by_class %}
-<div class="row g-3 mb-3">
-    {% if shortage_insights.top_materials %}
-    <div class="{{ 'col-lg-7' if shortage_insights.by_class else 'col-12' }}">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-transparent fw-semibold small py-2">
-                <i class="bi bi-bar-chart-horizontal-fill me-1 text-danger"></i>Top Materials by Shortage Quantity
-            </div>
-            <div class="card-body py-2">
-                <canvas id="topMaterialsChart"></canvas>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-    {% if shortage_insights.by_class %}
-    <div class="{{ 'col-lg-5' if shortage_insights.top_materials else 'col-12' }}">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-transparent fw-semibold small py-2">
-                <i class="bi bi-pie-chart-fill me-1 text-warning"></i>Shortage by Material Class
-            </div>
-            <div class="card-body d-flex align-items-center justify-content-center py-2">
-                <canvas id="byClassChart" style="max-height:220px;"></canvas>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-</div>
-{% endif %}
-
 <!-- Filters -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
         <form method="GET" class="row g-2 align-items-end">
+            <input type="hidden" name="status" value="{{ status_filter }}">
             <div class="col-sm-3 col-md-2">
                 <label class="form-label form-label-sm fw-semibold mb-1">Warehouse</label>
                 <select name="dept" class="form-select form-select-sm">
@@ -111,14 +54,6 @@
                        placeholder="Material code or works order…" value="{{ search }}">
             </div>
             <div class="col-auto">
-                <div class="form-check mb-0 mt-1">
-                    <input type="hidden" name="shortages_only" value="0">
-                    <input class="form-check-input" type="checkbox" name="shortages_only"
-                           value="1" id="shortagesOnlyChk" {{ 'checked' if shortages_only }}>
-                    <label class="form-check-label small" for="shortagesOnlyChk">Shortages only</label>
-                </div>
-            </div>
-            <div class="col-auto">
                 <button type="submit" class="btn btn-primary btn-sm">Filter</button>
                 <a href="{{ url_for('materials.shortage') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
             </div>
@@ -133,17 +68,156 @@
 </div>
 {% endif %}
 
-{% if data.rows %}
-<div class="card border-0 shadow-sm">
+<!-- KPI filter cards -->
+{% set _hr = shortage_insights.status_counts.get('high_risk', 0) %}
+{% set _lp = shortage_insights.status_counts.get('late_po', 0) %}
+{% set _mr = shortage_insights.status_counts.get('med_risk', 0) %}
+{% set _lr = shortage_insights.status_counts.get('low_risk', 0) %}
+{% set _total = _hr + _lp + _mr + _lr %}
+{# Build base URL preserving dept/date/search filters but no status #}
+{% set _base = url_for('materials.shortage', dept=dept_filter, due_from=due_from, due_before=due_before, q=search) %}
+<div class="row g-3 mb-4">
+    {% for st_key, label, sublabel, count, color in [
+        ('high_risk', 'Shortage',   'No PO coverage',        _hr,    '#dc3545'),
+        ('late_po',   'Late PO',    'PO insufficient / late', _lp,    '#fd7e14'),
+        ('med_risk',  'PO Reliant', 'Released, PO covering',  _mr,    '#ffc107'),
+        ('low_risk',  'Soft Risk',  'Unreleased, PO covering',_lr,    '#0dcaf0'),
+        ('',          'All',        'All at-risk lines',       _total, '#6c757d'),
+    ] %}
+    {% set is_active = (status_filter == st_key) if st_key else (not status_filter) %}
+    <div class="col-6 col-md">
+        <a href="{{ _base ~ ('&status=' ~ st_key if st_key else '') }}" class="text-decoration-none">
+            <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover
+                        {{ 'border-top border-3' if count or is_active else '' }}"
+                 style="{{ 'border-color:' ~ color ~ ' !important;' if count or is_active else '' }}
+                        {{ 'box-shadow:0 0 0 2px ' ~ color ~ ' !important;' if is_active else '' }}">
+                <div class="fs-5 fw-bold" style="color:{{ color if count else '#6c757d' }};">{{ count }}</div>
+                <div class="fw-semibold small">{{ label }}</div>
+                <div class="text-muted" style="font-size:.75rem;">{{ sublabel }}</div>
+            </div>
+        </a>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Insight charts -->
+{% if shortage_insights.top_materials or shortage_insights.by_class %}
+<div class="row g-3 mb-3">
+    {% if shortage_insights.top_materials %}
+    <div class="{{ 'col-lg-7' if shortage_insights.by_class else 'col-12' }}">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent fw-semibold small py-2">
+                <i class="bi bi-bar-chart-horizontal-fill me-1 text-danger"></i>Top Materials by Shortage Quantity
+            </div>
+            <div class="card-body py-2">
+                <canvas id="topMaterialsChart"></canvas>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% if shortage_insights.by_class %}
+    <div class="{{ 'col-lg-5' if shortage_insights.top_materials else 'col-12' }}">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-transparent fw-semibold small py-2">
+                <i class="bi bi-pie-chart-fill me-1 text-warning"></i>At-Risk Lines by Material Class
+            </div>
+            <div class="card-body d-flex align-items-center justify-content-center py-2">
+                <canvas id="byClassChart" style="max-height:220px;"></canvas>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Material summary table -->
+{% if shortage_insights.material_summary %}
+<div id="summaryTableCard" class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-transparent fw-semibold small py-2 d-flex align-items-center gap-2">
+        <i class="bi bi-table me-1 text-danger"></i>Summary by Material
+        <span class="badge text-bg-secondary ms-1">{{ shortage_insights.material_summary | length }}</span>
+        <button onclick="exportTableToCsv('summaryTable', 'shortage-summary-{{ today }}.csv')" class="btn btn-outline-secondary btn-sm ms-auto py-0" style="font-size:.75rem;">
+            <i class="bi bi-download me-1"></i>Export CSV
+        </button>
+    </div>
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.81rem;">
+            <table id="summaryTable" class="table table-sm table-hover mb-0 align-middle" style="font-size:.82rem;">
+                <thead class="thead-subtle">
+                    <tr>
+                        <th>Material</th>
+                        <th>Class</th>
+                        <th>Status</th>
+                        <th class="text-center">Jobs</th>
+                        <th class="text-end">Total Short</th>
+                        <th class="text-end">PO Cover</th>
+                        <th class="text-center">Earliest Due</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in shortage_insights.material_summary %}
+                    {% set st_label, st_colour = mat_status_meta.get(m.worst_status, ('—', 'secondary')) %}
+                    {% set is_overdue = m.earliest_due and m.earliest_due < today %}
+                    <tr>
+                        <td>
+                            <span class="fw-semibold">{{ m.material_code }}</span>
+                            {% if m.description %}
+                            <div class="text-muted text-truncate" style="max-width:180px;font-size:.72rem;" title="{{ m.description }}">{{ m.description }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if m.class_id %}<span class="badge bg-secondary bg-opacity-25 text-dark" style="font-size:.68rem;">{{ m.class_id }}</span>{% else %}—{% endif %}
+                        </td>
+                        <td><span class="badge text-bg-{{ st_colour }}" style="font-size:.72rem;">{{ st_label }}</span></td>
+                        <td class="text-center text-muted">{{ m.job_count }}</td>
+                        <td class="text-end fw-semibold {{ 'text-danger' if m.total_shortage else 'text-muted' }}">
+                            {{ m.total_shortage | round(2) if m.total_shortage else '—' }}
+                        </td>
+                        <td class="text-end {{ 'text-success' if m.total_po_cover > 0 else 'text-muted' }}">
+                            {{ m.total_po_cover | round(2) if m.total_po_cover else '—' }}
+                        </td>
+                        <td class="text-center {{ 'text-danger fw-semibold' if is_overdue else 'text-muted' }}" style="font-size:.78rem;">
+                            {% if m.earliest_due %}{{ m.earliest_due.strftime('%d %b %y') }}{% if is_overdue %} <i class="bi bi-exclamation-circle"></i>{% endif %}{% else %}—{% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('materials.mrp') }}?q={{ m.material_code | urlencode }}"
+                               class="btn btn-outline-secondary btn-sm py-0" style="font-size:.72rem;" target="_blank">
+                                <i class="bi bi-graph-up"></i> Peg
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if data.rows %}
+<div id="detailTableCard" class="card border-0 shadow-sm">
+    <div class="card-header bg-transparent fw-semibold small py-2 d-flex align-items-center gap-2">
+        <i class="bi bi-list-ul me-1 text-secondary"></i>Requirement Detail
+        <span class="badge text-bg-secondary ms-1">{{ data.rows | length }}</span>
+        {% if status_filter %}
+        {% set sf_label, sf_colour = mat_status_meta.get(status_filter, ('All', 'secondary')) %}
+        <span class="badge text-bg-{{ sf_colour }} ms-1">{{ sf_label }}</span>
+        {% endif %}
+        <button onclick="exportTableToCsv('detailTable', 'shortage-detail-{{ today }}.csv')" class="btn btn-outline-secondary btn-sm ms-auto py-0" style="font-size:.75rem;">
+            <i class="bi bi-download me-1"></i>Export CSV
+        </button>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+                <table id="detailTable" class="table table-sm table-hover mb-0 align-middle" style="font-size:.81rem;">
                 <thead class="thead-subtle sticky-top">
                     <tr>
                         <th>Material</th>
                         <th>Class</th>
                         <th>Whs</th>
-                        <th>Works Order</th>
+                        <th data-export-cols="Works Order|SO Number|Released">Works Order</th>
+                        <th>Status</th>
                         <th class="text-center">ERP Due</th>
                         <th class="text-end">Required</th>
                         <th class="text-end">Issued</th>
@@ -169,9 +243,18 @@
                             {% if row.class_id %}<span class="badge bg-secondary bg-opacity-25 text-dark" style="font-size:.68rem;">{{ row.class_id }}</span>{% else %}—{% endif %}
                         </td>
                         <td class="text-muted" style="font-size:.74rem;">{{ row.department or '—' }}</td>
-                        <td style="font-size:.74rem;">
+                        <td data-export-vals="{{ row.works_order or '' }}|{{ row.so_number or '' }}|{{ 'Released' if row.job_released else 'Unreleased' }}" style="font-size:.74rem;">
                             <span class="text-muted">{{ row.works_order or '—' }}</span>
                             {% if row.so_number %}<div class="text-muted" style="font-size:.68rem;">SO {{ row.so_number }}</div>{% endif %}
+                            {% if row.job_released %}
+                            <span class="badge text-bg-success" style="font-size:.62rem;">Released</span>
+                            {% else %}
+                            <span class="badge text-bg-warning text-dark" style="font-size:.62rem;">Unreleased</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% set st_label, st_colour = mat_status_meta.get(row.status, ('—', 'secondary')) %}
+                            <span class="badge text-bg-{{ st_colour }}" style="font-size:.7rem;">{{ st_label }}</span>
                         </td>
                         <td class="text-center {% if is_overdue %}text-danger fw-bold{% endif %}" style="font-size:.74rem;">
                             {% if row.due_date %}{{ row.due_date.strftime('%d %b %y') }}{% if is_overdue %} <i class="bi bi-exclamation-circle"></i>{% endif %}{% else %}—{% endif %}
@@ -218,9 +301,124 @@ const _topMaterials = {{ shortage_insights.top_materials | tojson }};
 const _byClass      = {{ shortage_insights.by_class | tojson }};
 const _palette = ['#dc3545','#fd7e14','#ffc107','#198754','#0dcaf0','#0d6efd','#6f42c1','#d63384','#20c997','#6c757d'];
 
+function exportTableToCsv(tableId, filename) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
+    const headerCells = Array.from(table.querySelectorAll('thead th'));
+    // Build header metadata: {skip, cols[]}. Cells with data-export-cols expand to multiple columns.
+    const hMeta = headerCells.map(th => {
+        const text = th.textContent.trim();
+        if (!text) return { skip: true, cols: [] };
+        const exp = th.getAttribute('data-export-cols');
+        return { skip: false, cols: exp ? exp.split('|') : [text] };
+    });
+    const rows = [];
+    rows.push(hMeta.filter(h => !h.skip).flatMap(h => h.cols.map(esc)).join(','));
+    table.querySelectorAll('tbody tr').forEach(tr => {
+        const cells = Array.from(tr.querySelectorAll('td'));
+        const vals = [];
+        cells.forEach((td, i) => {
+            if (i >= hMeta.length || hMeta[i].skip) return;
+            const exp = td.getAttribute('data-export-vals');
+            if (exp) exp.split('|').forEach(v => vals.push(esc(v.trim())));
+            else vals.push(esc(td.textContent.trim().replace(/\s+/g, ' ')));
+        });
+        rows.push(vals.join(','));
+    });
+    const blob = new Blob(['\ufeff' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
 document.addEventListener('DOMContentLoaded', function () {
-    const tmCtx = document.getElementById('topMaterialsChart');
-    if (tmCtx && _topMaterials.length) {
+    // ---- Table pagination ----
+    function initPagination(tableId, pageSize) {
+        const table = document.getElementById(tableId);
+        if (!table) return;
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        if (rows.length <= pageSize) return;
+        let page = 1;
+
+        function render() {
+            const total = rows.length;
+            const pages = Math.ceil(total / pageSize);
+            page = Math.max(1, Math.min(page, pages));
+            const start = (page - 1) * pageSize;
+            rows.forEach((r, i) => r.style.display = (i >= start && i < start + pageSize) ? '' : 'none');
+
+            // Info text
+            document.getElementById(tableId + 'Info').textContent =
+                'Showing ' + (start + 1) + '\u2013' + Math.min(start + pageSize, total) + ' of ' + total + ' rows';
+
+            // Build page buttons: First | ‹ | 1 … lo [cur] hi … last | › | Last
+            const ul = document.getElementById(tableId + 'Pages');
+            ul.innerHTML = '';
+
+            const addBtn = (label, p, disabled, active, isEllipsis) => {
+                const li = document.createElement('li');
+                li.className = 'page-item' + (disabled ? ' disabled' : '') + (active ? ' active' : '');
+                li.innerHTML = isEllipsis
+                    ? '<span class="page-link border-0 bg-transparent text-muted px-1">\u2026</span>'
+                    : '<a class="page-link" href="#">' + label + '</a>';
+                if (!disabled && !isEllipsis)
+                    li.querySelector('a').addEventListener('click', e => { e.preventDefault(); page = p; render(); });
+                ul.appendChild(li);
+            };
+
+            addBtn('«', 1,        page === 1);
+            addBtn('‹', page - 1, page === 1);
+
+            // Window of 5 around current, always showing first and last
+            const wing = 2;
+            let lo = Math.max(2, page - wing);
+            let hi = Math.min(pages - 1, page + wing);
+            // Expand window if near edges
+            if (page <= wing + 1)  hi = Math.min(pages - 1, 1 + wing * 2);
+            if (page >= pages - wing) lo = Math.max(2, pages - wing * 2);
+
+            addBtn(1, 1, false, page === 1);
+            if (lo > 2) addBtn('', 0, true, false, true);
+            for (let p = lo; p <= hi; p++) addBtn(p, p, false, p === page);
+            if (hi < pages - 1) addBtn('', 0, true, false, true);
+            if (pages > 1) addBtn(pages, pages, false, page === pages);
+
+            addBtn('›', page + 1, page === pages);
+            addBtn('»', pages,    page === pages);
+
+            // Jump-to-page input
+            const jumpId = tableId + 'Jump';
+            if (!document.getElementById(jumpId)) {
+                const wrap = document.createElement('div');
+                wrap.className = 'd-flex align-items-center gap-1 ms-2';
+                wrap.innerHTML = '<span class="text-muted" style="font-size:.78rem;white-space:nowrap;">Go to</span>' +
+                    '<input id="' + jumpId + '" type="number" min="1" max="' + pages + '" class="form-control form-control-sm" style="width:60px;font-size:.78rem;" placeholder="#">';
+                ul.parentElement.appendChild(wrap);
+                document.getElementById(jumpId).addEventListener('change', function () {
+                    const v = parseInt(this.value);
+                    if (v >= 1 && v <= pages) { page = v; render(); }
+                    this.value = '';
+                });
+            } else {
+                document.getElementById(jumpId).max = pages;
+            }
+        }
+
+        const card = table.closest('.card');
+        const footer = card && card.querySelector('.card-footer');
+        const ctrl = document.createElement('div');
+        ctrl.className = 'd-flex justify-content-between align-items-center flex-wrap gap-2 px-3 py-2 border-top small';
+        ctrl.innerHTML = '<span class="text-muted" id="' + tableId + 'Info"></span>' +
+            '<div class="d-flex align-items-center"><nav><ul class="pagination pagination-sm mb-0" id="' + tableId + 'Pages"></ul></nav></div>';
+        if (footer) footer.before(ctrl); else if (card) card.appendChild(ctrl);
+        render();
+    }
+    initPagination('summaryTable', 20);
+    initPagination('detailTable', 50);
+
+    // ---- Charts ----
+    const tmCtx = document.getElementById('topMaterialsChart');    if (tmCtx && _topMaterials.length) {
         const h = Math.max(120, _topMaterials.length * 24);
         tmCtx.style.height = h + 'px';
         new Chart(tmCtx, {

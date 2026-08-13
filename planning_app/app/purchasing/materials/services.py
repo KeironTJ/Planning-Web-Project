@@ -80,6 +80,7 @@ class ShortageRow:
     class_id: Optional[str] = None
     job_released: Optional[bool] = None
     po_exists: bool = False  # any open PO for this material exists (may be overdue/insufficient)
+    status: str = "no_data"  # 5-tier coverage status — set during netting
 
 
 @dataclass
@@ -361,6 +362,10 @@ def get_shortage_report(
             class_id=r.get("class_id") or None,
             job_released=r.get("job_released"),
             po_exists=r.get("_po_exists", False),
+            status=_row_status(
+                r["net_required"], r["_shortage"], r["_stock_on_hand"],
+                r.get("job_released"), r.get("_po_exists", False),
+            ),
         ))
 
     # Sort by due_date, then worst shortage first
@@ -1148,11 +1153,18 @@ def get_shortage_insights(rows: list) -> dict:
             "unique_materials":   int,
         }
     """
-    short_rows = [r for r in rows if r.shortage > 0]
+    # All at-risk rows (any non-ok status) — basis for all insight computations
+    at_risk_rows = [r for r in rows if r.status not in ("ok", "no_data")]
+    short_rows   = [r for r in at_risk_rows if r.shortage > 0]
+
+    # ---- Status breakdown (all tiers) ----
+    status_counts: dict[str, int] = {}
+    for r in at_risk_rows:
+        status_counts[r.status] = status_counts.get(r.status, 0) + 1
 
     # ---- Top 10 materials by total shortage quantity ----
     mat_totals: dict[str, dict] = {}
-    for r in short_rows:
+    for r in at_risk_rows:
         mc = r.material_code
         if mc not in mat_totals:
             mat_totals[mc] = {
@@ -1167,9 +1179,9 @@ def get_shortage_insights(rows: list) -> dict:
 
     top_materials = sorted(mat_totals.values(), key=lambda x: x["shortage"], reverse=True)[:10]
 
-    # ---- Shortage by material class ----
+    # ---- At-risk lines by material class ----
     class_totals: dict[str, dict] = {}
-    for r in short_rows:
+    for r in at_risk_rows:
         cid = r.class_id or "Unknown"
         if cid not in class_totals:
             class_totals[cid] = {"class_id": cid, "shortage_qty": Decimal(0), "line_count": 0}
@@ -1180,11 +1192,47 @@ def get_shortage_insights(rows: list) -> dict:
 
     total_shortage_qty = sum(r.shortage for r in short_rows)
 
+    # ---- Per-material summary (all at-risk statuses) ----
+    mat_summary: dict[str, dict] = {}
+    for r in at_risk_rows:
+        mc = r.material_code
+        if mc not in mat_summary:
+            mat_summary[mc] = {
+                "material_code":    mc,
+                "description":      r.description,
+                "class_id":         r.class_id,
+                "worst_status":     r.status,
+                "jobs":             set(),
+                "total_shortage":   Decimal(0),
+                "total_po_cover":   Decimal(0),
+                "earliest_due":     r.due_date,
+            }
+        m = mat_summary[mc]
+        if _MAT_STATUS_PRIORITY.get(r.status, 0) > _MAT_STATUS_PRIORITY.get(m["worst_status"], 0):
+            m["worst_status"] = r.status
+        if r.works_order:
+            m["jobs"].add(r.works_order)
+        m["total_shortage"] += r.shortage
+        m["total_po_cover"] += r.po_coverage or Decimal(0)
+        if r.due_date and (m["earliest_due"] is None or r.due_date < m["earliest_due"]):
+            m["earliest_due"] = r.due_date
+
+    material_summary = []
+    for m in mat_summary.values():
+        m["job_count"] = len(m["jobs"])
+        del m["jobs"]
+        material_summary.append(m)
+    material_summary.sort(
+        key=lambda m: (-_MAT_STATUS_PRIORITY.get(m["worst_status"], 0), -m["total_shortage"])
+    )
+
     return {
         "top_materials":      top_materials,
         "by_class":           by_class,
         "total_shortage_qty": total_shortage_qty,
         "unique_materials":   len(mat_totals),
+        "status_counts":      status_counts,
+        "material_summary":   material_summary,
     }
 
 

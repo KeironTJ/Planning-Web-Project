@@ -34,14 +34,10 @@ def index():
 @login_required
 @permission_required("view_materials")
 def shortage():
-    source        = request.args.get("source", "all")
-    dept_filter   = request.args.get("dept", "")
-    search        = request.args.get("q", "")
-    # Checkbox fix: unchecked checkboxes don't submit in GET forms.
-    # A hidden "0" field is always submitted; the checkbox adds "1" when checked.
-    # getlist preserves order — last value wins (checkbox overrides hidden).
-    _so_vals = request.args.getlist("shortages_only")
-    shortages_only = _so_vals[-1] == "1" if _so_vals else True
+    source       = request.args.get("source", "all")
+    dept_filter  = request.args.get("dept", "")
+    search       = request.args.get("q", "")
+    status_filter = request.args.get("status", "")  # "" = all at-risk
     due_before_str = request.args.get("due_before", "")
     due_from_str   = request.args.get("due_from", "")
 
@@ -59,21 +55,30 @@ def shortage():
         except ValueError:
             pass
 
+    # Always fetch all rows so insights reflect the full picture
     data = services.get_shortage_report(
         source=source,
         dept_filter=dept_filter or None,
         search=search or None,
-        shortages_only=shortages_only,
+        shortages_only=False,
         due_before=due_before,
         due_from=due_from,
     )
-    shortage_insights = services.get_shortage_insights(data["rows"])
-    departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
 
-    # plan_start_map is no longer populated from the old CSV WorksOrderOperation table.
-    # Planner dates from that system have been retired; the shortage report uses
-    # MaterialRequirementMain.due_date directly as the effective deadline.
-    plan_start_map: dict = {}
+    # Insights computed on all at-risk rows before display filtering
+    shortage_insights = services.get_shortage_insights(data["rows"])
+
+    # Filter display rows: all at-risk by default, or a specific status tier
+    _AT_RISK = {"high_risk", "late_po", "med_risk", "low_risk"}
+    _valid_filter = status_filter if status_filter in _AT_RISK else ""
+    if _valid_filter:
+        data["rows"] = [r for r in data["rows"] if r.status == _valid_filter]
+    else:
+        data["rows"] = [r for r in data["rows"] if r.status in _AT_RISK]
+    data["total_rows"] = len(data["rows"])
+
+    departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
+    from app.purchasing.materials.services import MAT_STATUS_META
 
     return render_template(
         "materials/shortage.html",
@@ -81,13 +86,13 @@ def shortage():
         data=data,
         shortage_insights=shortage_insights,
         departments=departments,
+        mat_status_meta=MAT_STATUS_META,
         source=source,
         dept_filter=dept_filter,
         search=search,
-        shortages_only=shortages_only,
+        status_filter=_valid_filter,
         due_before=due_before_str,
         due_from=due_from_str,
-        plan_start_map=plan_start_map,
         today=date.today(),
     )
 
