@@ -168,7 +168,8 @@
           <th class="text-center">Lines</th>
           <th class="text-end">Qty</th>
           <th class="text-end" style="white-space:nowrap;">{{ sort_link('Value (£)', 'value') }}</th>
-          <th class="text-center" title="Material availability">Mat.</th>
+          <th class="text-center" title="Fabric/hide material availability">Fabric</th>
+          <th class="text-center" title="Component availability">Comp.</th>
           <th></th>
         </tr>
       </thead>
@@ -215,24 +216,31 @@
           <td class="text-end">{{ "%.0f" | format(o.total_qty) }}</td>
           <td class="text-end text-nowrap fw-semibold">£{{ "{:,.0f}".format(o.total_value) }}</td>
           <td class="text-center">
-            {% if o.mat_status != 'no_data' %}
+            {% if o.mat_status not in ('no_data', 'ok') %}
             <a href="{{ url_for('materials.mrp', so=o.so_number) }}" target="_blank" class="text-decoration-none">
             {% if o.mat_status == 'high_risk' %}
-            <span class="badge text-bg-danger" style="font-size:.65rem;" title="Material shortage — click for MRP pegging">
-                <i class="bi bi-exclamation-triangle-fill me-1"></i>Short
-            </span>
+            <span class="badge text-bg-danger" style="font-size:.65rem;" title="Fabric shortage"><i class="bi bi-exclamation-triangle-fill me-1"></i>Shortage</span>
+            {% elif o.mat_status == 'late_po' %}
+            <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Late PO"><i class="bi bi-clock-history me-1"></i>Late PO</span>
             {% elif o.mat_status == 'med_risk' %}
-            <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="Material risk — click for MRP pegging">
-                <i class="bi bi-clock-fill me-1"></i>At Risk
-            </span>
+            <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="PO Reliant"><i class="bi bi-receipt me-1"></i>PO Reliant</span>
             {% elif o.mat_status == 'low_risk' %}
-            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Material low risk — click for MRP pegging">
-                <i class="bi bi-info-circle me-1"></i>CO Cover
-            </span>
-            {% elif o.mat_status == 'ok' %}
-            <span class="badge text-bg-success" style="font-size:.65rem;" title="Materials OK — click for MRP pegging">
-                <i class="bi bi-check2 me-1"></i>OK
-            </span>
+            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Soft Risk"><i class="bi bi-info-circle me-1"></i>Soft Risk</span>
+            {% endif %}
+            </a>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if o.comp_status not in ('no_data', 'ok') %}
+            <a href="{{ url_for('materials.component_shortage') }}?so={{ o.so_number }}" target="_blank" class="text-decoration-none">
+            {% if o.comp_status == 'high_risk' %}
+            <span class="badge text-bg-danger" style="font-size:.65rem;" title="Component shortage"><i class="bi bi-exclamation-triangle-fill me-1"></i>C.Short</span>
+            {% elif o.comp_status == 'late_po' %}
+            <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Component late PO"><i class="bi bi-clock-history me-1"></i>C.Late PO</span>
+            {% elif o.comp_status == 'med_risk' %}
+            <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="Component PO reliant"><i class="bi bi-receipt me-1"></i>C.PO Rel</span>
+            {% elif o.comp_status == 'low_risk' %}
+            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Component soft risk"><i class="bi bi-info-circle me-1"></i>C.Soft</span>
             {% endif %}
             </a>
             {% endif %}
@@ -311,16 +319,32 @@
 
               {# Material status — per job, fixed-width slot so all lines align #}
               <div style="min-width:72px; flex-shrink:0;">
-              {% if line.mat_status != 'no_data' %}
+              {% if line.mat_status not in ('no_data', 'ok') %}
               <a href="{{ url_for('materials.mrp', so=o.so_number) }}" target="_blank" class="text-decoration-none">
               {% if line.mat_status == 'high_risk' %}
-              <span class="badge text-bg-danger" style="font-size:.65rem;" title="Material shortage — click for MRP pegging"><i class="bi bi-exclamation-triangle-fill me-1"></i>Mat Short</span>
+              <span class="badge text-bg-danger" style="font-size:.65rem;" title="Fabric shortage"><i class="bi bi-exclamation-triangle-fill me-1"></i>Short</span>
+              {% elif line.mat_status == 'late_po' %}
+              <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Late PO"><i class="bi bi-clock-history me-1"></i>Late PO</span>
               {% elif line.mat_status == 'med_risk' %}
-              <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="Material at risk — click for MRP pegging"><i class="bi bi-clock-fill me-1"></i>Mat Risk</span>
+              <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="PO Reliant"><i class="bi bi-receipt me-1"></i>PO Rel</span>
               {% elif line.mat_status == 'low_risk' %}
-              <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="CO cover — click for MRP pegging"><i class="bi bi-info-circle me-1"></i>CO Cover</span>
-              {% elif line.mat_status == 'ok' %}
-              <span class="badge text-bg-success" style="font-size:.65rem;" title="Materials OK — click for MRP pegging"><i class="bi bi-check2 me-1"></i>Mat OK</span>
+              <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Soft Risk"><i class="bi bi-info-circle me-1"></i>Soft</span>
+              {% endif %}
+              </a>
+              {% endif %}
+              </div>
+              {# Component status — per job #}
+              <div style="min-width:72px; flex-shrink:0;">
+              {% if line.comp_status not in ('no_data', 'ok') %}
+              <a href="{{ url_for('materials.component_shortage') }}?so={{ o.so_number }}" target="_blank" class="text-decoration-none">
+              {% if line.comp_status == 'high_risk' %}
+              <span class="badge text-bg-danger" style="font-size:.65rem;" title="Component shortage"><i class="bi bi-exclamation-triangle-fill me-1"></i>C.Short</span>
+              {% elif line.comp_status == 'late_po' %}
+              <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Component late PO"><i class="bi bi-clock-history me-1"></i>C.Late</span>
+              {% elif line.comp_status == 'med_risk' %}
+              <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="Component PO reliant"><i class="bi bi-receipt me-1"></i>C.PO</span>
+              {% elif line.comp_status == 'low_risk' %}
+              <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Component soft risk"><i class="bi bi-info-circle me-1"></i>C.Soft</span>
               {% endif %}
               </a>
               {% endif %}

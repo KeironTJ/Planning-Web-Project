@@ -113,6 +113,11 @@ SETTING_DAILY_OUTPUT_TARGET = "daily_output_target"
 SETTING_DAILY_OUTPUT_TARGET_DAYS = "daily_output_target_days"  # comma-separated weekday ints 0=Mon…4=Fri
 SETTING_MRP_LEAD_DAYS = "mrp_material_lead_days"  # days material must arrive before ship date
 
+# Material availability groups
+SETTING_FABRIC_CLASS_IDS = "fabric_class_ids"          # comma-separated; default: A101,A102,A105,B101,C101,Z102
+SETTING_COMPONENT_CLASS_IDS = "component_class_ids"    # comma-separated; empty = all classes in component group
+SETTING_MRP_COMPONENT_LEAD_DAYS = "mrp_component_lead_days"  # separate lead-days setting for components
+
 
 # ---------------------------------------------------------------------------
 # SyncSchedule

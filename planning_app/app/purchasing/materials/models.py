@@ -20,7 +20,7 @@ class Stock(db.Model):
     """
     Stock on hand per part per plant.  Full replace on every Epicor API sync.
 
-    Field names mirror the PlanningStockReport BAQ exactly so that the importer
+    Field names mirror the PlanningStockReportComp BAQ exactly so that the importer
     mapping is unambiguous and schema changes in Epicor are obvious here.
     """
 
@@ -131,6 +131,11 @@ class MaterialRequirementMain(db.Model):
     __tablename__ = "material_requirements"
 
     id = db.Column(db.Integer, primary_key=True)
+
+    # --- Availability group ---
+    # "fabric"    — sourced from PlanningMatReq (pre-filtered to fabric/hide class IDs)
+    # "component" — sourced from PlanningMatReqComp (all classes; filtered at query time)
+    material_group = db.Column(db.String(20), nullable=False, default='fabric', index=True)
 
     # --- Job header ---
     works_order       = db.Column(db.String(20),  nullable=True, index=True)  # JobHead_JobNum

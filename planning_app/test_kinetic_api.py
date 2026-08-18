@@ -66,9 +66,9 @@ with KineticClient.from_env() as client:
 
     #print()
     #print("=" * 60)
-    #print("BAQ: PlanningStockReport")
+    #print("BAQ: PlanningStockReportComp")
     #print("=" * 60)
-    #test_baq(client, "PlanningStockReport", params={"JobReqByDateSTKPLAN": ""})
+    #test_baq(client, "PlanningStockReportComp", params={"JobReqByDateSTKPLAN": ""})
 
     print()
     print("=" * 60)

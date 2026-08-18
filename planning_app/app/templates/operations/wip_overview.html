@@ -59,11 +59,20 @@ Operations WIP Overview
     {# Shortages toggle is a link so it preserves all other URL params cleanly #}
     <a href="{{ url_for('operations.wip_overview',
                         category=category, q=search, per_page=per_page,
-                        shortages_only=('0' if shortages_only else '1')) }}"
+                        shortages_only=('0' if shortages_only else '1'),
+                        shortage_group=shortage_group) }}"
        class="btn btn-sm {{ 'btn-danger' if shortages_only else 'btn-outline-danger' }}">
         <i class="bi bi-exclamation-triangle{{ '-fill' if shortages_only else '' }} me-1"></i>
-        {{ 'Shortages only ×' if shortages_only else 'Shortages only' }}
+        {{ 'Shortages only \xd7' if shortages_only else 'Shortages only' }}
     </a>
+    {% if shortages_only %}
+    <div class="btn-group btn-group-sm">
+        {% for _g, _gl in [('fabric','Fabric'), ('component','Component'), ('either','Either')] %}
+        <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=1, shortage_group=_g) }}"
+           class="btn {{ 'btn-danger' if shortage_group == _g else 'btn-outline-danger' }}" style="font-size:.75rem;">{{ _gl }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
     <div class="ms-1 d-flex align-items-center gap-2">
         <input type="search" name="q" class="form-control form-control-sm" style="width:220px;"
                placeholder="Job, customer, model…" value="{{ search }}">
@@ -74,12 +83,15 @@ Operations WIP Overview
     </div>
     <input type="hidden" name="per_page" value="{{ per_page }}">
     <input type="hidden" name="shortages_only" value="{{ '1' if shortages_only else '0' }}">
+    <input type="hidden" name="shortage_group" value="{{ shortage_group }}">
 </form>
 
 {% if shortages_only %}
+{% set _active_shortages = comp_shortages if shortage_group == 'component' else ((shortages + comp_shortages) if shortage_group == 'either' else shortages) %}
+{% set _group_label = 'component' if shortage_group == 'component' else ('fabric or component' if shortage_group == 'either' else 'fabric') %}
 <div class="alert alert-danger py-2 mb-3 d-flex align-items-center gap-2">
     <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
-    <span>Showing <strong>{{ shortages }}</strong> job{{ 's' if shortages != 1 }} with confirmed material shortages — netted against stock &amp; open POs.</span>
+    <span>Showing <strong>{{ _active_shortages }}</strong> job{{ 's' if _active_shortages != 1 }} with confirmed {{ _group_label }} shortages.</span>
     <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page) }}"
        class="btn btn-sm btn-outline-danger ms-auto py-0">Show all jobs</a>
 </div>
@@ -212,6 +224,7 @@ Operations WIP Overview
                             <th>Customer</th>
                             <th>Mat 1</th>
                             <th class="text-center">Materials</th>
+                            <th class="text-center" title="Component availability (all non-fabric parts)">Components</th>
                             <th>Comment</th>
                             <th>OB Comments</th>
                             <th>GRN</th>
@@ -222,8 +235,11 @@ Operations WIP Overview
                         {% for job in jobs.items %}
                         {%- set so_key = job.order_num | string if job.order_num else '' %}
                         {%- set mat_st = mat_status_map.get(so_key, 'no_data') %}
+                        {%- set comp_st = comp_status_map.get(so_key, 'no_data') %}
                         {%- set is_partial = job.order_num and job.order_num in partial_order_nums and not job.job_complete %}
-                        {%- set row_class = 'table-primary bg-opacity-25' if is_partial else ('table-danger bg-opacity-25' if mat_st == 'high_risk' else ('table-warning bg-opacity-25' if mat_st == 'med_risk' else '')) %}
+                        {%- set _any_high = mat_st == 'high_risk' or comp_st == 'high_risk' %}
+                        {%- set _any_med  = mat_st in ('med_risk', 'late_po') or comp_st in ('med_risk', 'late_po') %}
+                        {%- set row_class = 'table-primary bg-opacity-25' if is_partial else ('table-danger bg-opacity-25' if _any_high else ('table-warning bg-opacity-25' if _any_med else '')) %}
                         <tr class="{{ row_class }}">
                             <td class="ps-2 fw-semibold font-monospace">{{ job.job_num }}</td>
                             <td class="text-center text-muted">
@@ -258,6 +274,20 @@ Operations WIP Overview
                                    target="_blank">{{ mat_label }}</a>
                                 {%- endif %}
                             </td>
+
+                            {%- set comp_label, comp_colour = mat_status_meta.get(comp_st, ('—', 'secondary')) %}
+                            {%- set comp_label = 'Comp. OK' if comp_st in ('no_data', 'ok') else comp_label %}
+                            <td class="text-center">
+                                {%- if comp_st in ('no_data', 'ok') %}
+                                <span class="badge text-bg-success" style="font-size:.7rem;">Comp. OK</span>
+                                {%- else %}
+                                <a href="{{ url_for('materials.component_shortage') }}?so={{ so_key }}"
+                                   class="badge text-bg-{{ comp_colour }} text-decoration-none"
+                                   style="font-size:.7rem;"
+                                   title="Click to view component shortage for SO {{ so_key }}"
+                                   target="_blank">{{ comp_label }}</a>
+                                {%- endif %}
+                            </td>
                             <td class="text-muted" style="max-width:160px; overflow:hidden; text-overflow:ellipsis;" title="{{ job.comment_text or '' }}">
                                 {{ (job.comment_text or '')[:60] }}{{ '…' if (job.comment_text or '') | length > 60 }}
                             </td>
@@ -272,7 +302,7 @@ Operations WIP Overview
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="14" class="text-center py-4 text-muted">No works orders found.</td>
+                            <td colspan="15" class="text-center py-4 text-muted">No works orders found.</td>
                         </tr>
                         {% endfor %}
                     </tbody>

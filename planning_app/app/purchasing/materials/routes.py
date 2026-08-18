@@ -21,7 +21,7 @@ def index():
     so_breakdown = services.get_weekly_so_breakdown(weeks_ahead=12)
     return render_template(
         "materials/index.html",
-        title="Material Availability",
+        title="Fabric and Hide Availability",
         summary=summary,
         weekly=weekly,
         so_breakdown=so_breakdown,
@@ -88,6 +88,71 @@ def shortage():
         departments=departments,
         mat_status_meta=MAT_STATUS_META,
         source=source,
+        dept_filter=dept_filter,
+        search=search,
+        status_filter=_valid_filter,
+        due_before=due_before_str,
+        due_from=due_from_str,
+        today=date.today(),
+    )
+
+
+@materials_bp.route("/component-shortage")
+@login_required
+@permission_required("view_materials")
+def component_shortage():
+    """Component availability shortage report (sourced from PlanningMatReqComp)."""
+    dept_filter   = request.args.get("dept", "")
+    search        = request.args.get("q", "")
+    status_filter = request.args.get("status", "")
+    due_before_str = request.args.get("due_before", "")
+    due_from_str   = request.args.get("due_from", "")
+    so_filter      = request.args.get("so", "")
+
+    due_before = None
+    if due_before_str:
+        try:
+            due_before = date.fromisoformat(due_before_str)
+        except ValueError:
+            pass
+
+    due_from = None
+    if due_from_str:
+        try:
+            due_from = date.fromisoformat(due_from_str)
+        except ValueError:
+            pass
+
+    data = services.get_shortage_report(
+        material_group="component",
+        dept_filter=dept_filter or None,
+        search=search or None,
+        so_filter=so_filter or None,
+        shortages_only=False,
+        due_before=due_before,
+        due_from=due_from,
+    )
+
+    shortage_insights = services.get_shortage_insights(data["rows"])
+
+    _AT_RISK = {"high_risk", "late_po", "med_risk", "low_risk"}
+    _valid_filter = status_filter if status_filter in _AT_RISK else ""
+    if _valid_filter:
+        data["rows"] = [r for r in data["rows"] if r.status == _valid_filter]
+    else:
+        data["rows"] = [r for r in data["rows"] if r.status in _AT_RISK]
+    data["total_rows"] = len(data["rows"])
+
+    departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
+    from app.purchasing.materials.services import MAT_STATUS_META
+
+    return render_template(
+        "materials/component_shortage.html",
+        title="Component Shortage Report",
+        data=data,
+        shortage_insights=shortage_insights,
+        departments=departments,
+        mat_status_meta=MAT_STATUS_META,
         dept_filter=dept_filter,
         search=search,
         status_filter=_valid_filter,

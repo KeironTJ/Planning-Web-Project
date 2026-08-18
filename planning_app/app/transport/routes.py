@@ -405,11 +405,14 @@ def loading_bay():
     # ── Material shortage status for WIP orders ────────────────────────────
     try:
         from app.purchasing.materials.services import (
-            get_so_material_status, get_job_material_status, MAT_STATUS_META,
+            get_so_material_status, get_job_material_status,
+            get_so_component_status, get_job_component_status,
+            MAT_STATUS_META,
         )
         _PRIO = {"no_data": -1, "ok": 0, "low_risk": 1, "med_risk": 2, "high_risk": 3}
         _so_strs  = [str(o["order_num"]) for o in orders_list]
         _mat_map  = get_so_material_status(_so_strs) if _so_strs else {}
+        _comp_map = get_so_component_status(_so_strs) if _so_strs else {}
         _all_jobs = [
             j["job_num"]
             for o in orders_list
@@ -417,21 +420,28 @@ def loading_bay():
             for j in rel["jobs"]
             if j["job_num"] and rel["status"] != "finished"
         ]
-        _job_mat = get_job_material_status(_all_jobs) if _all_jobs else {}
+        _job_mat  = get_job_material_status(_all_jobs) if _all_jobs else {}
+        _job_comp = get_job_component_status(_all_jobs) if _all_jobs else {}
         for o in orders_list:
-            o["mat_status"] = _mat_map.get(str(o["order_num"]), "no_data")
+            o["mat_status"]  = _mat_map.get(str(o["order_num"]), "no_data")
+            o["comp_status"] = _comp_map.get(str(o["order_num"]), "no_data")
             for rel in o["releases"]:
                 if rel["status"] == "finished":
-                    rel["mat_status"] = "no_data"
+                    rel["mat_status"]  = "no_data"
+                    rel["comp_status"] = "no_data"
                 else:
-                    job_stats = [_job_mat.get(j["job_num"], "no_data") for j in rel["jobs"] if j["job_num"]]
-                    rel["mat_status"] = max(job_stats, key=lambda s: _PRIO.get(s, -1)) if job_stats else "no_data"
+                    job_stats      = [_job_mat.get(j["job_num"], "no_data") for j in rel["jobs"] if j["job_num"]]
+                    job_comp_stats = [_job_comp.get(j["job_num"], "no_data") for j in rel["jobs"] if j["job_num"]]
+                    rel["mat_status"]  = max(job_stats,      key=lambda s: _PRIO.get(s, -1)) if job_stats      else "no_data"
+                    rel["comp_status"] = max(job_comp_stats, key=lambda s: _PRIO.get(s, -1)) if job_comp_stats else "no_data"
     except Exception:
         MAT_STATUS_META = {}
         for o in orders_list:
-            o["mat_status"] = "no_data"
+            o["mat_status"]  = "no_data"
+            o["comp_status"] = "no_data"
             for rel in o["releases"]:
-                rel["mat_status"] = "no_data"
+                rel["mat_status"]  = "no_data"
+                rel["comp_status"] = "no_data"
 
     # ── Summary KPIs (all computed from filtered orders_list) ────────────
     ready_list        = [o for o in orders_list if o["order_status"] == "ready" and not o["on_hold"]]

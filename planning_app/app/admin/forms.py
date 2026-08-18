@@ -2,7 +2,7 @@
 
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired, FileAllowed
-from wtforms import SelectField, DecimalField, IntegerField, BooleanField, StringField
+from wtforms import SelectField, DecimalField, IntegerField, BooleanField, StringField, TextAreaField
 from wtforms.validators import Optional, NumberRange, DataRequired, Length
 
 
@@ -38,8 +38,24 @@ class SystemSettingsForm(FlaskForm):
         validators=[Optional(), NumberRange(min=0)],
     )
     mrp_lead_days = IntegerField(
-        "Material Lead Days",
+        "Fabric/Hide Lead Days",
         validators=[Optional(), NumberRange(min=0, max=90)],
+        description="Days before ship date a PO must arrive to count as fabric/hide coverage.",
+    )
+    mrp_component_lead_days = IntegerField(
+        "Component Lead Days",
+        validators=[Optional(), NumberRange(min=0, max=90)],
+        description="Days before ship date a PO must arrive to count as component coverage.",
+    )
+    fabric_class_ids = StringField(
+        "Fabric/Hide Class IDs",
+        validators=[Optional(), Length(max=200)],
+        description="Comma-separated Epicor class IDs included in fabric/hide availability (e.g. A101,A102,A105,B101,C101,Z102).",
+    )
+    component_class_ids = StringField(
+        "Component Class IDs",
+        validators=[Optional(), Length(max=500)],
+        description="Comma-separated class IDs included in component availability. Leave blank to include all classes from PlanningMatReqComp.",
     )
     daily_target_mon = BooleanField("Mon")
     daily_target_tue = BooleanField("Tue")

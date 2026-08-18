@@ -35,23 +35,27 @@ from .models import (
 )
 
 
+def _cached_group_report(group: str) -> dict:
+    """Return get_shortage_report(material_group=group, shortages_only=False), cached per request."""
+    cache_key = f"_mrp_{group}_cache"
+    try:
+        from flask import g
+        if not hasattr(g, cache_key):
+            setattr(g, cache_key, get_shortage_report(material_group=group, shortages_only=False))
+        return getattr(g, cache_key)
+    except RuntimeError:
+        return get_shortage_report(material_group=group, shortages_only=False)
+
+
 def _cached_unfiltered_report() -> dict:
     """
-    Return get_shortage_report(source="all", shortages_only=False) for this request,
-    computing it only once and caching the result on flask.g.
+    Return the fabric-group shortage report for this request, cached on flask.g.
 
     Multiple callers on the same page load (get_stock_summary, get_weekly_availability_summary,
     get_so_material_status) share the single computation instead of each running a
     full MRP netting pass independently.
     """
-    try:
-        from flask import g
-        if not hasattr(g, "_mrp_shortage_cache"):
-            g._mrp_shortage_cache = get_shortage_report(source="all", shortages_only=False)
-        return g._mrp_shortage_cache
-    except RuntimeError:
-        # Outside a request context (tests, CLI commands)
-        return get_shortage_report(source="all", shortages_only=False)
+    return _cached_group_report("fabric")
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +127,7 @@ def _load_stock() -> dict[str, Decimal]:
     """
     Return {part_num: total_qty_on_hand} across all plants.
 
-    The PlanningStockReport BAQ returns one row per (part_num, plant).
+    The PlanningStockReportComp BAQ returns one row per (part_num, plant).
     Summing ensures multi-plant parts (e.g. fabric stored in STORES + PROD)
     are not understated when only the last plant row would otherwise be kept.
     """
@@ -169,13 +173,35 @@ def _load_po_coverage() -> dict[str, list[tuple[date, Decimal]]]:
 
 
 def _get_lead_days() -> int:
-    """
-    Return the configured MRP material lead days from SystemSetting.
-    This is the number of days before the ship date that a PO must arrive
-    to count as material coverage (default 14).
-    """
+    """Return fabric-group MRP lead days from SystemSetting (default 14)."""
     from app.admin.models import SystemSetting, SETTING_MRP_LEAD_DAYS
     return SystemSetting.get_int(SETTING_MRP_LEAD_DAYS, default=14)
+
+
+def _get_group_lead_days(group: str) -> int:
+    """Return the configured MRP lead days for the given material group."""
+    from app.admin.models import SystemSetting, SETTING_MRP_LEAD_DAYS, SETTING_MRP_COMPONENT_LEAD_DAYS
+    key = SETTING_MRP_LEAD_DAYS if group == "fabric" else SETTING_MRP_COMPONENT_LEAD_DAYS
+    return SystemSetting.get_int(key, default=14)
+
+
+def _get_group_class_ids(group: str) -> frozenset[str] | None:
+    """
+    Return the configured class-ID filter for the given material group.
+
+    Returns None when no filter is set (all classes in the group are included).
+    The fabric group defaults to the legacy class list; the component group
+    defaults to empty (= no filter, include all classes in PlanningMatReqComp).
+    """
+    from app.admin.models import SystemSetting, SETTING_FABRIC_CLASS_IDS, SETTING_COMPONENT_CLASS_IDS
+    if group == "fabric":
+        raw = SystemSetting.get(SETTING_FABRIC_CLASS_IDS, "A101,A102,A105,B101,C101,Z102")
+    else:
+        raw = SystemSetting.get(SETTING_COMPONENT_CLASS_IDS, "")
+    raw = raw.strip()
+    if not raw:
+        return None
+    return frozenset(c.strip() for c in raw.split(",") if c.strip())
 
 
 def _load_co_qty() -> dict[str, Decimal]:
@@ -196,9 +222,11 @@ def _load_co_qty() -> dict[str, Decimal]:
 # ---------------------------------------------------------------------------
 
 def get_shortage_report(
-    source: str = "all",          # "main" | "all" (both map to main; retained for URL compat)
+    source: str = "all",           # retained for URL compat; ignored in netting logic
+    material_group: str = "fabric", # "fabric" | "component"
     dept_filter: Optional[str] = None,
     search: Optional[str] = None,
+    so_filter: Optional[str] = None,  # exact SO number to scope results to one order
     shortages_only: bool = True,
     due_before: Optional[date] = None,
     due_from: Optional[date] = None,
@@ -206,8 +234,16 @@ def get_shortage_report(
     """
     Compute material shortages using cumulative MRP netting.
 
+    material_group selects which slice of material_requirements to assess:
+      "fabric"    — rows imported from PlanningMatReq (fabrics/hides)
+      "component" — rows imported from PlanningMatReqComp (all components)
+
+    Each group has its own lead-days and class-ID filter configured via
+    admin settings (fabric_class_ids, component_class_ids,
+    mrp_material_lead_days, mrp_component_lead_days).
+
     Netting logic:
-      1. Collect ALL requirements for the given source (no display filters yet).
+      1. Collect ALL requirements for the group (no display filters yet).
       2. Group by material_code, sort each group by due_date.
          Process cumulatively: stock, CO and PO are shared pools consumed in
          date order, so later requirements only see what earlier ones left behind.
@@ -223,24 +259,27 @@ def get_shortage_report(
             "reqs_imported": bool,
         }
     """
-    lead_days    = _get_lead_days()       # days material must arrive before ship date
+    lead_days    = _get_group_lead_days(material_group)
+    class_ids    = _get_group_class_ids(material_group)
     stock_map    = _load_stock()
     po_map       = _load_po_coverage()   # actual POs; overdue dates clamped to today
     co_qty_map   = _load_co_qty()        # CO call-offs, treated as finite pool
     exempt_codes = _load_exempt_codes()  # materials excluded from shortage reporting
 
-    # ---- Phase 1: collect ALL raw requirements ----
+    # ---- Phase 1: collect ALL raw requirements for this group ----
     raw: list[dict] = []
 
-    for req in (
-        MaterialRequirementMain.query
-        .filter(
-            MaterialRequirementMain.job_closed != True,
-            MaterialRequirementMain.issued_complete != True,
-        )
-        .order_by(MaterialRequirementMain.due_date)
-        .all()
-    ):
+    _base_q = MaterialRequirementMain.query.filter(
+        MaterialRequirementMain.material_group == material_group,
+        MaterialRequirementMain.job_closed != True,
+        MaterialRequirementMain.issued_complete != True,
+    )
+    if class_ids:
+        _base_q = _base_q.filter(MaterialRequirementMain.class_id.in_(class_ids))
+    if so_filter:
+        _base_q = _base_q.filter(MaterialRequirementMain.so_number == str(so_filter))
+
+    for req in _base_q.order_by(MaterialRequirementMain.due_date).all():
         mc = req.material_code or ""
         qty_req    = req.qty_for_order or Decimal(0)
         qty_issued = req.qty_issued    or Decimal(0)
@@ -378,7 +417,7 @@ def get_shortage_report(
         "total_rows":     len(rows),
         "shortage_count": shortage_count,
         "stock_imported": bool(stock_map),
-        "reqs_imported":  bool(raw) or _has_reqs(),
+        "reqs_imported":  bool(raw) or _has_reqs(material_group),
     }
 
 
@@ -496,6 +535,69 @@ def get_job_material_status(job_nums: list[str]) -> dict[str, str]:
         if not job or job not in job_set:
             continue
 
+        line_status = _row_status(
+            row.net_required, row.shortage, row.stock_on_hand, row.job_released, row.po_exists,
+        )
+        if _MAT_STATUS_PRIORITY.get(line_status, 0) > _MAT_STATUS_PRIORITY.get(result[job], -1):
+            result[job] = line_status
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Component availability status (parallel to fabric, using component group)
+# ---------------------------------------------------------------------------
+
+def get_so_component_status(so_numbers: list[str]) -> dict[str, str]:
+    """
+    Compute component availability status per SO number using the 'component'
+    material group (sourced from PlanningMatReqComp).
+
+    Uses the same 5-tier status scheme as get_so_material_status(), but
+    draws on a separate MRP netting pass over the component group.
+    Class-ID filtering is applied per the 'component_class_ids' system setting.
+
+    Returns {so_number: status} with the same tier codes:
+        ok / low_risk / med_risk / late_po / high_risk / no_data
+    """
+    if not so_numbers:
+        return {}
+
+    so_set = set(so_numbers)
+    result: dict[str, str] = {so: "no_data" for so in so_numbers}
+    report = _cached_group_report("component")
+
+    for row in report["rows"]:
+        so = row.so_number
+        if not so or so not in so_set:
+            continue
+        line_status = _row_status(
+            row.net_required, row.shortage, row.stock_on_hand, row.job_released, row.po_exists,
+        )
+        if _MAT_STATUS_PRIORITY.get(line_status, 0) > _MAT_STATUS_PRIORITY.get(result[so], -1):
+            result[so] = line_status
+
+    return result
+
+
+def get_job_component_status(job_nums: list[str]) -> dict[str, str]:
+    """
+    Compute component availability status per job number using the 'component' group.
+
+    Returns {job_num: status} with the same tier codes:
+        ok / low_risk / med_risk / late_po / high_risk / no_data
+    """
+    if not job_nums:
+        return {}
+
+    job_set = set(job_nums)
+    result: dict[str, str] = {j: "no_data" for j in job_nums}
+    report = _cached_group_report("component")
+
+    for row in report["rows"]:
+        job = row.works_order
+        if not job or job not in job_set:
+            continue
         line_status = _row_status(
             row.net_required, row.shortage, row.stock_on_hand, row.job_released, row.po_exists,
         )
@@ -1036,8 +1138,12 @@ def remove_exemptions(codes: list[str]) -> int:
     return deleted
 
 
-def _has_reqs() -> bool:
-    return bool(db.session.query(func.count(MaterialRequirementMain.id)).scalar())
+def _has_reqs(group: str = "fabric") -> bool:
+    return bool(
+        db.session.query(func.count(MaterialRequirementMain.id))
+        .filter(MaterialRequirementMain.material_group == group)
+        .scalar()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1055,11 +1161,13 @@ def get_stock_summary() -> dict:
     total_po_lines = db.session.query(func.count(PurchaseOrder.id)).scalar() or 0
     main_req_count = db.session.query(func.count(MaterialRequirementMain.id)).scalar() or 0
 
-    # Actual netted shortage count — use the request-level cache so this shares
-    # the single MRP netting pass with get_weekly_availability_summary and
-    # get_so_material_status on the same page load.
+    # Actual netted shortage count — fabric group, shared with other page-load callers.
     cached           = _cached_unfiltered_report()
     shortage_estimate = sum(1 for r in cached["rows"] if r.shortage > 0)
+
+    # Component shortage count — separate netting pass, also cached per request.
+    comp_cached           = _cached_group_report("component")
+    comp_shortage_estimate = sum(1 for r in comp_cached["rows"] if r.shortage > 0)
 
     from app.sales.orders.models import ImportBatch
     last_sync = (
@@ -1074,7 +1182,8 @@ def get_stock_summary() -> dict:
         "zero_stock":      zero_stock,
         "po_lines":        total_po_lines,
         "main_reqs":       main_req_count,
-        "shortage_est":    shortage_estimate,
+        "shortage_est":      shortage_estimate,
+        "comp_shortage_est": comp_shortage_estimate,
         "last_sync":       last_sync,
     }
 

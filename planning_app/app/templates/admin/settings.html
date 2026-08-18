@@ -114,16 +114,15 @@
                 </div>
                 <div class="card-body">
 
-                    <div class="d-flex justify-content-between align-items-start py-3">
+                    <div class="d-flex justify-content-between align-items-start py-3 border-bottom">
                         <div>
                             <div class="fw-semibold">{{ form.mrp_lead_days.label.text }}</div>
                             <div class="text-muted small mt-1">
-                                Minimum number of calendar days before a sales order's ship date
-                                that a PO must be due in order to count as material coverage.
-                                If the PO arrives after this deadline the order is marked
-                                <span class="text-danger fw-semibold">Shortage</span> rather than
-                                <span class="text-warning fw-semibold">Med Risk</span>.
-                                Overdue POs (past due date) are treated as arriving today and
+                                Minimum calendar days before a job's ship date that a <strong>fabric/hide</strong> PO must be due
+                                to count as coverage. POs arriving after this window cause the job to show
+                                <span class="text-danger fw-semibold">Shortage</span> instead of
+                                <span class="text-warning fw-semibold">PO Reliant</span>.
+                                Overdue POs (past their due date) are treated as arriving today and
                                 assessed against this same window.
                             </div>
                         </div>
@@ -131,6 +130,54 @@
                             {{ form.mrp_lead_days(class="form-control form-control-sm text-end",
                                style="width:80px;") }}
                             <span class="text-muted small">days</span>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-start py-3 border-bottom">
+                        <div>
+                            <div class="fw-semibold">{{ form.mrp_component_lead_days.label.text }}</div>
+                            <div class="text-muted small mt-1">
+                                Same mechanism as above but applied to the <strong>component</strong> availability group.
+                                Set lower than fabric if component suppliers have reliably shorter lead times.
+                                Overdue component POs are also clamped to today.
+                            </div>
+                        </div>
+                        <div class="ms-4 flex-shrink-0 d-flex align-items-center gap-2">
+                            {{ form.mrp_component_lead_days(class="form-control form-control-sm text-end",
+                               style="width:80px;") }}
+                            <span class="text-muted small">days</span>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-start py-3 border-bottom">
+                        <div>
+                            <div class="fw-semibold">{{ form.fabric_class_ids.label.text }}</div>
+                            <div class="text-muted small mt-1">
+                                Comma-separated Epicor class IDs assessed in the <strong>fabric/hide</strong> shortage report.
+                                Acts as an additional filter on top of the <code>PlanningMatReq</code> BAQ,
+                                which already restricts results to these classes server-side.
+                                Only class IDs returned by that BAQ will have any effect here.
+                            </div>
+                        </div>
+                        <div class="ms-4 flex-shrink-0" style="width:280px;">
+                            {{ form.fabric_class_ids(class="form-control form-control-sm font-monospace") }}
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-start py-3">
+                        <div>
+                            <div class="fw-semibold">{{ form.component_class_ids.label.text }}</div>
+                            <div class="text-muted small mt-1">
+                                Comma-separated class IDs assessed in the <strong>component</strong> shortage report
+                                (sourced from <code>PlanningMatReqALL</code>, which returns all classes).
+                                Leave blank to include <em>all</em> classes returned by that BAQ — useful as a
+                                catch-all. Specify classes to focus the report on a particular category,
+                                e.g. bought-out components only.
+                            </div>
+                        </div>
+                        <div class="ms-4 flex-shrink-0" style="width:280px;">
+                            {{ form.component_class_ids(class="form-control form-control-sm font-monospace",
+                               placeholder="Leave blank for all classes") }}
                         </div>
                     </div>
 

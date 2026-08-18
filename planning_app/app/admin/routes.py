@@ -13,7 +13,7 @@ from flask_login import login_required, current_user
 
 from . import admin_bp
 from .forms import ImportUploadForm, DeptHoursForm, SystemSettingsForm, DeptCreateForm
-from .models import SystemSetting, SETTING_AUTO_COMPLETE_DESPATCH, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS, SETTING_MRP_LEAD_DAYS
+from .models import SystemSetting, SETTING_AUTO_COMPLETE_DESPATCH, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS, SETTING_MRP_LEAD_DAYS, SETTING_FABRIC_CLASS_IDS, SETTING_COMPONENT_CLASS_IDS, SETTING_MRP_COMPONENT_LEAD_DAYS
 from app.auth.models import User, Role, Permission, AuditLog
 from app.auth.services import RoleService
 from app.extensions import db
@@ -1087,7 +1087,22 @@ def system_settings():
         SystemSetting.set(
             SETTING_MRP_LEAD_DAYS,
             str(form.mrp_lead_days.data if form.mrp_lead_days.data is not None else 14),
-            description="Days before ship date that materials must arrive on PO to count as covered.",
+            description="Days before ship date that fabric/hide materials must arrive on PO to count as covered.",
+        )
+        SystemSetting.set(
+            SETTING_MRP_COMPONENT_LEAD_DAYS,
+            str(form.mrp_component_lead_days.data if form.mrp_component_lead_days.data is not None else 14),
+            description="Days before ship date that component materials must arrive on PO to count as covered.",
+        )
+        SystemSetting.set(
+            SETTING_FABRIC_CLASS_IDS,
+            (form.fabric_class_ids.data or "").strip(),
+            description="Epicor class IDs included in fabric/hide availability assessment (comma-separated).",
+        )
+        SystemSetting.set(
+            SETTING_COMPONENT_CLASS_IDS,
+            (form.component_class_ids.data or "").strip(),
+            description="Epicor class IDs included in component availability assessment (comma-separated; blank = all).",
         )
         db.session.commit()
         flash("Settings saved.", "success")
@@ -1102,6 +1117,15 @@ def system_settings():
     )
     form.mrp_lead_days.data = SystemSetting.get_int(
         SETTING_MRP_LEAD_DAYS, default=14
+    )
+    form.mrp_component_lead_days.data = SystemSetting.get_int(
+        SETTING_MRP_COMPONENT_LEAD_DAYS, default=14
+    )
+    form.fabric_class_ids.data = SystemSetting.get(
+        SETTING_FABRIC_CLASS_IDS, "A101,A102,A105,B101,C101,Z102"
+    )
+    form.component_class_ids.data = SystemSetting.get(
+        SETTING_COMPONENT_CLASS_IDS, ""
     )
     _tdays = set(
         int(d) for d in

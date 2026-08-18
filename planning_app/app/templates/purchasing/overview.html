@@ -14,7 +14,7 @@
 
 <!-- Section 1: Procurement health KPIs -->
 <div class="row g-3 mb-4">
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md">
         <a href="{{ url_for('materials.po_list') }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
             <div class="fs-3 fw-bold text-primary">£{{ '{:,.0f}'.format(po_summary.total_value) }}</div>
@@ -22,7 +22,7 @@
             <div class="text-muted" style="font-size:.75rem;">{{ '{:,}'.format(po_summary.total_lines) }} lines</div>
         </div></a>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md">
         <a href="{{ url_for('purchasing.supplier_delivery') }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-danger border-top border-3' if po_summary.overdue_value else '' }}">
             <div class="fs-3 fw-bold {{ 'text-danger' if po_summary.overdue_value else 'text-success' }}">
@@ -32,13 +32,13 @@
             <div class="text-muted" style="font-size:.75rem;">{{ '{:,}'.format(po_summary.overdue_lines) }} lines</div>
         </div></a>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md">
         <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-danger border-top border-3' if mat_summary.shortage_est else '' }}">
             <div class="fs-3 fw-bold {{ 'text-danger' if mat_summary.shortage_est else 'text-success' }}">
                 {{ '{:,}'.format(mat_summary.shortage_est) }}
             </div>
-            <div class="text-muted small">Material Lines in Shortage</div>
+            <div class="text-muted small">Fabric/Hide Lines in Shortage</div>
             {% if mat_summary.shortage_est %}
             <div class="text-danger" style="font-size:.75rem;"><i class="bi bi-exclamation-circle me-1"></i>Action required</div>
             {% else %}
@@ -46,7 +46,21 @@
             {% endif %}
         </div></a>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md">
+        <a href="{{ url_for('materials.component_shortage') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-warning border-top border-3' if mat_summary.comp_shortage_est else '' }}">
+            <div class="fs-3 fw-bold {{ 'text-warning' if mat_summary.comp_shortage_est else 'text-success' }}">
+                {{ '{:,}'.format(mat_summary.comp_shortage_est) }}
+            </div>
+            <div class="text-muted small">Component Lines in Shortage</div>
+            {% if mat_summary.comp_shortage_est %}
+            <div class="text-warning" style="font-size:.75rem;"><i class="bi bi-exclamation-circle me-1"></i>Action required</div>
+            {% else %}
+            <div class="text-success" style="font-size:.75rem;"><i class="bi bi-check2 me-1"></i>All covered</div>
+            {% endif %}
+        </div></a>
+    </div>
+    <div class="col-6 col-md">
         <a href="{{ url_for('materials.index') }}" class="text-decoration-none">
         {% if so_breakdown.has_data %}
         {% set _tc  = so_breakdown.total_count %}

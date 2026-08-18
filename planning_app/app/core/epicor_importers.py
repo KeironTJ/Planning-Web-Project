@@ -24,7 +24,7 @@ from app.sales.orders.models import ImportBatch
 
 
 # ---------------------------------------------------------------------------
-# Stock on Hand   →   BAQ: PlanningStockReport
+# Stock on Hand   →   BAQ: PlanningStockReportComp
 # ---------------------------------------------------------------------------
 
 class StockImporter(EpicorBaqImporter):
@@ -34,9 +34,9 @@ class StockImporter(EpicorBaqImporter):
     Full replace on every run (truncate + reload).
     """
 
-    BAQ_NAME  = "PlanningStockReport"
+    BAQ_NAME  = "PlanningStockReportComp"
     IMPORT_TYPE = "epicor_stock"
-    BAQ_PARAMS  = {"JobReqByDateSTKPLAN": ""}   # required param; empty string = no date filter
+    BAQ_PARAMS  = {}   # required param; empty string = no date filter
     PAGE_SIZE   = 2000
 
     def _target_table(self) -> str:
@@ -241,7 +241,9 @@ class MaterialRequirementsImporter(EpicorBaqImporter):
             except (ValueError, AttributeError):
                 return None
 
-        MaterialRequirementMain.query.delete()
+        MaterialRequirementMain.query.filter(
+            MaterialRequirementMain.material_group == 'fabric'
+        ).delete()
         db.session.flush()
 
         seen: set[tuple] = set()
@@ -258,6 +260,118 @@ class MaterialRequirementsImporter(EpicorBaqImporter):
             seen.add(key)
 
             db.session.add(MaterialRequirementMain(
+                material_group     = 'fabric',
+                works_order        = r.get("JobHead_JobNum") or None,
+                job_released       = r.get("JobHead_JobReleased"),
+                job_firm           = r.get("JobHead_JobFirm"),
+                job_complete       = r.get("JobHead_JobComplete"),
+                job_closed         = r.get("JobHead_JobClosed"),
+                due_date           = _date(r.get("JobHead_ReqDueDate")),
+                finished_part_num  = r.get("JobHead_PartNum") or None,
+                finished_part_desc = r.get("JobHead_PartDescription") or None,
+                prod_qty           = _dec(r.get("JobHead_ProdQty")),
+                plant              = r.get("JobHead_Plant") or None,
+                prod_plnwk         = r.get("JobHead_ProdPlnWk_c") or None,
+                model              = r.get("JobHead_Cnfg_Model_c") or None,
+                size               = r.get("Calculated_Size") or None,
+                so_type            = r.get("OrderHed_SOType_c") or None,
+                so_number          = str(r["OrderHed_OrderNum"]) if r.get("OrderHed_OrderNum") else None,
+                assembly_seq       = r.get("JobAsmbl_AssemblySeq"),
+                assembly_desc      = r.get("JobAsmbl_Description") or None,
+                mtl_seq            = r.get("JobMtl_MtlSeq"),
+                material_code      = r.get("JobMtl_PartNum") or None,
+                material_description = r.get("JobMtl_Description") or None,
+                backflush          = r.get("JobMtl_BackFlush"),
+                qty_per            = _dec(r.get("JobMtl_QtyPer")),
+                qty_for_order      = _dec(r.get("JobMtl_RequiredQty")),
+                qty_issued         = _dec(r.get("JobMtl_IssuedQty")),
+                issued_complete    = r.get("JobMtl_IssuedComplete"),
+                related_operation  = r.get("JobMtl_RelatedOperation"),
+                warehouse_code     = r.get("JobMtl_WarehouseCode") or None,
+                class_id           = r.get("Part_ClassID") or None,
+                imported_at        = now,
+            ))
+
+        batch.rows_inserted = len(records)
+
+
+# ---------------------------------------------------------------------------
+# Component Requirements   →   BAQ: PlanningMatReqComp  (all classes, no filter)
+# ---------------------------------------------------------------------------
+
+class ComponentRequirementsImporter(EpicorBaqImporter):
+    """
+    Syncs MRP material requirements for ALL component classes.
+
+    Uses the PlanningMatReqComp BAQ which has no class-ID filter, giving a
+    full view of every material line.  A second availability group
+    ('component') is stored alongside the existing 'fabric' group so that
+    the two can be assessed independently.
+
+    Class-ID sub-filtering (to focus on e.g. bought-out components only) is
+    configured via the admin settings page rather than at the BAQ level, so
+    it can be changed without touching Epicor.
+
+    Full replace of the component group on every run (only rows where
+    material_group = 'component' are deleted and re-inserted; fabric rows
+    are untouched).
+    """
+
+    BAQ_NAME    = "PlanningMatReqComp"
+    IMPORT_TYPE = "epicor_component_requirements"
+    BAQ_PARAMS  = {}
+
+    def _target_table(self) -> str:
+        return "material_requirements"
+
+    def get_dynamic_params(self) -> dict:
+        return {}
+
+    def _sync_records(
+        self, records: list[dict], batch: ImportBatch, now: datetime
+    ) -> None:
+        from datetime import datetime as _dt
+        from decimal import Decimal, InvalidOperation
+
+        from app.extensions import db
+        from app.purchasing.materials.models import MaterialRequirementMain
+
+        def _dec(val):
+            if val is None or val == "":
+                return None
+            try:
+                return Decimal(str(val))
+            except InvalidOperation:
+                return None
+
+        def _date(val):
+            if not val:
+                return None
+            try:
+                return _dt.fromisoformat(val.replace("Z", "+00:00")).date()
+            except (ValueError, AttributeError):
+                return None
+
+        # Only clear the component group — fabric rows are untouched.
+        MaterialRequirementMain.query.filter(
+            MaterialRequirementMain.material_group == 'component'
+        ).delete()
+        db.session.flush()
+
+        seen: set[tuple] = set()
+        for r in records:
+            key = (
+                r.get("JobHead_JobNum"),
+                r.get("JobAsmbl_AssemblySeq"),
+                r.get("JobMtl_MtlSeq"),
+                r.get("OrderHed_OrderNum"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+
+            db.session.add(MaterialRequirementMain(
+                material_group     = 'component',
                 works_order        = r.get("JobHead_JobNum") or None,
                 job_released       = r.get("JobHead_JobReleased"),
                 job_firm           = r.get("JobHead_JobFirm"),
@@ -960,13 +1074,14 @@ class ProductionOutputImporter(EpicorBaqImporter):
 #: Maps a short CLI-friendly key to its importer class.
 #: Add new entries here as more BAQs are onboarded.
 REGISTRY: dict[str, type[EpicorBaqImporter]] = {
-    "stock":                 StockImporter,
-    "purchase_orders":       PurchaseOrderImporter,
-    "material_requirements": MaterialRequirementsImporter,
-    "works_orders":          WorksOrderImporter,
-    "sales_open":            SalesOrderOpenImporter,
-    "sales_closed":          SalesOrderClosedImporter,
-    "production_output":     ProductionOutputImporter,
+    "stock":                    StockImporter,
+    "purchase_orders":          PurchaseOrderImporter,
+    "material_requirements":    MaterialRequirementsImporter,
+    "component_requirements":   ComponentRequirementsImporter,
+    "works_orders":             WorksOrderImporter,
+    "sales_open":               SalesOrderOpenImporter,
+    "sales_closed":             SalesOrderClosedImporter,
+    "production_output":        ProductionOutputImporter,
 }
 
 

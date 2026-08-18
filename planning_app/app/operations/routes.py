@@ -103,7 +103,7 @@ def wip_overview():
 
     # ── Summary counts ────────────────────────────────────────────────
     from app.purchasing.materials.models import MaterialRequirementMain, MrpExemptMaterial
-    from app.purchasing.materials.services import get_so_material_status, MAT_STATUS_META
+    from app.purchasing.materials.services import get_so_material_status, get_so_component_status, MAT_STATUS_META
 
     total   = db.session.query(func.count(WorksOrder.id)).filter(*_base).scalar() or 0
     waiting = db.session.query(func.count(WorksOrder.id)).filter(*_base, WorksOrder.waiting_temp == True).scalar() or 0
@@ -120,21 +120,35 @@ def wip_overview():
         if r.order_num
     ]
     mat_status_map: dict[str, str] = get_so_material_status(_all_order_nums) if _all_order_nums else {}
+    comp_status_map: dict[str, str] = get_so_component_status(_all_order_nums) if _all_order_nums else {}
 
-    # Shortage count = jobs whose SO has a high_risk material status.
-    # Convert SO strings back to integers to match the WorksOrder.order_num Integer column.
-    _high_risk_sos = {so for so, st in mat_status_map.items() if st == "high_risk"}
-    _high_risk_int = {int(so) for so in _high_risk_sos if so.isdigit()}
+    shortage_group = request.args.get('shortage_group', 'fabric')  # 'fabric' | 'component' | 'either'
+
+    _fab_high_sos  = {so for so, st in mat_status_map.items()  if st == "high_risk"}
+    _comp_high_sos = {so for so, st in comp_status_map.items() if st == "high_risk"}
+    _fab_int  = {int(so) for so in _fab_high_sos  if so.isdigit()}
+    _comp_int = {int(so) for so in _comp_high_sos if so.isdigit()}
+
     shortages = (
         db.session.query(func.count(WorksOrder.id))
-        .filter(*_base, WorksOrder.order_num.in_(_high_risk_int))
+        .filter(*_base, WorksOrder.order_num.in_(_fab_int))
         .scalar() or 0
-    ) if _high_risk_int else 0
+    ) if _fab_int else 0
+    comp_shortages = (
+        db.session.query(func.count(WorksOrder.id))
+        .filter(*_base, WorksOrder.order_num.in_(_comp_int))
+        .scalar() or 0
+    ) if _comp_int else 0
 
-    # Shortage-only filter applied to pivot and job list
-    _shortage_filter = (WorksOrder.order_num.in_(_high_risk_int),) if shortages_only and _high_risk_int else ()
-    # When shortages_only is set but nothing is high_risk, force zero results
-    _no_results = shortages_only and not _high_risk_int
+    # Shortage-only filter — scope determined by shortage_group
+    if shortage_group == 'component':
+        _filter_int = _comp_int
+    elif shortage_group == 'either':
+        _filter_int = _fab_int | _comp_int
+    else:
+        _filter_int = _fab_int
+    _shortage_filter = (WorksOrder.order_num.in_(_filter_int),) if shortages_only and _filter_int else ()
+    _no_results = shortages_only and not _filter_int
 
     # ── WIP pivot ─────────────────────────────────────────────────────
     OVERDUE = 'Overdue'
@@ -273,8 +287,11 @@ def wip_overview():
         category=category,
         per_page=per_page,
         shortages_only=shortages_only,
+        shortage_group=shortage_group,
+        comp_shortages=comp_shortages,
         partial_order_nums=_completed_order_nums,
         mat_status_map=mat_status_map,
+        comp_status_map=comp_status_map,
         mat_status_meta=MAT_STATUS_META,
     )
 
@@ -332,9 +349,10 @@ def wip_export():
         WorksOrder.next_op.asc().nullslast(),
     ).all()
 
-    from app.purchasing.materials.services import get_so_material_status, MAT_STATUS_META
+    from app.purchasing.materials.services import get_so_material_status, get_so_component_status, MAT_STATUS_META
     _order_nums = [str(job.order_num) for job in rows if job.order_num]
-    mat_status_map = get_so_material_status(_order_nums) if _order_nums else {}
+    mat_status_map  = get_so_material_status(_order_nums)  if _order_nums else {}
+    comp_status_map = get_so_component_status(_order_nums) if _order_nums else {}
     _mat_label_map = {k: v[0] for k, v in MAT_STATUS_META.items()}
 
     def _fmt_plnwk(w):
@@ -357,12 +375,15 @@ def wip_export():
         'Job Number', 'Plan Week', 'Due Date', 'Order #',
         'Current Op', 'Model', 'Size', 'Customer',
         'Mat 1', 'Comment', 'OB Comments', 'GRN', 'Partial Order',
-        'MAT Shortage', 'Waiting Temp',
+        'MAT Shortage', 'Component Availability', 'Waiting Temp',
     ])
     for job in rows:
         is_partial = bool(job.order_num and job.order_num in _completed_order_nums and not job.job_complete)
-        mat_st = mat_status_map.get(str(job.order_num), 'no_data') if job.order_num else 'no_data'
-        mat_label = _mat_label_map.get(mat_st, '')
+        so_key    = str(job.order_num) if job.order_num else ''
+        mat_st    = mat_status_map.get(so_key, 'no_data')
+        comp_st   = comp_status_map.get(so_key, 'no_data')
+        mat_label  = 'Mat. OK'  if mat_st  in ('no_data', 'ok') else _mat_label_map.get(mat_st,  '')
+        comp_label = 'Comp. OK' if comp_st in ('no_data', 'ok') else _mat_label_map.get(comp_st, '')
         writer.writerow([
             job.job_num or '',
             _fmt_plnwk(job.prod_plnwk),
@@ -378,6 +399,7 @@ def wip_export():
             _clean(job.grn),
             'Yes' if is_partial else '',
             mat_label,
+            comp_label,
             'Yes' if job.waiting_temp else '',
         ])
 
