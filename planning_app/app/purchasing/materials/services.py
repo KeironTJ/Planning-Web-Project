@@ -276,8 +276,8 @@ def get_shortage_report(
     )
     if class_ids:
         _base_q = _base_q.filter(MaterialRequirementMain.class_id.in_(class_ids))
-    if so_filter:
-        _base_q = _base_q.filter(MaterialRequirementMain.so_number == str(so_filter))
+    # so_filter is intentionally NOT applied here — netting must use the full stock pool
+    # so that cumulative consumption matches the per-SO status shown on WIP/order book badges.
 
     for req in _base_q.order_by(MaterialRequirementMain.due_date).all():
         mc = req.material_code or ""
@@ -370,6 +370,8 @@ def get_shortage_report(
 
     rows: list[ShortageRow] = []
     for r in all_netted:
+        if so_filter and r.get("so_number") != str(so_filter):
+            continue
         if dept_filter and r["department"] != dept_filter:
             continue
         if due_from and r["due_date"] and r["due_date"] < due_from:
