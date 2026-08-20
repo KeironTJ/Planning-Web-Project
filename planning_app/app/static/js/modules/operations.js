@@ -272,7 +272,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     function loadComments(jobNum) {
         thread.innerHTML = '<div class="text-center text-muted small py-3"><span class="spinner-border spinner-border-sm me-1"></span> Loading...</div>';
-        fetch('/operations/jobs/' + encodeURIComponent(jobNum) + '/comments', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        fetch('/api/v1/operations/jobs/' + encodeURIComponent(jobNum) + '/comments', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 thread.innerHTML = '';
@@ -303,7 +303,7 @@ document.addEventListener('DOMContentLoaded', function () {
         e.preventDefault();
         if (!activeJob || !body.value.trim()) return;
         submit.disabled = true;
-        planningFetch('/operations/jobs/' + encodeURIComponent(activeJob) + '/comments', {
+        planningFetch('/api/v1/operations/jobs/' + encodeURIComponent(activeJob) + '/comments', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
             body: 'body=' + encodeURIComponent(body.value),
@@ -348,7 +348,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!ta3) return;
             var newBody = ta3.value.trim(); if (!newBody) return;
             var saveBtn = e.target.closest('.save-edit-btn'); saveBtn.disabled = true;
-            planningFetch('/operations/jobs/comments/' + id, {
+            planningFetch('/api/v1/operations/jobs/comments/' + id, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
                 body: 'body=' + encodeURIComponent(newBody),
@@ -379,7 +379,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (e.target.closest('.cancel-delete-btn')) { actions.innerHTML = actionBtns(); return; }
         if (e.target.closest('.confirm-delete-btn')) {
             var delBtn = e.target.closest('.confirm-delete-btn'); delBtn.disabled = true;
-            planningFetch('/operations/jobs/comments/' + id, {
+            planningFetch('/api/v1/operations/jobs/comments/' + id, {
                 method: 'DELETE',
                 headers: { 'X-Requested-With': 'XMLHttpRequest' },
             })

@@ -208,47 +208,4 @@ def overdue_report():
     )
 
 
-# ---------------------------------------------------------------------------
-# Sales Order Comments (AJAX)
-# ---------------------------------------------------------------------------
 
-@orders_bp.route("/so/<so_number>/comments", methods=["GET"])
-@login_required
-@permission_required("view_orders")
-def so_comments(so_number: str):
-    """Return comments for an SO as JSON."""
-    comments = services.get_so_comments(so_number)
-    return jsonify({
-        "ok": True,
-        "comments": [
-            {
-                "id":         c.id,
-                "user":       c.user.username if c.user else "deleted",
-                "body":       c.body,
-                "created_at": c.created_at.strftime("%d %b %Y %H:%M"),
-            }
-            for c in comments
-        ],
-    })
-
-
-@orders_bp.route("/so/<so_number>/comments", methods=["POST"])
-@login_required
-@permission_required("update_order_status")
-def add_so_comment(so_number: str):
-    """Append a comment to an SO."""
-    body = request.form.get("body", "").strip()
-    try:
-        comment = services.add_so_comment(so_number, current_user.id, body)
-    except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-
-    return jsonify({
-        "ok": True,
-        "comment": {
-            "id":         comment.id,
-            "user":       current_user.username,
-            "body":       comment.body,
-            "created_at": comment.created_at.strftime("%d %b %Y %H:%M"),
-        },
-    })

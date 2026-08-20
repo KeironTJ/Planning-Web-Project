@@ -15,7 +15,7 @@
     <div class="d-flex align-items-center gap-2">
         <div id="sync-result" class="d-none alert py-1 px-2 mb-0 small" role="alert"></div>
         <button id="btn-sync" type="button" class="btn btn-sm btn-outline-secondary" onclick="syncOutput()"
-                data-url-sync="{{ url_for('operations.daily_output_sync') }}">
+                data-url-sync="{{ url_for('api_v1.daily_output_sync') }}">
             <span class="spinner-border spinner-border-sm d-none me-1" id="sync-spinner"></span>
             <i class="bi bi-arrow-repeat me-1" id="sync-icon"></i>Sync Data
         </button>

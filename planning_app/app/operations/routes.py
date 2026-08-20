@@ -5,52 +5,15 @@ import calendar
 import csv
 import io
 from datetime import date, timedelta
-from flask import current_app, flash, jsonify, render_template, request, Response
+from flask import current_app, flash, render_template, request, Response
 from flask_login import current_user, login_required
 from app.core.decorators import permission_required
 from sqlalchemy import func
 from . import operations_bp
-from .models import WorksOrder, ProductionOutput, WorksOrderComment
+from .models import WorksOrder, ProductionOutput
 from app.extensions import db
 from app.sales.orders.models import Department as DeptModel
 from app.admin.models import SystemSetting, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS
-
-@operations_bp.route('/daily-output/sync', methods=['POST'])
-@login_required
-@permission_required("manage_orders")
-def daily_output_sync():
-    """AJAX endpoint: run the incremental production output sync and return JSON."""
-    from app.core.epicor_client import KineticClient
-    from app.core.epicor_importers import REGISTRY
-
-    try:
-        with KineticClient.from_app(current_app._get_current_object()) as client:
-            importer = REGISTRY['production_output'](client)
-            # Pre-compute params so we can return them in the response for UI feedback.
-            sync_params = importer.get_dynamic_params()
-            batch = importer.run(params=sync_params, triggered_by_id=current_user.id)
-        date_from = sync_params.get('DateFrom', '')
-        date_to   = sync_params.get('DateTo',   '')
-        date_range = f'{date_from} → {date_to}' if date_from and date_to else ''
-        flash(
-            f'Production output sync complete'
-            + (f' · {date_range}' if date_range else '')
-            + f' · {batch.row_count} fetched, {batch.rows_inserted} inserted'
-            + (f' · {batch.notes}' if batch.notes else ''),
-            'success',
-        )
-        return jsonify({
-            'status':        'ok',
-            'rows_inserted': batch.rows_inserted,
-            'row_count':     batch.row_count,
-            'notes':         batch.notes or '',
-            'date_from':     date_from,
-            'date_to':       date_to,
-        })
-    except Exception as exc:
-        flash(f'Production output sync failed: {exc}', 'danger')
-        return jsonify({'status': 'error', 'message': str(exc)}), 500
-
 
 @operations_bp.route('/')
 @operations_bp.route('/dashboard')
@@ -485,104 +448,6 @@ def wip_export():
         mimetype='text/csv; charset=utf-8',
         headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
-
-
-# ---------------------------------------------------------------------------
-# Job comments API
-# ---------------------------------------------------------------------------
-
-@operations_bp.route('/jobs/<job_num>/comments', methods=['GET'])
-@login_required
-@permission_required("view_orders")
-def job_comments(job_num):
-    comments = (WorksOrderComment.query
-                .filter_by(job_num=job_num)
-                .order_by(WorksOrderComment.created_at.asc())
-                .all())
-    return jsonify({
-        "ok": True,
-        "comments": [
-            {
-                "id":         c.id,
-                "user":       c.user.username if c.user else "deleted",
-                "user_id":    c.user_id,
-                "body":       c.body,
-                "created_at": c.created_at.strftime("%d %b %Y %H:%M"),
-                "updated_at": c.updated_at.strftime("%d %b %Y %H:%M") if c.updated_at else None,
-                "can_edit":   c.user_id == current_user.id or current_user.is_admin,
-            }
-            for c in comments
-        ],
-    })
-
-
-@operations_bp.route('/jobs/<job_num>/comments', methods=['POST'])
-@login_required
-@permission_required("update_order_status")
-def add_job_comment(job_num):
-    from datetime import datetime, timezone
-    body = request.form.get("body", "").strip()
-    if not body:
-        return jsonify({"ok": False, "error": "Comment cannot be blank."}), 400
-    if len(body) > 1000:
-        return jsonify({"ok": False, "error": "Comment cannot exceed 1000 characters."}), 400
-    comment = WorksOrderComment(job_num=job_num, user_id=current_user.id, body=body)
-    db.session.add(comment)
-    db.session.commit()
-    return jsonify({
-        "ok": True,
-        "comment": {
-            "id":         comment.id,
-            "user":       current_user.username,
-            "user_id":    comment.user_id,
-            "body":       comment.body,
-            "created_at": comment.created_at.strftime("%d %b %Y %H:%M"),
-            "updated_at": None,
-            "can_edit":   True,
-        },
-    })
-
-
-@operations_bp.route('/jobs/comments/<int:comment_id>', methods=['PATCH'])
-@login_required
-@permission_required("update_order_status")
-def edit_job_comment(comment_id):
-    from datetime import datetime, timezone
-    comment = db.session.get(WorksOrderComment, comment_id)
-    if comment is None:
-        return jsonify({"ok": False, "error": "Not found."}), 404
-    if comment.user_id != current_user.id and not current_user.is_admin:
-        return jsonify({"ok": False, "error": "Not authorised."}), 403
-    body = request.form.get("body", "").strip()
-    if not body:
-        return jsonify({"ok": False, "error": "Comment cannot be blank."}), 400
-    if len(body) > 1000:
-        return jsonify({"ok": False, "error": "Comment cannot exceed 1000 characters."}), 400
-    comment.body = body
-    comment.updated_at = datetime.now(timezone.utc)
-    db.session.commit()
-    return jsonify({
-        "ok": True,
-        "comment": {
-            "id":         comment.id,
-            "body":       comment.body,
-            "updated_at": comment.updated_at.strftime("%d %b %Y %H:%M"),
-        },
-    })
-
-
-@operations_bp.route('/jobs/comments/<int:comment_id>', methods=['DELETE'])
-@login_required
-@permission_required("update_order_status")
-def delete_job_comment(comment_id):
-    comment = db.session.get(WorksOrderComment, comment_id)
-    if comment is None:
-        return jsonify({"ok": False, "error": "Not found."}), 404
-    if comment.user_id != current_user.id and not current_user.is_admin:
-        return jsonify({"ok": False, "error": "Not authorised."}), 403
-    db.session.delete(comment)
-    db.session.commit()
-    return jsonify({"ok": True})
 
 
 @operations_bp.route('/daily-output')
