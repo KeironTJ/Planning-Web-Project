@@ -19,7 +19,7 @@
         <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
             <div class="fs-3 fw-bold text-primary">£{{ '{:,.0f}'.format(po_summary.total_value) }}</div>
             <div class="text-muted small">Open PO Value</div>
-            <div class="text-muted" style="font-size:.75rem;">{{ '{:,}'.format(po_summary.total_lines) }} lines</div>
+            <div class="text-muted text-xs">{{ '{:,}'.format(po_summary.total_lines) }} lines</div>
         </div></a>
     </div>
     <div class="col-6 col-md">
@@ -29,7 +29,7 @@
                 £{{ '{:,.0f}'.format(po_summary.overdue_value) }}
             </div>
             <div class="text-muted small">Overdue PO Value</div>
-            <div class="text-muted" style="font-size:.75rem;">{{ '{:,}'.format(po_summary.overdue_lines) }} lines</div>
+            <div class="text-muted text-xs">{{ '{:,}'.format(po_summary.overdue_lines) }} lines</div>
         </div></a>
     </div>
     <div class="col-6 col-md">
@@ -40,9 +40,9 @@
             </div>
             <div class="text-muted small">Fabric/Hide Lines in Shortage</div>
             {% if mat_summary.shortage_est %}
-            <div class="text-danger" style="font-size:.75rem;"><i class="bi bi-exclamation-circle me-1"></i>Action required</div>
+            <div class="text-danger text-xs"><i class="bi bi-exclamation-circle me-1"></i>Action required</div>
             {% else %}
-            <div class="text-success" style="font-size:.75rem;"><i class="bi bi-check2 me-1"></i>All covered</div>
+            <div class="text-success text-xs"><i class="bi bi-check2 me-1"></i>All covered</div>
             {% endif %}
         </div></a>
     </div>
@@ -54,9 +54,9 @@
             </div>
             <div class="text-muted small">Component Lines in Shortage</div>
             {% if mat_summary.comp_shortage_est %}
-            <div class="text-warning" style="font-size:.75rem;"><i class="bi bi-exclamation-circle me-1"></i>Action required</div>
+            <div class="text-warning text-xs"><i class="bi bi-exclamation-circle me-1"></i>Action required</div>
             {% else %}
-            <div class="text-success" style="font-size:.75rem;"><i class="bi bi-check2 me-1"></i>All covered</div>
+            <div class="text-success text-xs"><i class="bi bi-check2 me-1"></i>All covered</div>
             {% endif %}
         </div></a>
     </div>
@@ -71,7 +71,7 @@
         <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-warning border-top border-3' if _bad else '' }}">
             <div class="fs-3 fw-bold {{ 'text-warning' if _bad else 'text-success' }}">{{ _pct_bad }}%</div>
             <div class="text-muted small">SOs at Material Risk</div>
-            <div class="text-muted" style="font-size:.75rem;">{{ _bad }} of {{ _tc }} orders</div>
+            <div class="text-muted text-xs">{{ _bad }} of {{ _tc }} orders</div>
         </div>
         {% else %}
         <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover">
@@ -110,11 +110,11 @@
            data-bs-title="Coverage Status Definitions"
            data-bs-content="
             <dl class='mb-0' style='font-size:.82rem;'>
-              <dt><span style='color:#198754;'>&#9632;</span> Mat. OK</dt><dd class='mb-2'>Stock on hand fully covers all material requirements.</dd>
-              <dt><span style='color:#0dcaf0;'>&#9632;</span> Soft Risk</dt><dd class='mb-2'>Gap exists but job not yet released — time to resolve.</dd>
-              <dt><span style='color:#ffc107;'>&#9632;</span> PO Reliant</dt><dd class='mb-2'>Gap covered by PO, job released — relying on delivery.</dd>
-              <dt><span style='color:#fd7e14;'>&#9632;</span> Late PO</dt><dd class='mb-2'>PO exists but overdue or insufficient — supplier needs chasing.</dd>
-              <dt><span style='color:#dc3545;'>&#9632;</span> Shortage</dt><dd class='mb-0'>Uncovered shortage, no PO — immediate action required.</dd>
+              <dt><span class='text-success'>&#9632;</span> Mat. OK</dt><dd class='mb-2'>Stock on hand fully covers all material requirements.</dd>
+              <dt><span class='text-info'>&#9632;</span> Soft Risk</dt><dd class='mb-2'>Gap exists but job not yet released — time to resolve.</dd>
+              <dt><span class='text-warning'>&#9632;</span> PO Reliant</dt><dd class='mb-2'>Gap covered by PO, job released — relying on delivery.</dd>
+              <dt><span class='text-orange'>&#9632;</span> Late PO</dt><dd class='mb-2'>PO exists but overdue or insufficient — supplier needs chasing.</dd>
+              <dt><span class='text-danger'>&#9632;</span> Shortage</dt><dd class='mb-0'>Uncovered shortage, no PO — immediate action required.</dd>
             </dl>">
             <i class="bi bi-info-circle"></i>
         </a>

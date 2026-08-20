@@ -277,10 +277,10 @@
                                   style="cursor:help;">
                                 <i class="bi bi-chat-left-text me-1 text-info"></i>{% if o.latest_comment | length > 55 %}{{ o.latest_comment[:55] }}&hellip;{% else %}{{ o.latest_comment }}{% endif %}
                             </span>
-                            <div class="text-muted" style="font-size:0.7rem;">
+                            <div class="text-muted text-xxs">
                                 {{ o.latest_user }}{% if o.latest_at %} &middot; {{ o.latest_at.strftime('%d %b') }}{% endif %}
                                 {% if o.comment_count > 1 %}
-                                <span class="badge text-bg-secondary ms-1" style="font-size:0.65rem;">{{ o.comment_count }}</span>
+                                <span class="badge text-bg-secondary text-xxs ms-1">{{ o.comment_count }}</span>
                                 {% endif %}
                             </div>
                             {% else %}

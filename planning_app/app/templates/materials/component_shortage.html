@@ -100,7 +100,7 @@
                         {{ 'box-shadow:0 0 0 2px ' ~ color ~ ' !important;' if is_active else '' }}">
                 <div class="fs-5 fw-bold" style="color:{{ color if count else '#6c757d' }};">{{ count }}</div>
                 <div class="fw-semibold small">{{ label }}</div>
-                <div class="text-muted" style="font-size:.75rem;">{{ sublabel }}</div>
+                <div class="text-muted text-xs">{{ sublabel }}</div>
             </div>
         </a>
     </div>
@@ -143,7 +143,7 @@
     <div class="card-header bg-transparent fw-semibold small py-2 d-flex align-items-center gap-2">
         <i class="bi bi-table me-1 text-warning"></i>Summary by Component
         <span class="badge text-bg-secondary ms-1">{{ shortage_insights.material_summary | length }}</span>
-        <button onclick="exportTableToCsv('summaryTable', 'component-shortage-summary-{{ today }}.csv')" class="btn btn-outline-secondary btn-sm ms-auto py-0" style="font-size:.75rem;">
+        <button onclick="exportTableToCsv('summaryTable', 'component-shortage-summary-{{ today }}.csv')" class="btn btn-outline-secondary btn-sm ms-auto py-0 text-xs">
             <i class="bi bi-download me-1"></i>Export CSV
         </button>
     </div>
@@ -211,7 +211,7 @@
         {% set sf_label, sf_colour = mat_status_meta.get(status_filter, ('All', 'secondary')) %}
         <span class="badge text-bg-{{ sf_colour }} ms-1">{{ sf_label }}</span>
         {% endif %}
-        <button onclick="exportTableToCsv('detailTable', 'component-shortage-detail-{{ today }}.csv')" class="btn btn-outline-secondary btn-sm ms-auto py-0" style="font-size:.75rem;">
+        <button onclick="exportTableToCsv('detailTable', 'component-shortage-detail-{{ today }}.csv')" class="btn btn-outline-secondary btn-sm ms-auto py-0 text-xs">
             <i class="bi bi-download me-1"></i>Export CSV
         </button>
     </div>

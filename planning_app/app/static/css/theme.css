@@ -172,6 +172,23 @@ tr.table-detail-row {
 
 .spinner-icon { width: 1rem; height: 1rem; vertical-align: middle; }
 
+/* ---- Text size helpers ---- */
+
+/* Bootstrap's `small` = 0.875em; these fill the gap below it. */
+.text-xs  { font-size: .75rem !important; }
+.text-xxs { font-size: .65rem !important; }
+
+/* ---- Section / module label (e.g. admin permission groups) ---- */
+
+/* Pair with text-uppercase, text-muted, fw-bold. */
+.section-label { font-size: .7rem; letter-spacing: .05em; }
+
+/* ---- Accent text colours (no Bootstrap equivalent) ---- */
+
+.text-orange { color: var(--ph-text-orange) !important; }
+.text-amber  { color: var(--ph-text-amber)  !important; }
+.text-purple { color: var(--ph-text-purple) !important; }
+
 /* ---- Print ---- */
 
 @media print {

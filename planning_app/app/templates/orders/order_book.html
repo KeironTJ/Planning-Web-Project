@@ -156,18 +156,18 @@
       <thead class="table-light">
         <tr>
           <th style="width:2rem;"></th>
-          <th style="white-space:nowrap;">{{ sort_link('SO #', 'so_number') }}</th>
+          <th class="text-nowrap">{{ sort_link('SO #', 'so_number') }}</th>
           <th style="min-width:160px;">{{ sort_link('Customer', 'customer') }}</th>
           <th style="min-width:120px;">Customer PO</th>
           <th>Type</th>
           <th style="min-width:110px;">Country</th>
           <th style="min-width:110px;">Cust. Group</th>
           <th>Channel</th>
-          <th style="white-space:nowrap;">Order Date</th>
-          <th style="white-space:nowrap;">{{ sort_link('Due Date', 'due_date') }}</th>
+          <th class="text-nowrap">Order Date</th>
+          <th class="text-nowrap">{{ sort_link('Due Date', 'due_date') }}</th>
           <th class="text-center">Lines</th>
           <th class="text-end">Qty</th>
-          <th class="text-end" style="white-space:nowrap;">{{ sort_link('Value (£)', 'value') }}</th>
+          <th class="text-end text-nowrap">{{ sort_link('Value (£)', 'value') }}</th>
           <th class="text-center" title="Fabric/hide material availability">Fabric</th>
           <th class="text-center" title="Component availability">Comp.</th>
           <th></th>
@@ -188,7 +188,7 @@
           <td class="fw-semibold text-nowrap">{{ o.so_number }}</td>
           <td>
             <div class="fw-semibold lh-sm">{{ o.customer_name }}</div>
-            {% if o.customer_code %}<div class="text-muted" style="font-size:0.75rem;">{{ o.customer_code }}</div>{% endif %}
+            {% if o.customer_code %}<div class="text-muted text-xs">{{ o.customer_code }}</div>{% endif %}
           </td>
           <td class="text-muted small text-nowrap">{{ o.customer_order_ref or '–' }}</td>
           <td>
@@ -275,7 +275,7 @@
                 {% if line.part_num %}<span class="fw-semibold font-monospace">{{ line.part_num }}</span>{% endif %}
                 {% if line.model %}<span class="text-muted ms-1">{{ line.model }}</span>{% endif %}
                 {% if line.size_desc %}<span class="badge text-bg-light border text-dark ms-1" style="font-size:.68rem;">{{ line.size_desc }}</span>{% endif %}
-                {% if line.cover_desc %}<span class="text-muted ms-1" style="font-size:.75rem;">{{ line.cover_desc }}</span>{% endif %}
+                {% if line.cover_desc %}<span class="text-muted ms-1 text-xs">{{ line.cover_desc }}</span>{% endif %}
                 {% if not line.model and line.part_desc %}
                 <div class="text-muted" style="font-size:.72rem;">{{ line.part_desc }}</div>
                 {% endif %}

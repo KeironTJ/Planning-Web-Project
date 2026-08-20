@@ -66,7 +66,7 @@
              style="border-top:3px solid #198754 !important;">
             <div class="fs-5 fw-bold text-success">{{ kpi_summary.total_orders }}</div>
             <div class="fw-semibold small text-muted">All FG Orders</div>
-            <div class="text-muted" style="font-size:.75rem;">{{ kpi_summary.partial_count + kpi_summary.partial_hold_count }} in WIP &middot; {{ kpi_summary.ready_hold_count + kpi_summary.partial_hold_count }} on hold</div>
+            <div class="text-muted text-xs">{{ kpi_summary.partial_count + kpi_summary.partial_hold_count }} in WIP &middot; {{ kpi_summary.ready_hold_count + kpi_summary.partial_hold_count }} on hold</div>
         </div>
         </a>
     </div>
@@ -75,9 +75,9 @@
         <a href="{{ url_for('transport.loading_bay', status='ready', sort=sort) }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if status_f == 'ready' %}kpi-active{% endif %}"
              style="border-top:3px solid #198754 !important;">
-            <div class="fs-5 fw-bold" style="color:#198754;">{{ kpi_summary.ready_count }}</div>
-            <div class="fw-semibold small" style="color:#198754;">Ready to Ship</div>
-            <div class="text-muted" style="font-size:.75rem;">{{ fmt_val(kpi_summary.ready_value) }}</div>
+            <div class="fs-5 fw-bold text-success">{{ kpi_summary.ready_count }}</div>
+            <div class="fw-semibold small text-success">Ready to Ship</div>
+            <div class="text-muted text-xs">{{ fmt_val(kpi_summary.ready_value) }}</div>
         </div>
         </a>
     </div>
@@ -89,7 +89,7 @@
              style="border-top:3px solid #dc3545 !important;">
             <div class="fs-5 fw-bold text-danger">{{ kpi_summary.ready_hold_count }}</div>
             <div class="fw-semibold small text-danger">Ready &mdash; On Hold</div>
-            <div class="text-muted" style="font-size:.75rem;">{{ fmt_val(kpi_summary.ready_hold_value) }} blocked</div>
+            <div class="text-muted text-xs">{{ fmt_val(kpi_summary.ready_hold_value) }} blocked</div>
         </div>
         </a>
     </div>
@@ -99,9 +99,9 @@
         <a href="{{ url_for('transport.loading_bay', status='partial', sort=sort) }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if status_f == 'partial' %}kpi-active{% endif %}"
              style="border-top:3px solid #ffc107 !important;">
-            <div class="fs-5 fw-bold" style="color:#e6a800;">{{ kpi_summary.partial_count }}</div>
-            <div class="fw-semibold small" style="color:#e6a800;">Partial WIP</div>
-            <div class="text-muted" style="font-size:.75rem;">{{ fmt_val(kpi_summary.partial_value) }} finished</div>
+            <div class="fs-5 fw-bold text-amber">{{ kpi_summary.partial_count }}</div>
+            <div class="fw-semibold small text-amber">Partial WIP</div>
+            <div class="text-muted text-xs">{{ fmt_val(kpi_summary.partial_value) }} finished</div>
         </div>
         </a>
     </div>
@@ -111,9 +111,9 @@
         <a href="{{ url_for('transport.loading_bay', status='partial_hold', sort=sort) }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if status_f == 'partial_hold' %}kpi-active{% endif %}"
              style="border-top:3px solid #fd7e14 !important;">
-            <div class="fs-5 fw-bold" style="color:#fd7e14;">{{ kpi_summary.partial_hold_count }}</div>
-            <div class="fw-semibold small" style="color:#fd7e14;">Partial WIP &mdash; On Hold</div>
-            <div class="text-muted" style="font-size:.75rem;">{{ fmt_val(kpi_summary.partial_hold_value) }} finished</div>
+            <div class="fs-5 fw-bold text-orange">{{ kpi_summary.partial_hold_count }}</div>
+            <div class="fw-semibold small text-orange">Partial WIP &mdash; On Hold</div>
+            <div class="text-muted text-xs">{{ fmt_val(kpi_summary.partial_hold_value) }} finished</div>
         </div>
         </a>
     </div>
@@ -123,9 +123,9 @@
         <a href="{{ url_for('transport.loading_bay', status='ready', sort=sort) }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable"
              style="border-top:3px solid #198754 !important;">
-            <div class="fs-5 fw-bold" style="color:#198754;">{{ fmt_val(kpi_summary.ready_value) }}</div>
-            <div class="fw-semibold small" style="color:#198754;">Ready to Invoice</div>
-            <div class="text-muted" style="font-size:.75rem;">Clear, no holds</div>
+            <div class="fs-5 fw-bold text-success">{{ fmt_val(kpi_summary.ready_value) }}</div>
+            <div class="fw-semibold small text-success">Ready to Invoice</div>
+            <div class="text-muted text-xs">Clear, no holds</div>
         </div>
         </a>
     </div>
@@ -135,7 +135,7 @@
              style="border-top:3px solid #6c757d !important;">
             <div class="fs-5 fw-bold text-secondary">{{ fmt_val(summary.total_invoiceable) }}</div>
             <div class="fw-semibold small text-muted">All Finished Goods</div>
-            <div class="text-muted" style="font-size:.75rem;">Ready + held + partial finished</div>
+            <div class="text-muted text-xs">Ready + held + partial finished</div>
         </div>
     </div>
 
@@ -144,7 +144,7 @@
              style="border-top:3px solid #6f42c1 !important;">
             <div class="fs-5 fw-bold" style="color:#6f42c1;">{{ fmt_val(kpi_summary.full_potential) }}</div>
             <div class="fw-semibold small text-muted">Full Potential</div>
-            <div class="text-muted" style="font-size:.75rem;">If all WIP completes</div>
+            <div class="text-muted text-xs">If all WIP completes</div>
         </div>
     </div>
 
@@ -261,7 +261,7 @@
                         <th class="text-end">Ready&nbsp;/ Total Units</th>
                         <th class="text-end text-success">Ready (GBP)</th>
                         <th class="text-end text-warning">Partial WIP (GBP)</th>
-                        <th class="text-end" style="color:#fd7e14;">On Hold (GBP)</th>
+                        <th class="text-end text-orange">On Hold (GBP)</th>
                         <th class="text-end pe-3">Total (GBP)</th>
                     </tr>
                 </thead>
@@ -282,7 +282,7 @@
                         <td class="text-end text-warning">
                             {% if c.partial_value %}£{{ "{:,.2f}".format(c.partial_value) }}{% else %}<span class="text-muted">—</span>{% endif %}
                         </td>
-                        <td class="text-end" style="color:#fd7e14;">
+                        <td class="text-end text-orange">
                             {% set _on_hold = c.ready_hold_value + c.partial_hold_value %}
                             {% if _on_hold %}£{{ "{:,.2f}".format(_on_hold) }}{% else %}<span class="text-muted">—</span>{% endif %}
                         </td>
@@ -342,7 +342,7 @@
                 <span class="badge text-bg-danger ms-1">{{ summary.ready_hold_count }} ready on hold</span>
                 {% endif %}
                 {% if summary.partial_hold_count %}
-                <span class="badge ms-1" style="background-color:#fd7e14; color:#fff;">{{ summary.partial_hold_count }} partial on hold</span>
+                <span class="badge text-bg-orange ms-1">{{ summary.partial_hold_count }} partial on hold</span>
                 {% endif %}
             </h6>
             <button class="btn btn-sm btn-outline-secondary no-print"
@@ -471,7 +471,7 @@
                                 <i class="bi bi-hourglass-split me-1"></i>Partial WIP
                                 <span class="ms-1">({{ o.wip_count }})</span>
                             </span>
-                            <span class="badge ms-1" style="background-color:#fd7e14; color:#fff; font-size:.65rem;">
+                            <span class="badge text-bg-orange text-xxs ms-1">
                                 <i class="bi bi-slash-circle me-1"></i>On Hold
                             </span>
                             {% if o.so_credit_hold or o.customer_credit_hold %}
@@ -550,7 +550,7 @@
                             &nbsp;<span class="text-muted small">{{ rel.cover_desc }}</span>
                             {% endif %}
                             <br>
-                            <span class="text-muted" style="font-size:.75rem;">{{ rel.part_desc }}</span>
+                            <span class="text-muted text-xs">{{ rel.part_desc }}</span>
                         </td>
                         <td class="small text-muted text-nowrap">
                             {% if rel.need_by_date %}{{ rel.need_by_date.strftime('%d %b %Y') }}{% else %}—{% endif %}

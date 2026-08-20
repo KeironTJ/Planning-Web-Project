@@ -68,6 +68,11 @@
     --ph-cell-timed-color:        var(--bs-success-text-emphasis);
     --ph-cell-most-color:         var(--bs-primary-text-emphasis);
 
+    /* -- Accent text colours (no Bootstrap equivalent) --------------- */
+    --ph-text-orange:             #fd7e14;   /* Bootstrap orange-500 */
+    --ph-text-amber:              #e6a800;   /* darker warning, partial WIP */
+    --ph-text-purple:             #6f42c1;   /* Bootstrap indigo / purple-600 */
+
     /* -- Filter / form active state ------------------------------------ */
     --ph-filter-active-border:    var(--bs-primary);
 

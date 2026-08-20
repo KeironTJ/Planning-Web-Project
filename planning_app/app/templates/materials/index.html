@@ -35,15 +35,15 @@
        data-bs-title="Coverage Status Definitions"
        data-bs-content="
         <dl class='mb-0' style='font-size:.82rem;'>
-          <dt><span style='color:#198754;'>&#9632;</span> Mat. OK</dt>
+          <dt><span class='text-success'>&#9632;</span> Mat. OK</dt>
           <dd class='mb-2'>Stock on hand fully covers all material requirements.</dd>
-          <dt><span style='color:#0dcaf0;'>&#9632;</span> Soft Risk</dt>
+          <dt><span class='text-info'>&#9632;</span> Soft Risk</dt>
           <dd class='mb-2'>Material gap exists but the job has not yet been released to production — time remains to resolve before the floor needs it.</dd>
-          <dt><span style='color:#ffc107;'>&#9632;</span> PO Reliant</dt>
+          <dt><span class='text-warning'>&#9632;</span> PO Reliant</dt>
           <dd class='mb-2'>Gap is covered by an open Purchase Order, and the job is released — production is dependent on that PO arriving on time.</dd>
-          <dt><span style='color:#fd7e14;'>&#9632;</span> Late PO</dt>
+          <dt><span class='text-orange'>&#9632;</span> Late PO</dt>
           <dd class='mb-2'>Shortage exists and a PO is open, but it is overdue or will not arrive within the required lead time — supplier needs chasing.</dd>
-          <dt><span style='color:#dc3545;'>&#9632;</span> Shortage</dt>
+          <dt><span class='text-danger'>&#9632;</span> Shortage</dt>
           <dd class='mb-0'>Uncovered shortage with no Purchase Order in the system — immediate action required.</dd>
         </dl>">
         <i class="bi bi-info-circle"></i>
@@ -62,7 +62,7 @@
         <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-top border-3' if count else '' }}" style="{{ 'border-color:' ~ color ~ ' !important;' if count else '' }}">
             <div class="fs-5 fw-bold" style="color:{{ color }};">£{{ '{:,.0f}'.format(val) }}</div>
             <div class="fw-semibold small">{{ label }}</div>
-            <div class="text-muted" style="font-size:.75rem;">{{ count }} SO{{ 's' if count != 1 }} &middot; {{ pct }}%</div>
+            <div class="text-muted text-xs">{{ count }} SO{{ 's' if count != 1 }} &middot; {{ pct }}%</div>
         </div></a>
     </div>
     {% endfor %}

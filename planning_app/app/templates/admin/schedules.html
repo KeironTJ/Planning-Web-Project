@@ -60,16 +60,15 @@
       <div class="d-flex align-items-center gap-1 flex-wrap">
         {% for mins, label in PRESETS %}
         <button type="button"
-                class="btn btn-xs py-0 px-2 preset-btn {% if job.interval_minutes == mins %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+                class="btn btn-xs py-0 px-2 preset-btn text-xs {% if job.interval_minutes == mins %}btn-primary{% else %}btn-outline-secondary{% endif %}"
                 data-job="{{ job.id }}" data-minutes="{{ mins }}"
-                style="font-size:.75rem">{{ label }}</button>
+                >{{ label }}</button>
         {% endfor %}
         <div class="input-group" style="width:95px">
           <input type="number" min="1" max="10080"
-                 class="form-control form-control-sm custom-interval"
+                 class="form-control form-control-sm custom-interval text-xs"
                  data-job="{{ job.id }}"
-                 value="{{ job.interval_minutes }}"
-                 style="font-size:.75rem">
+                 value="{{ job.interval_minutes }}">
           <span class="input-group-text px-1" style="font-size:.7rem">min</span>
         </div>
       </div>

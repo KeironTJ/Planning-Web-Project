@@ -10,7 +10,7 @@ from flask_login import current_user, login_required
 from app.core.decorators import permission_required
 from sqlalchemy import func
 from . import operations_bp
-from .models import WorksOrder, ProductionOutput
+from .models import WorksOrder, ProductionOutput, WorksOrderComment
 from app.extensions import db
 from app.sales.orders.models import Department as DeptModel
 from app.admin.models import SystemSetting, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS

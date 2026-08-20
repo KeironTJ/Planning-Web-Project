@@ -29,7 +29,7 @@ Operations WIP Overview
         <div class="card border-0 shadow-sm text-center p-3 {{ 'border-danger border' if shortages else '' }}">
             <div class="fs-2 fw-bold {{ 'text-danger' if shortages else 'text-success' }}">{{ shortages }}</div>
             <div class="text-muted small">Fabric / Hide At Risk</div>
-            <div class="text-muted" style="font-size:0.65rem;">orders with any non-OK fabric status</div>
+            <div class="text-muted text-xxs">orders with any non-OK fabric status</div>
         </div></a>
     </div>
     <div class="col-6 col-md-4">
@@ -37,7 +37,7 @@ Operations WIP Overview
         <div class="card border-0 shadow-sm text-center p-3 {{ 'border-warning border' if comp_shortages else '' }}">
             <div class="fs-2 fw-bold {{ 'text-warning' if comp_shortages else 'text-success' }}">{{ comp_shortages }}</div>
             <div class="text-muted small">Components At Risk</div>
-            <div class="text-muted" style="font-size:0.65rem;">orders with any non-OK component status</div>
+            <div class="text-muted text-xxs">orders with any non-OK component status</div>
         </div></a>
     </div>
 </div>
@@ -63,10 +63,10 @@ Operations WIP Overview
            class="btn {{ 'btn-secondary' if not shortages_only else 'btn-outline-secondary' }}">All</a>
         {%- for _g, _gl in [('fabric','Fab. Issues'), ('component','Comp. Issues'), ('either','Any Issues')] %}
         <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=1, shortage_group=_g) }}"
-           class="btn {{ 'btn-danger' if (shortages_only and shortage_group == _g) else 'btn-outline-danger' }}" style="font-size:.75rem;">{{ _gl }}</a>
+           class="btn text-xs {{ 'btn-danger' if (shortages_only and shortage_group == _g) else 'btn-outline-danger' }}">{{ _gl }}</a>
         {%- endfor %}
         <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=1, shortage_group='no_shortage') }}"
-           class="btn {{ 'btn-success' if (shortages_only and shortage_group == 'no_shortage') else 'btn-outline-success' }}" style="font-size:.75rem;">No Shortage</a>
+           class="btn text-xs {{ 'btn-success' if (shortages_only and shortage_group == 'no_shortage') else 'btn-outline-success' }}">No Shortage</a>
     </div>
     <div class="ms-1 d-flex align-items-center gap-2">
         <input type="search" name="q" class="form-control form-control-sm" style="width:220px;"
@@ -137,7 +137,7 @@ Operations WIP Overview
                                 <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ w }}
                             {% else %}
                                 W{{ w[2:4] }}<span class="text-muted fw-normal">/{{ w[4:6] }}</span>
-                                <div class="text-muted fw-normal" style="font-size:0.65rem;">20{{ w[0:2] }}</div>
+                                <div class="text-muted fw-normal text-xxs">20{{ w[0:2] }}</div>
                             {% endif %}
                         </th>
                         {% endfor %}
@@ -158,7 +158,7 @@ Operations WIP Overview
                             {%- if qty > 0 %} fw-semibold{% else %} text-muted{% endif %}">
                             {%- if qty > 0 -%}
                                 {{ "%.0f"|format(qty) }}
-                                <span class="text-muted fw-normal" style="font-size:0.65rem;">({{ jobs }})</span>
+                                <span class="text-muted fw-normal text-xxs">({{ jobs }})</span>
                             {%- else -%}
                                 <span style="opacity:0.3">·</span>
                             {%- endif -%}
@@ -166,7 +166,7 @@ Operations WIP Overview
                         {% endfor %}
                         <td class="text-end pe-3 fw-bold text-primary">
                             {{ "%.0f"|format(op_data.get('qty', 0)) }}
-                            <span class="text-muted fw-normal" style="font-size:0.65rem;">({{ op_data.get('jobs', 0) }})</span>
+                            <span class="text-muted fw-normal text-xxs">({{ op_data.get('jobs', 0) }})</span>
                         </td>
                     </tr>
                     {% endfor %}
@@ -388,8 +388,7 @@ Operations WIP Overview
                     <span class="text-muted">Rows:</span>
                     {% for n in [25, 50, 100, 200] %}
                     <a href="{{ url_for('operations.wip_overview', page=1, q=search, category=category, per_page=n, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group) }}"
-                       class="btn btn-xs btn-outline-secondary py-0 px-2 {{ 'active fw-semibold' if per_page == n }}"
-                       style="font-size:0.75rem;">{{ n }}</a>
+                       class="btn btn-xs btn-outline-secondary py-0 px-2 text-xs {{ 'active fw-semibold' if per_page == n }}">{{ n }}</a>
                     {% endfor %}
                 </div>
                 <!-- Page navigation -->
