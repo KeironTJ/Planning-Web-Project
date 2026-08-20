@@ -312,3 +312,100 @@ class TestSoMaterialStatus:
     def test_empty_list_returns_empty(self, db):
         from app.purchasing.materials.services import get_so_material_status
         assert get_so_material_status([]) == {}
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: exemption mutations
+# ---------------------------------------------------------------------------
+
+class TestExemptions:
+    """add_exemptions / remove_exemptions mutate the list used by netting."""
+
+    def test_add_new_codes(self, db):
+        from app.purchasing.materials.services import add_exemptions, get_exempt_materials
+        result = add_exemptions(["EX001", "EX002"], reason="No PO raised", user_id=None)
+        assert result == {"added": 2, "skipped": 0}
+        codes = {m.material_code for m in get_exempt_materials()}
+        assert "EX001" in codes and "EX002" in codes
+
+    def test_add_duplicate_is_skipped(self, db):
+        from app.purchasing.materials.services import add_exemptions
+        add_exemptions(["EX003"], reason="First", user_id=None)
+        result = add_exemptions(["EX003"], reason="Second", user_id=None)
+        assert result == {"added": 0, "skipped": 1}
+
+    def test_add_normalises_to_uppercase(self, db):
+        from app.purchasing.materials.services import add_exemptions, get_exempt_materials
+        add_exemptions(["fab-lower"], reason=None, user_id=None)
+        codes = {m.material_code for m in get_exempt_materials()}
+        assert "FAB-LOWER" in codes
+
+    def test_add_ignores_blank_entries(self, db):
+        from app.purchasing.materials.services import add_exemptions
+        result = add_exemptions(["", "  ", "VALID01"], reason=None, user_id=None)
+        assert result["added"] == 1
+
+    def test_remove_existing_codes(self, db):
+        from app.purchasing.materials.services import add_exemptions, remove_exemptions, get_exempt_materials
+        add_exemptions(["REM001", "REM002"], reason=None, user_id=None)
+        deleted = remove_exemptions(["REM001"])
+        assert deleted == 1
+        codes = {m.material_code for m in get_exempt_materials()}
+        assert "REM001" not in codes and "REM002" in codes
+
+    def test_remove_nonexistent_returns_zero(self, db):
+        from app.purchasing.materials.services import remove_exemptions
+        assert remove_exemptions(["DOES_NOT_EXIST"]) == 0
+
+    def test_exempted_code_excluded_from_netting(self, db, app, zero_lead_days):
+        """An exempted material must not appear in shortage results."""
+        with app.test_request_context():
+            make_req("EXTEST01", qty_for_order=100)
+            make_stock("EXTEST01", qty_on_hand=0)
+            from app.purchasing.materials.services import add_exemptions
+            add_exemptions(["EXTEST01"], reason="Test", user_id=None)
+            assert not [r for r in run_report()["rows"] if r.material_code == "EXTEST01"]
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: shortage report filters
+# ---------------------------------------------------------------------------
+
+class TestShortageFilters:
+    """URL-driven filters applied after netting (dept, so_filter, due_before)."""
+
+    @pytest.fixture(autouse=True)
+    def ctx(self, app, zero_lead_days):
+        with app.test_request_context():
+            yield
+
+    def test_so_filter_scopes_to_single_so(self, db):
+        make_req("FAB101", qty_for_order=50, so_number="SO001")
+        make_req("FAB102", qty_for_order=50, so_number="SO002")
+        make_stock("FAB101", qty_on_hand=0)
+        make_stock("FAB102", qty_on_hand=0)
+        rows = run_report(so_filter="SO001")["rows"]
+        assert all(r.so_number == "SO001" for r in rows)
+        assert not any(r.so_number == "SO002" for r in rows)
+
+    def test_due_before_excludes_later_reqs(self, db):
+        cutoff = TODAY + timedelta(days=20)
+        make_req("FAB103", qty_for_order=50, due_date=TODAY + timedelta(days=10))
+        make_req("FAB104", qty_for_order=50, due_date=TODAY + timedelta(days=30))
+        make_stock("FAB103", qty_on_hand=0)
+        make_stock("FAB104", qty_on_hand=0)
+        rows = run_report(due_before=cutoff)["rows"]
+        codes = {r.material_code for r in rows}
+        assert "FAB103" in codes and "FAB104" not in codes
+
+    def test_shortages_only_hides_ok_rows(self, db):
+        make_req("FAB105", qty_for_order=50)
+        make_stock("FAB105", qty_on_hand=100)   # fully covered -> ok
+        make_req("FAB106", qty_for_order=50, works_order="WO106")
+        make_stock("FAB106", qty_on_hand=0)    # uncovered -> high_risk
+        from app.purchasing.materials.services import get_shortage_report
+        _db.session.commit()
+        shortages = get_shortage_report(material_group="fabric", shortages_only=True)["rows"]
+        codes = {r.material_code for r in shortages}
+        assert "FAB105" not in codes   # ok row hidden
+        assert "FAB106" in codes       # shortage row shown
