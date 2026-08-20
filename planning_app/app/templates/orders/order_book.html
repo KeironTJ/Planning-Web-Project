@@ -400,20 +400,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('.ob-toggle-btn').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var target   = btn.dataset.target;
-            var rows     = document.querySelectorAll('tr[id="' + target + '"]');
-            var icon     = btn.querySelector('i');
-            var isHidden = rows.length > 0 && rows[0].style.display === 'none';
-            rows.forEach(function (r) { r.style.display = isHidden ? '' : 'none'; });
-            icon.classList.toggle('bi-chevron-right', !isHidden);
-            icon.classList.toggle('bi-chevron-down',   isHidden);
-            btn.title = isHidden ? 'Collapse lines' : 'Expand lines';
-        });
-    });
-});
-</script>
+<script src="{{ url_for('static', filename='js/modules/orders.js') }}" defer></script>
 {% endblock %}

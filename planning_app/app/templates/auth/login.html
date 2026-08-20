@@ -61,18 +61,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-    // Toggle password visibility
-    document.getElementById('toggle-password').addEventListener('click', function() {
-        const field = document.getElementById('password-field');
-        const icon = document.getElementById('toggle-icon');
-        if (field.type === 'password') {
-            field.type = 'text';
-            icon.classList.replace('bi-eye', 'bi-eye-slash');
-        } else {
-            field.type = 'password';
-            icon.classList.replace('bi-eye-slash', 'bi-eye');
-        }
-    });
-</script>
+<script src="{{ url_for('static', filename='js/modules/auth.js') }}" defer></script>
 {% endblock %}
+

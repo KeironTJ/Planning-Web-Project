@@ -14,7 +14,8 @@
     </div>
     <div class="d-flex align-items-center gap-2">
         <div id="sync-result" class="d-none alert py-1 px-2 mb-0 small" role="alert"></div>
-        <button id="btn-sync" type="button" class="btn btn-sm btn-outline-secondary" onclick="syncOutput()">
+        <button id="btn-sync" type="button" class="btn btn-sm btn-outline-secondary" onclick="syncOutput()"
+                data-url-sync="{{ url_for('operations.daily_output_sync') }}">
             <span class="spinner-border spinner-border-sm d-none me-1" id="sync-spinner"></span>
             <i class="bi bi-arrow-repeat me-1" id="sync-icon"></i>Sync Data
         </button>
@@ -405,181 +406,17 @@
 
 {% block scripts %}
 <script>
-function toggleTrend() {
-    const chart = window._outputChart;
-    if (!chart) return;
-    const idx = chart.data.datasets.findIndex(d => d.label && d.label.startsWith('Trend'));
-    if (idx < 0) return;
-    const nowVisible = chart.isDatasetVisible(idx);
-    chart.setDatasetVisibility(idx, !nowVisible);
-    chart.update();
-    document.getElementById('btn-trend').classList.toggle('active', !nowVisible);
-}
-function applyDeptFilter(dept) {
-    const url = new URL(window.location.href);
-    if (dept) { url.searchParams.set('section', dept); } else { url.searchParams.delete('section'); }
-    url.searchParams.delete('page');
-    window.location.href = url.toString();
-}
-async function syncOutput() {
-    const btn     = document.getElementById('btn-sync');
-    const spinner = document.getElementById('sync-spinner');
-    const icon    = document.getElementById('sync-icon');
-    const result  = document.getElementById('sync-result');
-    const pbWrap  = document.getElementById('sync-pb-wrap');
-    const pb      = document.getElementById('sync-pb');
-
-    btn.disabled = true;
-    spinner.classList.remove('d-none');
-    icon.classList.add('d-none');
-    result.className = 'alert alert-secondary py-1 px-2 mb-0 small';
-    result.textContent = 'Syncing from Epicor — this may take a moment…';
-
-    // Start progress bar animation
-    pbWrap.classList.remove('d-none');
-    let pct = 0;
-    const pbTimer = setInterval(() => {
-        const step = Math.max(0.2, (85 - pct) * 0.06);
-        pct = Math.min(85, pct + step);
-        pb.style.width = pct + '%';
-    }, 400);
-
-    function stopProgress(success) {
-        clearInterval(pbTimer);
-        pb.style.transition = 'width 0.25s ease-in';
-        pb.style.width = '100%';
-        pb.classList.remove('progress-bar-animated', 'progress-bar-striped');
-        pb.classList.add(success ? 'bg-success' : 'bg-danger');
-    }
-
-    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    try {
-        const resp = await fetch('{{ url_for("operations.daily_output_sync") }}', {
-            method:  'POST',
-            headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' },
-        });
-        const rawText = await resp.text();
-        let data;
-        try {
-            data = JSON.parse(rawText);
-        } catch (_) {
-            throw new Error('Server timed out — the sync is taking too long. '
-                + 'Please try again; if it keeps failing contact your administrator.');
-        }
-        if (data.status === 'ok') {
-            stopProgress(true);
-            location.reload();
-        } else {
-            stopProgress(false);
-            result.className = 'alert alert-danger py-1 px-2 mb-0 small';
-            result.textContent = data.message || 'Sync failed — see page for details.';
-            setTimeout(() => location.reload(), 3000);
-        }
-    } catch (err) {
-        stopProgress(false);
-        result.className = 'alert alert-danger py-1 px-2 mb-0 small';
-        result.textContent = 'Network error — ' + err.message;
-        btn.disabled = false;
-        spinner.classList.add('d-none');
-        icon.classList.remove('d-none');
-    }
-}
+window.DAILY_OUTPUT_DATA = {
+  labels:         {{ (chart_week_labels if view == 'weekly' else chart_labels) | tojson }},
+  deptData:       {{ (chart_week_dept_data if view == 'weekly' else chart_dept_data) | tojson }},
+  trendData:      {{ (chart_week_trendline_data if view == 'weekly' else chart_trendline_data) | tojson }},
+  targetData:     {{ (chart_week_target_data if view == 'weekly' else chart_target_data) | tojson }},
+  targetQty:      {{ target_qty }},
+  view:           {{ view | tojson }},
+  trendDeptLabel: {{ trend_dept_label | tojson if trend_dept_label else 'null' }},
+  hasDepartments: {{ 'true' if departments else 'false' }},
+};
 </script>
-
-{% if departments %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const labels   = {{ (chart_week_labels if view == 'weekly' else chart_labels) | tojson }};
-    const deptData = {{ (chart_week_dept_data if view == 'weekly' else chart_dept_data) | tojson }};
-
-    const datasets = deptData.map(d => ({
-        label:           d.label,
-        data:            d.data,
-        backgroundColor: d.backgroundColor,
-        borderRadius:    2,
-        borderSkipped:   false,
-    }));
-
-    // Trendline (SMA-5 for daily, linear regression for weekly)
-    const trendData = {{ (chart_week_trendline_data if view == 'weekly' else chart_trendline_data) | tojson }};
-    if (trendData.some(v => v !== null && v !== undefined)) {
-        datasets.push({
-            label: 'Trend{% if trend_dept_label %} ({{ trend_dept_label }}){% endif %}',
-            data: trendData,
-            type: 'line',
-            borderColor: 'rgba(99,102,241,0.85)',
-            borderWidth: 1.5,
-            borderDash: [],
-            pointRadius: {{ 3 if view == 'weekly' else 0 }},
-            pointHoverRadius: 4,
-            pointBackgroundColor: 'rgba(99,102,241,0.9)',
-            fill: false,
-            tension: 0.3,
-            order: -3,
-            hidden: true,
-        });
-    }
-
-    // Target line
-    const chartTargetData = {{ (chart_week_target_data if view == 'weekly' else chart_target_data) | tojson }};
-    if ({{ target_qty }} > 0) {
-        datasets.push({
-            label: '{{ "Weekly Target" if view == "weekly" else "Target (" ~ target_qty ~ ")" }}',
-            data: chartTargetData.map(v => v > 0 ? v : null),
-            type: 'line',
-            borderColor: 'rgba(220,53,69,0.75)',
-            borderWidth: 2,
-            borderDash: [6, 4],
-            pointRadius: 0,
-            fill: false,
-            tension: 0,
-            order: -1,
-        });
-    }
-
-    const ctx = document.getElementById('outputChart');
-    if (!ctx) return;
-
-    window._outputChart = new Chart(ctx, {
-        type: 'bar',
-        data: { labels, datasets },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: { boxWidth: 12, padding: 14, font: { size: 11 } },
-                },
-                tooltip: {
-                    callbacks: {
-                        footer(items) {
-                            const total = items.reduce((s, i) => s + i.parsed.y, 0);
-                            return total > 0 ? `Total: ${Math.round(total)}` : '';
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: {
-                    grid: { display: false },
-                    ticks: { font: { size: 11 } },
-                },
-                y: {
-                    beginAtZero: true,
-                    ticks: { font: { size: 11 } },
-                    grid: { color: 'rgba(0,0,0,0.05)' },
-                },
-            },
-        },
-    });
-});
-</script>
-{% endif %}
-
-<script>
-// Auto-reload every 2 minutes, preserving the current date/view filters.
-setTimeout(() => location.reload(), 2 * 60 * 1000);
-</script>
+<script src="{{ url_for('static', filename='js/modules/operations.js') }}" defer></script>
 {% endblock %}
+

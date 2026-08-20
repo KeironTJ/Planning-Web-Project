@@ -352,127 +352,13 @@
 {% block scripts %}
 {% if total_overdue_orders > 0 %}
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-
-    const style      = getComputedStyle(document.documentElement);
-    const textColor  = style.getPropertyValue('--bs-body-color').trim() || '#212529';
-    const gridColor  = 'rgba(0,0,0,0.06)';
-    Chart.defaults.color       = textColor;
-    Chart.defaults.font.family = style.getPropertyValue('--bs-body-font-family').trim() || 'system-ui, sans-serif';
-
-    const ageData  = {{ age_chart         | tojson }};
-    const custData = {{ value_by_customer | tojson }};
-
-    // ── Helpers ──────────────────────────────────────────────────────────
-    function fmtGbp(v) {
-        return v >= 1000000 ? `\u00a3${(v/1000000).toFixed(1)}m`
-             : v >= 1000    ? `\u00a3${(v/1000).toFixed(0)}k`
-             : `\u00a3${Math.round(v).toLocaleString('en-GB')}`;
-    }
-
-    // ── 1. Age Distribution (vertical bar, no datalabels needed — values readable on axis) ──
-    {
-        const ageColors = [
-            'rgba(108,117,125,0.80)',
-            'rgba(255,193,7,0.85)',
-            'rgba(253,126,20,0.85)',
-            'rgba(220,53,69,0.80)',
-            'rgba(140,10,25,0.88)',
-        ];
-        new Chart(document.getElementById('chartAge').getContext('2d'), {
-            type: 'bar',
-            data: {
-                labels:   ageData.labels,
-                datasets: [{
-                    label:           'Orders',
-                    data:            ageData.counts,
-                    backgroundColor: ageColors,
-                    borderColor:     ageColors.map(c => c.replace(/[\d.]+\)$/, '1)')),
-                    borderWidth: 1,
-                    borderRadius: 4,
-                }],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: ctx => ` ${ctx.parsed.y} order${ctx.parsed.y !== 1 ? 's' : ''}`,
-                        },
-                    },
-                },
-                scales: {
-                    x: { grid: { color: gridColor } },
-                    y: {
-                        beginAtZero: true,
-                        ticks: { precision: 0 },
-                        grid: { color: gridColor },
-                        title: { display: true, text: 'Orders' },
-                    },
-                },
-            },
-        });
-    }
-
-    // ── 4. Value by Customer — horizontal bar with £ labels ─────────────
-    {% if value_by_customer %}
-    {
-        const counts = custData.map(d => d.count);
-        new Chart(document.getElementById('chartCustomer').getContext('2d'), {
-            type: 'bar',
-            plugins: [ChartDataLabels],
-            data: {
-                labels:   custData.map(d => d.customer),
-                datasets: [{
-                    label:           'Overdue Value',
-                    data:            custData.map(d => d.value),
-                    backgroundColor: 'rgba(220,53,69,0.55)',
-                    borderColor:     '#dc3545',
-                    borderWidth: 1,
-                    borderRadius: 3,
-                }],
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                layout: { padding: { right: 70 } },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: (ctx) => {
-                                const c = counts[ctx.dataIndex];
-                                return ` ${fmtGbp(ctx.parsed.x)} (${c} order${c !== 1 ? 's' : ''})`;
-                            },
-                        },
-                    },
-                    datalabels: {
-                        anchor: 'end',
-                        align:  'end',
-                        formatter: v => v > 0 ? fmtGbp(v) : null,
-                        font:   { size: 10, weight: 'bold' },
-                        color:  textColor,
-                    },
-                },
-                scales: {
-                    x: {
-                        ticks: {
-                            callback: v => fmtGbp(v),
-                            font: { size: 11 },
-                        },
-                        grid: { color: gridColor },
-                    },
-                    y: { ticks: { font: { size: 11 } }, grid: { display: false } },
-                },
-            },
-        });
-    }
-    {% endif %}
-
-});
+window.OVERDUE_REPORT_DATA = {
+  ageChart:        {{ age_chart | tojson }},
+  valueByCustomer: {{ value_by_customer | tojson if value_by_customer else 'null' }},
+};
 </script>
 {% endif %}
+<script src="{{ url_for('static', filename='js/components/chart.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/modules/orders.js') }}" defer></script>
 {% endblock %}
+

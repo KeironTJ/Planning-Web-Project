@@ -231,39 +231,11 @@
 
 {% block scripts %}
 <script>
-const _classes = {{ overview.classes | tojson }};
-const _palette = ['#0d6efd','#198754','#dc3545','#ffc107','#0dcaf0','#6f42c1','#fd7e14','#d63384','#20c997','#6c757d'];
-
-document.addEventListener('DOMContentLoaded', function () {
-    const ctx = document.getElementById('classDonut');
-    if (!ctx || !_classes.length) return;
-    new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: _classes.map(c => c.class_id),
-            datasets: [{
-                data: _classes.map(c => c.count),
-                backgroundColor: _classes.map((_, i) => _palette[i % _palette.length]),
-                borderWidth: 2,
-            }],
-        },
-        options: {
-            responsive: true, cutout: '58%',
-            plugins: {
-                legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } },
-                tooltip: { callbacks: {
-                    label: i => ' ' + i.label + ': ' + i.raw + ' lines'
-                        + (_classes[i.dataIndex].deficit_count ? ' (' + _classes[i.dataIndex].deficit_count + ' in deficit)' : '')
-                }},
-            },
-            onClick: (e, els) => {
-                if (els.length) {
-                    const cls = _classes[els[0].index].class_id;
-                    window.location = '{{ url_for("materials.stock_list") }}?cls=' + encodeURIComponent(cls);
-                }
-            },
-        },
-    });
-});
+window.STOCK_LIST_DATA = {
+  classes:      {{ overview.classes | tojson }},
+  urlStockList: {{ url_for('materials.stock_list') | tojson }},
+};
 </script>
+<script src="{{ url_for('static', filename='js/modules/materials.js') }}" defer></script>
 {% endblock %}
+

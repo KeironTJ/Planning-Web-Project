@@ -309,61 +309,14 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => new bootstrap.Popover(el));
-});
-</script>
 {% if po_summary.has_data and po_summary.weeks %}
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    const weeks  = {{ po_summary.weeks | tojson }};
-    const labels = weeks.map(w => w.week_label);
-    const values = weeks.map(w => parseFloat(w.value));
-    const colors = weeks.map(w => w.is_overdue ? '#dc3545' : '#0d6efd');
-    const bords  = weeks.map(w => w.is_overdue ? '#b02a37' : '#0a58ca');
-
-    const ctx = document.getElementById('poScheduleChart');
-    if (!ctx) return;
-
-    new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels,
-            datasets: [{
-                label: 'Outstanding Value (GBP)',
-                data: values,
-                backgroundColor: colors,
-                borderColor: bords,
-                borderWidth: 1,
-                borderRadius: 3,
-            }],
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: item => ' £' + item.raw.toLocaleString('en-GB', { maximumFractionDigits: 0 }),
-                        footer: items => {
-                            const w = weeks[items[0].dataIndex];
-                            return w.count + ' line' + (w.count !== 1 ? 's' : '');
-                        },
-                    },
-                },
-            },
-            scales: {
-                x: { grid: { display: false } },
-                y: {
-                    beginAtZero: true,
-                    ticks: { callback: v => '£' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) },
-                    title: { display: true, text: 'Outstanding value (£)' },
-                },
-            },
-        },
-    });
-});
+window.PURCHASING_OVERVIEW_DATA = {
+  hasPOData: true,
+  weeks:     {{ po_summary.weeks | tojson }},
+};
 </script>
 {% endif %}
+<script src="{{ url_for('static', filename='js/modules/purchasing.js') }}" defer></script>
 {% endblock %}
+

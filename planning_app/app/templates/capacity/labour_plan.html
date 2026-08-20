@@ -298,29 +298,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-(function () {
-    var modalEl = document.getElementById('editModal');
-    if (!modalEl) return;
-
-    modalEl.addEventListener('show.bs.modal', function (e) {
-        var btn = e.relatedTarget;
-        if (!btn) return;
-
-        document.getElementById('editModalDept').textContent  = btn.dataset.deptName;
-        document.getElementById('editModalDate').textContent  = btn.dataset.dateDisplay;
-        document.getElementById('editBucketId').value         = btn.dataset.bucketId || '';
-        document.getElementById('editDeptId').value           = btn.dataset.deptId;
-        document.getElementById('editDate').value             = btn.dataset.date;
-        document.getElementById('editAvailableHours').value   = btn.dataset.availableHours;
-        document.getElementById('editIsWorkday').checked      = btn.dataset.isWorkday === '1';
-        document.getElementById('editDayComplete').checked    = btn.dataset.dayComplete === '1';
-
-        var note = document.getElementById('editManualNote');
-        note.textContent = btn.dataset.isManual === '1'
-            ? 'Manually overridden — will not be overwritten by CSV import.'
-            : (btn.dataset.bucketId ? 'Imported entry — saving will mark as manual override.' : 'New entry — will be marked as manual override.');
-    });
-})();
-</script>
+<script src="{{ url_for('static', filename='js/modules/capacity.js') }}" defer></script>
 {% endblock %}
+

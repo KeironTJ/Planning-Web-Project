@@ -211,18 +211,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('.bay-show-more').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var bayIdx = btn.dataset.bay;
-            var ul = document.getElementById('bay-' + bayIdx);
-            if (!ul) return;
-            ul.querySelectorAll('.bay-extra-item').forEach(function (li) { li.style.display = ''; });
-            var moreRow = document.getElementById('bay-more-' + bayIdx);
-            if (moreRow) moreRow.style.display = 'none';
-        });
-    });
-});
-</script>
+<script src="{{ url_for('static', filename='js/modules/transport.js') }}" defer></script>
 {% endblock %}
+

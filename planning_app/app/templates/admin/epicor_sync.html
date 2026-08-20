@@ -16,7 +16,8 @@
 
 {% block content %}
 
-<div id="progress-panel" class="card border-0 shadow-sm mb-3 d-none">
+<div id="progress-panel" class="card border-0 shadow-sm mb-3 d-none"
+     data-url-run-one="{{ url_for('admin.epicor_sync_run_one') }}">
   <div class="card-header bg-transparent fw-semibold small py-2">Sync Progress</div>
   <div class="card-body p-0">
     <table class="table table-sm mb-0"><tbody id="progress-rows"></tbody></table>
@@ -93,138 +94,8 @@
   CLI: <code>flask epicor sync &lt;key&gt;</code>
 </p>
 
-<script>
-const RUN_ONE = '{{ url_for("admin.epicor_sync_run_one") }}';
-const CSRF    = '{{ csrf_token() }}';
+{% endblock %}
 
-function getFormParams(form) {
-  const p = {};
-  new FormData(form).forEach((v,k) => { if (k !== 'csrf_token') p[k] = v; });
-  return p;
-}
-
-function mkRow(key, state, detail) {
-  const icons = {
-    wait: '<i class="bi bi-clock text-muted me-2"></i>',
-    run:  '<span class="spinner-border spinner-border-sm me-2 text-primary"></span>',
-    ok:   '<i class="bi bi-check-circle-fill text-success me-2"></i>',
-    err:  '<i class="bi bi-x-circle-fill text-danger me-2"></i>'
-  };
-  const badges = {
-    wait: '<span class="badge bg-secondary">Waiting</span>',
-    run:  '<span class="badge bg-warning text-dark">Running</span>',
-    ok:   '<span class="badge bg-success">OK</span>',
-    err:  '<span class="badge bg-danger">Failed</span>'
-  };
-  return '<td class="fw-semibold small" style="width:140px">'+key+'</td>' +
-         '<td class="small">'+(icons[state]||'')+detail+'</td>' +
-         '<td class="text-center" style="width:80px">'+(badges[state]||'')+'</td>';
-}
-
-// Returns a stop(success) function. Call it when the request finishes.
-function startProgressBar(cell) {
-  const wrap = document.createElement('div');
-  wrap.className = 'progress mt-1';
-  wrap.style.cssText = 'height:3px;border-radius:2px;';
-  wrap.innerHTML = '<div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%;transition:width 0.4s ease-out;"></div>';
-  cell.appendChild(wrap);
-  const inner = wrap.querySelector('.progress-bar');
-  let pct = 0;
-  const timer = setInterval(() => {
-    const step = Math.max(0.2, (85 - pct) * 0.06);
-    pct = Math.min(85, pct + step);
-    inner.style.width = pct + '%';
-  }, 400);
-  return function stop(success) {
-    clearInterval(timer);
-    inner.style.transition = 'width 0.25s ease-in';
-    inner.style.width = '100%';
-    inner.classList.remove('progress-bar-animated', 'progress-bar-striped');
-    inner.classList.add(success ? 'bg-success' : 'bg-danger');
-  };
-}
-
-// Returns true on success, false on error.
-// Callers are responsible for reloading — do NOT reload inside runOne
-// or Sync All will reload after the first importer and skip the rest.
-async function runOne(key, params, tr) {
-  tr.innerHTML = mkRow(key, 'run', 'Syncing '+key+'...');
-  const stopProgress = startProgressBar(tr.querySelectorAll('td')[1]);
-  try {
-    const r = await fetch(RUN_ONE, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json', 'X-CSRFToken': CSRF},
-      body: JSON.stringify({baq_key: key, params: params})
-    });
-    const rawText = await r.text();
-    let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch (_) {
-      stopProgress(false);
-      await new Promise(r => setTimeout(r, 350));
-      tr.innerHTML = mkRow(key, 'err', 'Server timed out — try a smaller date range.');
-      return false;
-    }
-    if (data.status === 'ok' || data.status === 'success') {
-      stopProgress(true);
-      tr.innerHTML = mkRow(key, 'ok', '');
-      return true;
-    } else {
-      stopProgress(false);
-      await new Promise(r => setTimeout(r, 350));
-      tr.innerHTML = mkRow(key, 'err', data.message || data.error || data.status);
-      return false;
-    }
-  } catch(e) {
-    stopProgress(false);
-    await new Promise(r => setTimeout(r, 350));
-    tr.innerHTML = mkRow(key, 'err', 'Network error: ' + e.message);
-    return false;
-  }
-}
-
-// Individual sync forms
-document.querySelectorAll('.individual-sync').forEach(form => {
-  form.addEventListener('submit', async e => {
-    e.preventDefault();
-    const panel = document.getElementById('progress-panel');
-    const tbody = document.getElementById('progress-rows');
-    panel.classList.remove('d-none');
-    panel.scrollIntoView({behavior: 'smooth'});
-    const tr = document.createElement('tr');
-    tbody.appendChild(tr);
-    const ok = await runOne(form.dataset.key, getFormParams(form), tr);
-    if (ok) location.reload();
-  });
-});
-
-// Sync All: run every importer sequentially then reload once at the end.
-document.getElementById('sync-all-btn').addEventListener('click', async () => {
-  const panel = document.getElementById('progress-panel');
-  const tbody = document.getElementById('progress-rows');
-  tbody.innerHTML = '';
-  panel.classList.remove('d-none');
-  panel.scrollIntoView({behavior: 'smooth'});
-
-  const forms = [...document.querySelectorAll('.individual-sync')];
-  const rows  = forms.map(form => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = mkRow(form.dataset.key, 'wait', 'Waiting...');
-    tbody.appendChild(tr);
-    return {form, tr};
-  });
-
-  document.getElementById('sync-all-btn').disabled = true;
-  document.querySelectorAll('.individual-sync button').forEach(b => b.disabled = true);
-
-  for (const {form, tr} of rows) {
-    await runOne(form.dataset.key, getFormParams(form), tr);
-    await new Promise(r => setTimeout(r, 500));
-  }
-  location.reload();
-});
-
-document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
-</script>
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/modules/admin.js') }}" defer></script>
 {% endblock %}

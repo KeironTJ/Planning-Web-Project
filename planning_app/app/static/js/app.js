@@ -49,12 +49,12 @@ if (themeToggle) {
 }
 
 // -----------------------------------------------------------------------
-// 2. Bootstrap tooltips
+// 2. Bootstrap tooltips + popovers
 // -----------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
-    const tooltipEls = document.querySelectorAll('[data-bs-toggle="tooltip"]');
-    tooltipEls.forEach(el => new bootstrap.Tooltip(el));
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+    document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => new bootstrap.Popover(el));
 });
 
 // -----------------------------------------------------------------------
@@ -120,3 +120,6 @@ document.addEventListener('DOMContentLoaded', () => {
         el.textContent = fmtIso(el.dataset.utc, el.dataset.fmt);
     });
 });
+
+// Expose so module scripts can call it without reimplementing.
+window.fmtIso = fmtIso;

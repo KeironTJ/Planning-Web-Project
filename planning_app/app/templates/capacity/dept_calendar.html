@@ -138,19 +138,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-function toggleEdit(btn) {
-    const cell = btn.closest('td');
-    const form = cell.querySelector('.override-form');
-    const editBtn = cell.querySelector('.edit-btn');
-    if (form.style.display === 'none') {
-        form.style.display = '';
-        editBtn.style.display = 'none';
-        form.querySelector('input[name=hours]').focus();
-    } else {
-        form.style.display = 'none';
-        editBtn.style.display = '';
-    }
-}
-</script>
+<script src="{{ url_for('static', filename='js/modules/capacity.js') }}" defer></script>
 {% endblock %}
+
