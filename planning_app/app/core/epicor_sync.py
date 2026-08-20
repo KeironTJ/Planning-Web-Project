@@ -168,6 +168,8 @@ class EpicorBaqImporter:
             self._sync_records(records, batch, now)
             del records  # free raw API dicts before commit
 
+            # expunge_all() inside _sync_records detaches batch; re-attach before commit
+            db.session.add(batch)
             batch.status = ImportBatch.STATUS_SUCCESS
             db.session.commit()
 
