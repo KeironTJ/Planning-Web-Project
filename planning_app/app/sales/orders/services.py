@@ -110,119 +110,144 @@ def get_order_book(
     today = date.today()
     dedup_sub = _so_dedup_subq(open_only=True)
 
-    q = db.session.query(SalesOrder).join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
-
+    # Build filter clauses once; reused by count, aggregation, and lines queries.
+    filters = []
     if search:
         term = f"%{search.strip()}%"
-        q = q.filter(db.or_(
+        filters.append(db.or_(
             func.cast(SalesOrder.order_num, db.String).ilike(term),
             SalesOrder.customer_name.ilike(term),
             SalesOrder.part_num.ilike(term),
             SalesOrder.part_desc.ilike(term),
             SalesOrder.po_num.ilike(term),
         ))
-
     if order_type_filter:
-        q = q.filter(SalesOrder.so_type_desc == order_type_filter)
-
+        filters.append(SalesOrder.so_type_desc == order_type_filter)
     if customer_filter:
-        q = q.filter(SalesOrder.customer_name.ilike(f"%{customer_filter.strip()}%"))
-
+        filters.append(SalesOrder.customer_name.ilike(f"%{customer_filter.strip()}%"))
     if customer_po_filter:
-        q = q.filter(SalesOrder.po_num.ilike(f"%{customer_po_filter.strip()}%"))
-
+        filters.append(SalesOrder.po_num.ilike(f"%{customer_po_filter.strip()}%"))
     if country_filter:
-        q = q.filter(SalesOrder.customer_country == country_filter)
-
+        filters.append(SalesOrder.customer_country == country_filter)
     if customer_group_filter:
-        q = q.filter(SalesOrder.customer_group == customer_group_filter)
-
+        filters.append(SalesOrder.customer_group == customer_group_filter)
     if overdue_only:
-        q = q.filter(
+        filters.append(db.and_(
             SalesOrder.need_by_date < today,
             SalesOrder.need_by_date.isnot(None),
-        )
-
+        ))
     if due_date_from:
-        q = q.filter(SalesOrder.need_by_date >= due_date_from)
+        filters.append(SalesOrder.need_by_date >= due_date_from)
     if due_date_to:
-        q = q.filter(SalesOrder.need_by_date <= due_date_to)
+        filters.append(SalesOrder.need_by_date <= due_date_to)
+
+    # Count distinct orders matching filters — no Python grouping needed.
+    total = (
+        db.session.query(func.count(SalesOrder.order_num.distinct()))
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(*filters)
+        .scalar()
+    ) or 0
+
+    # Aggregate to one row per order_num with SQL GROUP BY, then paginate in SQL.
+    agg_q = (
+        db.session.query(
+            SalesOrder.order_num,
+            func.min(SalesOrder.customer_id).label("customer_id"),
+            func.min(SalesOrder.customer_name).label("customer_name"),
+            func.min(SalesOrder.po_num).label("po_num"),
+            func.min(SalesOrder.so_type_desc).label("so_type_desc"),
+            func.min(SalesOrder.so_type).label("so_type"),
+            func.min(SalesOrder.customer_country).label("customer_country"),
+            func.min(SalesOrder.customer_group).label("customer_group"),
+            func.min(SalesOrder.channel).label("channel"),
+            func.min(SalesOrder.order_date).label("order_date"),
+            func.min(SalesOrder.need_by_date).label("due_date"),
+            func.sum(SalesOrder.selling_qty).label("total_qty"),
+            func.sum(SalesOrder.release_price_gbp).label("total_value"),
+            func.count(SalesOrder.order_line.distinct()).label("line_count"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(*filters)
+        .group_by(SalesOrder.order_num)
+    )
 
     if order_by == "so_number":
-        q = q.order_by(SalesOrder.order_num)
+        agg_q = agg_q.order_by(SalesOrder.order_num)
     elif order_by == "customer":
-        q = q.order_by(
-            SalesOrder.customer_name,
-            SalesOrder.need_by_date.asc().nullslast(),
+        agg_q = agg_q.order_by(
+            func.min(SalesOrder.customer_name),
+            func.min(SalesOrder.need_by_date).asc().nullslast(),
             SalesOrder.order_num,
         )
-    else:  # due_date (default) or value — value is post-sorted in Python
-        q = q.order_by(
-            SalesOrder.need_by_date.asc().nullslast(),
+    elif order_by == "value":
+        agg_q = agg_q.order_by(func.sum(SalesOrder.release_price_gbp).desc().nullslast())
+    else:  # due_date (default)
+        agg_q = agg_q.order_by(
+            func.min(SalesOrder.need_by_date).asc().nullslast(),
             SalesOrder.order_num,
         )
 
-    all_rows = q.all()
+    paged_rows = agg_q.limit(per_page).offset((page - 1) * per_page).all()
+    page_order_nums = [row.order_num for row in paged_rows]
 
-    # Group by order_num maintaining query order
-    seen: dict[int, dict] = {}
+    # Fetch full release details for only this page's orders.
+    lines_by_order: dict[int, list] = {}
+    if page_order_nums:
+        lines_dedup = _so_dedup_subq(open_only=True)
+        for so in (
+            db.session.query(SalesOrder)
+            .join(lines_dedup, SalesOrder.id == lines_dedup.c.id)
+            .filter(SalesOrder.order_num.in_(page_order_nums))
+            .order_by(SalesOrder.order_line, SalesOrder.rel_num)
+            .all()
+        ):
+            lines_by_order.setdefault(so.order_num, []).append(so)
+
     order_list: list[dict] = []
-    for so in all_rows:
-        if so.order_num not in seen:
-            entry = {
-                "so_number":          str(so.order_num),
-                "customer_code":      so.customer_id or "",
-                "customer_name":      so.customer_name or "",
-                "customer_order_ref": so.po_num,
-                "order_type":         so.so_type_desc or "",
-                "so_type":            so.so_type or "",
-                "country":            so.customer_country or "",
-                "customer_group":     so.customer_group or "",
-                "channel":            so.channel or "",
-                "order_date":         so.order_date,
-                "_releases":          [],
-            }
-            seen[so.order_num] = entry
-            order_list.append(entry)
-        seen[so.order_num]["_releases"].append(so)
+    for row in paged_rows:
+        releases = lines_by_order.get(row.order_num, [])
+        due_date = row.due_date
+        order_list.append({
+            "so_number":          str(row.order_num),
+            "customer_code":      row.customer_id or "",
+            "customer_name":      row.customer_name or "",
+            "customer_order_ref": row.po_num,
+            "order_type":         row.so_type_desc or "",
+            "so_type":            row.so_type or "",
+            "country":            row.customer_country or "",
+            "customer_group":     row.customer_group or "",
+            "channel":            row.channel or "",
+            "order_date":         row.order_date,
+            "due_date":           due_date,
+            "days_delta":         (due_date - today).days if due_date else None,
+            "total_qty":          float(row.total_qty or 0),
+            "total_value":        float(row.total_value or 0),
+            "line_count":         row.line_count,
+            "lines": [
+                {
+                    "order_line":        r.order_line,
+                    "rel_num":           r.rel_num,
+                    "part_num":          r.part_num or "",
+                    "part_desc":         r.part_desc or "",
+                    "model":             r.model or "",
+                    "size_desc":         r.size_desc or "",
+                    "cover_desc":        r.cover_desc or "",
+                    "selling_qty":       float(r.selling_qty or 0),
+                    "shipped_qty":       float(r.shipped_qty or 0),
+                    "required_qty":      float(r.required_qty or 0),
+                    "qty_completed":     float(r.qty_completed or 0),
+                    "release_price_gbp": float(r.release_price_gbp or 0),
+                    "need_by_date":      r.need_by_date,
+                    "job_num":           r.job_num or "",
+                    "wip_bin":           r.wip_bin or "",
+                    "prod_plnwk":        r.prod_plnwk or "",
+                }
+                for r in releases
+            ],
+        })
 
-    for entry in order_list:
-        releases = entry.pop("_releases")
-        due_dates = [r.need_by_date for r in releases if r.need_by_date]
-        entry["due_date"]    = min(due_dates) if due_dates else None
-        entry["days_delta"]  = (entry["due_date"] - today).days if entry["due_date"] else None
-        entry["total_qty"]   = sum(float(r.selling_qty or 0) for r in releases)
-        entry["total_value"] = sum(float(r.release_price_gbp or 0) for r in releases)
-        entry["line_count"]  = len({r.order_line for r in releases})
-        entry["lines"]       = [
-            {
-                "order_line":        r.order_line,
-                "rel_num":           r.rel_num,
-                "part_num":          r.part_num or "",
-                "part_desc":         r.part_desc or "",
-                "model":             r.model or "",
-                "size_desc":         r.size_desc or "",
-                "cover_desc":        r.cover_desc or "",
-                "selling_qty":       float(r.selling_qty or 0),
-                "shipped_qty":       float(r.shipped_qty or 0),
-                "required_qty":      float(r.required_qty or 0),
-                "qty_completed":     float(r.qty_completed or 0),
-                "release_price_gbp": float(r.release_price_gbp or 0),
-                "need_by_date":      r.need_by_date,
-                "job_num":           r.job_num or "",
-                "wip_bin":           r.wip_bin or "",
-                "prod_plnwk":        r.prod_plnwk or "",
-            }
-            for r in releases
-        ]
-
-    if order_by == "value":
-        order_list.sort(key=lambda x: x["total_value"], reverse=True)
-
-    total = len(order_list)
-    start = (page - 1) * per_page
-    page_items = order_list[start: start + per_page]
-    return SimplePagination(page_items, total, page, per_page), page_items
+    return SimplePagination(order_list, total, page, per_page), order_list
 
 
 # ---------------------------------------------------------------------------

@@ -130,8 +130,8 @@ class ProductionConfig(BaseConfig):
     CACHE_REDIS_URL: str = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     SQLALCHEMY_ENGINE_OPTIONS: dict = {
         **BaseConfig.SQLALCHEMY_ENGINE_OPTIONS,
-        "pool_size": 5,
-        "max_overflow": 5,
+        "pool_size": 15,
+        "max_overflow": 10,
         "pool_timeout": 30,
     }
 
