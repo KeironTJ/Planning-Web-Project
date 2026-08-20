@@ -101,6 +101,7 @@ class MrpEvent:
     job_released: Optional[bool] = None  # None for non-requirement rows
     job_firm: Optional[bool] = None      # None for non-requirement rows
     mat_status: Optional[str] = None     # 5-tier coverage status for requirement rows
+    effective_date: Optional[date] = None  # PO: arrival + lead days (production-available from); Req: due − lead days (stock needed by)
 
 
 @dataclass
@@ -315,8 +316,8 @@ def get_shortage_report(
 
     for mc, reqs in by_material.items():
         from datetime import timedelta as _td
-        # Sort by due_date (None → treated as very far future)
-        reqs.sort(key=lambda r: (r["due_date"] or date.max))
+        # Sort by due_date then works_order so same-date netting is deterministic
+        reqs.sort(key=lambda r: (r["due_date"] or date.max, (r.get("works_order") or "").strip()))
 
         remaining_stock = stock_map.get(mc, Decimal(0))
         remaining_co    = co_qty_map.get(mc, Decimal(0))
@@ -697,14 +698,24 @@ def get_mrp_pegging(
     # ---- Collect raw events per material ----
     raw_events: dict[str, list[dict]] = defaultdict(list)
     descriptions: dict[str, str] = {}
+    # Load lead days once per group to avoid repeated DB queries.
+    lead_days_by_group = {
+        "fabric":    _get_group_lead_days("fabric"),
+        "component": _get_group_lead_days("component"),
+    }
+    # Per-material lead days — derived from the first requirement seen for that code.
+    mat_lead_days: dict[str, int] = {}
 
     for req in main_reqs:
         mc = req.material_code or ""
         descriptions[mc] = req.material_description or ""
+        ld = lead_days_by_group.get(req.material_group or "fabric", lead_days_by_group["fabric"])
+        mat_lead_days.setdefault(mc, ld)
         net_req = max(Decimal(0), (req.qty_for_order or Decimal(0)) - (req.qty_issued or Decimal(0)))
         if net_req > 0:
             raw_events[mc].append({
                 "event_date": req.due_date,
+                "effective_date": (req.due_date - timedelta(days=ld)) if req.due_date else None,
                 "row_type": "requirement",
                 "reference": req.works_order or "",
                 "source": "main",
@@ -713,15 +724,18 @@ def get_mrp_pegging(
                 "receipt": None,
                 "job_released": req.job_released,
                 "job_firm": req.job_firm,
-                "_sort": (2, req.due_date or date.max, 1),
+                "_sort": (2, req.due_date or date.max, 1, (req.works_order or "").strip()),
             })
 
     co_totals: dict[str, Decimal] = {}   # CO type not available in BAQ
     for po in po_rows:
         mc = po.part_num or ""
         qty = po.outstanding_qty or Decimal(0)
+        ld = mat_lead_days.get(mc, lead_days_by_group["fabric"])
+        po_coverage_from = (po.due_date + timedelta(days=ld)) if po.due_date else None
         raw_events[mc].append({
             "event_date": po.due_date,
+            "effective_date": po_coverage_from,  # shown as 'avail:' sub-date; not used for sort
             "row_type": "po",
             "reference": str(po.po_num) if po.po_num else "",
             "source": "po",
@@ -809,6 +823,7 @@ def get_mrp_pegging(
                     e["_mat_status"] = netted_st
             events.append(MrpEvent(
                 event_date=e["event_date"],
+                effective_date=e.get("effective_date"),
                 row_type=e["row_type"],
                 reference=e["reference"],
                 source=e["source"],
