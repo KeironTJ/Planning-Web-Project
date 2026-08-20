@@ -1,5 +1,5 @@
 """
-Gunicorn configuration for the Planning Hub.
+Gunicorn configuration for the Tetrad Factory Dashboards.
 
 Usage (from the planning_app directory):
     gunicorn -c gunicorn.conf.py wsgi:app

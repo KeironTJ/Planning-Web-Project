@@ -1,5 +1,5 @@
 /**
- * Planning Hub — Application JavaScript
+ * Tetrad Factory Dashboards — Application JavaScript
  *
  * Responsibilities:
  *  1. Dark/light theme toggle with localStorage persistence.
