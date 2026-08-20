@@ -25,32 +25,26 @@ def app():
     yield _app
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def db(app):
-    """Session-wide database with all tables created."""
+    """Function-scoped database: fresh schema + seed data for every test.
+
+    SQLite in-memory create_all/drop_all is essentially instant, making
+    function scope reliable without the session-bind tricks that were
+    removed in SQLAlchemy 2.0.
+    """
     with app.app_context():
         _db.create_all()
         RoleService.seed_default_roles_and_permissions()
         yield _db
+        _db.session.remove()
         _db.drop_all()
 
 
 @pytest.fixture(scope="function", autouse=True)
 def db_session(db):
-    """
-    Wrap each test in a transaction that is rolled back after the test.
-
-    This keeps tests isolated without recreating the schema each time.
-    """
-    connection = db.engine.connect()
-    transaction = connection.begin()
-    db.session.bind = connection
-
+    """Expose the active session; tests get a clean DB via function-scoped db."""
     yield db.session
-
-    db.session.remove()
-    transaction.rollback()
-    connection.close()
 
 
 @pytest.fixture
@@ -111,7 +105,7 @@ def viewer_user(db_session):
 def login(client, email: str, password: str):
     """Helper: POST to login endpoint and return the response."""
     return client.post("/auth/login", data={
-        "email": email,
+        "login": email,
         "password": password,
         "remember": False,
     }, follow_redirects=True)

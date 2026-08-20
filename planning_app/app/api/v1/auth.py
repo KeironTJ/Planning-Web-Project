@@ -41,7 +41,7 @@ def obtain_token():
 
     try:
         user = AuthService.login(
-            email=email,
+            login=email,
             password=password,
             ip=request.remote_addr,
         )

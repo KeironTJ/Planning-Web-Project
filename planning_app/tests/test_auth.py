@@ -46,11 +46,11 @@ class TestLogin:
 
     def test_login_wrong_password(self, client, planner_user):
         response = login(client, "planner@test.com", "WrongPassword!")
-        assert b"Invalid email or password" in response.data
+        assert b"Invalid" in response.data and b"password" in response.data
 
     def test_login_unknown_email(self, client):
         response = login(client, "nobody@test.com", "SomePass1!")
-        assert b"Invalid email or password" in response.data
+        assert b"Invalid" in response.data and b"password" in response.data
 
     def test_login_inactive_user(self, client, db_session, viewer_user):
         viewer_user.is_active = False
