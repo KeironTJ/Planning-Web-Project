@@ -28,15 +28,17 @@ Operations WIP Overview
         <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 {{ 'border-danger border' if shortages else '' }}">
             <div class="fs-2 fw-bold {{ 'text-danger' if shortages else 'text-success' }}">{{ shortages }}</div>
-            <div class="text-muted small">Jobs with Material Shortage</div>
-            <div class="text-muted" style="font-size:0.65rem;">netted against stock &amp; open POs</div>
+            <div class="text-muted small">Fabric / Hide At Risk</div>
+            <div class="text-muted" style="font-size:0.65rem;">orders with any non-OK fabric status</div>
         </div></a>
     </div>
     <div class="col-6 col-md-4">
-        <div class="card border-0 shadow-sm text-center p-3">
-            <div class="fs-2 fw-bold text-info">{{ waiting }}</div>
-            <div class="text-muted small">Waiting Temp</div>
-        </div>
+        <a href="{{ url_for('materials.component_shortage') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm text-center p-3 {{ 'border-warning border' if comp_shortages else '' }}">
+            <div class="fs-2 fw-bold {{ 'text-warning' if comp_shortages else 'text-success' }}">{{ comp_shortages }}</div>
+            <div class="text-muted small">Components At Risk</div>
+            <div class="text-muted" style="font-size:0.65rem;">orders with any non-OK component status</div>
+        </div></a>
     </div>
 </div>
 
@@ -56,23 +58,16 @@ Operations WIP Overview
         </button>
     </div>
     <div class="vr mx-1"></div>
-    {# Shortages toggle is a link so it preserves all other URL params cleanly #}
-    <a href="{{ url_for('operations.wip_overview',
-                        category=category, q=search, per_page=per_page,
-                        shortages_only=('0' if shortages_only else '1'),
-                        shortage_group=shortage_group) }}"
-       class="btn btn-sm {{ 'btn-danger' if shortages_only else 'btn-outline-danger' }}">
-        <i class="bi bi-exclamation-triangle{{ '-fill' if shortages_only else '' }} me-1"></i>
-        {{ 'Shortages only \xd7' if shortages_only else 'Shortages only' }}
-    </a>
-    {% if shortages_only %}
-    <div class="btn-group btn-group-sm">
-        {% for _g, _gl in [('fabric','Fabric'), ('component','Component'), ('either','Either')] %}
+    <div class="btn-group btn-group-sm" role="group" aria-label="Shortage filter">
+        <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=0, shortage_group='') }}"
+           class="btn {{ 'btn-secondary' if not shortages_only else 'btn-outline-secondary' }}">All</a>
+        {%- for _g, _gl in [('fabric','Fab. Issues'), ('component','Comp. Issues'), ('either','Any Issues')] %}
         <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=1, shortage_group=_g) }}"
-           class="btn {{ 'btn-danger' if shortage_group == _g else 'btn-outline-danger' }}" style="font-size:.75rem;">{{ _gl }}</a>
-        {% endfor %}
+           class="btn {{ 'btn-danger' if (shortages_only and shortage_group == _g) else 'btn-outline-danger' }}" style="font-size:.75rem;">{{ _gl }}</a>
+        {%- endfor %}
+        <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=1, shortage_group='no_shortage') }}"
+           class="btn {{ 'btn-success' if (shortages_only and shortage_group == 'no_shortage') else 'btn-outline-success' }}" style="font-size:.75rem;">No Shortage</a>
     </div>
-    {% endif %}
     <div class="ms-1 d-flex align-items-center gap-2">
         <input type="search" name="q" class="form-control form-control-sm" style="width:220px;"
                placeholder="Job, customer, model…" value="{{ search }}">
@@ -87,14 +82,23 @@ Operations WIP Overview
 </form>
 
 {% if shortages_only %}
-{% set _active_shortages = comp_shortages if shortage_group == 'component' else ((shortages + comp_shortages) if shortage_group == 'either' else shortages) %}
+{%- if shortage_group == 'no_shortage' %}
+<div class="alert alert-success py-2 mb-3 d-flex align-items-center gap-2">
+    <i class="bi bi-check-circle-fill flex-shrink-0"></i>
+    <span>Showing jobs on orders with <strong>no confirmed material or component shortages</strong>.</span>
+    <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page) }}"
+       class="btn btn-sm btn-outline-success ms-auto py-0">Show all jobs</a>
+</div>
+{%- else %}
+{% set _active_shortages = comp_shortages if shortage_group == 'component' else (either_shortages if shortage_group == 'either' else shortages) %}
 {% set _group_label = 'component' if shortage_group == 'component' else ('fabric or component' if shortage_group == 'either' else 'fabric') %}
 <div class="alert alert-danger py-2 mb-3 d-flex align-items-center gap-2">
     <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
-    <span>Showing <strong>{{ _active_shortages }}</strong> job{{ 's' if _active_shortages != 1 }} with confirmed {{ _group_label }} shortages.</span>
+    <span>Showing <strong>{{ _active_shortages }}</strong> job{{ 's' if _active_shortages != 1 }} with non-OK {{ _group_label }} material status.</span>
     <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page) }}"
        class="btn btn-sm btn-outline-danger ms-auto py-0">Show all jobs</a>
 </div>
+{%- endif %}
 {% endif %}
 
 {% if wip_ops %}
@@ -203,7 +207,7 @@ Operations WIP Overview
         <h6 class="mb-0 fw-semibold">
             <i class="bi bi-list-ul me-1 text-muted"></i>Job Detail
         </h6>
-        <a href="{{ url_for('operations.wip_export', category=category, q=search) }}"
+        <a href="{{ url_for('operations.wip_export', category=category, q=search, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group) }}"
            class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-download me-1"></i>Export CSV
         </a>
@@ -223,8 +227,10 @@ Operations WIP Overview
                             <th>Size</th>
                             <th>Customer</th>
                             <th>Mat 1</th>
-                            <th class="text-center">Materials</th>
-                            <th class="text-center" title="Component availability (all non-fabric parts)">Components</th>
+                            <th class="text-center" title="This job: fabric/hide availability">Job Fabric</th>
+                            <th class="text-center" title="Whole order: fabric/hide worst case">Order Fabric</th>
+                            <th class="text-center" title="This job: component availability">Job Comp.</th>
+                            <th class="text-center" title="Whole order: component worst case">Order Comp.</th>
                             <th>Comment</th>
                             <th>OB Comments</th>
                             <th>GRN</th>
@@ -234,11 +240,14 @@ Operations WIP Overview
                     <tbody>
                         {% for job in jobs.items %}
                         {%- set so_key = job.order_num | string if job.order_num else '' %}
+                        {%- set job_key = job.job_num | string if job.job_num else '' %}
                         {%- set mat_st = mat_status_map.get(so_key, 'no_data') %}
                         {%- set comp_st = comp_status_map.get(so_key, 'no_data') %}
+                        {%- set job_mat_st = job_mat_map.get(job_key, 'no_data') %}
+                        {%- set job_comp_st = job_comp_map.get(job_key, 'no_data') %}
                         {%- set is_partial = job.order_num and job.order_num in partial_order_nums and not job.job_complete %}
-                        {%- set _any_high = mat_st == 'high_risk' or comp_st == 'high_risk' %}
-                        {%- set _any_med  = mat_st in ('med_risk', 'late_po') or comp_st in ('med_risk', 'late_po') %}
+                        {%- set _any_high = mat_st == 'high_risk' or comp_st == 'high_risk' or job_mat_st == 'high_risk' or job_comp_st == 'high_risk' %}
+                        {%- set _any_med  = mat_st in ('med_risk', 'late_po') or comp_st in ('med_risk', 'late_po') or job_mat_st in ('med_risk', 'late_po') or job_comp_st in ('med_risk', 'late_po') %}
                         {%- set row_class = 'table-primary bg-opacity-25' if is_partial else ('table-danger bg-opacity-25' if _any_high else ('table-warning bg-opacity-25' if _any_med else '')) %}
                         <tr class="{{ row_class }}">
                             <td class="ps-2 fw-semibold font-monospace">{{ job.job_num }}</td>
@@ -262,21 +271,46 @@ Operations WIP Overview
                             <td class="text-muted">{{ job.size_desc or job.size or '—' }}</td>
                             <td>{{ job.customer_name or '—' }}</td>
                             <td class="text-muted">{{ job.material_1_desc or '—' }}</td>
+                            {%- set job_mat_label, job_mat_colour = mat_status_meta.get(job_mat_st, ('—', 'secondary')) %}
+                            <td class="text-center">
+                                {%- if job_mat_st in ('no_data', 'ok') %}
+                                <span class="badge text-bg-success" style="font-size:.7rem;">Mat. OK</span>
+                                {%- else %}
+                                <a href="{{ url_for('materials.mrp') }}?so={{ so_key }}&q={{ job.job_num }}"
+                                   class="badge text-bg-{{ job_mat_colour }} text-decoration-none"
+                                   style="font-size:.7rem;"
+                                   title="Job {{ job.job_num }}: {{ job_mat_label }}"
+                                   target="_blank">{{ job_mat_label }}</a>
+                                {%- endif %}
+                            </td>
+
                             {%- set mat_label, mat_colour = mat_status_meta.get(mat_st, ('—', 'secondary')) %}
                             <td class="text-center">
-                                {%- if mat_st == 'no_data' %}
+                                {%- if mat_st in ('no_data', 'ok') %}
                                 <span class="badge text-bg-success" style="font-size:.7rem;">Mat. OK</span>
                                 {%- else %}
                                 <a href="{{ url_for('materials.mrp') }}?so={{ so_key }}"
                                    class="badge text-bg-{{ mat_colour }} text-decoration-none"
                                    style="font-size:.7rem;"
-                                   title="Click to view MRP pegging for SO {{ so_key }}"
+                                   title="Order {{ so_key }}: {{ mat_label }}"
                                    target="_blank">{{ mat_label }}</a>
                                 {%- endif %}
                             </td>
 
+                            {%- set job_comp_label, job_comp_colour = mat_status_meta.get(job_comp_st, ('—', 'secondary')) %}
+                            <td class="text-center">
+                                {%- if job_comp_st in ('no_data', 'ok') %}
+                                <span class="badge text-bg-success" style="font-size:.7rem;">Comp. OK</span>
+                                {%- else %}
+                                <a href="{{ url_for('materials.component_shortage') }}?so={{ so_key }}&q={{ job.job_num }}"
+                                   class="badge text-bg-{{ job_comp_colour }} text-decoration-none"
+                                   style="font-size:.7rem;"
+                                   title="Job {{ job.job_num }}: {{ job_comp_label }}"
+                                   target="_blank">{{ job_comp_label }}</a>
+                                {%- endif %}
+                            </td>
+
                             {%- set comp_label, comp_colour = mat_status_meta.get(comp_st, ('—', 'secondary')) %}
-                            {%- set comp_label = 'Comp. OK' if comp_st in ('no_data', 'ok') else comp_label %}
                             <td class="text-center">
                                 {%- if comp_st in ('no_data', 'ok') %}
                                 <span class="badge text-bg-success" style="font-size:.7rem;">Comp. OK</span>
@@ -284,7 +318,7 @@ Operations WIP Overview
                                 <a href="{{ url_for('materials.component_shortage') }}?so={{ so_key }}"
                                    class="badge text-bg-{{ comp_colour }} text-decoration-none"
                                    style="font-size:.7rem;"
-                                   title="Click to view component shortage for SO {{ so_key }}"
+                                   title="Order {{ so_key }}: {{ comp_label }}"
                                    target="_blank">{{ comp_label }}</a>
                                 {%- endif %}
                             </td>
@@ -297,12 +331,11 @@ Operations WIP Overview
                             <td class="text-muted">{{ job.grn or '—' }}</td>
                             <td class="text-center">
                                 {%- if is_partial %}<span class="badge bg-primary me-1" title="Another job on this order is complete">Partial</span>{%- endif %}
-                                {%- if job.waiting_temp %}<span class="badge bg-info text-dark" title="Waiting temp">TMP</span>{%- endif %}
                             </td>
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="15" class="text-center py-4 text-muted">No works orders found.</td>
+                            <td colspan="17" class="text-center py-4 text-muted">No works orders found.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -319,7 +352,7 @@ Operations WIP Overview
                 <div class="d-flex align-items-center gap-2 small">
                     <span class="text-muted">Rows:</span>
                     {% for n in [25, 50, 100, 200] %}
-                    <a href="{{ url_for('operations.wip_overview', page=1, q=search, category=category, per_page=n, shortages_only='1' if shortages_only else '0') }}"
+                    <a href="{{ url_for('operations.wip_overview', page=1, q=search, category=category, per_page=n, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group) }}"
                        class="btn btn-xs btn-outline-secondary py-0 px-2 {{ 'active fw-semibold' if per_page == n }}"
                        style="font-size:0.75rem;">{{ n }}</a>
                     {% endfor %}
@@ -329,21 +362,21 @@ Operations WIP Overview
                 <nav aria-label="Job list pagination">
                     <ul class="pagination pagination-sm mb-0">
                         <li class="page-item {{ 'disabled' if not jobs.has_prev }}">
-                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.prev_num, q=search, category=category, per_page=per_page, shortages_only='1' if shortages_only else '0') if jobs.has_prev else '#' }}">
+                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.prev_num, q=search, category=category, per_page=per_page, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group) if jobs.has_prev else '#' }}">
                                 <i class="bi bi-chevron-left"></i>
                             </a>
                         </li>
                         {% for p in jobs.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
                             {% if p %}
                                 <li class="page-item {{ 'active' if p == jobs.page }}">
-                                    <a class="page-link" href="{{ url_for('operations.wip_overview', page=p, q=search, category=category, per_page=per_page, shortages_only='1' if shortages_only else '0') }}">{{ p }}</a>
+                                    <a class="page-link" href="{{ url_for('operations.wip_overview', page=p, q=search, category=category, per_page=per_page, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group) }}">{{ p }}</a>
                                 </li>
                             {% else %}
                                 <li class="page-item disabled"><span class="page-link">…</span></li>
                             {% endif %}
                         {% endfor %}
                         <li class="page-item {{ 'disabled' if not jobs.has_next }}">
-                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.next_num, q=search, category=category, per_page=per_page, shortages_only='1' if shortages_only else '0') if jobs.has_next else '#' }}">
+                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.next_num, q=search, category=category, per_page=per_page, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group) if jobs.has_next else '#' }}">
                                 <i class="bi bi-chevron-right"></i>
                             </a>
                         </li>
