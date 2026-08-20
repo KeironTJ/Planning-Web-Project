@@ -71,6 +71,11 @@ class BaseConfig:
     EPICOR_API_KEY: str = os.environ.get("EPICOR_API_KEY", "")
     EPICOR_VERIFY_SSL: bool = os.environ.get("EPICOR_VERIFY_SSL", "false").lower() == "true"
 
+    # --- CORS ---
+    # Set to the production domain(s) in production via env var CORS_ORIGINS.
+    # Accepts a single origin string or a list of strings.
+    CORS_ORIGINS: str = os.environ.get("CORS_ORIGINS", "*")
+
     # --- APScheduler ---
     SCHEDULER_API_ENABLED: bool = False  # disable REST management API (not needed)
     SCHEDULER_TIMEZONE: str = "UTC"

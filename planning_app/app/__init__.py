@@ -76,8 +76,8 @@ def _init_extensions(app: Flask) -> None:
     csrf.init_app(app)
     jwt.init_app(app)
     cache.init_app(app)
-    # Allow CORS only on API routes
-    cors.init_app(app, resources={r"/api/*": {"origins": "*"}})
+    # Allow CORS only on API routes; origin locked to CORS_ORIGINS config (set per-environment)
+    cors.init_app(app, resources={r"/api/*": {"origins": app.config.get("CORS_ORIGINS", "*")}})
 
 
 def _configure_sqlite(app: Flask) -> None:
