@@ -3,8 +3,10 @@ Operations models.
 
 WorksOrder       — live production jobs (bskyCOOISv3 BAQ).
 ProductionOutput — daily labour/production records (PlanningOutPut BAQ).
+WorksOrderComment — user-authored notes on jobs, persists between COOIS syncs.
 """
 
+from datetime import datetime, timezone
 from app.extensions import db
 
 
@@ -138,3 +140,31 @@ class ProductionOutput(db.Model):
 
     def __repr__(self):
         return f"<ProductionOutput {self.job_num} {self.op_desc} {self.clock_in_date}>"
+
+
+class WorksOrderComment(db.Model):
+    """User-authored note on a production job. Keyed by job_num; survives COOIS syncs."""
+
+    __tablename__ = "job_comments"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    job_num    = db.Column(db.String(20), nullable=False, index=True)
+    user_id    = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    body       = db.Column(db.Text, nullable=False)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    user = db.relationship("User", backref=db.backref("job_comments", lazy="dynamic"))
+
+    def __repr__(self):
+        return f"<WorksOrderComment job={self.job_num} user_id={self.user_id}>"

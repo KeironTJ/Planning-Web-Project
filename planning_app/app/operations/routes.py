@@ -10,7 +10,7 @@ from flask_login import current_user, login_required
 from app.core.decorators import permission_required
 from sqlalchemy import func
 from . import operations_bp
-from .models import WorksOrder, ProductionOutput
+from .models import WorksOrder, ProductionOutput, WorksOrderComment
 from app.extensions import db
 from app.sales.orders.models import Department as DeptModel
 from app.admin.models import SystemSetting, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS
@@ -272,6 +272,14 @@ def wip_overview():
     job_mat_map  = get_job_material_status(_page_job_nums)  if _page_job_nums else {}
     job_comp_map = get_job_component_status(_page_job_nums) if _page_job_nums else {}
 
+    _cnt_rows = (
+        db.session.query(WorksOrderComment.job_num, func.count(WorksOrderComment.id))
+        .filter(WorksOrderComment.job_num.in_(_page_job_nums))
+        .group_by(WorksOrderComment.job_num)
+        .all()
+    ) if _page_job_nums else []
+    job_comment_counts = {r[0]: r[1] for r in _cnt_rows}
+
     # Partial order: order_nums where at least one other assembly_seq=0 job is complete.
     # Used to flag jobs where part of the same sales order has already shipped.
     _completed_order_nums = {
@@ -312,6 +320,7 @@ def wip_overview():
         partial_order_nums=_completed_order_nums,
         mat_status_map=mat_status_map,
         comp_status_map=comp_status_map,
+        job_comment_counts=job_comment_counts,
         job_mat_map=job_mat_map,
         job_comp_map=job_comp_map,
         mat_status_meta=MAT_STATUS_META,
@@ -397,6 +406,22 @@ def wip_export():
     _page_job_nums = [str(j.job_num) for j in rows if j.job_num]
     job_mat_map  = get_job_material_status(_page_job_nums)  if _page_job_nums else {}
     job_comp_map = get_job_component_status(_page_job_nums) if _page_job_nums else {}
+
+    # Build job notes map: latest comment per job, formatted as "user: body"
+    _note_rows = (
+        WorksOrderComment.query
+        .filter(WorksOrderComment.job_num.in_(_page_job_nums))
+        .order_by(WorksOrderComment.job_num, WorksOrderComment.created_at.asc())
+        .all()
+    ) if _page_job_nums else []
+    job_notes_map: dict[str, str] = {}
+    for _c in _note_rows:
+        _entry = f"{_c.user.username if _c.user else 'deleted'}: {_c.body}"
+        if _c.job_num in job_notes_map:
+            job_notes_map[_c.job_num] += ' | ' + _entry
+        else:
+            job_notes_map[_c.job_num] = _entry
+
     _mat_label_map = {k: v[0] for k, v in MAT_STATUS_META.items()}
 
     def _fmt_plnwk(w):
@@ -416,10 +441,11 @@ def wip_export():
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        'Job Number', 'Plan Week', 'Due Date', 'Order #',
+        'Job Number', 'Plan Week', 'Seq', 'Due Date', 'Order #',
         'Current Op', 'Model', 'Size', 'Customer',
-        'Mat 1', 'Comment', 'OB Comments', 'GRN', 'Partial Order',
+        'Mat 1', 'OB Comments', 'GRN', 'Partial Order',
         'Job Fabric Status', 'Order Fabric Status', 'Job Comp. Status', 'Order Comp. Status',
+        'Job Notes',
     ])
     for job in rows:
         is_partial = bool(job.order_num and job.order_num in _completed_order_nums and not job.job_complete)
@@ -432,6 +458,7 @@ def wip_export():
         def _label(st): return 'OK' if st in ('no_data', 'ok') else _mat_label_map.get(st, '')
         writer.writerow([
             job.job_num or '',
+            job.prod_plnwk or '',
             _fmt_plnwk(job.prod_plnwk),
             job.req_due_date.strftime('%d/%m/%Y') if job.req_due_date else '',
             job.order_num or '',
@@ -440,7 +467,6 @@ def wip_export():
             _clean(job.size_desc or job.size),
             _clean(job.customer_name),
             _clean(job.material_1_desc),
-            _clean(job.comment_text),
             _clean(job.order_book_comments),
             _clean(job.grn),
             'Yes' if is_partial else '',
@@ -448,6 +474,7 @@ def wip_export():
             _label(mat_st),
             _label(job_comp_st),
             _label(comp_st),
+            job_notes_map.get(job.job_num or '', ''),
         ])
 
     filename = f'wip_jobs_{date.today().isoformat()}.csv'
@@ -458,6 +485,104 @@ def wip_export():
         mimetype='text/csv; charset=utf-8',
         headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Job comments API
+# ---------------------------------------------------------------------------
+
+@operations_bp.route('/jobs/<job_num>/comments', methods=['GET'])
+@login_required
+@permission_required("view_orders")
+def job_comments(job_num):
+    comments = (WorksOrderComment.query
+                .filter_by(job_num=job_num)
+                .order_by(WorksOrderComment.created_at.asc())
+                .all())
+    return jsonify({
+        "ok": True,
+        "comments": [
+            {
+                "id":         c.id,
+                "user":       c.user.username if c.user else "deleted",
+                "user_id":    c.user_id,
+                "body":       c.body,
+                "created_at": c.created_at.strftime("%d %b %Y %H:%M"),
+                "updated_at": c.updated_at.strftime("%d %b %Y %H:%M") if c.updated_at else None,
+                "can_edit":   c.user_id == current_user.id or current_user.is_admin,
+            }
+            for c in comments
+        ],
+    })
+
+
+@operations_bp.route('/jobs/<job_num>/comments', methods=['POST'])
+@login_required
+@permission_required("update_order_status")
+def add_job_comment(job_num):
+    from datetime import datetime, timezone
+    body = request.form.get("body", "").strip()
+    if not body:
+        return jsonify({"ok": False, "error": "Comment cannot be blank."}), 400
+    if len(body) > 1000:
+        return jsonify({"ok": False, "error": "Comment cannot exceed 1000 characters."}), 400
+    comment = WorksOrderComment(job_num=job_num, user_id=current_user.id, body=body)
+    db.session.add(comment)
+    db.session.commit()
+    return jsonify({
+        "ok": True,
+        "comment": {
+            "id":         comment.id,
+            "user":       current_user.username,
+            "user_id":    comment.user_id,
+            "body":       comment.body,
+            "created_at": comment.created_at.strftime("%d %b %Y %H:%M"),
+            "updated_at": None,
+            "can_edit":   True,
+        },
+    })
+
+
+@operations_bp.route('/jobs/comments/<int:comment_id>', methods=['PATCH'])
+@login_required
+@permission_required("update_order_status")
+def edit_job_comment(comment_id):
+    from datetime import datetime, timezone
+    comment = db.session.get(WorksOrderComment, comment_id)
+    if comment is None:
+        return jsonify({"ok": False, "error": "Not found."}), 404
+    if comment.user_id != current_user.id and not current_user.is_admin:
+        return jsonify({"ok": False, "error": "Not authorised."}), 403
+    body = request.form.get("body", "").strip()
+    if not body:
+        return jsonify({"ok": False, "error": "Comment cannot be blank."}), 400
+    if len(body) > 1000:
+        return jsonify({"ok": False, "error": "Comment cannot exceed 1000 characters."}), 400
+    comment.body = body
+    comment.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return jsonify({
+        "ok": True,
+        "comment": {
+            "id":         comment.id,
+            "body":       comment.body,
+            "updated_at": comment.updated_at.strftime("%d %b %Y %H:%M"),
+        },
+    })
+
+
+@operations_bp.route('/jobs/comments/<int:comment_id>', methods=['DELETE'])
+@login_required
+@permission_required("update_order_status")
+def delete_job_comment(comment_id):
+    comment = db.session.get(WorksOrderComment, comment_id)
+    if comment is None:
+        return jsonify({"ok": False, "error": "Not found."}), 404
+    if comment.user_id != current_user.id and not current_user.is_admin:
+        return jsonify({"ok": False, "error": "Not authorised."}), 403
+    db.session.delete(comment)
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 @operations_bp.route('/daily-output')
