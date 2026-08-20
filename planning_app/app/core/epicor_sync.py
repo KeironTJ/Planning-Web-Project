@@ -166,6 +166,7 @@ class EpicorBaqImporter:
             # range for deletion rather than deriving it from returned records.
             self._last_merged_params = merged_params
             self._sync_records(records, batch, now)
+            del records  # free raw API dicts before commit
 
             batch.status = ImportBatch.STATUS_SUCCESS
             db.session.commit()
@@ -174,6 +175,26 @@ class EpicorBaqImporter:
                 "EpicorSync complete  BAQ=%s  batch_id=%d  inserted=%s  updated=%s",
                 self.BAQ_NAME, batch.id, batch.rows_inserted, batch.rows_updated,
             )
+
+            # Prune old batches — keep only the 50 most recent per import type
+            try:
+                old_ids = [
+                    row[0] for row in (
+                        db.session.query(ImportBatch.id)
+                        .filter_by(import_type=self.IMPORT_TYPE)
+                        .order_by(ImportBatch.uploaded_at.desc())
+                        .offset(50)
+                        .all()
+                    )
+                ]
+                if old_ids:
+                    ImportBatch.query.filter(ImportBatch.id.in_(old_ids)).delete(
+                        synchronize_session=False
+                    )
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
+                logger.warning("ImportBatch pruning failed — non-critical", exc_info=True)
 
         except Exception as exc:
             db.session.rollback()

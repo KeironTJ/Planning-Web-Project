@@ -23,7 +23,7 @@ class BaseConfig:
 
     # --- Core ---
     SECRET_KEY: str = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
-    APP_NAME: str = os.environ.get("APP_NAME", "Tetrad Factory Dashboards")
+    APP_NAME: str = os.environ.get("APP_NAME", "Factory Dashboards")
 
     # --- Database ---
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
@@ -123,6 +123,12 @@ class ProductionConfig(BaseConfig):
     REMEMBER_COOKIE_SECURE: bool = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() != "false"
     CACHE_TYPE: str = os.environ.get("CACHE_TYPE", "RedisCache")
     CACHE_REDIS_URL: str = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    SQLALCHEMY_ENGINE_OPTIONS: dict = {
+        **BaseConfig.SQLALCHEMY_ENGINE_OPTIONS,
+        "pool_size": 5,
+        "max_overflow": 5,
+        "pool_timeout": 30,
+    }
 
     @classmethod
     def validate(cls) -> None:

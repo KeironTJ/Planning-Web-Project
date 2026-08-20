@@ -93,11 +93,16 @@ def _configure_sqlite(app: Flask) -> None:
     from sqlalchemy import event
     from sqlalchemy.engine import Engine
 
+    if getattr(Engine, '_wal_listener_registered', False):
+        return
+
     @event.listens_for(Engine, "connect")
     def _set_wal(dbapi_conn, _record):
         if isinstance(dbapi_conn, sqlite3.Connection):
             dbapi_conn.execute("PRAGMA journal_mode=WAL")
             dbapi_conn.execute("PRAGMA busy_timeout=30000")
+
+    Engine._wal_listener_registered = True
 
 
 def _configure_postgres(app: Flask) -> None:
@@ -117,10 +122,15 @@ def _configure_postgres(app: Flask) -> None:
     from sqlalchemy import event
     from sqlalchemy.engine import Engine
 
+    if getattr(Engine, '_encoding_listener_registered', False):
+        return
+
     @event.listens_for(Engine, "connect")
     def _set_encoding(dbapi_conn, _record):
         if isinstance(dbapi_conn, psycopg2.extensions.connection):
             dbapi_conn.set_client_encoding("UTF8")
+
+    Engine._encoding_listener_registered = True
 
 
 def _register_blueprints(app: Flask) -> None:
@@ -278,7 +288,7 @@ def _register_template_globals(app: Flask) -> None:
                 pass
 
         return {
-            "app_name": app.config.get("APP_NAME", "Tetrad Factory Dashboards"),
+            "app_name": app.config.get("APP_NAME", "Factory Dashboards"),
             "current_year": __import__("datetime").datetime.utcnow().year,
             "active_departments": active_departments,
             "active_site": active_site,

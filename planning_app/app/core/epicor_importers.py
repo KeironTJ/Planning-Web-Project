@@ -72,7 +72,7 @@ class StockImporter(EpicorBaqImporter):
         Stock.query.delete()
         db.session.flush()
 
-        for r in records:
+        for i, r in enumerate(records):
             db.session.add(Stock(
                 part_num                  = r.get("Part_PartNum") or "",
                 part_description          = r.get("Part_PartDescription") or None,
@@ -93,6 +93,9 @@ class StockImporter(EpicorBaqImporter):
                 insufficient_stock        = _bool(r.get("Calculated_InsufficientStock")),
                 imported_at               = now,
             ))
+            if i % 500 == 499:
+                db.session.flush()
+                db.session.expunge_all()
 
         batch.rows_inserted = len(records)
 
@@ -148,7 +151,7 @@ class PurchaseOrderImporter(EpicorBaqImporter):
         PurchaseOrder.query.delete()
         db.session.flush()
 
-        for r in records:
+        for i, r in enumerate(records):
             db.session.add(PurchaseOrder(
                 po_num          = r.get("PORel_PONum"),
                 po_line         = r.get("PORel_POLine"),
@@ -176,6 +179,9 @@ class PurchaseOrderImporter(EpicorBaqImporter):
                 supplier_name   = r.get("Vendor_Name") or None,
                 imported_at     = now,
             ))
+            if i % 500 == 499:
+                db.session.flush()
+                db.session.expunge_all()
 
         batch.rows_inserted = len(records)
 
@@ -247,6 +253,7 @@ class MaterialRequirementsImporter(EpicorBaqImporter):
         db.session.flush()
 
         seen: set[tuple] = set()
+        added = 0
         for r in records:
             # Deduplicate on the natural key — the BAQ can return duplicate rows.
             key = (
@@ -291,6 +298,10 @@ class MaterialRequirementsImporter(EpicorBaqImporter):
                 class_id           = r.get("Part_ClassID") or None,
                 imported_at        = now,
             ))
+            added += 1
+            if added % 500 == 0:
+                db.session.flush()
+                db.session.expunge_all()
 
         batch.rows_inserted = len(records)
 
@@ -359,6 +370,7 @@ class ComponentRequirementsImporter(EpicorBaqImporter):
         db.session.flush()
 
         seen: set[tuple] = set()
+        added = 0
         for r in records:
             key = (
                 r.get("JobHead_JobNum"),
@@ -402,6 +414,10 @@ class ComponentRequirementsImporter(EpicorBaqImporter):
                 class_id           = r.get("Part_ClassID") or None,
                 imported_at        = now,
             ))
+            added += 1
+            if added % 500 == 0:
+                db.session.flush()
+                db.session.expunge_all()
 
         batch.rows_inserted = len(records)
 
@@ -479,6 +495,7 @@ class WorksOrderImporter(EpicorBaqImporter):
 
         seen: set = set()
         skipped = 0
+        added = 0
         for r in records:
             key = (r.get("JobHead_JobNum"), r.get("JobAsmbl_AssemblySeq"))
             if key in seen:
@@ -571,6 +588,10 @@ class WorksOrderImporter(EpicorBaqImporter):
                 mtl_shortage  = _bool(r.get("JobHead_MtlShortage_c")),
                 imported_at   = now,
             ))
+            added += 1
+            if added % 500 == 0:
+                db.session.flush()
+                db.session.expunge_all()
 
         batch.rows_inserted = len(records) - skipped
         if skipped:
@@ -724,6 +745,7 @@ class SalesOrderOpenImporter(EpicorBaqImporter):
 
         seen: set = set()
         skipped = 0
+        added = 0
         for r in records:
             key = (
                 r.get("OrderHed_OrderNum"),
@@ -737,6 +759,10 @@ class SalesOrderOpenImporter(EpicorBaqImporter):
                 continue
             seen.add(key)
             db.session.add(_build_sales_order(r, _date, _dec, _bool, now))
+            added += 1
+            if added % 500 == 0:
+                db.session.flush()
+                db.session.expunge_all()
 
         batch.rows_inserted = len(records) - skipped
         batch.notes = f"Deleted {deleted} stale open rows; {skipped} duplicates skipped"
@@ -861,6 +887,7 @@ class SalesOrderClosedImporter(EpicorBaqImporter):
 
         seen: set = set()
         skipped = 0
+        added = 0
         for r in records:
             key = (
                 r.get("OrderHed_OrderNum"),
@@ -874,6 +901,14 @@ class SalesOrderClosedImporter(EpicorBaqImporter):
                 continue
             seen.add(key)
             db.session.add(_build_sales_order(r, _date, _dec, _bool, now))
+            added += 1
+            if added % 500 == 0:
+                db.session.flush()
+                db.session.expunge_all()
+            added += 1
+            if added % 500 == 0:
+                db.session.flush()
+                db.session.expunge_all()
 
         batch.rows_inserted = len(records) - skipped
         if skipped:
@@ -1058,6 +1093,9 @@ class ProductionOutputImporter(EpicorBaqImporter):
                 imported_at  = now,
             ))
             inserted += 1
+            if inserted % 500 == 0:
+                db.session.flush()
+                db.session.expunge_all()
 
         batch.rows_inserted = inserted
         batch.notes = (

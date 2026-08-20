@@ -1,5 +1,5 @@
 /**
- * Tetrad Factory Dashboards — Application JavaScript
+ * Factory Dashboards — Application JavaScript
  *
  * Responsibilities:
  *  1. Dark/light theme toggle with localStorage persistence.

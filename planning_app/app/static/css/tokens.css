@@ -1,5 +1,5 @@
 /*
- * Tetrad Factory Dashboards — Design Tokens
+ * Factory Dashboards — Design Tokens
  *
  * Single source of truth for all colours and theme-sensitive values.
  * Every value in components.css and theme.css must reference a --ph-* token.
