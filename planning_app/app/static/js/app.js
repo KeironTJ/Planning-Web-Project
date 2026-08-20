@@ -4,9 +4,11 @@
  * Responsibilities:
  *  1. Dark/light theme toggle with localStorage persistence.
  *  2. Bootstrap tooltip initialisation.
- *  3. CSRF header injection for fetch() calls.
- *  4. Auto-dismiss alerts after a timeout.
- *  5. Confirm-before-submit for destructive forms.
+ *  3. Auto-dismiss alerts after a timeout.
+ *  4. Numeric input formatting.
+ *  5. UTC → browser-local time formatting (fmtIso).
+ *
+ * CSRF fetch wrapper lives in api.js (loaded before this file).
  */
 
 'use strict';
@@ -56,34 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // -----------------------------------------------------------------------
-// 3. CSRF token injection for fetch()
-// -----------------------------------------------------------------------
-
-/**
- * Read the CSRF token from the <meta> tag and attach it to all non-GET
- * fetch requests automatically.  Use this wrapper instead of raw fetch().
- *
- * @param {string} url
- * @param {RequestInit} options
- */
-function planningFetch(url, options = {}) {
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-    const method = (options.method || 'GET').toUpperCase();
-    if (csrfToken && method !== 'GET' && method !== 'HEAD') {
-        options.headers = {
-            'X-CSRFToken': csrfToken,
-            'Content-Type': 'application/json',
-            ...options.headers,
-        };
-    }
-    return fetch(url, options);
-}
-
-// Expose globally so inline scripts can use it
-window.planningFetch = planningFetch;
-
-// -----------------------------------------------------------------------
-// 4. Auto-dismiss alerts
+// 3. Auto-dismiss alerts
 // -----------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -97,11 +72,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // -----------------------------------------------------------------------
-// 5. Numeric input formatting (comma-separated display)
+// 4. Numeric input formatting (comma-separated display)
 // -----------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Add class "num-format" to inputs to get live comma formatting on blur
     document.querySelectorAll('input.num-format').forEach(input => {
         input.addEventListener('blur', () => {
             const val = parseFloat(input.value.replace(/,/g, ''));
@@ -109,5 +83,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 input.value = val.toLocaleString();
             }
         });
+    });
+});
+
+// -----------------------------------------------------------------------
+// 5. UTC → browser-local time formatting
+// -----------------------------------------------------------------------
+
+/**
+ * Format an ISO-8601 timestamp into a human-readable local-time string.
+ * Appends 'Z' if the string has no timezone suffix so the browser treats
+ * it as UTC rather than local time.
+ *
+ * @param {string} iso  - ISO-8601 string (with or without timezone)
+ * @param {string} fmt  - 'date-only' | 'datetime-year' | '' (default: date + time)
+ * @returns {string}
+ */
+function fmtIso(iso, fmt) {
+    if (!iso) return '';
+    const normalised = /Z$|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z';
+    const d = new Date(normalised);
+    if (isNaN(d)) return iso;
+    const pad = n => String(n).padStart(2, '0');
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const date = `${pad(d.getDate())} ${months[d.getMonth()]}`;
+    const year = d.getFullYear();
+    if (fmt === 'date-only') return `${date} ${year}`;
+    if (fmt === 'datetime-year') return `${date} ${year} ${time}`;
+    return `${date} ${time}`;
+}
+
+// Apply to every <time class="fmt-utc" data-utc="..."> element on the page.
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('time.fmt-utc[data-utc]').forEach(el => {
+        el.textContent = fmtIso(el.dataset.utc, el.dataset.fmt);
     });
 });

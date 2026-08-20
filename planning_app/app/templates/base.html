@@ -20,6 +20,7 @@
     <!-- App CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
     {% block extra_css %}{% endblock %}
 </head>
@@ -64,31 +65,10 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
             integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
             crossorigin="anonymous" defer></script>
-    <!-- App JS -->
+    <!-- App JS: api.js must load before app.js so planningFetch is defined first -->
+    <script src="{{ url_for('static', filename='js/api.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
-    <!-- UTC → browser-local time conversion (runs on every page) -->
-    <script>
-    function fmtIso(iso, includeDate) {
-      if (!iso) return '';
-      const normalised = /Z$|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z';
-      const d = new Date(normalised);
-      if (isNaN(d)) return iso;
-      const pad = n => String(n).padStart(2, '0');
-      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-      const date = `${pad(d.getDate())} ${months[d.getMonth()]}`;
-      const year = d.getFullYear();
-      if (includeDate === 'date-only') return `${date} ${year}`;
-      if (includeDate === 'datetime-year') return `${date} ${year} ${time}`;
-      return `${date} ${time}`;
-    }
-    document.addEventListener('DOMContentLoaded', () => {
-      document.querySelectorAll('time.fmt-utc[data-utc]').forEach(el => {
-        el.textContent = fmtIso(el.dataset.utc, el.dataset.fmt);
-      });
-    });
-    </script>
-    {% block extra_js %}{% endblock %}
+    {% block scripts %}{% endblock %}
 
 </body>
 </html>

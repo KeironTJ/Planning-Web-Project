@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}{{ title }}{% endblock %}
 
 {% block page_actions %}
@@ -13,9 +13,9 @@
 {% block content %}
 <div class="container-fluid py-3">
 
-{# ═══════════════════════════════════════════════════════════════════════════
+{# ---------------------------------------------------------------------------
    KPI Banner
-═══════════════════════════════════════════════════════════════════════════ #}
+--------------------------------------------------------------------------- #}
 {% macro fmt_val(v) %}{% if v >= 1000000 %}£{{ "%.2f"|format(v/1000000) }}m{% elif v >= 1000 %}£{{ "%.0f"|format(v/1000) }}k{% else %}£{{ "%.0f"|format(v) }}{% endif %}{% endmacro %}
 
 <div class="row g-3 mb-2">
@@ -68,9 +68,9 @@
   {% endif %}
 </div>
 
-{# ═══════════════════════════════════════════════════════════════════════════
+{# ---------------------------------------------------------------------------
    SECTION 1 — FORWARD DEMAND
-═══════════════════════════════════════════════════════════════════════════ #}
+--------------------------------------------------------------------------- #}
 <div class="d-flex align-items-center mt-4 mb-3">
   <span class="text-uppercase fw-semibold small text-primary me-3" style="white-space:nowrap">Forward Demand</span>
   <hr class="flex-grow-1 my-0 opacity-25">
@@ -135,9 +135,9 @@
 </div>
 {% endif %}
 
-{# ═══════════════════════════════════════════════════════════════════════════
+{# ---------------------------------------------------------------------------
    SECTION 2 — ORDER INTAKE
-═══════════════════════════════════════════════════════════════════════════ #}
+--------------------------------------------------------------------------- #}
 <div class="d-flex align-items-center mt-4 mb-3">
   <span class="text-uppercase fw-semibold small text-success me-3" style="white-space:nowrap">Order Intake</span>
   <hr class="flex-grow-1 my-0 opacity-25">
@@ -169,9 +169,9 @@
   </div>
 </div>
 
-{# ═══════════════════════════════════════════════════════════════════════════
+{# ---------------------------------------------------------------------------
    SECTION 3 — CUSTOMERS
-═══════════════════════════════════════════════════════════════════════════ #}
+--------------------------------------------------------------------------- #}
 <div class="d-flex align-items-center mt-4 mb-3">
   <span class="text-uppercase fw-semibold small text-info me-3" style="white-space:nowrap">Customers</span>
   <hr class="flex-grow-1 my-0 opacity-25">
@@ -260,9 +260,9 @@
   {% endif %}
 </div>
 
-{# ═══════════════════════════════════════════════════════════════════════════
+{# ---------------------------------------------------------------------------
    SECTION 4 — PRODUCTS
-═══════════════════════════════════════════════════════════════════════════ #}
+--------------------------------------------------------------------------- #}
 <div class="d-flex align-items-center mt-4 mb-3">
   <span class="text-uppercase fw-semibold small text-warning me-3" style="white-space:nowrap">Products</span>
   <hr class="flex-grow-1 my-0 opacity-25">
@@ -339,7 +339,7 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
+{% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
 // Colour palette
@@ -351,7 +351,7 @@ const PALETTE = [
   'rgba(70,130,180,.75)','rgba(240,128,128,.75)','rgba(144,238,144,.75)',
 ];
 
-// ── Due by week bar ──────────────────────────────────────────────────────────
+// -- Due by week bar ----------------------------------------------------------
 const WEEK_LABELS  = {{ due_by_week.labels  | tojson }};
 const WEEK_AMOUNTS = {{ due_by_week.amounts | tojson }};
 const WEEK_UNITS   = {{ due_by_week.units   | tojson }};
@@ -385,7 +385,7 @@ document.getElementById('btnWeeklyUnits').addEventListener('click', function () 
   document.getElementById('btnWeeklyValue').classList.remove('active');
 });
 
-// ── Order intake over time (by year) ─────────────────────────────────────────
+// -- Order intake over time (by year) -----------------------------------------
 const INTAKE_BY_YEAR = {{ intake_over_time.by_year | tojson }};
 const INTAKE_MONTHS  = {{ intake_over_time.month_labels | tojson }};
 let intakeYear = '{{ intake_over_time.current_year }}';
@@ -458,7 +458,7 @@ document.getElementById('btnIntakeAvg').addEventListener('click', function () {
   intakeRefresh();
 });
 
-// ── By customer horizontal bar (fixed: CUST_ constants + toggle) ────────────
+// -- By customer horizontal bar (fixed: CUST_ constants + toggle) ------------
 const CUST_LABELS = {{ value_by_customer | map(attribute='customer') | list | tojson }};
 const CUST_VALUES = {{ value_by_customer | map(attribute='value')    | list | tojson }};
 const CUST_UNITS  = {{ value_by_customer | map(attribute='units')    | list | tojson }};
@@ -491,7 +491,7 @@ document.getElementById('btnCustomerUnits').addEventListener('click', function (
   document.getElementById('btnCustomerValue').classList.remove('active');
 });
 
-// ── Customer group bar ───────────────────────────────────────────────────────
+// -- Customer group bar -------------------------------------------------------
 const CG_LABELS = {{ by_customer_group | map(attribute='group') | list | tojson }};
 const CG_VALUES = {{ by_customer_group | map(attribute='value') | list | tojson }};
 const CG_UNITS  = {{ by_customer_group | map(attribute='units') | list | tojson }};
@@ -524,7 +524,7 @@ document.getElementById('btnCustGrpUnits').addEventListener('click', function ()
   document.getElementById('btnCustGrpValue').classList.remove('active');
 });
 
-// ── By country horizontal bar ────────────────────────────────────────────────
+// -- By country horizontal bar ------------------------------------------------
 const COUNTRY_LABELS = {{ by_country | map(attribute='country') | list | tojson }};
 const COUNTRY_VALUES = {{ by_country | map(attribute='value')   | list | tojson }};
 const COUNTRY_UNITS  = {{ by_country | map(attribute='units')   | list | tojson }};
@@ -557,7 +557,7 @@ document.getElementById('btnCountryUnits').addEventListener('click', function ()
   document.getElementById('btnCountryValue').classList.remove('active');
 });
 
-// ── Product group doughnut ───────────────────────────────────────────────────
+// -- Product group doughnut ---------------------------------------------------
 const PG_LABELS = {{ by_product_group | map(attribute='group') | list | tojson }};
 const PG_VALUES = {{ by_product_group | map(attribute='value') | list | tojson }};
 const PG_UNITS  = {{ by_product_group | map(attribute='units') | list | tojson }};
@@ -590,7 +590,7 @@ document.getElementById('btnPGUnits').addEventListener('click', function () {
   document.getElementById('btnPGValue').classList.remove('active');
 });
 
-// ── Top models horizontal bar ────────────────────────────────────────────────
+// -- Top models horizontal bar ------------------------------------------------
 const MODELS_LABELS = {{ by_model | map(attribute='model') | list | tojson }};
 const MODELS_VALUES = {{ by_model | map(attribute='value') | list | tojson }};
 const MODELS_UNITS  = {{ by_model | map(attribute='units') | list | tojson }};
@@ -623,7 +623,7 @@ document.getElementById('btnModelsUnits').addEventListener('click', function () 
   document.getElementById('btnModelsValue').classList.remove('active');
 });
 
-// ── Order type doughnut ───────────────────────────────────────────────────────
+// -- Order type doughnut -------------------------------------------------------
 const OT_LABELS = {{ by_order_type | map(attribute='order_type') | list | tojson }};
 const OT_VALUES = {{ by_order_type | map(attribute='value')      | list | tojson }};
 const OT_UNITS  = {{ by_order_type | map(attribute='units')      | list | tojson }};
@@ -656,7 +656,7 @@ document.getElementById('btnOTUnits').addEventListener('click', function () {
   document.getElementById('btnOTValue').classList.remove('active');
 });
 
-// ── Lead time histogram ───────────────────────────────────────────────────────
+// -- Lead time histogram -------------------------------------------------------
 new Chart(document.getElementById('chartLeadTime'), {
   type: 'bar',
   data: {

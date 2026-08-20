@@ -1,0 +1,30 @@
+/*
+ * Factory Dashboards — Layout
+ *
+ * Page-level structural rules only: sidebar shell dimensions,
+ * sticky scroll container. No colours — all colour-sensitive values
+ * come from tokens.css.
+ *
+ * Load order in base.html:
+ *   1. Bootstrap CSS (CDN)
+ *   2. Bootstrap Icons (CDN)
+ *   3. tokens.css    ← design tokens
+ *   4. theme.css     ← typography, component sizing
+ *   5. layout.css    ← this file — page structure
+ *   6. components.css ← component rules
+ */
+
+/* ---- Sidebar shell ---- */
+
+/* Push sidebar below the fixed navbar (56px tall). */
+.sidebar {
+    min-height: calc(100vh - 56px);
+    padding-top: 0.5rem;
+}
+
+/* Scrollable inner container; 72px accounts for navbar + breathing room. */
+.sidebar-sticky {
+    height: calc(100vh - 72px);
+    overflow-x: hidden;
+    overflow-y: auto;
+}

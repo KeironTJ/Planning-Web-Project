@@ -8,27 +8,16 @@
  * Load order in base templates:
  *   1. Bootstrap CSS (CDN)
  *   2. Bootstrap Icons (CDN)
- *   3. tokens.css   ← design tokens
- *   4. theme.css    ← layout / typography  (this file)
- *   5. components.css ← component rules
+ *   3. tokens.css    ← design tokens
+ *   4. theme.css     ← typography / component sizing  (this file)
+ *   5. layout.css    ← page structure
+ *   6. components.css ← component rules
  */
 
-/* ---- Layout ---- */
+/* ---- Typography ---- */
 
 body {
     font-size: 0.9rem;
-}
-
-/* Push main content below fixed navbar */
-.sidebar {
-    min-height: calc(100vh - 56px);
-    padding-top: 0.5rem;
-}
-
-.sidebar-sticky {
-    height: calc(100vh - 72px);
-    overflow-x: hidden;
-    overflow-y: auto;
 }
 
 .sidebar .nav-link {
