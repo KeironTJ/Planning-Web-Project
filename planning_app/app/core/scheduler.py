@@ -151,12 +151,14 @@ def run_due_jobs(app) -> None:
 
                             try:
                                 batch = REGISTRY[key](client).run(params=_resolve_item_params(item))
+                                db.session.add(item)
                                 item.last_status    = SyncJobItem.STATUS_SUCCESS
                                 item.last_row_count = batch.row_count
                                 item.last_error     = None
                                 item_statuses.append("success")
                                 logger.info("Scheduler: job %d item %r → %d rows", job.id, key, batch.row_count)
                             except Exception as exc:
+                                db.session.add(item)
                                 item.last_status = SyncJobItem.STATUS_FAILED
                                 item.last_error  = str(exc)
                                 item_statuses.append("failed")
@@ -172,6 +174,7 @@ def run_due_jobs(app) -> None:
                                     logger.exception("Scheduler: failed to save item result for %r in job %d", key, job.id)
 
                     # Derive overall job status from items
+                    db.session.add(job)
                     if not item_statuses or all(s == "success" for s in item_statuses):
                         job.last_status = SyncJob.STATUS_SUCCESS
                     elif all(s == "failed" for s in item_statuses):
@@ -180,9 +183,11 @@ def run_due_jobs(app) -> None:
                         job.last_status = SyncJob.STATUS_PARTIAL
 
                 except Exception as exc:
+                    db.session.add(job)
                     job.last_status = SyncJob.STATUS_FAILED
                     logger.exception("Scheduler: job %d %r crashed: %s", job.id, job.name, exc)
                 finally:
+                    db.session.add(job)
                     job.is_running  = False
                     job.last_run_at = datetime.now(timezone.utc)
                     try:

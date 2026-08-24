@@ -331,11 +331,13 @@ def sync_job_run_now(job_id: int):
                         triggered_by_id=current_user.id,
                         params=_resolve_item_params(item),
                     )
+                    db.session.add(item)
                     item.last_status    = SyncJobItem.STATUS_SUCCESS
                     item.last_row_count = batch.row_count
                     item.last_error     = None
                     item_results.append({"key": key, "row_count": batch.row_count, "status": "success"})
                 except Exception as exc:
+                    db.session.add(item)
                     item.last_status = SyncJobItem.STATUS_FAILED
                     item.last_error  = str(exc)
                     item_results.append({"key": key, "row_count": 0, "status": "failed", "error": str(exc)})
@@ -344,6 +346,7 @@ def sync_job_run_now(job_id: int):
 
         all_ok     = all(r["status"] == "success" for r in item_results)
         any_ok     = any(r["status"] == "success" for r in item_results)
+        db.session.add(job)
         job.last_status   = SyncJob.STATUS_SUCCESS if all_ok else (SyncJob.STATUS_PARTIAL if any_ok else SyncJob.STATUS_FAILED)
         job.last_run_at   = datetime.now(timezone.utc)
         if job.enabled:
@@ -490,6 +493,7 @@ def sync_job_item_run_one(job_id: int, item_id: int):
                 triggered_by_id=current_user.id,
                 params=_resolve_item_params(item),
             )
+        db.session.add(item)
         item.last_status    = SyncJobItem.STATUS_SUCCESS
         item.last_row_count = batch.row_count
         item.last_error     = None
@@ -501,6 +505,7 @@ def sync_job_item_run_one(job_id: int, item_id: int):
             "rows_inserted": batch.rows_inserted,
         })
     except Exception as exc:
+        db.session.add(item)
         item.last_status = SyncJobItem.STATUS_FAILED
         item.last_error  = str(exc)
         item.last_run_at = datetime.now(timezone.utc)
