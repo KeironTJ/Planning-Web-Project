@@ -1,16 +1,16 @@
 {% extends 'base.html' %}
 {% block title %}{{ title }}{% endblock %}
 
-{% block content %}
-
-<!-- Page header -->
-<div class="d-flex align-items-center mb-4 gap-3">
-    {% if mat_summary.last_sync %}
-    <div class="ms-auto text-muted small text-end">
-        <i class="bi bi-arrow-repeat me-1"></i>Last synced: <strong>{{ mat_summary.last_sync.uploaded_at | utcfmt('datetime-year') }}</strong>
-    </div>
-    {% endif %}
+{% block page_actions %}
+<div class="d-flex align-items-center gap-2">
+    {% if mat_summary.last_sync %}<span class="text-muted small">Last sync {{ mat_summary.last_sync.uploaded_at | utcfmt('datetime-year') }}</span>{% endif %}
+    <a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-repeat me-1"></i>Sync Data
+    </a>
 </div>
+{% endblock %}
+
+{% block content %}
 
 <!-- Section 1: Procurement health KPIs -->
 <div class="row g-3 mb-4">

@@ -1,15 +1,14 @@
 {% extends 'base.html' %}
-{% set page_title = 'Material Availability' %}
+{% block page_actions %}
+<div class="d-flex align-items-center gap-2">
+    {% if summary.last_sync %}<span class="text-muted small">Last sync {{ summary.last_sync.uploaded_at | utcfmt('datetime-year') }}</span>{% endif %}
+    <a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-repeat me-1"></i>Sync Data
+    </a>
+</div>
+{% endblock %}
 
 {% block content %}
-<!-- Page header -->
-<div class="d-flex align-items-center mb-4 gap-3">
-    {% if summary.last_sync %}
-    <div class="ms-auto text-muted small text-end">
-        <i class="bi bi-arrow-repeat me-1"></i>Last synced: <strong>{{ summary.last_sync.uploaded_at | utcfmt('datetime-year') }}</strong>
-    </div>
-    {% endif %}
-</div>
 <!-- SO Coverage cards -->
 {% if so_breakdown.has_data %}
 {% set _tc = so_breakdown.total_count %}

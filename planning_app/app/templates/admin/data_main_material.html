@@ -1,13 +1,16 @@
 {% extends 'base.html' %}
+{% block page_actions %}
+<div class="d-flex align-items-center gap-2">
+    {% if last_imported %}<span class="text-muted small">Last sync {{ last_imported | utcfmt('datetime-year') }}</span>{% endif %}
+    <a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-repeat me-1"></i>Sync Data
+    </a>
+</div>
+{% endblock %}
 {% block content %}
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <div>
-        <span class="text-muted small">{{ total }} records</span>
-        {% if last_imported %}
-        <span class="text-muted small ms-2">— last imported {{ last_imported.strftime('%d %b %Y %H:%M') }}</span>
-        {% endif %}
-    </div>
+    <span class="text-muted small">{{ total }} records</span>
     <div class="d-flex gap-2">
         <a href="{{ url_for('materials.stock_list') }}" class="btn btn-sm btn-outline-secondary">Stock</a>
         <a href="{{ url_for('materials.po_list') }}" class="btn btn-sm btn-outline-secondary">Open POs</a>

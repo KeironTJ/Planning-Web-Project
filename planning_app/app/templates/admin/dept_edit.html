@@ -1,14 +1,15 @@
 {% extends 'base.html' %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('admin.dept_list') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Departments
+</a>
+{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-lg-6">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4 class="mb-0">{{ dept.name }}</h4>
-            <a href="{{ url_for('admin.dept_list') }}" class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-arrow-left me-1"></i>Back
-            </a>
-        </div>
 
         <!-- Target hours form -->
         <div class="card border-0 shadow-sm mb-3">

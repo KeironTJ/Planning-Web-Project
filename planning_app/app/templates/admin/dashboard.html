@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% block title %}{{ title }}{% endblock %}
 
 {% block content %}
 <!-- Stats row -->
@@ -66,7 +67,7 @@
                             <tr>
                                 <td><span class="badge text-bg-secondary">{{ b.import_type }}</span></td>
                                 <td class="text-muted small text-truncate" style="max-width:140px;">{{ b.filename }}</td>
-                                <td class="text-muted small">{{ b.uploaded_at.strftime('%d %b %H:%M') }}</td>
+                                <td class="text-muted small">{{ b.uploaded_at | utcfmt }}</td>
                                 <td>
                                     {% if b.status == 'success' %}
                                         <span class="badge text-bg-success">OK</span>
@@ -107,7 +108,7 @@
                         <tbody>
                             {% for log in recent_logs %}
                             <tr>
-                                <td class="text-muted small">{{ log.timestamp.strftime('%d %b %H:%M') }}</td>
+                                <td class="text-muted small">{{ log.timestamp | utcfmt }}</td>
                                 <td>{{ log.user.username if log.user else 'System' }}</td>
                                 <td><span class="badge text-bg-secondary">{{ log.action }}</span></td>
                             </tr>

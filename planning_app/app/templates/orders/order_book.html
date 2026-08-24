@@ -248,7 +248,7 @@
           <td class="text-end text-nowrap">
             {% if o.comment_count %}
             <span class="badge bg-light text-dark border small"
-                  title="{{ o.latest_comment }}{% if o.latest_user %} — {{ o.latest_user }}{% endif %}{% if o.latest_at %} ({{ o.latest_at.strftime('%d %b %Y') }}){% endif %}">
+                  title="{{ o.latest_comment }}{% if o.latest_user %} — {{ o.latest_user }}{% endif %}{% if o.latest_at %} ({{ o.latest_at }}){% endif %}">
               <i class="bi bi-chat-left-text me-1 text-info"></i>{{ o.comment_count }}
             </span>
             {% endif %}

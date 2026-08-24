@@ -1,4 +1,10 @@
 {% extends 'base.html' %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_title %}
+Loading Bay — Current State
+<small class="text-muted fs-6 fw-normal ms-2">Finished goods staged by physical bin location &mdash; {{ today.strftime('%d %B %Y') }}</small>
+{% endblock %}
 
 {% block page_actions %}
 <a href="{{ url_for('transport.loading_bay') }}" class="btn btn-sm btn-outline-secondary no-print">
@@ -24,27 +30,6 @@
 {% endblock %}
 
 {% block content %}
-
-{# ── Header ───────────────────────────────────────────────────────── #}
-<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
-    <div class="d-flex align-items-center gap-3">
-        <div class="rounded-3 p-2 bg-primary bg-opacity-10 flex-shrink-0">
-            <i class="bi bi-geo-alt-fill fs-3 text-primary"></i>
-        </div>
-        <div>
-            <h5 class="mb-0 fw-semibold">Loading Bay — Current State</h5>
-            <p class="text-muted mb-0 small">
-                Finished goods staged by physical bin location
-                &mdash; {{ today.strftime('%d %B %Y') }}
-            </p>
-        </div>
-    </div>
-    <div class="d-flex gap-2 flex-wrap no-print">
-        <a href="{{ url_for('transport.loading_bay') }}" class="btn btn-sm btn-outline-success">
-            <i class="bi bi-graph-up-arrow me-1"></i>Shipping Value Report
-        </a>
-    </div>
-</div>
 
 {# ── KPI bar ──────────────────────────────────────────────────────── #}
 <div class="row g-3 mb-4">

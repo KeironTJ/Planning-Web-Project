@@ -273,12 +273,12 @@
                         <td class="small" style="max-width:220px;">
                             {% if o.latest_comment %}
                             <span class="text-body-secondary"
-                                  title="{{ o.latest_comment }} &mdash; {{ o.latest_user }}{% if o.latest_at %}, {{ o.latest_at.strftime('%d %b %Y') }}{% endif %}"
+                                  title="{{ o.latest_comment }} &mdash; {{ o.latest_user }}{% if o.latest_at %}, {{ o.latest_at }}{% endif %}"
                                   style="cursor:help;">
                                 <i class="bi bi-chat-left-text me-1 text-info"></i>{% if o.latest_comment | length > 55 %}{{ o.latest_comment[:55] }}&hellip;{% else %}{{ o.latest_comment }}{% endif %}
                             </span>
                             <div class="text-muted text-xxs">
-                                {{ o.latest_user }}{% if o.latest_at %} &middot; {{ o.latest_at.strftime('%d %b') }}{% endif %}
+                                {{ o.latest_user }}{% if o.latest_at %} &middot; {{ o.latest_at }}{% endif %}
                                 {% if o.comment_count > 1 %}
                                 <span class="badge text-bg-secondary text-xxs ms-1">{{ o.comment_count }}</span>
                                 {% endif %}

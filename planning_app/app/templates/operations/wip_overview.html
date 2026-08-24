@@ -3,16 +3,16 @@
 
 {% block page_title %}
 Operations WIP Overview
-<small class="text-muted fs-6 fw-normal ms-2">
-    Works in progress by section · ISO week
-    {% if last_imported %} · Last sync {{ last_imported.strftime('%d %b %Y %H:%M') }}{% endif %}
-</small>
+<small class="text-muted fs-6 fw-normal ms-2">Works in progress by section · ISO week</small>
 {% endblock %}
 
 {% block page_actions %}
-<a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-arrow-repeat me-1"></i>Sync Data
-</a>
+<div class="d-flex align-items-center gap-2">
+    {% if last_imported %}<span class="text-muted small">Last sync {{ last_imported | utcfmt('datetime-year') }}</span>{% endif %}
+    <a href="{{ url_for('admin.epicor_sync') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-repeat me-1"></i>Sync Data
+    </a>
+</div>
 {% endblock %}
 
 {% block content %}

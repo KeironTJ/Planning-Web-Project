@@ -53,7 +53,7 @@
                                     {{ item.exempted_by.username if item.exempted_by else '—' }}
                                 </td>
                                 <td class="text-center text-muted small">
-                                    {{ item.exempted_at.strftime('%d %b %Y') if item.exempted_at else '—' }}
+                                    {{ item.exempted_at | utcfmt('date-only') if item.exempted_at else '—' }}
                                 </td>
                                 <td class="text-end">
                                     <form method="POST"

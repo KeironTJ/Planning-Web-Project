@@ -1,28 +1,21 @@
 {% extends 'base.html' %}
 {% block title %}{{ title }}{% endblock %}
 
-{% block content %}
+{% block page_title %}
+{{ title }}
+<small class="text-muted fs-6 fw-normal ms-2">Outstanding and overdue purchase orders by supplier</small>
+{% endblock %}
 
-<!-- Header -->
-<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
-    <div class="d-flex align-items-center gap-3">
-        <div class="rounded-3 p-3 bg-warning bg-opacity-10">
-            <i class="bi bi-truck fs-2 text-warning"></i>
-        </div>
-        <div>
-            <h4 class="mb-0 fw-semibold">Supplier Delivery</h4>
-            <p class="text-muted mb-0 small">Outstanding and overdue purchase orders by supplier</p>
-        </div>
-    </div>
-    <div class="d-flex gap-2">
-        <a href="{{ url_for('materials.po_list') }}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-cart me-1"></i>All Open POs
-        </a>
-        <a href="{{ url_for('purchasing.overview') }}" class="btn btn-sm btn-outline-primary">
-            <i class="bi bi-speedometer2 me-1"></i>Overview
-        </a>
-    </div>
-</div>
+{% block page_actions %}
+<a href="{{ url_for('materials.po_list') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-cart me-1"></i>All Open POs
+</a>
+<a href="{{ url_for('purchasing.overview') }}" class="btn btn-sm btn-outline-primary">
+    <i class="bi bi-speedometer2 me-1"></i>Overview
+</a>
+{% endblock %}
+
+{% block content %}
 
 {% if data.has_data %}
 

@@ -18,7 +18,7 @@
             </div>
             <hr>
             <p class="text-muted small mb-0">
-                Last login: {{ current_user.last_login.strftime('%d %b %Y %H:%M') if current_user.last_login else 'Never' }}
+                Last login: {{ current_user.last_login | utcfmt if current_user.last_login else 'Never' }}
             </p>
         </div>
     </div>

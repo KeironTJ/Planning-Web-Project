@@ -1,12 +1,13 @@
 {% extends 'base.html' %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('admin.import_upload') }}" class="btn btn-primary btn-sm">
+    <i class="bi bi-upload me-1"></i>New Upload
+</a>
+{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">Import History</h4>
-    <a href="{{ url_for('admin.import_upload') }}" class="btn btn-primary btn-sm">
-        <i class="bi bi-upload me-1"></i>New Upload
-    </a>
-</div>
 
 <!-- Type filter -->
 <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
@@ -65,7 +66,7 @@
                         <td class="text-muted small">{{ b.id }}</td>
                         <td><span class="badge text-bg-secondary">{{ b.import_type }}</span></td>
                         <td class="text-muted small text-truncate" style="max-width:180px;">{{ b.filename or '—' }}</td>
-                        <td class="text-muted small">{{ b.uploaded_at.strftime('%d %b %Y %H:%M') }}</td>
+                        <td class="text-muted small">{{ b.uploaded_at | utcfmt('datetime-year') }}</td>
                         <td class="small">{{ b.uploaded_by.username if b.uploaded_by else 'CLI' }}</td>
                         <td class="text-end small">{{ b.row_count or '—' }}</td>
                         <td class="text-end small">{{ b.rows_inserted or '—' }}</td>

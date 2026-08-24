@@ -211,6 +211,8 @@ def po_list():
         due_before=due_before,
         page=page,
     )
+    from app.purchasing.materials.models import PurchaseOrder
+    last_po = PurchaseOrder.query.order_by(PurchaseOrder.imported_at.desc()).first()
     return render_template(
         "materials/po_list.html",
         title="Open Purchase Orders",
@@ -219,6 +221,7 @@ def po_list():
         due_from=due_from_s,
         due_before=due_before_s,
         today=today,
+        last_imported=last_po.imported_at if last_po else None,
     )
 
 

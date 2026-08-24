@@ -44,7 +44,7 @@
           <td class="fw-semibold small">{{ key }}</td>
           <td class="text-muted font-monospace small">{{ info.baq_name }}</td>
           <td class="text-muted small">
-            {% if batch %}{{ batch.uploaded_at.strftime('%d %b %Y %H:%M') }}
+            {% if batch %}{{ batch.uploaded_at | utcfmt('datetime-year') }}
             {% else %}<span class="text-muted">Never</span>{% endif %}
           </td>
           <td class="text-end small">{% if batch %}{{ batch.row_count }}{% else %}-{% endif %}</td>

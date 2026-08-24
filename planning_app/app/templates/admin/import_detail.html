@@ -1,17 +1,16 @@
 {% extends 'base.html' %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('admin.import_upload') }}" class="btn btn-primary btn-sm">
+    <i class="bi bi-upload me-1"></i>New Upload
+</a>
+<a href="{{ url_for('admin.import_list') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>History
+</a>
+{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">Import #{{ batch.id }}</h4>
-    <div class="d-flex gap-2">
-        <a href="{{ url_for('admin.import_upload') }}" class="btn btn-primary btn-sm">
-            <i class="bi bi-upload me-1"></i>New Upload
-        </a>
-        <a href="{{ url_for('admin.import_list') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left me-1"></i>History
-        </a>
-    </div>
-</div>
 
 <div class="row g-3">
     <div class="col-md-6">
@@ -26,7 +25,7 @@
                     <dd class="col-sm-8 text-muted small">{{ batch.filename or '—' }}</dd>
 
                     <dt class="col-sm-4">Uploaded</dt>
-                    <dd class="col-sm-8">{{ batch.uploaded_at.strftime('%d %b %Y %H:%M:%S') }}</dd>
+                    <dd class="col-sm-8">{{ batch.uploaded_at | utcfmt('datetime-year') }}</dd>
 
                     <dt class="col-sm-4">By</dt>
                     <dd class="col-sm-8">{{ batch.uploaded_by.username if batch.uploaded_by else 'CLI / System' }}</dd>
