@@ -43,42 +43,73 @@ Operations WIP Overview
 </div>
 
 <!-- ── Filter bar ──────────────────────────────────────────────── -->
-<form method="GET" class="d-flex flex-wrap align-items-center gap-2 mb-3">
-    <span class="text-muted small fw-semibold">Show:</span>
-    <div class="btn-group btn-group-sm" role="group" aria-label="Category toggle">
-        <button type="submit" name="category" value=""
-                class="btn btn-outline-secondary {{ 'active' if not category }}">All</button>
-        <button type="submit" name="category" value="models"
-                class="btn btn-outline-secondary {{ 'active' if category == 'models' }}">
-            <i class="bi bi-box me-1"></i>Models
-        </button>
-        <button type="submit" name="category" value="parts"
-                class="btn btn-outline-secondary {{ 'active' if category == 'parts' }}">
-            <i class="bi bi-puzzle me-1"></i>Parts / Scatters
-        </button>
-    </div>
-    <div class="vr mx-1"></div>
-    <div class="btn-group btn-group-sm" role="group" aria-label="Shortage filter">
-        <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=0, shortage_group='') }}"
-           class="btn {{ 'btn-secondary' if not shortages_only else 'btn-outline-secondary' }}">All</a>
-        {%- for _g, _gl in [('fabric','Fab. Issues'), ('component','Comp. Issues'), ('either','Any Issues')] %}
-        <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=1, shortage_group=_g) }}"
-           class="btn text-xs {{ 'btn-danger' if (shortages_only and shortage_group == _g) else 'btn-outline-danger' }}">{{ _gl }}</a>
-        {%- endfor %}
-        <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=1, shortage_group='no_shortage') }}"
-           class="btn text-xs {{ 'btn-success' if (shortages_only and shortage_group == 'no_shortage') else 'btn-outline-success' }}">No Shortage</a>
-    </div>
-    <div class="ms-1 d-flex align-items-center gap-2">
-        <input type="search" name="q" class="form-control form-control-sm" style="width:220px;"
-               placeholder="Job, customer, model…" value="{{ search }}">
-        <button type="submit" class="btn btn-primary btn-sm">Search</button>
-        {% if search or category or shortages_only %}
-        <a href="{{ url_for('operations.wip_overview') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
-        {% endif %}
+<form method="GET" class="mb-3">
+    <div class="card border-0 shadow-sm">
+        <div class="card-body py-2 px-3 d-flex flex-column gap-2">
+
+            <!-- Row 1: Category + Search -->
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="text-muted small fw-semibold" style="width:4.5rem;">Show</span>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Category toggle">
+                    <button type="submit" name="category" value=""
+                            class="btn btn-outline-secondary {{ 'active' if not category }}">All</button>
+                    <button type="submit" name="category" value="models"
+                            class="btn btn-outline-secondary {{ 'active' if category == 'models' }}">
+                        <i class="bi bi-box me-1"></i>Models
+                    </button>
+                    <button type="submit" name="category" value="parts"
+                            class="btn btn-outline-secondary {{ 'active' if category == 'parts' }}">
+                        <i class="bi bi-puzzle me-1"></i>Parts / Scatters
+                    </button>
+                </div>
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <input type="search" name="q" class="form-control form-control-sm" style="width:220px;"
+                           placeholder="Job, customer, model…" value="{{ search }}">
+                    <button type="submit" class="btn btn-primary btn-sm">Search</button>
+                    {% if search or category or shortages_only or dept_filter %}
+                    <a href="{{ url_for('operations.wip_overview') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Row 2: Shortage -->
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="text-muted small fw-semibold" style="width:4.5rem;">Shortage</span>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Shortage filter">
+                    <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=0, shortage_group='', dept=dept_filter) }}"
+                       class="btn {{ 'btn-secondary' if not shortages_only else 'btn-outline-secondary' }}">All</a>
+                    {%- for _g, _gl in [('fabric','Fab. Issues'), ('component','Comp. Issues'), ('either','Any Issues')] %}
+                    <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=1, shortage_group=_g, dept=dept_filter) }}"
+                       class="btn text-xs {{ 'btn-danger' if (shortages_only and shortage_group == _g) else 'btn-outline-danger' }}">{{ _gl }}</a>
+                    {%- endfor %}
+                    <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, shortages_only=1, shortage_group='no_shortage', dept=dept_filter) }}"
+                       class="btn text-xs {{ 'btn-success' if (shortages_only and shortage_group == 'no_shortage') else 'btn-outline-success' }}">No Shortage</a>
+                </div>
+            </div>
+
+            {% if all_depts %}
+            <!-- Row 3: Department -->
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="text-muted small fw-semibold" style="width:4.5rem;">Dept</span>
+                <div class="d-flex align-items-stretch gap-1">
+                    <button type="submit" name="dept" value=""
+                            class="btn btn-sm btn-outline-secondary align-self-stretch {{ 'active' if not dept_filter }}">All</button>
+                    <div class="d-flex flex-wrap gap-1" role="group" aria-label="Department filter">
+                        {% for d in visible_depts %}
+                        <button type="submit" name="dept" value="{{ d.name }}"
+                                class="btn btn-sm btn-outline-secondary {{ 'active' if dept_filter == d.name }}">{{ d.name }}</button>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+        </div>
     </div>
     <input type="hidden" name="per_page" value="{{ per_page }}">
     <input type="hidden" name="shortages_only" value="{{ '1' if shortages_only else '0' }}">
     <input type="hidden" name="shortage_group" value="{{ shortage_group }}">
+    <input type="hidden" name="dept" value="{{ dept_filter }}">
 </form>
 
 {% if shortages_only %}
@@ -86,7 +117,7 @@ Operations WIP Overview
 <div class="alert alert-success py-2 mb-3 d-flex align-items-center gap-2">
     <i class="bi bi-check-circle-fill flex-shrink-0"></i>
     <span>Showing jobs on orders with <strong>no confirmed material or component shortages</strong>.</span>
-    <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page) }}"
+    <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, dept=dept_filter) }}"
        class="btn btn-sm btn-outline-success ms-auto py-0">Show all jobs</a>
 </div>
 {%- else %}
@@ -95,7 +126,7 @@ Operations WIP Overview
 <div class="alert alert-danger py-2 mb-3 d-flex align-items-center gap-2">
     <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
     <span>Showing <strong>{{ _active_shortages }}</strong> job{{ 's' if _active_shortages != 1 }} with non-OK {{ _group_label }} material status.</span>
-    <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page) }}"
+    <a href="{{ url_for('operations.wip_overview', category=category, q=search, per_page=per_page, dept=dept_filter) }}"
        class="btn btn-sm btn-outline-danger ms-auto py-0">Show all jobs</a>
 </div>
 {%- endif %}
@@ -106,7 +137,7 @@ Operations WIP Overview
 <!-- ── WIP chart ──────────────────────────────────────────────────── -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-header bg-transparent border-0 pb-0">
-        <h6 class="mb-0 fw-semibold">WIP by Week</h6>
+        <h6 class="mb-0 fw-semibold">Work in Progress by Sequence Chart</h6>
         <p class="text-muted small mb-0">Released orders
             {%- if category == 'models' %} · Models only
             {%- elif category == 'parts' %} · Parts &amp; Scatters only
@@ -120,7 +151,7 @@ Operations WIP Overview
 <!-- ── WIP pivot table ────────────────────────────────────────────── -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-header bg-transparent border-0 pb-0">
-        <h6 class="mb-0 fw-semibold">Section × Week Breakdown</h6>
+        <h6 class="mb-0 fw-semibold">Work in Progress by Sequence Table</h6>
         <p class="text-muted small mb-0">Units (jobs) waiting at each section per planned week</p>
     </div>
     <div class="card-body p-0">

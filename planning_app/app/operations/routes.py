@@ -35,6 +35,18 @@ def wip_overview():
     # WIP overview shows released orders only.
     category = request.args.get('category', 'models').strip().lower()
     shortages_only = request.args.get('shortages_only', '0') == '1'
+    dept_filter = request.args.get('dept', '').strip()
+
+    _all_depts_for_filter = DeptModel.query.order_by(DeptModel.flow_order.asc().nullslast(), DeptModel.name).all()
+    # Build set of next_op values that match the selected department.
+    _dept_next_ops: set[str] = set()
+    if dept_filter:
+        for d in _all_depts_for_filter:
+            if d.name == dept_filter:
+                if d.op_code:
+                    _dept_next_ops.add(d.op_code.upper())
+                _dept_next_ops.add(d.name.upper())
+
     _is_model  = db.and_(
         WorksOrder.model.isnot(None),
         WorksOrder.model != '',
@@ -59,13 +71,36 @@ def wip_overview():
             WorksOrder.model.ilike(term),
         ),)
 
+    _dept_filter_clause = (
+        (db.func.upper(WorksOrder.next_op).in_(_dept_next_ops),)
+        if _dept_next_ops else ()
+    )
+
     _base = (
         WorksOrder.assembly_seq == 0,
         WorksOrder.job_released == True,
         db.or_(WorksOrder.job_complete == False, WorksOrder.job_complete.is_(None)),
         WorksOrder.next_op.isnot(None),
         WorksOrder.next_op != '',
+    ) + _cat_filter + _search_filters + _dept_filter_clause
+
+    # Distinct next_ops without dept filter — drives which dept buttons are shown.
+    _base_no_dept = (
+        WorksOrder.assembly_seq == 0,
+        WorksOrder.job_released == True,
+        db.or_(WorksOrder.job_complete == False, WorksOrder.job_complete.is_(None)),
+        WorksOrder.next_op.isnot(None),
+        WorksOrder.next_op != '',
     ) + _cat_filter + _search_filters
+    _active_ops = {
+        r.next_op.upper()
+        for r in db.session.query(WorksOrder.next_op).filter(*_base_no_dept).distinct().all()
+        if r.next_op
+    }
+    visible_depts = [
+        d for d in _all_depts_for_filter
+        if (d.op_code and d.op_code.upper() in _active_ops) or d.name.upper() in _active_ops
+    ]
 
     # ── Summary counts ────────────────────────────────────────────────
 
@@ -193,9 +228,8 @@ def wip_overview():
 
     # Departments ordered by production routing (flow_order).
     # Keyed by op_code (Epicor next_op) when set, falling back to name.
-    _all_depts = DeptModel.query.all()
     _flow: dict[str, int] = {}
-    for d in _all_depts:
+    for d in _all_depts_for_filter:
         order = d.flow_order or 9999
         if d.op_code:
             _flow[d.op_code.upper()] = order
@@ -288,6 +322,9 @@ def wip_overview():
         job_mat_map=job_mat_map,
         job_comp_map=job_comp_map,
         mat_status_meta=MAT_STATUS_META,
+        dept_filter=dept_filter,
+        all_depts=_all_depts_for_filter,
+        visible_depts=visible_depts,
     )
 
 @operations_bp.route('/wip/export')
