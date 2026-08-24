@@ -14,6 +14,9 @@ from .models import WorksOrder, ProductionOutput, WorksOrderComment
 from app.extensions import db
 from app.sales.orders.models import Department as DeptModel
 from app.admin.models import SystemSetting, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS
+from app.purchasing.materials.models import MaterialRequirementMain, MrpExemptMaterial
+from app.purchasing.materials.services.status import get_so_material_status, get_so_component_status, get_job_material_status, get_job_component_status
+from app.purchasing.materials.services.types import MAT_STATUS_META
 
 @operations_bp.route('/')
 @operations_bp.route('/dashboard')
@@ -65,8 +68,6 @@ def wip_overview():
     ) + _cat_filter + _search_filters
 
     # ── Summary counts ────────────────────────────────────────────────
-    from app.purchasing.materials.models import MaterialRequirementMain, MrpExemptMaterial
-    from app.purchasing.materials.services import get_so_material_status, get_so_component_status, get_job_material_status, get_job_component_status, MAT_STATUS_META
 
     total   = db.session.query(func.count(WorksOrder.id)).filter(*_base).scalar() or 0
     last    = WorksOrder.query.order_by(WorksOrder.imported_at.desc()).first()
@@ -346,7 +347,6 @@ def wip_export():
         WorksOrder.next_op.asc().nullslast(),
     ).all()
 
-    from app.purchasing.materials.services import get_so_material_status, get_so_component_status, get_job_material_status, get_job_component_status, MAT_STATUS_META
     _order_nums = [str(job.order_num) for job in rows if job.order_num]
     mat_status_map  = get_so_material_status(_order_nums)  if _order_nums else {}
     comp_status_map = get_so_component_status(_order_nums) if _order_nums else {}

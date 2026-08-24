@@ -404,11 +404,11 @@ def loading_bay():
 
     # ── Material shortage status for WIP orders ────────────────────────────
     try:
-        from app.purchasing.materials.services import (
+        from app.purchasing.materials.services.status import (
             get_so_material_status, get_job_material_status,
             get_so_component_status, get_job_component_status,
-            MAT_STATUS_META,
         )
+        from app.purchasing.materials.services.types import MAT_STATUS_META
         _PRIO = {"no_data": -1, "ok": 0, "low_risk": 1, "med_risk": 2, "high_risk": 3}
         _so_strs  = [str(o["order_num"]) for o in orders_list]
         _mat_map  = get_so_material_status(_so_strs) if _so_strs else {}

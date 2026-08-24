@@ -7,6 +7,8 @@ from flask_login import login_required
 
 from . import purchasing_bp
 from app.core.decorators import permission_required
+from app.purchasing.materials.services.dashboard import get_purchasing_dashboard, get_supplier_delivery, get_weekly_so_breakdown
+from app.purchasing.materials.services.stock import get_stock_overview, get_stock_summary
 
 
 @purchasing_bp.route("/")
@@ -21,11 +23,10 @@ def dashboard():
 @login_required
 @permission_required("view_purchasing", "view_materials")
 def overview():
-    from app.purchasing.materials import services
-    po_summary   = services.get_purchasing_dashboard(weeks_ahead=8)
-    mat_summary  = services.get_stock_summary()
-    so_breakdown = services.get_weekly_so_breakdown(weeks_ahead=12)
-    stock_overview = services.get_stock_overview()
+    po_summary     = get_purchasing_dashboard(weeks_ahead=8)
+    mat_summary    = get_stock_summary()
+    so_breakdown   = get_weekly_so_breakdown(weeks_ahead=12)
+    stock_overview = get_stock_overview()
     return render_template(
         "purchasing/overview.html",
         title="Procurement Dashboard",
@@ -42,8 +43,7 @@ def overview():
 @login_required
 @permission_required("view_purchasing", "view_materials")
 def supplier_delivery():
-    from app.purchasing.materials import services
-    data = services.get_supplier_delivery()
+    data = get_supplier_delivery()
     return render_template(
         "purchasing/supplier_delivery.html",
         title="Supplier Delivery",

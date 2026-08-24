@@ -6,7 +6,13 @@ from flask import render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 
 from . import materials_bp
-from . import services
+from .services.dashboard import get_weekly_availability_summary, get_weekly_so_breakdown
+from .services.exempt import add_exemptions, get_exempt_materials, remove_exemptions
+from .services.insights import get_shortage_insights
+from .services.netting import get_shortage_report
+from .services.pegging import get_mrp_pegging
+from .services.stock import get_po_list, get_stock_list, get_stock_overview, get_stock_summary
+from .services.types import MAT_STATUS_META
 from app.extensions import db
 from app.sales.orders.models import Department
 from app.core.decorators import permission_required
@@ -16,9 +22,9 @@ from app.core.decorators import permission_required
 @login_required
 @permission_required("view_materials")
 def index():
-    summary      = services.get_stock_summary()
-    weekly       = services.get_weekly_availability_summary(weeks_ahead=12)
-    so_breakdown = services.get_weekly_so_breakdown(weeks_ahead=12)
+    summary      = get_stock_summary()
+    weekly       = get_weekly_availability_summary(weeks_ahead=12)
+    so_breakdown = get_weekly_so_breakdown(weeks_ahead=12)
     return render_template(
         "materials/index.html",
         title="Fabric and Hide Availability",
@@ -56,7 +62,7 @@ def shortage():
             pass
 
     # Always fetch all rows so insights reflect the full picture
-    data = services.get_shortage_report(
+    data = get_shortage_report(
         source=source,
         dept_filter=dept_filter or None,
         search=search or None,
@@ -66,7 +72,7 @@ def shortage():
     )
 
     # Insights computed on all at-risk rows before display filtering
-    shortage_insights = services.get_shortage_insights(data["rows"])
+    shortage_insights = get_shortage_insights(data["rows"])
 
     # Filter display rows: all at-risk by default, or a specific status tier
     _AT_RISK = {"high_risk", "late_po", "med_risk", "low_risk"}
@@ -78,7 +84,6 @@ def shortage():
     data["total_rows"] = len(data["rows"])
 
     departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
-    from app.purchasing.materials.services import MAT_STATUS_META
 
     return render_template(
         "materials/shortage.html",
@@ -123,7 +128,7 @@ def component_shortage():
         except ValueError:
             pass
 
-    data = services.get_shortage_report(
+    data = get_shortage_report(
         material_group="component",
         dept_filter=dept_filter or None,
         search=search or None,
@@ -133,7 +138,7 @@ def component_shortage():
         due_from=due_from,
     )
 
-    shortage_insights = services.get_shortage_insights(data["rows"])
+    shortage_insights = get_shortage_insights(data["rows"])
 
     _AT_RISK = {"high_risk", "late_po", "med_risk", "low_risk"}
     _valid_filter = status_filter if status_filter in _AT_RISK else ""
@@ -144,7 +149,6 @@ def component_shortage():
     data["total_rows"] = len(data["rows"])
 
     departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
-    from app.purchasing.materials.services import MAT_STATUS_META
 
     return render_template(
         "materials/component_shortage.html",
@@ -169,8 +173,8 @@ def stock_list():
     search = request.args.get("q", "")
     class_filter = request.args.get("cls", "")
     page   = request.args.get("page", 1, type=int)
-    stock  = services.get_stock_list(search=search or None, page=page, class_filter=class_filter or None)
-    overview = services.get_stock_overview()
+    stock  = get_stock_list(search=search or None, page=page, class_filter=class_filter or None)
+    overview = get_stock_overview()
     return render_template(
         "materials/stock_list.html",
         title="Stock On Hand",
@@ -205,7 +209,7 @@ def po_list():
         except ValueError:
             pass
 
-    pos = services.get_po_list(
+    pos = get_po_list(
         search=search or None,
         due_from=due_from,
         due_before=due_before,
@@ -261,7 +265,7 @@ def main_requirements():
 @permission_required("manage_imports", "manage_purchasing")
 def exempt_materials():
     search = request.args.get("q", "").strip()
-    items = services.get_exempt_materials(search=search or None)
+    items = get_exempt_materials(search=search or None)
     return render_template(
         "materials/exempt_materials.html",
         title="MRP Exempt Materials",
@@ -281,7 +285,7 @@ def exempt_add():
     if not codes:
         flash("No material codes entered.", "warning")
         return redirect(url_for("materials.exempt_materials"))
-    result = services.add_exemptions(codes, reason=reason or None, user_id=current_user.id)
+    result = add_exemptions(codes, reason=reason or None, user_id=current_user.id)
     flash(
         f"{result['added']} material{'s' if result['added'] != 1 else ''} added to exempt list"
         + (f" ({result['skipped']} already exempt)" if result["skipped"] else "") + ".",
@@ -299,7 +303,7 @@ def exempt_remove_bulk():
     if not codes:
         flash("No material codes entered.", "warning")
         return redirect(url_for("materials.exempt_materials"))
-    deleted = services.remove_exemptions(codes)
+    deleted = remove_exemptions(codes)
     flash(
         f"{deleted} material{'s' if deleted != 1 else ''} removed from exempt list.",
         "success" if deleted else "info",
@@ -311,7 +315,7 @@ def exempt_remove_bulk():
 @login_required
 @permission_required("manage_imports", "manage_purchasing")
 def exempt_delete(code):
-    deleted = services.remove_exemptions([code])
+    deleted = remove_exemptions([code])
     if deleted:
         flash(f"{code} removed from exempt list.", "success")
     else:
@@ -325,8 +329,7 @@ def exempt_delete(code):
 def mrp():
     search    = request.args.get("q", "").strip()
     so_number = request.args.get("so", "").strip()
-    from app.purchasing.materials.services import MAT_STATUS_META
-    data = services.get_mrp_pegging(
+    data = get_mrp_pegging(
         search=search or None,
         so_number=so_number or None,
     )

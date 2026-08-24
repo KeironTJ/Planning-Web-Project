@@ -9,7 +9,7 @@ import pytest
 from datetime import date, timedelta
 from decimal import Decimal
 
-from app.purchasing.materials.services import _row_status
+from app.purchasing.materials.services.netting import _row_status
 from app.purchasing.materials.models import (
     MaterialRequirementMain,
     Stock,
@@ -88,7 +88,7 @@ def zero_lead_days(db):
 
 
 def run_report(**kwargs):
-    from app.purchasing.materials.services import get_shortage_report
+    from app.purchasing.materials.services.netting import get_shortage_report
     _db.session.commit()
     return get_shortage_report(material_group="fabric", shortages_only=False, **kwargs)
 
@@ -286,7 +286,7 @@ class TestSoMaterialStatus:
             yield
 
     def test_unknown_so_gives_no_data(self, db):
-        from app.purchasing.materials.services import get_so_material_status
+        from app.purchasing.materials.services.status import get_so_material_status
         _db.session.commit()
         assert get_so_material_status(["9999"])["9999"] == "no_data"
 
@@ -295,7 +295,7 @@ class TestSoMaterialStatus:
         make_req("FAB014", qty_for_order=30, so_number="5001", works_order="WO014")
         make_stock("FAB013", qty_on_hand=50)
         make_stock("FAB014", qty_on_hand=30)
-        from app.purchasing.materials.services import get_so_material_status
+        from app.purchasing.materials.services.status import get_so_material_status
         _db.session.commit()
         assert get_so_material_status(["5001"])["5001"] == "ok"
 
@@ -305,12 +305,12 @@ class TestSoMaterialStatus:
         make_req("FAB016", qty_for_order=50, so_number="6001", works_order="WO016")
         make_stock("FAB015", qty_on_hand=50)   # ok
         make_stock("FAB016", qty_on_hand=0)    # high_risk
-        from app.purchasing.materials.services import get_so_material_status
+        from app.purchasing.materials.services.status import get_so_material_status
         _db.session.commit()
         assert get_so_material_status(["6001"])["6001"] == "high_risk"
 
     def test_empty_list_returns_empty(self, db):
-        from app.purchasing.materials.services import get_so_material_status
+        from app.purchasing.materials.services.status import get_so_material_status
         assert get_so_material_status([]) == {}
 
 
@@ -322,31 +322,31 @@ class TestExemptions:
     """add_exemptions / remove_exemptions mutate the list used by netting."""
 
     def test_add_new_codes(self, db):
-        from app.purchasing.materials.services import add_exemptions, get_exempt_materials
+        from app.purchasing.materials.services.exempt import add_exemptions, get_exempt_materials
         result = add_exemptions(["EX001", "EX002"], reason="No PO raised", user_id=None)
         assert result == {"added": 2, "skipped": 0}
         codes = {m.material_code for m in get_exempt_materials()}
         assert "EX001" in codes and "EX002" in codes
 
     def test_add_duplicate_is_skipped(self, db):
-        from app.purchasing.materials.services import add_exemptions
+        from app.purchasing.materials.services.exempt import add_exemptions
         add_exemptions(["EX003"], reason="First", user_id=None)
         result = add_exemptions(["EX003"], reason="Second", user_id=None)
         assert result == {"added": 0, "skipped": 1}
 
     def test_add_normalises_to_uppercase(self, db):
-        from app.purchasing.materials.services import add_exemptions, get_exempt_materials
+        from app.purchasing.materials.services.exempt import add_exemptions, get_exempt_materials
         add_exemptions(["fab-lower"], reason=None, user_id=None)
         codes = {m.material_code for m in get_exempt_materials()}
         assert "FAB-LOWER" in codes
 
     def test_add_ignores_blank_entries(self, db):
-        from app.purchasing.materials.services import add_exemptions
+        from app.purchasing.materials.services.exempt import add_exemptions
         result = add_exemptions(["", "  ", "VALID01"], reason=None, user_id=None)
         assert result["added"] == 1
 
     def test_remove_existing_codes(self, db):
-        from app.purchasing.materials.services import add_exemptions, remove_exemptions, get_exempt_materials
+        from app.purchasing.materials.services.exempt import add_exemptions, remove_exemptions, get_exempt_materials
         add_exemptions(["REM001", "REM002"], reason=None, user_id=None)
         deleted = remove_exemptions(["REM001"])
         assert deleted == 1
@@ -354,7 +354,7 @@ class TestExemptions:
         assert "REM001" not in codes and "REM002" in codes
 
     def test_remove_nonexistent_returns_zero(self, db):
-        from app.purchasing.materials.services import remove_exemptions
+        from app.purchasing.materials.services.exempt import remove_exemptions
         assert remove_exemptions(["DOES_NOT_EXIST"]) == 0
 
     def test_exempted_code_excluded_from_netting(self, db, app, zero_lead_days):
@@ -362,7 +362,7 @@ class TestExemptions:
         with app.test_request_context():
             make_req("EXTEST01", qty_for_order=100)
             make_stock("EXTEST01", qty_on_hand=0)
-            from app.purchasing.materials.services import add_exemptions
+            from app.purchasing.materials.services.exempt import add_exemptions
             add_exemptions(["EXTEST01"], reason="Test", user_id=None)
             assert not [r for r in run_report()["rows"] if r.material_code == "EXTEST01"]
 
@@ -403,7 +403,7 @@ class TestShortageFilters:
         make_stock("FAB105", qty_on_hand=100)   # fully covered -> ok
         make_req("FAB106", qty_for_order=50, works_order="WO106")
         make_stock("FAB106", qty_on_hand=0)    # uncovered -> high_risk
-        from app.purchasing.materials.services import get_shortage_report
+        from app.purchasing.materials.services.netting import get_shortage_report
         _db.session.commit()
         shortages = get_shortage_report(material_group="fabric", shortages_only=True)["rows"]
         codes = {r.material_code for r in shortages}

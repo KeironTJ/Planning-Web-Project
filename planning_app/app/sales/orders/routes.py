@@ -117,7 +117,7 @@ def order_book():
 
     # ── Material availability status ─────────────────────────────────────
     try:
-        from app.purchasing.materials.services import get_so_material_status, get_job_material_status, get_so_component_status, get_job_component_status
+        from app.purchasing.materials.services.status import get_so_material_status, get_job_material_status, get_so_component_status, get_job_component_status
         _so_mat   = get_so_material_status([o["so_number"] for o in orders])
         _so_comp  = get_so_component_status([o["so_number"] for o in orders])
         _all_jobs = [line["job_num"] for o in orders for line in o.get("lines", []) if line.get("job_num")]
