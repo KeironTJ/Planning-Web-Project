@@ -98,6 +98,11 @@ window.toggleTrend     = toggleTrend;
 window.applyDeptFilter = applyDeptFilter;
 window.syncOutput      = syncOutput;
 
+// Auto-reload every 2 minutes
+if (window.DAILY_OUTPUT_DATA) {
+    setTimeout(function () { location.reload(); }, 2 * 60 * 1000);
+}
+
 // ── DOMContentLoaded ──────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -166,11 +171,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 },
             });
         }
-    }
-
-    // Auto-reload every 2 minutes
-    if (window.DAILY_OUTPUT_DATA) {
-        setTimeout(function () { location.reload(); }, 2 * 60 * 1000);
     }
 
     // ── WIP overview chart ────────────────────────────────────────────────
