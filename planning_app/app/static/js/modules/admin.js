@@ -120,7 +120,10 @@
         };
     }
 
+    let jobRunning = false;
+
     async function runJobLive(jobId) {
+        jobRunning = true;
         const collapseEl = document.getElementById('job-body-' + jobId);
         if (collapseEl) bootstrap.Collapse.getOrCreateInstance(collapseEl).show();
 
@@ -179,6 +182,7 @@
             timingEl.textContent = 'Last ' + fmtNow() + (nextMatch ? ' \u00b7 ' + nextMatch[0] : '');
         }
 
+        jobRunning = false;
         apiPost(jobUrl(jobId), { last_status: finalStatus }).catch(() => {});
         showToast('Job complete \u2014 ' + results.filter(Boolean).length + '/' + results.length + ' importers OK');
     }
@@ -357,6 +361,7 @@
 
     // ── Auto-refresh job and item status every 30 s ──────────────────────
     setInterval(() => {
+        if (jobRunning) return;
         fetch(location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(r => r.text())
             .then(html => {
@@ -473,7 +478,8 @@
             const tr = document.createElement('tr');
             tbody.appendChild(tr);
             const ok = await runOne(form.dataset.key, getFormParams(form), tr);
-            if (ok) location.reload();
+            if (!ok) await new Promise(r => setTimeout(r, 1500));
+            location.reload();
         });
     });
 

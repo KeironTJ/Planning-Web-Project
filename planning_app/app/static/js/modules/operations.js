@@ -37,6 +37,7 @@ function applyDeptFilter(dept) {
 
 /** Trigger a live sync from Epicor and show progress on the page. */
 async function syncOutput() {
+    clearTimeout(_autoReloadTimer);
     var btn      = document.getElementById('btn-sync');
     var spinner  = document.getElementById('sync-spinner');
     var icon     = document.getElementById('sync-icon');
@@ -91,6 +92,7 @@ async function syncOutput() {
         btn.disabled = false;
         spinner.classList.add('d-none');
         icon.classList.remove('d-none');
+        _autoReloadTimer = setTimeout(function () { location.reload(); }, 2 * 60 * 1000);
     }
 }
 
@@ -98,9 +100,10 @@ window.toggleTrend     = toggleTrend;
 window.applyDeptFilter = applyDeptFilter;
 window.syncOutput      = syncOutput;
 
-// Auto-reload every 2 minutes
+// Auto-reload every 2 minutes (cancelled if a manual sync starts)
+var _autoReloadTimer;
 if (window.DAILY_OUTPUT_DATA) {
-    setTimeout(function () { location.reload(); }, 2 * 60 * 1000);
+    _autoReloadTimer = setTimeout(function () { location.reload(); }, 2 * 60 * 1000);
 }
 
 // ── DOMContentLoaded ──────────────────────────────────────────────────────────
