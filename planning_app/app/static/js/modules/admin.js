@@ -158,7 +158,7 @@
                         : '<span class="badge bg-danger" title="' + (data.message || '').replace(/"/g, "'") + '" data-bs-toggle="tooltip">Failed</span>';
                     if (!ok) new bootstrap.Tooltip(sc.querySelector('[data-bs-toggle="tooltip"]'));
                 }
-                if (lr && ok) lr.textContent = fmtNow();
+                if (lr) lr.textContent = fmtNow();
             } catch (_) {
                 if (stopBar) stopBar(false);
                 if (sc) sc.innerHTML = '<span class="badge bg-danger">Error</span>';
@@ -355,7 +355,7 @@
         });
     });
 
-    // ── Auto-refresh job status every 30 s ───────────────────────────────
+    // ── Auto-refresh job and item status every 30 s ──────────────────────
     setInterval(() => {
         fetch(location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(r => r.text())
@@ -369,8 +369,19 @@
                     const fresh = doc.getElementById(el.id);
                     if (fresh) el.innerHTML = fresh.innerHTML;
                 });
+                document.querySelectorAll('[id^="item-status-"]').forEach(el => {
+                    const fresh = doc.getElementById(el.id);
+                    if (fresh) el.innerHTML = fresh.innerHTML;
+                });
+                document.querySelectorAll('[id^="item-last-run-"]').forEach(el => {
+                    const fresh = doc.getElementById(el.id);
+                    if (fresh) el.innerHTML = fresh.innerHTML;
+                });
                 document.querySelectorAll('time.fmt-utc[data-utc]').forEach(el => {
                     el.textContent = window.fmtIso(el.dataset.utc, el.dataset.fmt);
+                });
+                document.querySelectorAll('[id^="item-status-"] [data-bs-toggle="tooltip"]').forEach(el => {
+                    new bootstrap.Tooltip(el);
                 });
             })
             .catch(() => {});

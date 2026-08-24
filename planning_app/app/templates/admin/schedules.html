@@ -134,10 +134,10 @@
               {{ item.params_label }}
             </span>
           </td>
-          <td class="small text-muted item-last-run-{{ item.id }}">
+          <td class="small text-muted item-last-run-{{ item.id }}" id="item-last-run-{{ item.id }}">
             {% if item.last_run_at %}<time class="fmt-utc" data-utc="{{ item.last_run_at.isoformat() }}"></time>{% else %}—{% endif %}
           </td>
-          <td class="text-center item-status-{{ item.id }}">
+          <td class="text-center item-status-{{ item.id }}" id="item-status-{{ item.id }}">
             {% if item.last_status == 'success' %}
               <span class="badge bg-success">OK{% if item.last_row_count is not none %} · {{ item.last_row_count }}{% endif %}</span>
             {% elif item.last_status == 'failed' %}

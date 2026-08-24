@@ -456,9 +456,10 @@ def sync_job_item_delete(job_id: int, item_id: int):
     from app.admin.models import SyncJobItem
 
     item = SyncJobItem.query.filter_by(id=item_id, job_id=job_id).first_or_404()
+    key = item.importer_key
     db.session.delete(item)
     db.session.commit()
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "importer_key": key})
 
 
 @admin_bp.route("/epicor-sync/schedules/jobs/<int:job_id>/items/<int:item_id>/run-one", methods=["POST"])
