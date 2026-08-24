@@ -19,14 +19,14 @@ Operations WIP Overview
 <!-- ── Summary cards ──────────────────────────────────────────────── -->
 <div class="row g-2 mb-3">
     <div class="col-6 col-md-4">
-        <div class="card border-0 shadow-sm text-center p-3">
+        <div class="card border-0 shadow-sm text-center p-3 border-top border-3 border-success">
             <div class="fs-2 fw-bold text-success">{{ total }}</div>
             <div class="text-muted small">Released Jobs</div>
         </div>
     </div>
     <div class="col-6 col-md-4">
         <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm text-center p-3 {{ 'border-danger border' if shortages else '' }}">
+        <div class="card border-0 shadow-sm text-center p-3 border-top border-3 {{ 'border-danger' if shortages else 'border-success' }}">
             <div class="fs-2 fw-bold {{ 'text-danger' if shortages else 'text-success' }}">{{ shortages }}</div>
             <div class="text-muted small">Fabric / Hide At Risk</div>
             <div class="text-muted text-xxs">orders with any non-OK fabric status</div>
@@ -34,7 +34,7 @@ Operations WIP Overview
     </div>
     <div class="col-6 col-md-4">
         <a href="{{ url_for('materials.component_shortage') }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm text-center p-3 {{ 'border-warning border' if comp_shortages else '' }}">
+        <div class="card border-0 shadow-sm text-center p-3 border-top border-3 {{ 'border-warning' if comp_shortages else 'border-success' }}">
             <div class="fs-2 fw-bold {{ 'text-warning' if comp_shortages else 'text-success' }}">{{ comp_shortages }}</div>
             <div class="text-muted small">Components At Risk</div>
             <div class="text-muted text-xxs">orders with any non-OK component status</div>

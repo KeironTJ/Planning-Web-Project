@@ -136,7 +136,7 @@ Production Output
     {% for dept in departments %}
     <div class="col-6 col-md-3 col-xl-2">
         <a href="{{ url_for('operations.daily_output', date_from=date_from.isoformat(), date_to=date_to.isoformat(), section=dept, view=view) }}"
-           class="card border-0 shadow-sm text-decoration-none h-100{% if section == dept %} border-primary border-2{% endif %}">
+           class="card border-0 shadow-sm text-decoration-none h-100{% if section == dept %} border-primary border-2{% else %} border-top border-3 border-primary{% endif %}">
             <div class="card-body p-2 text-center">
                 <div class="fw-bold fs-5 text-primary">{{ "%.0f"|format(dept_totals.get(dept, 0)) }}</div>
                 <div class="small text-muted text-truncate" title="{{ dept }}">{{ dept or '—' }}</div>
