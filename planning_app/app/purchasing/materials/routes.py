@@ -327,11 +327,15 @@ def exempt_delete(code):
 @login_required
 @permission_required("view_materials")
 def mrp():
-    search    = request.args.get("q", "").strip()
+    search = request.args.get("q", "").strip()
     so_number = request.args.get("so", "").strip()
+    material_group = request.args.get("material_group", "all").strip().lower()
+    if material_group not in {"all", "fabric", "component"}:
+        material_group = "all"
     data = get_mrp_pegging(
         search=search or None,
         so_number=so_number or None,
+        material_group=material_group,
     )
     return render_template(
         "materials/mrp.html",
@@ -339,5 +343,6 @@ def mrp():
         data=data,
         search=search,
         so_number=so_number,
+        material_group=material_group,
         mat_status_meta=MAT_STATUS_META,
     )

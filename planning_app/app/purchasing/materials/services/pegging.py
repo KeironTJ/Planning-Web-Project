@@ -13,7 +13,7 @@ from typing import Optional
 
 from app.extensions import db
 from ..models import MaterialRequirementMain, PurchaseOrder, Stock
-from ._cache import _cached_unfiltered_report
+from ._cache import _cached_group_report
 from .loaders import _get_group_lead_days, _load_stock
 from .netting import _row_status
 from .types import MrpEvent, MrpMaterial, _MAT_STATUS_PRIORITY
@@ -24,6 +24,7 @@ __all__ = ["get_mrp_pegging"]
 def get_mrp_pegging(
     search: Optional[str] = None,
     so_number: Optional[str] = None,
+    material_group: str = "all",
 ) -> dict:
     """
     Build MRP time-phased pegging view for materials matching a search or SO number.
@@ -35,10 +36,14 @@ def get_mrp_pegging(
     Filters:
       so_number — show materials required by this SO
       search    — ilike search on material code / description
+            material_group — "fabric" | "component" | "all"
 
     Returns {materials: [MrpMaterial], material_count: int, stock_imported: bool}
     """
     stock_map = _load_stock()
+    material_group = material_group.strip().lower()
+    if material_group not in {"fabric", "component"}:
+        material_group = "all"
 
     if not search and not so_number:
         return {"materials": [], "material_count": 0, "stock_imported": bool(stock_map)}
@@ -47,38 +52,43 @@ def get_mrp_pegging(
     material_codes: set[str] = set()
 
     if so_number:
-        rows = (
-            db.session.query(MaterialRequirementMain.material_code)
-            .filter(
-                MaterialRequirementMain.job_closed != True,
-                MaterialRequirementMain.issued_complete != True,
-                MaterialRequirementMain.so_number == so_number,
-            )
-            .distinct().all()
+        query = db.session.query(MaterialRequirementMain.material_code).filter(
+            MaterialRequirementMain.job_closed != True,
+            MaterialRequirementMain.issued_complete != True,
+            MaterialRequirementMain.so_number == so_number,
         )
+        if material_group != "all":
+            query = query.filter(
+                MaterialRequirementMain.material_group == material_group
+            )
+        rows = query.distinct().all()
         material_codes.update(r.material_code for r in rows if r.material_code)
 
     if search:
         term = f"%{search.strip()}%"
-        rows = (
-            db.session.query(MaterialRequirementMain.material_code)
-            .filter(db.or_(
+        query = db.session.query(MaterialRequirementMain.material_code).filter(
+            db.or_(
                 MaterialRequirementMain.material_code.ilike(term),
                 MaterialRequirementMain.material_description.ilike(term),
-            ))
-            .distinct().all()
+            )
         )
+        if material_group != "all":
+            query = query.filter(
+                MaterialRequirementMain.material_group == material_group
+            )
+        rows = query.distinct().all()
         material_codes.update(r.material_code for r in rows if r.material_code)
 
-        rows = (
-            db.session.query(Stock.part_num)
-            .filter(db.or_(
-                Stock.part_num.ilike(term),
-                Stock.part_description.ilike(term),
-            ))
-            .all()
-        )
-        material_codes.update(r.part_num for r in rows if r.part_num)
+        if material_group == "all":
+            rows = (
+                db.session.query(Stock.part_num)
+                .filter(db.or_(
+                    Stock.part_num.ilike(term),
+                    Stock.part_description.ilike(term),
+                ))
+                .all()
+            )
+            material_codes.update(r.part_num for r in rows if r.part_num)
 
     if not material_codes:
         return {"materials": [], "material_count": 0, "stock_imported": bool(stock_map)}
@@ -86,16 +96,16 @@ def get_mrp_pegging(
     mc_list = sorted(material_codes)
 
     # ---- Load all requirements and POs for these materials ----
-    main_reqs = (
-        MaterialRequirementMain.query
-        .filter(
-            MaterialRequirementMain.job_closed != True,
-            MaterialRequirementMain.issued_complete != True,
-            MaterialRequirementMain.material_code.in_(mc_list),
-        )
-        .order_by(MaterialRequirementMain.due_date)
-        .all()
+    req_query = MaterialRequirementMain.query.filter(
+        MaterialRequirementMain.job_closed != True,
+        MaterialRequirementMain.issued_complete != True,
+        MaterialRequirementMain.material_code.in_(mc_list),
     )
+    if material_group != "all":
+        req_query = req_query.filter(
+            MaterialRequirementMain.material_group == material_group
+        )
+    main_reqs = req_query.order_by(MaterialRequirementMain.due_date).all()
     po_rows = (
         PurchaseOrder.query
         .filter(
@@ -155,18 +165,26 @@ def get_mrp_pegging(
         })
 
     # ---- Build per-(works_order, material_code) netted status lookup ----
-    report = _cached_unfiltered_report()
     netted_status: dict[tuple[str, str], str] = {}
-    for _row in report["rows"]:
-        if not _row.works_order or not _row.material_code:
-            continue
-        _key = (_row.works_order, _row.material_code)
-        _st = _row_status(
-            _row.net_required, _row.shortage, _row.stock_on_hand,
-            _row.job_released, _row.po_exists,
-        )
-        if _MAT_STATUS_PRIORITY.get(_st, 0) > _MAT_STATUS_PRIORITY.get(netted_status.get(_key, "no_data"), -1):
-            netted_status[_key] = _st
+    report_groups = (
+        ("fabric", "component")
+        if material_group == "all"
+        else (material_group,)
+    )
+    for group in report_groups:
+        for _row in _cached_group_report(group)["rows"]:
+            if not _row.works_order or not _row.material_code:
+                continue
+            _key = (_row.works_order, _row.material_code)
+            _st = _row_status(
+                _row.net_required, _row.shortage, _row.stock_on_hand,
+                _row.job_released, _row.po_exists,
+            )
+            current_status = netted_status.get(_key, "no_data")
+            if _MAT_STATUS_PRIORITY.get(_st, 0) > _MAT_STATUS_PRIORITY.get(
+                current_status, -1
+            ):
+                netted_status[_key] = _st
 
     # ---- Build MrpMaterial objects ----
     materials: list[MrpMaterial] = []

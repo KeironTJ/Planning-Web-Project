@@ -308,13 +308,13 @@ Operations WIP Overview
                                 {%- if job_mat_st == 'no_data' %}
                                 <span class="badge text-bg-success" style="font-size:.7rem;--bs-bg-opacity:1;opacity:.6;">Mat. OK</span>
                                 {%- elif job_mat_st == 'ok' %}
-                                <a href="{{ url_for('materials.mrp') }}?so={{ so_key }}&q={{ job.job_num }}"
+                                <a href="{{ url_for('materials.mrp', so=so_key, q=job.job_num, material_group='fabric') }}"
                                    class="badge text-bg-success text-decoration-none"
                                    style="font-size:.7rem;--bs-bg-opacity:1;"
                                    title="Job {{ job.job_num }}: all materials covered"
                                    target="_blank">Mat. OK</a>
                                 {%- else %}
-                                <a href="{{ url_for('materials.mrp') }}?so={{ so_key }}&q={{ job.job_num }}"
+                                <a href="{{ url_for('materials.mrp', so=so_key, q=job.job_num, material_group='fabric') }}"
                                    class="badge text-bg-{{ job_mat_colour }} text-decoration-none"
                                    style="font-size:.7rem;--bs-bg-opacity:1;"
                                    title="Job {{ job.job_num }}: {{ job_mat_label }}"
@@ -327,13 +327,13 @@ Operations WIP Overview
                                 {%- if mat_st == 'no_data' %}
                                 <span class="badge text-bg-success" style="font-size:.7rem;--bs-bg-opacity:1;opacity:.6;">Mat. OK</span>
                                 {%- elif mat_st == 'ok' %}
-                                <a href="{{ url_for('materials.mrp') }}?so={{ so_key }}"
+                                <a href="{{ url_for('materials.mrp', so=so_key, material_group='fabric') }}"
                                    class="badge text-bg-success text-decoration-none"
                                    style="font-size:.7rem;--bs-bg-opacity:1;"
                                    title="Order {{ so_key }}: all materials covered"
                                    target="_blank">Mat. OK</a>
                                 {%- else %}
-                                <a href="{{ url_for('materials.mrp') }}?so={{ so_key }}"
+                                <a href="{{ url_for('materials.mrp', so=so_key, material_group='fabric') }}"
                                    class="badge text-bg-{{ mat_colour }} text-decoration-none"
                                    style="font-size:.7rem;--bs-bg-opacity:1;"
                                    title="Order {{ so_key }}: {{ mat_label }}"
@@ -346,13 +346,13 @@ Operations WIP Overview
                                 {%- if job_comp_st == 'no_data' %}
                                 <span class="badge text-bg-success" style="font-size:.7rem;--bs-bg-opacity:1;opacity:.6;">Comp. OK</span>
                                 {%- elif job_comp_st == 'ok' %}
-                                <a href="{{ url_for('materials.component_shortage') }}?so={{ so_key }}&q={{ job.job_num }}"
+                                <a href="{{ url_for('materials.mrp', so=so_key, q=job.job_num, material_group='component') }}"
                                    class="badge text-bg-success text-decoration-none"
                                    style="font-size:.7rem;--bs-bg-opacity:1;"
                                    title="Job {{ job.job_num }}: all components covered"
                                    target="_blank">Comp. OK</a>
                                 {%- else %}
-                                <a href="{{ url_for('materials.component_shortage') }}?so={{ so_key }}&q={{ job.job_num }}"
+                                <a href="{{ url_for('materials.mrp', so=so_key, q=job.job_num, material_group='component') }}"
                                    class="badge text-bg-{{ job_comp_colour }} text-decoration-none"
                                    style="font-size:.7rem;--bs-bg-opacity:1;"
                                    title="Job {{ job.job_num }}: {{ job_comp_label }}"
@@ -365,13 +365,13 @@ Operations WIP Overview
                                 {%- if comp_st == 'no_data' %}
                                 <span class="badge text-bg-success" style="font-size:.7rem;--bs-bg-opacity:1;opacity:.6;">Comp. OK</span>
                                 {%- elif comp_st == 'ok' %}
-                                <a href="{{ url_for('materials.component_shortage') }}?so={{ so_key }}"
+                                <a href="{{ url_for('materials.mrp', so=so_key, material_group='component') }}"
                                    class="badge text-bg-success text-decoration-none"
                                    style="font-size:.7rem;--bs-bg-opacity:1;"
                                    title="Order {{ so_key }}: all components covered"
                                    target="_blank">Comp. OK</a>
                                 {%- else %}
-                                <a href="{{ url_for('materials.component_shortage') }}?so={{ so_key }}"
+                                <a href="{{ url_for('materials.mrp', so=so_key, material_group='component') }}"
                                    class="badge text-bg-{{ comp_colour }} text-decoration-none"
                                    style="font-size:.7rem;--bs-bg-opacity:1;"
                                    title="Order {{ so_key }}: {{ comp_label }}"

@@ -93,6 +93,12 @@ def run_report(**kwargs):
     return get_shortage_report(material_group="fabric", shortages_only=False, **kwargs)
 
 
+def run_pegging(**kwargs):
+    from app.purchasing.materials.services.pegging import get_mrp_pegging
+    _db.session.commit()
+    return get_mrp_pegging(**kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Unit tests: _row_status() -- pure function, no DB required
 # ---------------------------------------------------------------------------
@@ -220,6 +226,39 @@ class TestNettingIntegration:
         make_stock("FAB008", qty_on_hand=0)
         for r in [r for r in run_report()["rows"] if r.material_code == "FAB008"]:
             assert r.net_required == D(0) and r.shortage == D(0)
+
+
+class TestMrpPeggingFilters:
+    @pytest.fixture(autouse=True)
+    def ctx(self, app, zero_lead_days):
+        with app.test_request_context():
+            yield
+
+    def test_filters_sales_order_materials_by_group(self, db):
+        make_req("FAB-FILTER", material_group="fabric", so_number="FILTER-SO")
+        make_req(
+            "COMP-FILTER",
+            material_group="component",
+            so_number="FILTER-SO",
+            works_order="WO-COMP",
+        )
+
+        all_codes = {
+            m.material_code
+            for m in run_pegging(so_number="FILTER-SO")["materials"]
+        }
+        fabric_codes = {
+            m.material_code
+            for m in run_pegging(so_number="FILTER-SO", material_group="fabric")["materials"]
+        }
+        component_codes = {
+            m.material_code
+            for m in run_pegging(so_number="FILTER-SO", material_group="component")["materials"]
+        }
+
+        assert all_codes == {"FAB-FILTER", "COMP-FILTER"}
+        assert fabric_codes == {"FAB-FILTER"}
+        assert component_codes == {"COMP-FILTER"}
 
 
 # ---------------------------------------------------------------------------

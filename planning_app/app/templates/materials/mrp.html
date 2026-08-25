@@ -12,6 +12,7 @@
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
         <form method="GET" class="row g-2 align-items-end">
+            <input type="hidden" name="material_group" value="{{ material_group }}">
             <div class="col-sm-5 col-md-4">
                 <label class="form-label form-label-sm fw-semibold mb-1">Material Code / Description</label>
                 <input type="search" name="q" class="form-control form-control-sm"
@@ -24,6 +25,18 @@
                 <label class="form-label form-label-sm fw-semibold mb-1">Sales Order Number</label>
                 <input type="search" name="so" class="form-control form-control-sm"
                        placeholder="e.g. 530548" value="{{ so_number }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label form-label-sm fw-semibold mb-1 d-block">Material Type</label>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Material type filter">
+                    {% for group_key, group_label in [('all', 'All'), ('fabric', 'Fabrics'), ('component', 'Components')] %}
+                    <a href="{{ url_for('materials.mrp', q=search or None, so=so_number or None, material_group=group_key) }}"
+                       class="btn btn-outline-secondary {{ 'active' if material_group == group_key }}"
+                       aria-pressed="{{ 'true' if material_group == group_key else 'false' }}">
+                        {{ group_label }}
+                    </a>
+                    {% endfor %}
+                </div>
             </div>
             <div class="col-auto">
                 <button type="submit" class="btn btn-primary btn-sm">Search</button>
