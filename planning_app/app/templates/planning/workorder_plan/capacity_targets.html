@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block head_extra %}
+<style>
+.ct-table { font-size: .83rem; }
+.ct-table th, .ct-table td { padding: .3rem .5rem; vertical-align: middle; }
+.ct-table input[type=number] { width: 80px; text-align: right; }
+.ct-table input.wd-input  { width: 58px; }
+.ct-table td.sum-cell     { font-weight: 600; min-width: 60px; }
+.row-current              { background-color: #fffbea !important; }
+.row-past                 { color: #888; }
+.row-override td          { background-color: #f0f7ff; }
+</style>
+{% endblock %}
+
+{% block page_actions %}
+  <a href="{{ url_for('workorder_plan.sessions') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back to Planner
+  </a>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-2">
+
+{# ── Default capacity banner ──────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header fw-semibold small">
+    <i class="bi bi-sliders me-1 text-primary"></i>Default Weekly Capacity
+    <span class="text-muted fw-normal ms-1">(applies to all weeks unless overridden)</span>
+  </div>
+  <div class="card-body">
+    <form method="POST" action="{{ url_for('workorder_plan.capacity_targets_save_default') }}"
+          class="d-flex flex-wrap gap-3 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div>
+        <label class="form-label fw-semibold small mb-1">Working Days</label>
+        <input type="number" name="working_days" class="form-control form-control-sm"
+               style="width:80px" min="1" max="7"
+               value="{{ default.working_days if default else 4 }}"
+               id="defaultWd">
+        <div class="form-text">Mon–Thu = 4</div>
+      </div>
+
+      <div>
+        <label class="form-label fw-semibold small mb-1">Capacity per Day (units)</label>
+        <input type="number" name="target_per_day" class="form-control form-control-sm"
+               style="width:100px" min="0" step="0.5"
+               value="{{ default.target_per_day if default else '' }}"
+               placeholder="e.g. 110" id="defaultTpd">
+      </div>
+
+      <div>
+        <label class="form-label fw-semibold small mb-1">Weekly Capacity</label>
+        <div class="form-control-plaintext fw-bold text-primary" id="defaultSum" style="font-size:1.1rem">
+          {% if default %}{{ default.weekly_target | int }}{% else %}—{% endif %}
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm align-self-end">
+          <i class="bi bi-floppy me-1"></i>Save Default Capacity
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm align-self-end"
+                id="fillAllBtn" title="Apply default to all empty weeks in the year">
+          <i class="bi bi-arrow-down-square me-1"></i>Fill Empty Weeks
+        </button>
+      </div>
+
+      {% if default %}
+      <div class="ms-auto align-self-end small text-muted">
+        Current default: <strong>{{ default.target_per_day }}/day × {{ default.working_days }} days = {{ default.weekly_target | int }} units/week</strong>
+      </div>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{# ── Year navigation ──────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center gap-3 mb-3">
+  <a href="{{ url_for('workorder_plan.capacity_targets', year=prev_year) }}"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-chevron-left"></i> {{ prev_year }}
+  </a>
+  <h5 class="mb-0 fw-semibold">{{ year }}</h5>
+  <a href="{{ url_for('workorder_plan.capacity_targets', year=next_year) }}"
+     class="btn btn-sm btn-outline-secondary">
+    {{ next_year }} <i class="bi bi-chevron-right"></i>
+  </a>
+  <span class="text-muted small ms-2">{{ grid | length }} weeks</span>
+  <button type="button" class="btn btn-sm btn-success ms-auto" onclick="document.getElementById('yearForm').submit()">
+    <i class="bi bi-floppy me-1"></i>Save {{ year }} Capacity
+  </button>
+</div>
+
+{# ── Year grid ────────────────────────────────────────────────────────────── #}
+<form method="POST" action="{{ url_for('workorder_plan.capacity_targets_save_year') }}"
+      id="yearForm">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="year" value="{{ year }}">
+
+  <div class="table-responsive border rounded shadow-sm">
+    <table class="table table-sm table-bordered ct-table mb-0">
+      <thead class="table-secondary" style="position:sticky;top:0;z-index:5">
+        <tr>
+          <th style="width:85px">Week</th>
+          <th style="min-width:140px">Dates</th>
+          <th class="text-center" style="width:75px">
+            Working Days
+            <div class="fw-normal text-muted" style="font-size:.65rem">Mon–Thu=4</div>
+          </th>
+          <th class="text-center" style="width:100px">
+            Capacity/day
+            <div class="fw-normal text-muted" style="font-size:.65rem">units/day</div>
+          </th>
+          <th class="text-center" style="width:90px">
+            Weekly Cap
+            <div class="fw-normal text-muted" style="font-size:.65rem">auto-calc</div>
+          </th>
+          {# Per-group columns #}
+          {% for g in groups_for_grid %}
+          <th class="text-center"
+              style="width:90px; border-left:2px solid {{ g.colour or '#adb5bd' }}">
+            <span class="d-inline-block rounded me-1"
+                  style="width:9px;height:9px;background:{{ g.colour or '#adb5bd' }}"></span>
+            {{ g.name }}
+            <div class="fw-normal text-muted" style="font-size:.63rem">cap/week</div>
+          </th>
+          {% endfor %}
+          <th class="text-center" style="width:50px">
+            <i class="bi bi-arrow-counterclockwise" title="Reset to default"></i>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set def_tpd = default.target_per_day | float if default else 0 %}
+        {% set def_wd  = default.working_days    | int   if default else 4 %}
+        {% for row in grid %}
+        {% set eff_tpd = row.target_per_day if row.target_per_day else def_tpd %}
+        {% set eff_wd  = row.working_days   if row.target_per_day else def_wd %}
+        <tr class="
+          {% if row.is_current %}row-current
+          {% elif row.week_end < today_date %}row-past
+          {% elif row.is_override %}row-override{% endif %}"
+          data-week="{{ row.label }}"
+          data-def-tpd="{{ def_tpd }}"
+          data-def-wd="{{ def_wd }}"
+          {% for g in groups_for_grid %}
+          data-def-gcap-{{ g.id }}="{{ g.weekly_capacity | float if g.weekly_capacity else 0 }}"
+          {% endfor %}>
+
+          {# Week ref #}
+          <td class="fw-semibold font-monospace small">
+            W{{ '%02d' | format(row.week_num) }}/{{ row.week_start.strftime('%y') }}
+            {% if row.is_current %}
+            <span class="badge bg-warning text-dark" style="font-size:.58rem">NOW</span>
+            {% endif %}
+          </td>
+
+          {# Dates #}
+          <td class="text-muted small">{{ row.date_range }}</td>
+
+          {# Working Days #}
+          <td class="text-center">
+            <input type="number" name="wd_{{ row.label }}"
+                   class="form-control form-control-sm wd-input mx-auto"
+                   min="0" max="7" value="{{ eff_wd }}"
+                   data-row="{{ row.label }}"
+                   oninput="onRowChange('{{ row.label }}')">
+          </td>
+
+          {# Capacity/day #}
+          <td class="text-center">
+            <input type="number" name="tpd_{{ row.label }}"
+                   class="form-control form-control-sm mx-auto"
+                   style="width:80px" min="0" step="0.5"
+                   value="{{ eff_tpd }}"
+                   data-row="{{ row.label }}"
+                   oninput="onRowChange('{{ row.label }}')">
+          </td>
+
+          {# Weekly sum (auto-calc) #}
+          <td class="text-center sum-cell fw-semibold"
+              id="sum_{{ row.label | replace('-','_') }}">
+            {{ (eff_tpd * eff_wd) | round | int if eff_tpd else '—' }}
+          </td>
+
+          {# Per-group capacity cells #}
+          {% for g in groups_for_grid %}
+          {% set gc = row.group_caps.get(g.id, {'cap': g.weekly_capacity | float if g.weekly_capacity else 0, 'is_override': false}) %}
+          <td class="text-center {% if gc.is_override %}table-primary{% endif %}"
+              style="border-left:1px solid {{ g.colour or '#adb5bd' }}44">
+            <input type="number" name="gcap_{{ g.id }}_{{ row.label }}"
+                   class="form-control form-control-sm mx-auto"
+                   style="width:74px" min="0" step="1"
+                   value="{{ gc.cap | int if gc.cap else '' }}"
+                   placeholder="{{ g.weekly_capacity | int if g.weekly_capacity else '—' }}"
+                   data-group="{{ g.id }}" data-row="{{ row.label }}"
+                   data-default="{{ g.weekly_capacity | int if g.weekly_capacity else 0 }}"
+                   oninput="onGroupCellChange('{{ row.label }}', {{ g.id }})">
+          </td>
+          {% endfor %}
+
+          {# Reset button #}
+          <td class="text-center">
+            <button type="button"
+                    class="btn btn-xs btn-outline-secondary py-0 px-1 reset-btn"
+                    style="font-size:.7rem; {% if not row.is_override %}opacity:.3{% endif %}"
+                    id="clearbtn_{{ row.label | replace('-','_') }}"
+                    onclick="resetRow('{{ row.label }}', {{ def_tpd }}, {{ def_wd }})"
+                    title="Reset to defaults">
+              <i class="bi bi-arrow-counterclockwise"></i>
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="d-flex justify-content-between mt-3">
+    <p class="text-muted small mb-0">
+      <span class="d-inline-block" style="border-left:3px solid #fd7e14;padding-left:4px;margin-right:6px">Orange border</span> = unsaved change &nbsp;
+      <span class="d-inline-block bg-primary bg-opacity-10 px-2 rounded me-1">Blue row</span> = saved week override &nbsp;
+      <span class="d-inline-block bg-warning bg-opacity-25 px-2 rounded me-1">Yellow</span> = current week
+    </p>
+    <button type="submit" class="btn btn-success btn-sm">
+      <i class="bi bi-floppy me-1"></i>Save {{ year }} Capacity
+    </button>
+  </div>
+</form>
+
+{# ── Customer Group Capacities ────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header fw-semibold small">
+    <i class="bi bi-people me-1 text-success"></i>Customer Group Weekly Capacities
+    <span class="text-muted fw-normal ms-1">(units/week allocated per group — shown on planning board)</span>
+  </div>
+  <div class="card-body">
+    {% if not groups %}
+    <p class="text-muted small mb-0">
+      No customer groups defined yet.
+      <a href="{{ url_for('workorder_plan.groups_list') }}">Create groups</a> first.
+    </p>
+    {% else %}
+    <form method="POST" action="{{ url_for('workorder_plan.capacity_targets_save_groups') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="row g-3">
+        {% for g in groups %}
+        <div class="col-6 col-md-4 col-lg-3">
+          <label class="form-label fw-semibold small mb-1">
+            <span class="d-inline-block rounded me-1"
+                  style="width:12px;height:12px;background:{{ g.colour or '#adb5bd' }};border:1px solid #dee2e6;vertical-align:middle"></span>
+            {{ g.name }}
+            {% if not g.is_active %}<span class="badge bg-secondary ms-1" style="font-size:.6rem">Inactive</span>{% endif %}
+          </label>
+          <div class="input-group input-group-sm">
+            <input type="number" name="cap_{{ g.id }}"
+                   class="form-control"
+                   min="0" step="1"
+                   value="{{ g.weekly_capacity | int if g.weekly_capacity else '' }}"
+                   placeholder="units/week">
+            <span class="input-group-text text-muted small">u/wk</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="mt-3 d-flex justify-content-end">
+        <button type="submit" class="btn btn-success btn-sm">
+          <i class="bi bi-floppy me-1"></i>Save Group Capacities
+        </button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Weekly capacity sum ────────────────────────────────────────────────────
+function calcSum(label) {
+  const safe    = label.replace(/-/g, '_');
+  const wdInput = document.querySelector(`input[name="wd_${label}"]`);
+  const tpdInput= document.querySelector(`input[name="tpd_${label}"]`);
+  const sumCell = document.getElementById(`sum_${safe}`);
+  if (!wdInput || !tpdInput || !sumCell) return;
+  const wd  = parseFloat(wdInput.value  || 0);
+  const tpd = parseFloat(tpdInput.value || 0);
+  sumCell.textContent = (wd && tpd) ? Math.round(wd * tpd) : '—';
+}
+
+// ── Mark row as modified ──────────────────────────────────────────────────
+function onRowChange(label) {
+  calcSum(label);
+  const row    = document.querySelector(`tr[data-week="${label}"]`);
+  if (!row) return;
+  const defTpd = parseFloat(row.dataset.defTpd || 0);
+  const defWd  = parseFloat(row.dataset.defWd  || 4);
+  const tpd    = parseFloat(document.querySelector(`input[name="tpd_${label}"]`)?.value || 0);
+  const wd     = parseFloat(document.querySelector(`input[name="wd_${label}"]`)?.value  || 0);
+  const changed = (tpd !== defTpd) || (wd !== defWd);
+  row.style.borderLeft = changed ? '3px solid #fd7e14' : '';
+  const btn = document.getElementById(`clearbtn_${label.replace(/-/g, '_')}`);
+  if (btn) btn.style.opacity = changed ? '1' : '0.3';
+}
+
+// ── Mark group cell as modified ───────────────────────────────────────────
+function onGroupCellChange(label, groupId) {
+  const input   = document.querySelector(`input[name="gcap_${groupId}_${label}"]`);
+  if (!input) return;
+  const defCap  = parseFloat(input.dataset.default || 0);
+  const val     = parseFloat(input.value || 0);
+  const changed = val !== defCap;
+  input.style.borderColor = changed ? '#fd7e14' : '';
+  input.style.borderWidth = changed ? '2px' : '';
+}
+
+// ── Reset a row to all defaults ───────────────────────────────────────────
+function resetRow(label, defTpd, defWd) {
+  const tpdInput = document.querySelector(`input[name="tpd_${label}"]`);
+  const wdInput  = document.querySelector(`input[name="wd_${label}"]`);
+  if (tpdInput) tpdInput.value = defTpd;
+  if (wdInput)  wdInput.value  = defWd;
+  // Also reset all group cells for this row
+  document.querySelectorAll(`input[data-row="${label}"][data-group]`).forEach(function(inp) {
+    inp.value = inp.dataset.default || '';
+    inp.style.borderColor = '';
+    inp.style.borderWidth = '';
+  });
+  onRowChange(label);
+}
+
+// ── Default sum preview ────────────────────────────────────────────────────
+function updateDefaultSum() {
+  const wd  = parseFloat(document.getElementById('defaultWd').value  || 0);
+  const tpd = parseFloat(document.getElementById('defaultTpd').value || 0);
+  const el  = document.getElementById('defaultSum');
+  if (el) el.textContent = (wd && tpd) ? Math.round(wd * tpd) : '—';
+}
+document.getElementById('defaultWd') .addEventListener('input', updateDefaultSum);
+document.getElementById('defaultTpd').addEventListener('input', updateDefaultSum);
+
+// ── Fill empty weeks with default values ──────────────────────────────────
+document.getElementById('fillAllBtn').addEventListener('click', function() {
+  const wd  = document.getElementById('defaultWd').value;
+  const tpd = document.getElementById('defaultTpd').value;
+  if (!wd || !tpd) { alert('Set the default values above first.'); return; }
+  document.querySelectorAll('tbody tr[data-week]').forEach(function(row) {
+    const label    = row.dataset.week;
+    const defTpd   = parseFloat(row.dataset.defTpd || 0);
+    const tpdInput = document.querySelector(`input[name="tpd_${label}"]`);
+    const wdInput  = document.querySelector(`input[name="wd_${label}"]`);
+    if (tpdInput && parseFloat(tpdInput.value) === defTpd) {
+      tpdInput.value = tpd;
+      if (wdInput) wdInput.value = wd;
+      onRowChange(label);
+    }
+  });
+});
+</script>
+{% endblock %}

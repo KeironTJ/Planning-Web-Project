@@ -138,6 +138,7 @@ def _register_blueprints(app: Flask) -> None:
     # Import all model modules so Flask-Migrate can detect them
     from .sales.orders import models as _orders_models  # noqa: F401
     from .planning.capacity import models as _capacity_models  # noqa: F401
+    from .planning.workorder_plan import models as _wo_plan_models  # noqa: F401
     from .purchasing.materials import models as _materials_models  # noqa: F401
     from .admin import models as _admin_models  # noqa: F401
     from .operations import models as _operations_models  # noqa: F401
@@ -158,6 +159,7 @@ def _register_blueprints(app: Flask) -> None:
     # --- Feature blueprints (nested under their department) ---
     from .sales.orders import orders_bp
     from .planning.capacity import capacity_bp
+    from .planning.workorder_plan import workorder_plan_bp
     from .purchasing.materials import materials_bp
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
@@ -175,6 +177,7 @@ def _register_blueprints(app: Flask) -> None:
     # Feature modules nested under their department
     app.register_blueprint(orders_bp, url_prefix="/sales/orders")
     app.register_blueprint(capacity_bp, url_prefix="/planning/capacity")
+    app.register_blueprint(workorder_plan_bp, url_prefix="/planning/workorder-plan")
     app.register_blueprint(materials_bp, url_prefix="/purchasing/materials")
 
     # Root home page

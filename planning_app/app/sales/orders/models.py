@@ -44,6 +44,8 @@ class Department(db.Model):
     flow_order = db.Column(db.Integer, nullable=True)   # Position in production flow (1 = first); NULL = unset
     track = db.Column(db.Boolean, default=True, nullable=False)  # Include in Daily Output and other tracked views
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    # SMV (Standard Minute Value) per unit — used for SMV-based capacity planning (nullable until configured)
+    smv_per_unit = db.Column(db.Numeric(8, 4), nullable=True)
 
     capacity_buckets = db.relationship("CapacityBucket", back_populates="department", cascade="all, delete-orphan")
 

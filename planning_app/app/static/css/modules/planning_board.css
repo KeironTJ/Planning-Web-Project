@@ -1,0 +1,66 @@
+/*
+ * Planning Board — styles
+ * Used by: templates/planning/workorder_plan/workspace.html
+ */
+
+/* ── Board table base ─────────────────────────────────────────────────────── */
+.board-table { font-size: .8rem; border-collapse: separate; border-spacing: 0; }
+.board-table th, .board-table td { white-space: nowrap; padding: .3rem .5rem; vertical-align: middle; }
+
+/* ── Sticky left config columns ───────────────────────────────────────────── */
+.board-table .col-week  { position:sticky; left:0;     z-index:3; background:#f0f2f5; min-width:90px; }
+.board-table .col-dates { position:sticky; left:90px;  z-index:3; background:#f0f2f5; min-width:130px; }
+.board-table .col-flags { position:sticky; left:220px; z-index:3; background:#f0f2f5; min-width:60px; text-align:center; }
+.board-table thead .col-week,
+.board-table thead .col-dates,
+.board-table thead .col-flags { z-index:5; }
+
+/* ── Group separators ─────────────────────────────────────────────────────── */
+.col-group-sep { border-left: 2px solid #adb5bd !important; }
+
+/* ── Utilisation cell colouring ───────────────────────────────────────────── */
+.cell-ok      { background-color: #d1f0da; }
+.cell-warning { background-color: #ffeeba; }
+.cell-over    { background-color: #f8d7da; }
+.cell-nodata  { color: #aaa; }
+
+/* ── Load / capacity combined cell ───────────────────────────────────────── */
+.load-cap-cell            { min-width: 100px; }
+.load-cap-cell .lc-nums   { font-size: .82rem; }
+.load-cap-cell .lc-load   { font-weight: 700; font-size: .92rem; }
+.load-cap-cell .lc-cap    { color: #6c757d; }
+.load-cap-cell .lc-remain { font-size: .7rem; margin-top: 1px; }
+.load-cap-cell .lc-remain.over  { color: #c0392b; font-weight: 600; }
+.load-cap-cell .lc-remain.ok    { color: #27ae60; }
+.load-cap-cell .lc-remain.tight { color: #e67e22; }
+
+/* ── Utilisation bar ──────────────────────────────────────────────────────── */
+.util-bar-wrap { height: 6px; background: #e9ecef; border-radius: 3px; margin-top: 3px; }
+.util-bar      { height: 6px; border-radius: 3px; }
+
+/* ── Week row states ──────────────────────────────────────────────────────── */
+.week-current              { background-color: #fffbea !important; }
+.week-current .col-week    { background: #fef3c7 !important; font-weight: 700; }
+.week-current .col-dates   { background: #fffbea !important; }
+.week-current .col-flags   { background: #fffbea !important; }
+.week-past                 { opacity: .55; }
+
+/* ── Overdue pinned row ───────────────────────────────────────────────────── */
+.overdue-row               { background: #fde8e8 !important; }
+.overdue-row td            { border-bottom: 2px solid #e74c3c !important; }
+
+/* ── Drag scroll ──────────────────────────────────────────────────────────── */
+.board-scroll              { cursor: grab; user-select: none; }
+.board-scroll.is-dragging  { cursor: grabbing; }
+
+/* ── Small badge ──────────────────────────────────────────────────────────── */
+.badge-xs { font-size: .62rem; padding: .15em .4em; }
+
+/* ── Order-grouped detail table ───────────────────────────────────────────── */
+.order-group-row           { background: #f0f4fb; cursor: pointer; }
+.order-group-row:hover     { background: #e3ecf9; }
+.order-group-row .tog      { display:inline-block; transition:transform .2s; width:14px; }
+.order-group-row.open .tog { transform: rotate(90deg); }
+.order-job-row             { font-size: .78rem; display: none; }
+.order-job-row.visible     { display: table-row; }
+.order-job-row td:first-child { padding-left: 2.2rem; }

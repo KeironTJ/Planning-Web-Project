@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_actions %}
+  <a href="{{ url_for('workorder_plan.groups_list') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>All Groups
+  </a>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-2">
+<div class="row g-4">
+
+  {# ── Left: Group settings ── #}
+  <div class="col-12 col-lg-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header fw-semibold">
+        <span class="d-inline-block rounded me-2"
+              style="width:14px;height:14px;background:{{ group.colour or '#adb5bd' }};border:1px solid #dee2e6;vertical-align:middle"></span>
+        Group Settings
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('workorder_plan.groups_save', group_id=group.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Group Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" required maxlength="100"
+                   value="{{ group.name }}">
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col">
+              <label class="form-label fw-semibold small">Colour</label>
+              <input type="color" name="colour" class="form-control form-control-color"
+                     value="{{ group.colour or '#4a90d9' }}">
+            </div>
+            <div class="col">
+              <label class="form-label fw-semibold small">Sort Order</label>
+              <input type="number" name="sort_order" class="form-control" min="1" max="99"
+                     value="{{ group.sort_order or '' }}" placeholder="1, 2, 3…">
+            </div>
+          </div>
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="is_active" value="1"
+                     id="isActive" {% if group.is_active %}checked{% endif %}>
+              <label class="form-check-label small fw-semibold" for="isActive">Active (show on board)</label>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm w-100">Save Settings</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ── Right: Members ── #}
+  <div class="col-12 col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">Customer Members
+          <span class="badge bg-secondary ms-1">{{ group.member_count }}</span>
+        </span>
+      </div>
+      <div class="card-body">
+
+        {# Add members form #}
+        <form method="POST" action="{{ url_for('workorder_plan.groups_member_add', group_id=group.id) }}"
+              class="mb-4">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label fw-semibold small">Add Customer IDs</label>
+          <div class="input-group">
+            <textarea name="customer_ids" class="form-control" rows="3"
+                      placeholder="Enter Epicor customer IDs, one per line or comma-separated&#10;e.g. 861&#10;862, 863&#10;5000"></textarea>
+            <button type="submit" class="btn btn-primary align-self-end px-4">
+              <i class="bi bi-plus-lg me-1"></i>Add
+            </button>
+          </div>
+          <div class="form-text">Each customer can only belong to one group. Adding a customer here removes them from any previous group.</div>
+        </form>
+
+        {# Members table #}
+        {% if group.members %}
+        <div style="max-height:400px; overflow-y:auto">
+          <table class="table table-sm table-hover align-middle" style="font-size:.85rem">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th>Customer ID</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for m in group.members %}
+              <tr>
+                <td class="font-monospace fw-semibold">{{ m.customer_id }}</td>
+                <td class="text-end">
+                  <form method="POST"
+                        action="{{ url_for('workorder_plan.groups_member_remove', group_id=group.id) }}"
+                        class="d-inline"
+                        onsubmit="return confirm('Remove customer {{ m.customer_id }} from this group?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="customer_id" value="{{ m.customer_id }}">
+                    <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-1"
+                            style="font-size:.75rem">
+                      <i class="bi bi-x"></i>
+                    </button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted small text-center py-3">No members yet — add customer IDs above.</p>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+{% endblock %}

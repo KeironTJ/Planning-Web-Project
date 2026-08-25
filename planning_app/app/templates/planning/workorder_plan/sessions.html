@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_actions %}
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createSessionModal">
+    <i class="bi bi-plus-lg me-1"></i>New Session
+  </button>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-2">
+
+  {% if not sessions %}
+  <div class="text-center py-5 text-muted">
+    <i class="bi bi-calendar2-plus fs-1 d-block mb-3"></i>
+    <p class="mb-1 fw-semibold">No planning sessions yet.</p>
+    <p class="small">Create a session to start planning capacity without affecting live data.</p>
+    <button class="btn btn-primary mt-2" data-bs-toggle="modal" data-bs-target="#createSessionModal">
+      Create First Session
+    </button>
+  </div>
+  {% else %}
+  <div class="row g-3">
+    {% for s in sessions %}
+    <div class="col-12 col-md-6 col-lg-4">
+      <div class="card h-100 border-0 shadow-sm {% if not s.is_active %}opacity-50{% endif %}">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <h6 class="fw-semibold mb-0">{{ s.name }}</h6>
+            <span class="badge bg-secondary-subtle text-secondary border">{{ s.override_count }} override{{ 's' if s.override_count != 1 else '' }}</span>
+          </div>
+          {% if s.description %}
+          <p class="text-muted small mb-2">{{ s.description }}</p>
+          {% endif %}
+          <p class="text-muted small mb-3">
+            Created {{ s.created_at.strftime('%d %b %Y') }}
+            {% if s.created_by %} by {{ s.created_by.username }}{% endif %}
+          </p>
+          <div class="d-flex gap-2 flex-wrap">
+            <a href="{{ url_for('workorder_plan.workspace', session_id=s.id) }}" class="btn btn-sm btn-primary">
+              <i class="bi bi-box-arrow-in-right me-1"></i>Open Workspace
+            </a>
+            <button class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal"
+                    data-bs-target="#cloneModal-{{ s.id }}">
+              <i class="bi bi-copy me-1"></i>Clone
+            </button>
+            <button class="btn btn-sm btn-outline-danger"
+                    data-bs-toggle="modal"
+                    data-bs-target="#deleteModal-{{ s.id }}">
+              <i class="bi bi-trash me-1"></i>Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# Clone modal #}
+    <div class="modal fade" id="cloneModal-{{ s.id }}" tabindex="-1">
+      <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+          <form method="POST" action="{{ url_for('workorder_plan.clone_session', session_id=s.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-header">
+              <h6 class="modal-title">Clone Session</h6>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <label class="form-label small fw-semibold">New name</label>
+              <input type="text" name="name" class="form-control form-control-sm"
+                     value="Copy of {{ s.name }}" required maxlength="100">
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-sm btn-primary">Clone</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    {# Delete modal #}
+    <div class="modal fade" id="deleteModal-{{ s.id }}" tabindex="-1">
+      <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+          <form method="POST" action="{{ url_for('workorder_plan.delete_session', session_id=s.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-header">
+              <h6 class="modal-title text-danger">Delete Session</h6>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body small">
+              Delete <strong>{{ s.name }}</strong>?
+              This will permanently remove all {{ s.override_count }} override{{ 's' if s.override_count != 1 else '' }}.
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>
+
+{# Create session modal #}
+<div class="modal fade" id="createSessionModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('workorder_plan.create_session') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h6 class="modal-title fw-semibold">New Planning Session</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Session Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" required maxlength="100"
+                   placeholder="e.g. Week 35 Scenario, Post-holiday review …">
+          </div>
+          <div class="mb-1">
+            <label class="form-label small fw-semibold">Description <span class="text-muted">(optional)</span></label>
+            <textarea name="description" class="form-control" rows="2"
+                      placeholder="What are you trying to plan or test?"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Create &amp; Open</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

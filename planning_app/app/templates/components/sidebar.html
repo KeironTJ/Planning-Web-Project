@@ -84,6 +84,24 @@
                 </a>
             </li>
             {% endif %}
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('workorder_plan.') %}active{% endif %}"
+                   href="{{ url_for('workorder_plan.sessions') }}">
+                    <i class="bi bi-kanban me-2"></i>Capacity Planner
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint in ('workorder_plan.groups_list', 'workorder_plan.groups_edit', 'workorder_plan.groups_create') %}active{% endif %}"
+                   href="{{ url_for('workorder_plan.groups_list') }}">
+                    <i class="bi bi-people me-2"></i>Customer Groups
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'workorder_plan.capacity_targets' %}active{% endif %}"
+                   href="{{ url_for('workorder_plan.capacity_targets') }}">
+                    <i class="bi bi-sliders me-2"></i>Capacity Targets
+                </a>
+            </li>
             {% endif %}
 
             {# -- Purchasing -------------------------------------------- #}

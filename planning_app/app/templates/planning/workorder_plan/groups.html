@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_actions %}
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createGroupModal">
+    <i class="bi bi-plus-lg me-1"></i>New Group
+  </button>
+  <a href="{{ url_for('workorder_plan.sessions') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back to Planner
+  </a>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-2">
+  {% if not groups %}
+  <div class="text-center py-5 text-muted">
+    <i class="bi bi-people fs-1 d-block mb-3"></i>
+    <p class="fw-semibold mb-1">No customer groups yet.</p>
+    <p class="small">Groups let you see a breakdown by customer segment on the capacity board.</p>
+    <button class="btn btn-primary mt-2" data-bs-toggle="modal" data-bs-target="#createGroupModal">
+      Create First Group
+    </button>
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th style="width:24px">Colour</th>
+          <th>Group Name</th>
+          <th class="text-center">Customers</th>
+          <th class="text-center">Sort</th>
+          <th class="text-center">Active</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in groups %}
+        <tr>
+          <td>
+            <span class="d-inline-block rounded" style="width:18px;height:18px;background:{{ g.colour or '#adb5bd' }};border:1px solid #dee2e6"></span>
+          </td>
+          <td class="fw-semibold">{{ g.name }}</td>
+          <td class="text-center">{{ g.member_count }}</td>
+          <td class="text-center text-muted">{{ g.sort_order or '—' }}</td>
+          <td class="text-center">
+            {% if g.is_active %}
+            <span class="badge bg-success-subtle text-success border">Active</span>
+            {% else %}
+            <span class="badge bg-secondary-subtle text-muted border">Inactive</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            <a href="{{ url_for('workorder_plan.groups_edit', group_id=g.id) }}"
+               class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-pencil me-1"></i>Edit / Members
+            </a>
+            <form method="POST" action="{{ url_for('workorder_plan.groups_delete', group_id=g.id) }}"
+                  class="d-inline"
+                  onsubmit="return confirm('Delete group {{ g.name }} and all its members?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+{# Create group modal #}
+<div class="modal fade" id="createGroupModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('workorder_plan.groups_create') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h6 class="modal-title fw-semibold">New Customer Group</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Group Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" required maxlength="100"
+                   placeholder="e.g. JL Direct, SOHO, Barker M&S">
+          </div>
+          <div class="row g-3">
+            <div class="col">
+              <label class="form-label fw-semibold small">Colour</label>
+              <input type="color" name="colour" class="form-control form-control-color" value="#4a90d9">
+            </div>
+            <div class="col">
+              <label class="form-label fw-semibold small">Sort Order</label>
+              <input type="number" name="sort_order" class="form-control" min="1" max="99" placeholder="1, 2, 3…">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Create &amp; Add Members</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
