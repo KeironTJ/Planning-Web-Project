@@ -2,7 +2,10 @@
 
 {% block extra_css %}
 <style>
-    tr.so-match { background-color: rgba(13, 110, 253, 0.08) !important; }
+    tr.so-match {
+        background-color: rgba(13, 110, 253, 0.08) !important;
+        box-shadow: inset 4px 0 0 #0d6efd;
+    }
 </style>
 {% endblock %}
 
@@ -86,7 +89,7 @@
         ('late_po',   'Late PO',    '#fd7e14'),
         ('med_risk',  'PO Reliant', '#ffc107'),
         ('low_risk',  'Soft Risk',  '#0dcaf0'),
-        ('ok',        'Mat. OK',    '#198754'),
+        ('ok',        'Comp. OK' if material_group == 'component' else 'Mat. OK', '#198754'),
     ] %}
     {% set count = data.materials | selectattr('mat_status', 'equalto', st_key) | list | length %}
     {% if count %}
@@ -97,6 +100,12 @@
     <span class="badge text-bg-secondary">SO {{ so_number }}</span>
     {% endif %}
 </div>
+{% if so_number %}
+<div class="alert alert-primary border-0 py-2 mb-3 small d-flex align-items-center gap-2">
+    <i class="bi bi-diagram-3-fill"></i>
+    <span><strong>SO {{ so_number }}</strong> rows are highlighted in blue. Global status includes demand from every order in the timeline.</span>
+</div>
+{% endif %}
 {% endif %}
 
 {% for mat in data.materials %}
@@ -108,11 +117,17 @@
         <span class="text-muted small">{{ mat.description }}</span>
         {% endif %}
         <span class="ms-auto d-flex gap-2 align-items-center">
+            {% if so_number and mat.selected_so_status %}
+            {% set selected_label, selected_colour = mat_status_meta.get(mat.selected_so_status, ('—', 'secondary')) %}
+            {% if material_group == 'component' and mat.selected_so_status == 'ok' %}{% set selected_label = 'Comp. OK' %}{% endif %}
+            <span class="badge text-bg-{{ selected_colour }}">SO {{ so_number }}: {{ selected_label }}</span>
+            {% endif %}
             {% set mat_label, mat_colour = mat_status_meta.get(mat.mat_status, ('—', 'secondary')) %}
+            {% if material_group == 'component' and mat.mat_status == 'ok' %}{% set mat_label = 'Comp. OK' %}{% endif %}
             {% if mat.mat_status == 'late_po' %}
-            <span class="badge text-bg-orange">{{ mat_label }}</span>
+            <span class="badge text-bg-orange">Global: {{ mat_label }}</span>
             {% else %}
-            <span class="badge text-bg-{{ mat_colour }}">{{ mat_label }}</span>
+            <span class="badge text-bg-{{ mat_colour }}">Global: {{ mat_label }}</span>
             {% endif %}
             <span class="text-muted small">Opening: {{ mat.opening_stock | round(2) }}</span>
         </span>
@@ -136,7 +151,7 @@
                 </thead>
                 <tbody>
                     {% for ev in mat.events %}
-                    {% set is_filtered_so = so_number and ev.row_type == 'requirement' and ev.reference.startswith(so_number) %}
+                    {% set is_filtered_so = so_number and ev.row_type == 'requirement' and ev.so_number == so_number %}
                     <tr class="{{ 'table-danger fw-semibold' if ev.is_short else ('table-active' if ev.row_type == 'opening') }}{{ ' so-match' if is_filtered_so and not ev.is_short else '' }}">
                         <td class="text-muted">
                             {{ ev.event_date.strftime('%d %b %y') if ev.event_date else '' }}
@@ -157,6 +172,7 @@
                         <td class="{{ 'fw-semibold text-dark' if is_filtered_so else 'text-muted' }}">
                             {% if is_filtered_so %}<i class="bi bi-arrow-right-short text-primary"></i>{% endif %}
                             {{ ev.reference }}
+                            {% if is_filtered_so %}<span class="badge text-bg-primary ms-1">Selected SO</span>{% endif %}
                         </td>
                         <td>
                             {% if ev.row_type == 'requirement' %}
@@ -179,6 +195,7 @@
                         <td>
                             {% if ev.row_type == 'requirement' and ev.mat_status %}
                             {% set st_label, st_colour = mat_status_meta.get(ev.mat_status, ('—', 'secondary')) %}
+                            {% if material_group == 'component' and ev.mat_status == 'ok' %}{% set st_label = 'Comp. OK' %}{% endif %}
                             <span class="badge text-bg-{{ st_colour }}">{{ st_label }}</span>
                             {% endif %}
                         </td>

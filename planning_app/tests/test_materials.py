@@ -260,6 +260,56 @@ class TestMrpPeggingFilters:
         assert fabric_codes == {"FAB-FILTER"}
         assert component_codes == {"COMP-FILTER"}
 
+    def test_so_status_is_separate_from_global_material_status(self, db):
+        make_req(
+            "COMP-SCOPE",
+            qty_for_order=2,
+            due_date=TODAY + timedelta(days=5),
+            material_group="component",
+            so_number="SELECTED-SO",
+            works_order="SELECTED-JOB",
+        )
+        make_req(
+            "COMP-SCOPE",
+            qty_for_order=5,
+            due_date=TODAY + timedelta(days=10),
+            material_group="component",
+            so_number="OTHER-SO",
+            works_order="OTHER-JOB",
+        )
+        make_stock("COMP-SCOPE", qty_on_hand=5)
+
+        result = run_pegging(so_number="SELECTED-SO", material_group="component")
+        material = next(m for m in result["materials"] if m.material_code == "COMP-SCOPE")
+        selected_events = [e for e in material.events if e.so_number == "SELECTED-SO"]
+
+        assert material.selected_so_status == "ok"
+        assert material.mat_status == "high_risk"
+        assert len(selected_events) == 1
+        assert selected_events[0].reference == "SELECTED-JOB"
+
+    def test_component_scope_excludes_unconfigured_classes(self, db):
+        from app.admin.models import SystemSetting, SETTING_COMPONENT_CLASS_IDS
+
+        SystemSetting.set(SETTING_COMPONENT_CLASS_IDS, "P101")
+        make_req(
+            "COMP-IN-SCOPE",
+            material_group="component",
+            class_id="P101",
+            so_number="CLASS-SO",
+        )
+        make_req(
+            "COMP-OUT-OF-SCOPE",
+            material_group="component",
+            class_id="G101",
+            so_number="CLASS-SO",
+            works_order="WO-OUT",
+        )
+
+        result = run_pegging(so_number="CLASS-SO", material_group="component")
+
+        assert {m.material_code for m in result["materials"]} == {"COMP-IN-SCOPE"}
+
 
 # ---------------------------------------------------------------------------
 # Integration tests: PO lead-time behaviour

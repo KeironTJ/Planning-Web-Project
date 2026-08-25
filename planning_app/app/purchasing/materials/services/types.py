@@ -45,6 +45,7 @@ class MrpEvent:
     job_firm: Optional[bool] = None
     mat_status: Optional[str] = None     # 5-tier coverage status for requirement rows
     effective_date: Optional[date] = None  # PO: arrival + lead days; Req: due − lead days
+    so_number: Optional[str] = None
 
 
 @dataclass
@@ -55,6 +56,7 @@ class MrpMaterial:
     has_shortage: bool
     events: list
     mat_status: str = "no_data"
+    selected_so_status: Optional[str] = None
 
 
 #: Priority for worst-case rollup — higher number = worse status

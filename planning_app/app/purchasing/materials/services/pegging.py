@@ -14,7 +14,7 @@ from typing import Optional
 from app.extensions import db
 from ..models import MaterialRequirementMain, PurchaseOrder, Stock
 from ._cache import _cached_group_report
-from .loaders import _get_group_lead_days, _load_stock
+from .loaders import _get_group_class_ids, _get_group_lead_days, _load_stock
 from .netting import _row_status
 from .types import MrpEvent, MrpMaterial, _MAT_STATUS_PRIORITY
 
@@ -48,6 +48,28 @@ def get_mrp_pegging(
     if not search and not so_number:
         return {"materials": [], "material_count": 0, "stock_imported": bool(stock_map)}
 
+    def apply_material_scope(query):
+        if material_group != "all":
+            query = query.filter(
+                MaterialRequirementMain.material_group == material_group
+            )
+            class_ids = _get_group_class_ids(material_group)
+            if class_ids:
+                query = query.filter(MaterialRequirementMain.class_id.in_(class_ids))
+            return query
+
+        group_filters = []
+        for group in ("fabric", "component"):
+            group_filter = MaterialRequirementMain.material_group == group
+            class_ids = _get_group_class_ids(group)
+            if class_ids:
+                group_filter = db.and_(
+                    group_filter,
+                    MaterialRequirementMain.class_id.in_(class_ids),
+                )
+            group_filters.append(group_filter)
+        return query.filter(db.or_(*group_filters))
+
     # ---- Determine which material codes to show ----
     material_codes: set[str] = set()
 
@@ -57,10 +79,7 @@ def get_mrp_pegging(
             MaterialRequirementMain.issued_complete != True,
             MaterialRequirementMain.so_number == so_number,
         )
-        if material_group != "all":
-            query = query.filter(
-                MaterialRequirementMain.material_group == material_group
-            )
+        query = apply_material_scope(query)
         rows = query.distinct().all()
         material_codes.update(r.material_code for r in rows if r.material_code)
 
@@ -72,10 +91,7 @@ def get_mrp_pegging(
                 MaterialRequirementMain.material_description.ilike(term),
             )
         )
-        if material_group != "all":
-            query = query.filter(
-                MaterialRequirementMain.material_group == material_group
-            )
+        query = apply_material_scope(query)
         rows = query.distinct().all()
         material_codes.update(r.material_code for r in rows if r.material_code)
 
@@ -101,10 +117,7 @@ def get_mrp_pegging(
         MaterialRequirementMain.issued_complete != True,
         MaterialRequirementMain.material_code.in_(mc_list),
     )
-    if material_group != "all":
-        req_query = req_query.filter(
-            MaterialRequirementMain.material_group == material_group
-        )
+    req_query = apply_material_scope(req_query)
     main_reqs = req_query.order_by(MaterialRequirementMain.due_date).all()
     po_rows = (
         PurchaseOrder.query
@@ -137,6 +150,7 @@ def get_mrp_pegging(
                 "effective_date": (req.due_date - timedelta(days=ld)) if req.due_date else None,
                 "row_type":      "requirement",
                 "reference":     req.works_order or "",
+                "so_number":     req.so_number,
                 "source":        "main",
                 "department":    req.warehouse_code or "",
                 "demand":        net_req,
@@ -256,6 +270,7 @@ def get_mrp_pegging(
                 job_released=e.get("job_released"),
                 job_firm=e.get("job_firm"),
                 mat_status=e.get("_mat_status"),
+                so_number=e.get("so_number"),
             ))
 
         has_shortage = any(ev.is_short for ev in events)
@@ -268,6 +283,19 @@ def get_mrp_pegging(
             key=lambda s: _MAT_STATUS_PRIORITY.get(s, -1),
             default="no_data",
         )
+        selected_so_status = None
+        if so_number:
+            selected_statuses = [
+                ev.mat_status for ev in events
+                if ev.row_type == "requirement"
+                and ev.so_number == so_number
+                and ev.mat_status
+            ]
+            selected_so_status = max(
+                selected_statuses,
+                key=lambda s: _MAT_STATUS_PRIORITY.get(s, -1),
+                default="no_data",
+            )
         materials.append(MrpMaterial(
             material_code=mc,
             description=desc,
@@ -275,6 +303,7 @@ def get_mrp_pegging(
             has_shortage=has_shortage,
             events=events,
             mat_status=worst_status,
+            selected_so_status=selected_so_status,
         ))
 
     materials.sort(key=lambda m: (0 if m.has_shortage else 1, m.material_code))
