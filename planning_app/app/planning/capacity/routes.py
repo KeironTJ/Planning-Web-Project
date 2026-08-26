@@ -23,12 +23,18 @@ from app.core.exceptions import NotFoundError
 @login_required
 @permission_required("view_capacity")
 def dashboard():
-    num_weeks  = request.args.get("weeks", 4, type=int)
-    dept_id    = request.args.get("dept", None, type=int)
-    view_mode  = request.args.get("view", "chart")
-    from_str   = request.args.get("from", "")
+    from app.planning.workorder_plan.services import (
+        get_planning_workspace, FILTER_ALL,
+    )
+
+    num_weeks = request.args.get("weeks", 13, type=int)
+    dept_id   = request.args.get("dept", None, type=int)
+    measure   = request.args.get("measure", "units")
+    from_str  = request.args.get("from", "")
 
     num_weeks = max(1, min(26, num_weeks))
+    if measure not in ("units", "smv"):
+        measure = "units"
 
     from_date = date.today()
     if from_str:
@@ -40,28 +46,32 @@ def dashboard():
     prev_from = (from_date - timedelta(weeks=num_weeks)).isoformat()
     next_from = (from_date + timedelta(weeks=num_weeks)).isoformat()
 
-    data          = services.get_capacity_dashboard(from_date, num_weeks=num_weeks, dept_id=dept_id)
-    departments   = Department.query.filter_by(is_active=True).order_by(Department.flow_order.nulls_last(), Department.name).all()
-    selected_dept = Department.query.get(dept_id) if dept_id else None
+    # Reuse the workspace builder with no session — gives identical board data read-only
+    data = get_planning_workspace(
+        session_id=None,
+        from_date=from_date,
+        num_weeks=num_weeks,
+        state_filter=FILTER_ALL,
+        dept_id=dept_id,
+        measure=measure,
+    )
 
-    chart_data = [
-        {"dept": {"id": d["dept"].id, "name": d["dept"].name}, "rows": d["rows"]}
-        for d in data["departments"]
-    ]
+    all_departments = Department.query.filter_by(is_active=True).order_by(
+        Department.flow_order.nulls_last(), Department.name
+    ).all()
 
     return render_template(
         "capacity/dashboard.html",
         title="Capacity Dashboard",
         data=data,
-        chart_data=chart_data,
-        departments=departments,
-        selected_dept=selected_dept,
+        all_departments=all_departments,
+        selected_dept_id=dept_id or "",
         num_weeks=num_weeks,
-        dept_id=dept_id or "",
-        view_mode=view_mode,
+        measure=measure,
         from_date=from_date,
         prev_from=prev_from,
         next_from=next_from,
+        can_manage=current_user.has_permission("override_capacity"),
     )
 
 

@@ -1,229 +1,454 @@
-{% extends 'base.html' %}
+﻿{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/modules/planning_board.css') }}">
+{% endblock %}
+
+{% block page_actions %}
+  {% if can_manage %}
+  <a href="{{ url_for('capacity.labour_plan_list') }}" class="btn btn-sm btn-outline-primary">
+    <i class="bi bi-pencil-square me-1"></i>Labour Plan
+  </a>
+  <a href="{{ url_for('admin.import_upload') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-upload me-1"></i>Import
+  </a>
+  {% endif %}
+{% endblock %}
 
 {% block content %}
+<div class="container-fluid px-0">
 
-<!-- Controls bar -->
-<div class="card border-0 shadow-sm mb-3">
-    <div class="card-body py-2 px-3">
+{# ─── Filter bar ──────────────────────────────────────────────────────────── #}
+<div class="px-3 mb-3 d-flex flex-wrap gap-2 align-items-end">
 
-        <!-- Row 1: Weeks | Period nav | Today | Import -->
-        <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
+  <form method="get" class="d-flex gap-1 align-items-center">
+    <input type="hidden" name="weeks"   value="{{ num_weeks }}">
+    <input type="hidden" name="measure" value="{{ measure }}">
+    <input type="hidden" name="from"    value="{{ from_date.isoformat() }}">
+    <label class="form-label form-label-sm mb-0 fw-semibold small">Dept</label>
+    <select name="dept" class="form-select form-select-sm" onchange="this.form.submit()"
+            style="min-width:160px;font-size:.8rem">
+      <option value="">All Departments</option>
+      {% for d in all_departments %}
+      <option value="{{ d.id }}" {% if selected_dept_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
 
-            <!-- Weeks -->
-            <div class="d-flex align-items-center gap-2">
-                <span class="small fw-semibold text-muted text-nowrap">Weeks</span>
-                <div class="btn-group btn-group-sm" role="group" aria-label="Number of weeks">
-                    {% for w in [1, 2, 4, 8, 13, 26] %}
-                    <a href="{{ url_for('capacity.dashboard', **{'from': from_date.isoformat(), 'weeks': w, 'dept': dept_id}) }}"
-                       class="btn {{ 'btn-primary' if num_weeks == w else 'btn-outline-secondary' }}">{{ w }}w</a>
-                    {% endfor %}
-                </div>
-            </div>
+  <form method="get" class="d-flex gap-1 align-items-center">
+    <input type="hidden" name="dept"    value="{{ selected_dept_id }}">
+    <input type="hidden" name="measure" value="{{ measure }}">
+    <input type="hidden" name="from"    value="{{ from_date.isoformat() }}">
+    <label class="form-label form-label-sm mb-0 fw-semibold small">Show</label>
+    <select name="weeks" class="form-select form-select-sm" onchange="this.form.submit()"
+            style="font-size:.8rem">
+      {% for w in [4,8,13,18,26] %}
+      <option value="{{ w }}" {% if num_weeks == w %}selected{% endif %}>{{ w }} weeks</option>
+      {% endfor %}
+    </select>
+  </form>
 
-            <!-- Period navigation -->
-            <div class="d-flex align-items-center gap-2 ms-auto">
-                <a href="{{ url_for('capacity.dashboard', **{'from': prev_from, 'weeks': num_weeks, 'dept': dept_id}) }}"
-                   class="btn btn-outline-secondary btn-sm" title="Previous period">
-                    <i class="bi bi-chevron-left"></i>
-                </a>
-                <span class="small text-muted text-nowrap">
-                    {{ data.from_date.strftime('%d %b') }} "“ {{ data.to_date.strftime('%d %b %Y') }}
-                </span>
-                <a href="{{ url_for('capacity.dashboard', **{'from': next_from, 'weeks': num_weeks, 'dept': dept_id}) }}"
-                   class="btn btn-outline-secondary btn-sm" title="Next period">
-                    <i class="bi bi-chevron-right"></i>
-                </a>
-                <a href="{{ url_for('capacity.dashboard') }}" class="btn btn-outline-secondary btn-sm" title="Go to today">
-                    Today
-                </a>
-                <a href="{{ url_for('admin.import_upload') }}" class="btn btn-outline-secondary btn-sm ms-1">
-                    <i class="bi bi-upload me-1"></i>Import
-                </a>
-            </div>
-        </div>
+  <div class="d-flex gap-1 align-items-center">
+    <span class="form-label form-label-sm mb-0 fw-semibold small">Measure</span>
+    <div class="btn-group btn-group-sm">
+      <a href="{{ request.path }}?weeks={{ num_weeks }}&dept={{ selected_dept_id }}&measure=units&from={{ from_date.isoformat() }}"
+         class="btn btn-sm {% if measure == 'units' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Units</a>
+      <a href="{{ request.path }}?weeks={{ num_weeks }}&dept={{ selected_dept_id }}&measure=smv&from={{ from_date.isoformat() }}"
+         class="btn btn-sm {% if measure == 'smv' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">SMV</a>
+    </div>
+  </div>
 
-        <!-- Row 2: Department buttons -->
-        {% set ns = namespace(data_dept_ids=[]) %}
-        {% for row in data.summary %}
-            {% if row.avail_total %}
-                {% set ns.data_dept_ids = ns.data_dept_ids + [row.dept.id] %}
+  <div class="ms-auto d-flex gap-1 align-items-center">
+    <a href="{{ request.path }}?weeks={{ num_weeks }}&dept={{ selected_dept_id }}&measure={{ measure }}&from={{ prev_from }}"
+       class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a>
+    <span class="text-muted small px-1">{{ data.from_date.strftime('%d %b') }} – {{ data.to_date.strftime('%d %b %Y') }}</span>
+    <a href="{{ request.path }}?weeks={{ num_weeks }}&dept={{ selected_dept_id }}&measure={{ measure }}&from={{ next_from }}"
+       class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a>
+    <a href="{{ request.path }}?weeks={{ num_weeks }}&dept={{ selected_dept_id }}&measure={{ measure }}"
+       class="btn btn-sm btn-outline-secondary ms-1">Today</a>
+  </div>
+</div>
+
+
+{# ─── CAPACITY BOARD ──────────────────────────────────────────────────────── #}
+<div class="px-3 mb-4">
+  <div id="boardScroll" class="board-scroll border rounded shadow-sm table-responsive"
+       style="max-height:72vh; overflow:auto">
+    <table class="table table-bordered table-sm board-table mb-0">
+
+      {# ── Headers ── #}
+      <thead style="position:sticky;top:0;z-index:10">
+        <tr>
+          <th class="col-week table-secondary"  rowspan="2">Week</th>
+          <th class="col-dates table-secondary" rowspan="2">Dates</th>
+          <th class="col-flags table-secondary" rowspan="2">Flags</th>
+          {# Status buckets #}
+          <th class="text-center col-group-sep" colspan="1" style="background:#fff3cd">
+            <i class="bi bi-circle text-secondary me-1" style="font-size:.7rem"></i>Unfirm
+          </th>
+          <th class="text-center col-group-sep" colspan="1" style="background:#cff4fc">
+            <i class="bi bi-check-circle text-info me-1" style="font-size:.7rem"></i>Firm
+          </th>
+          <th class="text-center col-group-sep" colspan="1" style="background:#d1e7dd">
+            <i class="bi bi-check-circle-fill text-success me-1" style="font-size:.7rem"></i>Released
+          </th>
+          {# Total + capacity #}
+          <th class="text-center col-group-sep" colspan="2" style="background:#e2e3e5; font-weight:700">
+            Total vs Capacity
+          </th>
+          {# Standard group #}
+          <th class="text-center col-group-sep" colspan="4"
+              style="background:#f3f4f6; border-top:3px solid #9ca3af">
+            Standard
+          </th>
+          {# Named customer groups #}
+          {% for g in data.active_groups %}
+          <th class="text-center col-group-sep" colspan="4"
+              style="background:{{ g.colour or '#adb5bd' }}22; border-top:3px solid {{ g.colour or '#adb5bd' }}">
+            {{ g.name }}
+          </th>
+          {% endfor %}
+        </tr>
+        <tr style="font-size:.7rem" class="table-light">
+          <th class="text-center col-group-sep" style="background:#fff3cd">Load</th>
+          <th class="text-center col-group-sep" style="background:#cff4fc">Load</th>
+          <th class="text-center col-group-sep" style="background:#d1e7dd">Load</th>
+          <th class="text-center col-group-sep" style="background:#e2e3e5">Jobs</th>
+          <th class="text-center"               style="background:#e2e3e5; min-width:110px">Load / Cap / %</th>
+          <th class="text-center col-group-sep" style="background:#f3f4f6">Unfirm</th>
+          <th class="text-center"               style="background:#f3f4f6">Firm</th>
+          <th class="text-center"               style="background:#f3f4f6">Rel</th>
+          <th class="text-center"               style="background:#f3f4f6; min-width:100px">Total</th>
+          {% for g in data.active_groups %}
+          <th class="text-center col-group-sep" style="background:{{ g.colour or '#adb5bd' }}22">Unfirm</th>
+          <th class="text-center"               style="background:{{ g.colour or '#adb5bd' }}22">Firm</th>
+          <th class="text-center"               style="background:{{ g.colour or '#adb5bd' }}22">Rel</th>
+          <th class="text-center"               style="background:{{ g.colour or '#adb5bd' }}22; min-width:100px">Load / Cap / %</th>
+          {% endfor %}
+        </tr>
+      </thead>
+
+      {# ── Body ── #}
+      <tbody>
+
+        {# ── Overdue summary row ── #}
+        {% set od = data.overdue_summary %}
+        {% set od_uf = od.status_cells.get('unfirm',   {'jobs':0,'load':0}) %}
+        {% set od_fm = od.status_cells.get('firm',     {'jobs':0,'load':0}) %}
+        {% set od_rl = od.status_cells.get('released', {'jobs':0,'load':0}) %}
+        {% if od.total_jobs > 0 %}
+        <tr class="overdue-row">
+          <td class="col-week"><i class="bi bi-exclamation-circle-fill me-1"></i>Overdue</td>
+          <td class="col-dates small text-danger">Past due date</td>
+          <td class="col-flags text-center">
+            <span class="badge bg-danger badge-xs">{{ od.total_jobs }}</span>
+          </td>
+          <td class="text-center col-group-sep {% if od_uf.load > 0 %}text-danger{% else %}text-muted{% endif %}">
+            {{ od_uf.load | int if od_uf.load else '—' }}
+          </td>
+          <td class="text-center col-group-sep {% if od_fm.load > 0 %}text-danger{% else %}text-muted{% endif %}">
+            {{ od_fm.load | int if od_fm.load else '—' }}
+          </td>
+          <td class="text-center col-group-sep {% if od_rl.load > 0 %}text-danger{% else %}text-muted{% endif %}">
+            {{ od_rl.load | int if od_rl.load else '—' }}
+          </td>
+          <td class="text-center col-group-sep text-danger fw-bold">{{ od.total_jobs }}</td>
+          <td class="text-center load-cap-cell cell-over">
+            <div class="lc-nums"><span class="lc-load text-danger">{{ od.total_load | int }}</span></div>
+            <div class="util-bar-wrap"><div class="util-bar bg-danger" style="width:100%"></div></div>
+            <div class="lc-remain over">OVERDUE</div>
+          </td>
+          {% set std_od = od.standard_cell %}
+          {% set stuf = std_od.status_cells.get('unfirm',   {'load':0}) %}
+          {% set stfm = std_od.status_cells.get('firm',     {'load':0}) %}
+          {% set strl = std_od.status_cells.get('released', {'load':0}) %}
+          <td class="text-center col-group-sep small {% if stuf.load > 0 %}text-danger{% else %}text-muted{% endif %}"
+              style="border-left:2px solid #9ca3af !important">
+            {{ stuf.load | int if stuf.load else '—' }}
+          </td>
+          <td class="text-center small {% if stfm.load > 0 %}text-danger{% else %}text-muted{% endif %}">
+            {{ stfm.load | int if stfm.load else '—' }}
+          </td>
+          <td class="text-center small {% if strl.load > 0 %}text-danger{% else %}text-muted{% endif %}">
+            {{ strl.load | int if strl.load else '—' }}
+          </td>
+          <td class="text-center small {% if std_od.total_load > 0 %}text-danger fw-semibold{% else %}text-muted{% endif %}">
+            {{ std_od.total_load | int if std_od.total_load else '—' }}
+          </td>
+          {% for g in data.active_groups %}
+          {% set ogc = od.group_cells.get(g.id, {'status_cells':{},'total_load':0,'total_jobs':0}) %}
+          {% set oguf = ogc.status_cells.get('unfirm',   {'load':0}) %}
+          {% set ogfm = ogc.status_cells.get('firm',     {'load':0}) %}
+          {% set ogrl = ogc.status_cells.get('released', {'load':0}) %}
+          <td class="text-center col-group-sep small {% if oguf.load > 0 %}text-danger{% else %}text-muted{% endif %}"
+              style="border-left:2px solid {{ g.colour or '#adb5bd' }} !important">
+            {{ oguf.load | int if oguf.load else '—' }}
+          </td>
+          <td class="text-center small {% if ogfm.load > 0 %}text-danger{% else %}text-muted{% endif %}">
+            {{ ogfm.load | int if ogfm.load else '—' }}
+          </td>
+          <td class="text-center small {% if ogrl.load > 0 %}text-danger{% else %}text-muted{% endif %}">
+            {{ ogrl.load | int if ogrl.load else '—' }}
+          </td>
+          <td class="text-center small cell-over load-cap-cell">
+            {% if ogc.total_load > 0 %}
+            <span class="lc-load text-danger">{{ ogc.total_load | int }}</span>
+            <div class="util-bar-wrap"><div class="util-bar bg-danger" style="width:100%"></div></div>
+            <div class="lc-remain over">OVERDUE</div>
+            {% else %}—{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endif %}
+
+        {# ── Weekly rows ── #}
+        {% for wrow in data.board_weeks %}
+        {% set uf = wrow.status_cells.get('unfirm',   {'jobs':0,'load':0}) %}
+        {% set fm = wrow.status_cells.get('firm',     {'jobs':0,'load':0}) %}
+        {% set rl = wrow.status_cells.get('released', {'jobs':0,'load':0}) %}
+        {% set cap_pct = wrow.cap_util %}
+        <tr class="{% if wrow.is_current %}week-current{% elif wrow.is_past %}week-past{% endif %}">
+
+          <td class="col-week fw-semibold font-monospace">
+            W{{ '%02d' | format(wrow.week_num) }}/{{ wrow.week_start.strftime('%y') }}
+            {% if wrow.is_current %}<span class="badge bg-warning text-dark badge-xs ms-1">NOW</span>{% endif %}
+          </td>
+          <td class="col-dates text-muted small">{{ wrow.date_range }}</td>
+          <td class="col-flags text-center">
+            {% if wrow.overdue > 0 %}
+            <span class="badge bg-danger badge-xs" title="{{ wrow.overdue }} overdue">OD {{ wrow.overdue }}</span>
             {% endif %}
+            {% if wrow.shortages > 0 %}
+            <span class="badge bg-warning text-dark badge-xs"
+                  title="{{ wrow.shortages }} order(s) with material risk">MTL {{ wrow.shortages }}</span>
+            {% endif %}
+            {% if not wrow.overdue and not wrow.shortages %}
+            <i class="bi bi-check-circle text-success small"></i>
+            {% endif %}
+          </td>
+
+          {# Status loads #}
+          <td class="text-center col-group-sep {% if uf.load > 0 %}fw-semibold{% else %}text-muted{% endif %}">
+            {{ uf.load | int if uf.load else '—' }}
+          </td>
+          <td class="text-center col-group-sep {% if fm.load > 0 %}fw-semibold{% else %}text-muted{% endif %}">
+            {{ fm.load | int if fm.load else '—' }}
+          </td>
+          <td class="text-center col-group-sep {% if rl.load > 0 %}fw-semibold{% else %}text-muted{% endif %}">
+            {{ rl.load | int if rl.load else '—' }}
+          </td>
+
+          {# Total: Jobs #}
+          <td class="text-center col-group-sep fw-semibold">{{ wrow.total_jobs or '—' }}</td>
+
+          {# Total: Load / Cap / % #}
+          {% set remaining = wrow.target - wrow.total_load if wrow.target_is_set else none %}
+          <td class="text-center load-cap-cell
+            {% if wrow.cap_status == 'over' %}cell-over
+            {% elif wrow.cap_status == 'warning' %}cell-warning
+            {% elif wrow.cap_status == 'ok' %}cell-ok{% endif %}">
+            <div class="lc-nums">
+              <span class="lc-load">{{ wrow.total_load | int }}</span>
+              {% if wrow.target_is_set %}
+              <span class="lc-cap"> / {{ wrow.target | int }}</span>
+              {% endif %}
+            </div>
+            {% if wrow.target_is_set and wrow.target > 0 %}
+            <div class="util-bar-wrap">
+              <div class="util-bar
+                {% if wrow.cap_status == 'over' %}bg-danger
+                {% elif wrow.cap_status == 'warning' %}bg-warning
+                {% else %}bg-success{% endif %}"
+                style="width:{{ [cap_pct, 100] | min if cap_pct else 0 }}%"></div>
+            </div>
+            {% if cap_pct is not none %}
+            <div class="lc-remain {% if remaining is not none and remaining < 0 %}over{% elif remaining is not none and remaining < wrow.target * 0.15 %}tight{% else %}ok{% endif %}">
+              {{ cap_pct }}%
+              {% if remaining is not none %}
+              · {% if remaining >= 0 %}+{{ remaining | int }}{% else %}{{ remaining | int }}{% endif %}
+              {% endif %}
+            </div>
+            {% endif %}
+            {% else %}
+            <div style="font-size:.65rem" class="text-muted">no cap</div>
+            {% endif %}
+          </td>
+
+          {# Standard group cells #}
+          {% set sc = wrow.standard_cell %}
+          {% set suf = sc.status_cells.get('unfirm',   {'load':0}) %}
+          {% set sfm = sc.status_cells.get('firm',     {'load':0}) %}
+          {% set srl = sc.status_cells.get('released', {'load':0}) %}
+          <td class="text-center col-group-sep small {% if suf.load > 0 %}fw-semibold{% else %}text-muted{% endif %}"
+              style="border-left:2px solid #9ca3af !important">
+            {{ suf.load | int if suf.load else '—' }}
+          </td>
+          <td class="text-center small {% if sfm.load > 0 %}fw-semibold{% else %}text-muted{% endif %}">
+            {{ sfm.load | int if sfm.load else '—' }}
+          </td>
+          <td class="text-center small {% if srl.load > 0 %}fw-semibold{% else %}text-muted{% endif %}">
+            {{ srl.load | int if srl.load else '—' }}
+          </td>
+          {% set std_remaining = sc.capacity - sc.total_load if sc.capacity else none %}
+          <td class="text-center load-cap-cell
+            {% if sc.cap_status == 'over' %}cell-over
+            {% elif sc.cap_status == 'warning' %}cell-warning
+            {% elif sc.cap_status == 'ok' %}cell-ok{% endif %}">
+            <div class="lc-nums">
+              <span class="lc-load">{{ sc.total_load | int if sc.total_load else '—' }}</span>
+              {% if sc.capacity > 0 %}<span class="lc-cap"> / {{ sc.capacity | int }}</span>{% endif %}
+            </div>
+            {% if sc.capacity > 0 and sc.util_pct is not none %}
+            <div class="util-bar-wrap">
+              <div class="util-bar
+                {% if sc.cap_status == 'over' %}bg-danger
+                {% elif sc.cap_status == 'warning' %}bg-warning
+                {% else %}bg-success{% endif %}"
+                style="width:{{ [sc.util_pct, 100] | min }}%"></div>
+            </div>
+            {% if std_remaining is not none %}
+            <div class="lc-remain {% if std_remaining < 0 %}over{% elif std_remaining < sc.capacity * 0.15 %}tight{% else %}ok{% endif %}">
+              {% if std_remaining >= 0 %}+{{ std_remaining | int }}{% else %}{{ std_remaining | int }}{% endif %}
+            </div>
+            {% endif %}
+            {% elif sc.total_load > 0 %}
+            <div style="font-size:.65rem" class="text-muted">no cap</div>
+            {% endif %}
+          </td>
+
+          {# Named customer group columns #}
+          {% for g in data.active_groups %}
+          {% set gc = wrow.group_cells.get(g.id, {'status_cells':{},'total_load':0,'capacity':0,'util_pct':none,'cap_status':'no-data'}) %}
+          {% set guf = gc.status_cells.get('unfirm',   {'load':0}) %}
+          {% set gfm = gc.status_cells.get('firm',     {'load':0}) %}
+          {% set grl = gc.status_cells.get('released', {'load':0}) %}
+          <td class="text-center col-group-sep small {% if guf.load > 0 %}fw-semibold{% else %}text-muted{% endif %}"
+              style="border-left:2px solid {{ g.colour or '#adb5bd' }} !important">
+            {{ guf.load | int if guf.load else '—' }}
+          </td>
+          <td class="text-center small {% if gfm.load > 0 %}fw-semibold{% else %}text-muted{% endif %}">
+            {{ gfm.load | int if gfm.load else '—' }}
+          </td>
+          <td class="text-center small {% if grl.load > 0 %}fw-semibold{% else %}text-muted{% endif %}">
+            {{ grl.load | int if grl.load else '—' }}
+          </td>
+          {% set g_remaining = gc.capacity - gc.total_load if gc.capacity else none %}
+          <td class="text-center load-cap-cell
+            {% if gc.cap_status == 'over' %}cell-over
+            {% elif gc.cap_status == 'warning' %}cell-warning
+            {% elif gc.cap_status == 'ok' %}cell-ok{% endif %}">
+            <div class="lc-nums">
+              <span class="lc-load">{{ gc.total_load | int if gc.total_load else '—' }}</span>
+              {% if gc.capacity > 0 %}<span class="lc-cap"> / {{ gc.capacity | int }}</span>{% endif %}
+            </div>
+            {% if gc.capacity > 0 and gc.util_pct is not none %}
+            <div class="util-bar-wrap">
+              <div class="util-bar
+                {% if gc.cap_status == 'over' %}bg-danger
+                {% elif gc.cap_status == 'warning' %}bg-warning
+                {% else %}bg-success{% endif %}"
+                style="width:{{ [gc.util_pct, 100] | min }}%"></div>
+            </div>
+            {% if g_remaining is not none %}
+            <div class="lc-remain {% if g_remaining < 0 %}over{% elif g_remaining < gc.capacity * 0.15 %}tight{% else %}ok{% endif %}">
+              {% if g_remaining >= 0 %}+{{ g_remaining | int }}{% else %}{{ g_remaining | int }}{% endif %}
+            </div>
+            {% endif %}
+            {% elif gc.total_load > 0 %}
+            <div style="font-size:.65rem" class="text-muted">no cap</div>
+            {% endif %}
+          </td>
+          {% endfor %}
+
+        </tr>
         {% endfor %}
-        <div class="d-flex flex-wrap gap-1 align-items-center">
-            <span class="small fw-semibold text-muted me-1 text-nowrap">Dept</span>
-            <a href="{{ url_for('capacity.dashboard', **{'from': from_date.isoformat(), 'weeks': num_weeks}) }}"
-               class="btn btn-sm {{ 'btn-primary' if not dept_id else 'btn-outline-secondary' }}">
-                All
-            </a>
-            {% for d in departments %}
-            {% set has_data = d.id in ns.data_dept_ids %}
-            <a href="{{ url_for('capacity.dashboard', **{'from': from_date.isoformat(), 'weeks': num_weeks, 'dept': d.id}) }}"
-               class="btn btn-sm {{ 'btn-primary' if dept_id == d.id else 'btn-outline-secondary' }}{{ ' opacity-50' if not has_data }}"
-               title="{{ d.name }}{{ ' "” no data for this period' if not has_data }}">
-                {{ d.name | truncate(18, True, '...') }}
-            </a>
-            {% endfor %}
-        </div>
 
-    </div>
+        {% if not data.board_weeks %}
+        <tr><td colspan="99" class="text-center text-muted py-4">No data for this period.</td></tr>
+        {% endif %}
+      </tbody>
+
+      {# ── Footer totals ── #}
+      <tfoot class="table-secondary fw-semibold" style="position:sticky;bottom:0;z-index:5;font-size:.75rem">
+        <tr>
+          <td class="col-week" colspan="3">Totals ({{ num_weeks }}w)</td>
+          {% set tot = namespace(uf=0.0,fm=0.0,rl=0.0,tj=0,tl=0.0,cap=0.0) %}
+          {% for wrow in data.board_weeks %}
+            {% set tot.uf  = tot.uf  + wrow.status_cells.get('unfirm',  {'load':0.0}).load %}
+            {% set tot.fm  = tot.fm  + wrow.status_cells.get('firm',    {'load':0.0}).load %}
+            {% set tot.rl  = tot.rl  + wrow.status_cells.get('released',{'load':0.0}).load %}
+            {% set tot.tj  = tot.tj  + wrow.total_jobs %}
+            {% set tot.tl  = tot.tl  + wrow.total_load %}
+            {% set tot.cap = tot.cap + wrow.target %}
+          {% endfor %}
+          <td class="text-center col-group-sep">{{ tot.uf | int }}</td>
+          <td class="text-center col-group-sep">{{ tot.fm | int }}</td>
+          <td class="text-center col-group-sep">{{ tot.rl | int }}</td>
+          <td class="text-center col-group-sep">{{ tot.tj }}</td>
+          <td class="text-center">
+            {{ tot.tl | int }} / {{ tot.cap | int }}
+            {% if tot.cap > 0 %}
+            <div class="lc-remain {% if tot.tl > tot.cap %}over{% elif tot.tl >= tot.cap * 0.85 %}tight{% else %}ok{% endif %}"
+                 style="font-size:.7rem">
+              {{ (tot.tl / tot.cap * 100) | round(1) }}%
+            </div>
+            {% endif %}
+          </td>
+          {% set std_ft = namespace(uf=0.0,fm=0.0,rl=0.0,tot=0.0) %}
+          {% for wrow in data.board_weeks %}
+            {% set sc2 = wrow.standard_cell %}
+            {% set std_ft.uf  = std_ft.uf  + sc2.status_cells.get('unfirm',  {'load':0.0}).load %}
+            {% set std_ft.fm  = std_ft.fm  + sc2.status_cells.get('firm',    {'load':0.0}).load %}
+            {% set std_ft.rl  = std_ft.rl  + sc2.status_cells.get('released',{'load':0.0}).load %}
+            {% set std_ft.tot = std_ft.tot + sc2.total_load %}
+          {% endfor %}
+          <td class="text-center col-group-sep" style="border-left:2px solid #9ca3af !important">{{ std_ft.uf | int }}</td>
+          <td class="text-center">{{ std_ft.fm | int }}</td>
+          <td class="text-center">{{ std_ft.rl | int }}</td>
+          <td class="text-center">{{ std_ft.tot | int }}</td>
+          {% for g in data.active_groups %}
+          {% set gt = namespace(uf=0.0,fm=0.0,rl=0.0,tot=0.0) %}
+          {% for wrow in data.board_weeks %}
+            {% set gc = wrow.group_cells.get(g.id, {'status_cells':{},'total_load':0.0}) %}
+            {% set gt.uf  = gt.uf  + gc.status_cells.get('unfirm',  {'load':0.0}).load %}
+            {% set gt.fm  = gt.fm  + gc.status_cells.get('firm',    {'load':0.0}).load %}
+            {% set gt.rl  = gt.rl  + gc.status_cells.get('released',{'load':0.0}).load %}
+            {% set gt.tot = gt.tot + gc.total_load %}
+          {% endfor %}
+          {% set g_tot_cap = (g.weekly_capacity | float) * (data.board_weeks | length) if g.weekly_capacity else 0 %}
+          <td class="text-center col-group-sep" style="border-left:2px solid {{ g.colour or '#adb5bd' }} !important">{{ gt.uf | int }}</td>
+          <td class="text-center">{{ gt.fm | int }}</td>
+          <td class="text-center">{{ gt.rl | int }}</td>
+          <td class="text-center">
+            {{ gt.tot | int }}
+            {% if g_tot_cap > 0 %}
+            <div class="lc-remain {% if gt.tot > g_tot_cap %}over{% elif gt.tot >= g_tot_cap * 0.85 %}tight{% else %}ok{% endif %}"
+                 style="font-size:.7rem">
+              / {{ g_tot_cap | int }} · {{ (gt.tot / g_tot_cap * 100) | round(1) }}%
+            </div>
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  {# Legend #}
+  <div class="d-flex gap-3 mt-1 flex-wrap" style="font-size:.73rem; color:#666">
+    <span><span class="badge bg-danger badge-xs">OD n</span> overdue</span>
+    <span><span class="badge bg-warning text-dark badge-xs">MTL n</span> material shortages</span>
+    <span class="ms-2"><i class="bi bi-square-fill text-success"></i> ≤85%</span>
+    <span><i class="bi bi-square-fill text-warning"></i> 85–100%</span>
+    <span><i class="bi bi-square-fill text-danger"></i> &gt;100%</span>
+    <span class="ms-2 text-muted">{{ 'Units excl. scatter' if measure == 'units' else 'SMV' }}</span>
+  </div>
 </div>
 
-{% if not data.has_buckets %}
-<div class="alert alert-info">
-    <i class="bi bi-info-circle me-2"></i>
-    No Labour Plan data imported yet.
-    <a href="{{ url_for('admin.import_upload') }}" class="alert-link">Upload LabourPlan_HIDE.csv</a> to populate capacity buckets.
 </div>
-{% endif %}
-
-{% if selected_dept %}
-<div class="d-flex justify-content-end mb-3">
-    <a href="{{ url_for('capacity.dept_calendar', dept_id=selected_dept.id) }}" class="btn btn-sm btn-outline-primary">
-        <i class="bi bi-calendar3 me-1"></i>Labour Plan Calendar
-    </a>
-</div>
-{% endif %}
-
-{% if data.departments %}
-    {% if selected_dept %}
-    <div class="card border-0 shadow-sm mb-3">
-        <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center">
-            <span>{{ data.departments[0].dept.name }} "” Load vs Available</span>
-            <small class="text-muted fw-normal">Hours per week . Utilisation %</small>
-        </div>
-        <div class="card-body">
-            <canvas id="deptChart" style="height:300px;" aria-label="Dept capacity chart"></canvas>
-        </div>
-    </div>
-    {% else %}
-    <div class="card border-0 shadow-sm mb-3">
-        <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center">
-            <span>All Departments "” Load vs Available</span>
-            <small class="text-muted fw-normal">{{ num_weeks }}-week totals . Hover for detail</small>
-        </div>
-        <div class="card-body">
-            <canvas id="allDeptsChart" style="height:320px;" aria-label="All depts capacity chart"></canvas>
-        </div>
-    </div>
-    {% endif %}
-{% endif %}
-
-<!-- Summary table -->
-<div class="card border-0 shadow-sm">
-    <div class="card-header bg-transparent fw-semibold">
-        Department Summary
-        <small class="text-muted fw-normal ms-2">{{ data.from_date.strftime('%d %b') }} "“ {{ data.to_date.strftime('%d %b %Y') }}</small>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0 align-middle">
-                <thead class="thead-subtle">
-                    <tr>
-                        <th>Department</th>
-                        <th class="text-end">Available Hrs</th>
-                        <th class="text-end">Headroom</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in data.summary %}
-                    {% if row.avail_total %}
-                    <tr>
-                        <td class="fw-semibold">
-                            <a href="{{ url_for('orders.order_book', dept_id=row.dept.id, plan_from=data.from_date.isoformat(), plan_to=data.to_date.isoformat()) }}"
-                               class="text-decoration-none text-body" title="View orders with planned operations in this period ({{ data.from_date.strftime('%d %b') }} "“ {{ data.to_date.strftime('%d %b') }})">
-                                {{ row.dept.name }}
-                            </a>
-                        </td>
-                        <td class="text-end">{{ row.avail_total if row.avail_total else '"”' }}</td>
-                        <td class="text-end {{ 'text-danger fw-semibold' if row.headroom < 0 else '' }}">
-                            {{ row.headroom if row.avail_total else '"”' }}
-                        </td>
-                        <td>
-                        <td>
-                            <a href="{{ url_for('capacity.dept_calendar', dept_id=row.dept.id) }}"
-                               class="btn btn-sm btn-outline-secondary py-0"
-                               title="Labour Plan Calendar">
-                                <i class="bi bi-calendar3"></i>
-                            </a>
-                        </td>
-                    </tr>
-                    {% endif %}
-                    {% else %}
-                    <tr>
-                        <td colspan="6" class="text-center py-4 text-muted">
-                            No active departments.
-                            <a href="{{ url_for('admin.dept_list') }}">Configure departments</a>.
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-{% if data.departments %}
-<div class="card border-0 shadow-sm mt-3">
-    <div class="card-header bg-transparent fw-semibold py-2 d-flex justify-content-between align-items-center">
-        <span>Weekly Capacity Buckets</span>
-        <small class="text-muted fw-normal">Available hours per week</small>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-sm table-bordered mb-0 align-middle" style="font-size:.78rem; min-width:600px;">
-                <thead class="thead-subtle">
-                    <tr>
-                        <th class="text-nowrap" style="min-width:150px; width:150px;">Department</th>
-                        <th style="min-width:90px; width:90px;">Metric</th>
-                        {% for w in data.weeks %}
-                        <th class="text-center text-nowrap">{{ w[5:] }}</th>
-                        {% endfor %}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for d in data.departments %}
-                    {% set has_any = namespace(val=false) %}
-                    {% for row in d.rows %}{% if row.avail > 0 %}{% set has_any.val = true %}{% endif %}{% endfor %}
-                    {% if has_any.val %}
-                    <tr class="table-group-row">
-                        <td class="fw-semibold border-end border-2" style="vertical-align:middle; width:150px; max-width:150px; overflow:hidden; word-break:break-word;">
-                            <a href="{{ url_for('orders.order_book', dept_id=d.dept.id) }}"
-                               class="text-decoration-none text-body" title="View orders with planned operations in this period ({{ data.from_date.strftime('%d %b') }} "“ {{ data.to_date.strftime('%d %b') }})">
-                                {{ d.dept.name }}
-                            </a>
-                            <br>
-                            <a href="{{ url_for('capacity.dept_calendar', dept_id=d.dept.id) }}"
-                               class="text-muted small text-decoration-none">
-                                <i class="bi bi-calendar3"></i> calendar
-                            </a>
-                        </td>
-                        <td class="text-muted text-nowrap">Avail hrs</td>
-                        {% for row in d.rows %}
-                        <td class="text-center">{{ row.avail if row.avail else '"”' }}</td>
-                        {% endfor %}
-                    </tr>
-                    <tr class="border-bottom border-2">
-                    {% endif %}
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-{% endif %}
-
 {% endblock %}
 
 {% block scripts %}
-<script>
-window.CAPACITY_DASH_DATA = {
-  chartData:      {{ chart_data | tojson }},
-  weeks:          {{ data.weeks | tojson }},
-  numWeeks:       {{ num_weeks }},
-  selectedDept:   {{ selected_dept | tojson if selected_dept else 'null' }},
-  hasDepartments: {{ 'true' if (selected_dept and data.departments) else 'false' }},
-};
-</script>
-<script src="{{ url_for('static', filename='js/modules/capacity.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/modules/planning_board.js') }}" defer></script>
 {% endblock %}
