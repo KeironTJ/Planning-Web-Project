@@ -131,11 +131,10 @@ def loading_bay():
                 "jobs":              [],
             }
         else:
-            # Multiple jobs linked to same release — take best completion
+            # Multiple jobs linked to same release — accumulate across all jobs
             rel = order["releases"][rkey]
-            comp = float(row.qty_completed or 0)
-            if comp > rel["qty_completed"]:
-                rel["qty_completed"] = comp
+            rel["qty_completed"] += float(row.qty_completed or 0)
+            rel["required_qty"]  += float(row.required_qty  or 0)
 
         rel = order["releases"][rkey]
         if row.job_num:
@@ -156,20 +155,23 @@ def loading_bay():
                     all_job_nums.add(j["job_num"])
 
     next_op_map: dict[str, str] = {}
+    job_complete_map: dict[str, bool] = {}
     if all_job_nums:
         wo_rows = (
-            db.session.query(WO.job_num, WO.next_op)
+            db.session.query(WO.job_num, WO.next_op, WO.job_complete)
             .filter(WO.job_num.in_(list(all_job_nums)), WO.assembly_seq == 0)
             .all()
         )
         for wo in wo_rows:
             if wo.next_op:
                 next_op_map[wo.job_num] = wo.next_op
+            job_complete_map[wo.job_num] = bool(wo.job_complete)
 
     for onum in order_keys:
         for rel in orders_map[onum]["releases"].values():
             for j in rel["jobs"]:
-                j["next_op"] = next_op_map.get(j["job_num"], "")
+                j["next_op"]      = next_op_map.get(j["job_num"], "")
+                j["job_complete"] = job_complete_map.get(j["job_num"], False)
 
     # ── Classify releases & build display orders ────────────────────────
     _domestic = {"united kingdom", "uk", "gb", "great britain", "northern ireland"}
@@ -185,12 +187,27 @@ def loading_bay():
         not_started: list[dict] = []
 
         for rel in releases:
-            req  = rel["required_qty"]
-            comp = rel["qty_completed"]
-            if req > 0 and comp >= req:
+            jobs = rel["jobs"]
+            # A release is finished only when Epicor has formally marked ALL
+            # linked jobs as complete (job_complete=True) — matching the
+            # "Job Complete" flag in the COOIS BAQ.
+            # For releases with no job linkage, fall back to qty check.
+            if not jobs:
+                req  = rel["required_qty"]
+                comp = rel["qty_completed"]
+                if req > 0 and comp >= req:
+                    rel["status"] = "finished"
+                    finished.append(rel)
+                elif comp > 0:
+                    rel["status"] = "in_progress"
+                    in_prog.append(rel)
+                else:
+                    rel["status"] = "not_started"
+                    not_started.append(rel)
+            elif all(j["job_complete"] for j in jobs):
                 rel["status"] = "finished"
                 finished.append(rel)
-            elif comp > 0:
+            elif any(j["job_complete"] or j["qty_completed"] > 0 for j in jobs):
                 rel["status"] = "in_progress"
                 in_prog.append(rel)
             else:

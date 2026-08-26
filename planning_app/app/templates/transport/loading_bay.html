@@ -63,7 +63,9 @@
     <div class="col-6 col-md-4 col-xl-2">
         <a href="{{ url_for('transport.loading_bay', sort=sort) }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if not status_f %}kpi-active{% endif %}"
-             style="border-top:3px solid #198754 !important;">
+             style="border-top:3px solid #198754 !important;"
+             data-bs-toggle="tooltip" data-bs-placement="bottom"
+             data-bs-title="All orders on the loading bay that have at least one completed job. Includes fully ready, on hold, and partial WIP orders.">
             <div class="fs-5 fw-bold text-success">{{ kpi_summary.total_orders }}</div>
             <div class="fw-semibold small text-muted">All FG Orders</div>
             <div class="text-muted text-xs">{{ kpi_summary.partial_count + kpi_summary.partial_hold_count }} in WIP &middot; {{ kpi_summary.ready_hold_count + kpi_summary.partial_hold_count }} on hold</div>
@@ -74,7 +76,9 @@
     <div class="col-6 col-md-4 col-xl-2">
         <a href="{{ url_for('transport.loading_bay', status='ready', sort=sort) }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if status_f == 'ready' %}kpi-active{% endif %}"
-             style="border-top:3px solid #198754 !important;">
+             style="border-top:3px solid #198754 !important;"
+             data-bs-toggle="tooltip" data-bs-placement="bottom"
+             data-bs-title="Whole orders where every job is marked complete in Epicor and there are no credit or order holds. These can be shipped and invoiced immediately.">
             <div class="fs-5 fw-bold text-success">{{ kpi_summary.ready_count }}</div>
             <div class="fw-semibold small text-success">Ready to Ship</div>
             <div class="text-muted text-xs">{{ fmt_val(kpi_summary.ready_value) }}</div>
@@ -86,7 +90,9 @@
     <div class="col-6 col-md-4 col-xl-2">
         <a href="{{ url_for('transport.loading_bay', status='ready_hold', sort=sort) }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if status_f == 'ready_hold' %}kpi-active{% endif %}"
-             style="border-top:3px solid #dc3545 !important;">
+             style="border-top:3px solid #dc3545 !important;"
+             data-bs-toggle="tooltip" data-bs-placement="bottom"
+             data-bs-title="Whole orders where every job is complete but a credit hold or order hold is blocking shipment. Production is done — finance action required to release.">
             <div class="fs-5 fw-bold text-danger">{{ kpi_summary.ready_hold_count }}</div>
             <div class="fw-semibold small text-danger">Ready &mdash; On Hold</div>
             <div class="text-muted text-xs">{{ fmt_val(kpi_summary.ready_hold_value) }} blocked</div>
@@ -98,7 +104,9 @@
     <div class="col-6 col-md-4 col-xl-2">
         <a href="{{ url_for('transport.loading_bay', status='partial', sort=sort) }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if status_f == 'partial' %}kpi-active{% endif %}"
-             style="border-top:3px solid #ffc107 !important;">
+             style="border-top:3px solid #ffc107 !important;"
+             data-bs-toggle="tooltip" data-bs-placement="bottom"
+             data-bs-title="Orders where some jobs are complete and ready to ship, but other jobs within the same order are still in production. Value shown is for the completed jobs only.">
             <div class="fs-5 fw-bold text-amber">{{ kpi_summary.partial_count }}</div>
             <div class="fw-semibold small text-amber">Partial WIP</div>
             <div class="text-muted text-xs">{{ fmt_val(kpi_summary.partial_value) }} finished</div>
@@ -110,7 +118,9 @@
     <div class="col-6 col-md-4 col-xl-2">
         <a href="{{ url_for('transport.loading_bay', status='partial_hold', sort=sort) }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if status_f == 'partial_hold' %}kpi-active{% endif %}"
-             style="border-top:3px solid #fd7e14 !important;">
+             style="border-top:3px solid #fd7e14 !important;"
+             data-bs-toggle="tooltip" data-bs-placement="bottom"
+             data-bs-title="Orders with some complete jobs and remaining WIP, and a credit or order hold active. Value shown is for completed jobs only.">
             <div class="fs-5 fw-bold text-orange">{{ kpi_summary.partial_hold_count }}</div>
             <div class="fw-semibold small text-orange">Partial WIP &mdash; On Hold</div>
             <div class="text-muted text-xs">{{ fmt_val(kpi_summary.partial_hold_value) }} finished</div>
@@ -120,28 +130,21 @@
     {% endif %}
 
     <div class="col-6 col-md-4 col-xl-2">
-        <a href="{{ url_for('transport.loading_bay', status='ready', sort=sort) }}" class="text-decoration-none">
-        <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable"
-             style="border-top:3px solid #198754 !important;">
-            <div class="fs-5 fw-bold text-success">{{ fmt_val(kpi_summary.ready_value) }}</div>
-            <div class="fw-semibold small text-success">Ready to Invoice</div>
-            <div class="text-muted text-xs">Clear, no holds</div>
-        </div>
-        </a>
-    </div>
-
-    <div class="col-6 col-md-4 col-xl-2">
         <div class="card border-0 shadow-sm text-center p-3 h-100"
-             style="border-top:3px solid #6c757d !important;">
-            <div class="fs-5 fw-bold text-secondary">{{ fmt_val(summary.total_invoiceable) }}</div>
+             style="border-top:3px solid #6c757d !important;"
+             data-bs-toggle="tooltip" data-bs-placement="bottom"
+             data-bs-title="Total value of every Epicor job-complete release across all orders — Ready to Ship + Ready on Hold + completed releases within Partial WIP orders.">
+            <div class="fs-5 fw-bold text-secondary">{{ fmt_val(kpi_summary.total_value) }}</div>
             <div class="fw-semibold small text-muted">All Finished Goods</div>
-            <div class="text-muted text-xs">Ready + held + partial finished</div>
+            <div class="text-muted text-xs">All completed releases across all orders</div>
         </div>
     </div>
 
     <div class="col-6 col-md-4 col-xl-2">
         <div class="card border-0 shadow-sm text-center p-3 h-100"
-             style="border-top:3px solid #6f42c1 !important;">
+             style="border-top:3px solid #6f42c1 !important;"
+             data-bs-toggle="tooltip" data-bs-placement="bottom"
+             data-bs-title="Total invoiceable value if every job currently in WIP were completed today. Equals All Finished Goods plus the value of all remaining in-progress and not-started releases.">
             <div class="fs-5 fw-bold" style="color:#6f42c1;">{{ fmt_val(kpi_summary.full_potential) }}</div>
             <div class="fw-semibold small text-muted">Full Potential</div>
             <div class="text-muted text-xs">If all WIP completes</div>
@@ -670,5 +673,12 @@ window.LOADING_BAY_DATA = {
 };
 </script>
 <script src="{{ url_for('static', filename='js/modules/transport.js') }}" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+        new bootstrap.Tooltip(el, { trigger: 'hover' });
+    });
+});
+</script>
 {% endblock %}
 
