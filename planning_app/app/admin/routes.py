@@ -400,7 +400,7 @@ def sync_job_item_add(job_id: int):
 @login_required
 @admin_required
 def sync_job_item_update(job_id: int, item_id: int):
-    """AJAX: update item params or reorder (action: move_up / move_down / save_params)."""
+    """AJAX: update item params or reorder job items."""
     import json as _json
     from app.admin.models import SyncJobItem
 
@@ -408,7 +408,24 @@ def sync_job_item_update(job_id: int, item_id: int):
     data = request.get_json(force=True, silent=True) or {}
     action = data.get("action", "save_params")
 
-    if action in ("move_up", "move_down"):
+    if action == "reorder":
+        item_ids = data.get("item_ids")
+        if (
+            not isinstance(item_ids, list)
+            or any(not isinstance(value, int) or isinstance(value, bool) for value in item_ids)
+            or len(item_ids) != len(set(item_ids))
+        ):
+            return jsonify({"status": "error", "message": "Invalid item order"}), 400
+
+        job_items = SyncJobItem.query.filter_by(job_id=job_id).all()
+        items_by_id = {job_item.id: job_item for job_item in job_items}
+        if set(item_ids) != set(items_by_id):
+            return jsonify({"status": "error", "message": "Item order does not match this job"}), 400
+
+        for sort_order, ordered_item_id in enumerate(item_ids):
+            items_by_id[ordered_item_id].sort_order = sort_order
+
+    elif action in ("move_up", "move_down"):
         # Find the adjacent item to swap sort_order with
         if action == "move_up":
             sibling = (
