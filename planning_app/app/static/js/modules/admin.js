@@ -316,10 +316,35 @@
         btn.addEventListener('click', async function () {
             const jobId  = this.dataset.job;
             const itemId = this.dataset.item;
-            const dir    = this.classList.contains('move-up-btn') ? 'move_up' : 'move_down';
+            const up     = this.classList.contains('move-up-btn');
+            const dir    = up ? 'move_up' : 'move_down';
             const data   = await apiPost(itemUrl(jobId, itemId), { action: dir });
             if (data.status !== 'ok') { showToast(data.message || 'Reorder failed', 'danger'); return; }
-            location.reload();
+
+            // Swap the row (and its params sub-row, if any) in place instead of
+            // reloading the page, which would reset the collapse to closed.
+            const tbody = document.querySelector('#items-table-' + jobId + ' tbody');
+            if (tbody) {
+                // Build ordered groups: each group = [item row, optional params sub-row]
+                const groups = [];
+                Array.from(tbody.querySelectorAll('tr[id^="item-row-"]')).forEach(tr => {
+                    const id = tr.dataset.item;
+                    const subrow = document.getElementById('params-subrow-' + id);
+                    groups.push({ id, els: [tr, subrow].filter(Boolean) });
+                });
+                const idx = groups.findIndex(g => g.id === itemId);
+                const swapIdx = up ? idx - 1 : idx + 1;
+                if (idx !== -1 && swapIdx >= 0 && swapIdx < groups.length) {
+                    const current = groups[idx];
+                    const other = groups[swapIdx];
+                    if (up) {
+                        current.els.forEach(el => tbody.insertBefore(el, other.els[0]));
+                    } else {
+                        other.els.forEach(el => tbody.insertBefore(el, current.els[0]));
+                    }
+                }
+            }
+            renumberItems(jobId);
         });
     });
 
