@@ -97,94 +97,155 @@
         showToast('Params saved');
     }
 
-    function startProgressBar(cell) {
-        const wrap = document.createElement('div');
-        wrap.className = 'progress mt-1';
-        wrap.style.cssText = 'height:3px;border-radius:2px;';
-        wrap.innerHTML = '<div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:0%;transition:width .4s ease-out;"></div>';
-        cell.appendChild(wrap);
-        const bar = wrap.querySelector('.progress-bar');
-        let pct = 0;
-        const timer = setInterval(() => {
-            const step = Math.max(0.3, (88 - pct) * 0.06);
-            pct = Math.min(88, pct + step);
-            bar.style.width = pct + '%';
-        }, 350);
-        return function stop(success) {
-            clearInterval(timer);
-            bar.style.transition = 'width .2s ease-in';
-            bar.style.width = '100%';
-            bar.classList.remove('progress-bar-animated', 'progress-bar-striped', 'bg-primary');
-            bar.classList.add(success ? 'bg-success' : 'bg-danger');
-            setTimeout(() => wrap.remove(), 600);
-        };
-    }
-
     let jobRunning = false;
 
+    /**
+     * Spawn the job server-side (returns immediately), then poll /status
+     * every 2 s so item badges update as each importer completes.
+     * Works even if the user navigates away — the server keeps running.
+     */
     async function runJobLive(jobId) {
-        jobRunning = true;
         const collapseEl = document.getElementById('job-body-' + jobId);
         if (collapseEl) bootstrap.Collapse.getOrCreateInstance(collapseEl).show();
 
         const rows = [...document.querySelectorAll('#items-table-' + jobId + ' tbody tr[id^="item-row-"]')];
         if (!rows.length) { showToast('No importers in this job', 'danger'); return; }
 
-        rows.forEach(row => {
-            const id = row.dataset.item;
-            const sc = document.querySelector('.item-status-' + id);
-            if (sc) sc.innerHTML = '<span class="badge bg-secondary">Waiting</span>';
-        });
-
         const jobStatusEl = document.getElementById('job-status-' + jobId);
-        if (jobStatusEl) jobStatusEl.innerHTML = '<span class="badge bg-warning text-dark">Running</span>';
 
-        const results = [];
-        for (const row of rows) {
-            const itemId = row.dataset.item;
-            const sc = document.querySelector('.item-status-' + itemId);
-            const lr = document.querySelector('.item-last-run-' + itemId);
-            if (sc) sc.innerHTML = '<span class="spinner-border spinner-border-sm text-primary me-1"></span><span class="text-muted" style="font-size:.75rem">Running\u2026</span>';
-            const stopBar = sc ? startProgressBar(sc) : null;
+        // POST to spawn the thread — returns immediately.
+        let startData;
+        try {
+            startData = await apiPost(jobUrl(jobId, 'run-now'));
+        } catch (_) {
+            showToast('Failed to start job', 'danger');
+            return;
+        }
 
-            const url = BASE + '/' + jobId + '/items/' + itemId + '/run-one';
-            let ok = false;
-            try {
-                const data = await apiPost(url);
-                ok = data.status === 'ok';
-                await new Promise(r => setTimeout(r, 200));
-                if (stopBar) stopBar(ok);
-                await new Promise(r => setTimeout(r, 250));
-                if (sc) {
-                    sc.innerHTML = ok
-                        ? '<span class="badge bg-success">OK \u00b7 ' + (data.row_count ?? 0) + '</span>'
-                        : '<span class="badge bg-danger" title="' + (data.message || '').replace(/"/g, "'") + '" data-bs-toggle="tooltip">Failed</span>';
-                    if (!ok) new bootstrap.Tooltip(sc.querySelector('[data-bs-toggle="tooltip"]'));
+        if (startData.status === 'error') {
+            showToast(startData.message || 'Failed to start job', 'danger');
+            return;
+        }
+
+        if (startData.status === 'already_running') {
+            showToast('Job is already running', 'danger');
+            return;
+        }
+
+        // Mark all items as waiting — thread is spawned but DB not yet updated.
+        rows.forEach(row => {
+            const sc = document.querySelector('.item-status-' + row.dataset.item);
+            if (sc) sc.innerHTML =
+                '<span class="spinner-border spinner-border-sm text-secondary me-1" style="width:.6rem;height:.6rem"></span>' +
+                '<span class="text-muted" style="font-size:.75rem">Waiting\u2026</span>';
+        });
+        if (jobStatusEl) jobStatusEl.innerHTML =
+            '<span class="spinner-border spinner-border-sm text-warning me-1" style="width:.6rem;height:.6rem"></span>' +
+            '<span class="badge bg-warning text-dark">Starting\u2026</span>';
+
+        const runRequestedAt = new Date();
+        jobRunning = true;
+
+        const POLL_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+        // Poll until the thread claims is_running, then until it releases it.
+        await new Promise(resolve => {
+            const deadline   = Date.now() + POLL_TIMEOUT_MS;
+            const pollTimer  = setInterval(async () => {
+                // Abort if we've been polling longer than the timeout.
+                if (Date.now() > deadline) {
+                    clearInterval(pollTimer);
+                    jobRunning = false;
+                    if (jobStatusEl) jobStatusEl.innerHTML =
+                        '<span class="badge bg-danger">Timed out</span>';
+                    showToast('Job polling timed out — check server logs', 'danger');
+                    resolve();
+                    return;
                 }
-                if (lr) lr.textContent = fmtNow();
-            } catch (_) {
-                if (stopBar) stopBar(false);
-                if (sc) sc.innerHTML = '<span class="badge bg-danger">Error</span>';
-            }
-            results.push(ok);
-        }
 
-        const allOk      = results.every(Boolean);
-        const anyOk      = results.some(Boolean);
-        const finalStatus = allOk ? 'success' : (anyOk ? 'partial' : 'failed');
-        const badgeCls    = allOk ? 'bg-success' : (anyOk ? 'bg-warning text-dark' : 'bg-danger');
-        const badgeLbl    = allOk ? 'OK' : (anyOk ? 'Partial' : 'Failed');
-        if (jobStatusEl) jobStatusEl.innerHTML = '<span class="badge ' + badgeCls + '">' + badgeLbl + '</span>';
+                let d;
+                try {
+                    const r = await fetch(jobUrl(jobId, 'status'), {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    });
+                    d = await r.json();
+                } catch (_) { return; }
 
-        const timingEl = document.getElementById('job-timing-' + jobId);
-        if (timingEl) {
-            const nextMatch = timingEl.textContent.match(/Next\s[\w\d: ]+/);
-            timingEl.textContent = 'Last ' + fmtNow() + (nextMatch ? ' \u00b7 ' + nextMatch[0] : '');
-        }
+                if (d.status !== 'ok') return;
 
-        jobRunning = false;
-        apiPost(jobUrl(jobId), { last_status: finalStatus }).catch(() => {});
-        showToast('Job complete \u2014 ' + results.filter(Boolean).length + '/' + results.length + ' importers OK');
+                if (d.is_running && jobStatusEl) {
+                    jobStatusEl.innerHTML = '<span class="badge bg-warning text-dark">Running</span>';
+                }
+
+                // Update item badges from DB state.
+                let firstPendingFound = false;
+                d.items.forEach(item => {
+                    const sc = document.querySelector('.item-status-' + item.id);
+                    const lr = document.querySelector('#item-last-run-' + item.id);
+                    if (!sc) return;
+
+                    const ranThisRun = item.last_run_at && new Date(item.last_run_at) > runRequestedAt;
+
+                    if (ranThisRun) {
+                        if (item.last_status === 'success') {
+                            sc.innerHTML = '<span class="badge bg-success">OK' +
+                                (item.last_row_count != null ? ' \u00b7 ' + item.last_row_count : '') + '</span>';
+                        } else {
+                            sc.innerHTML = '<span class="badge bg-danger" title="' +
+                                (item.last_error || '').replace(/"/g, "'") +
+                                '" data-bs-toggle="tooltip">Failed</span>';
+                            new bootstrap.Tooltip(sc.querySelector('[data-bs-toggle="tooltip"]'));
+                        }
+                        if (lr && item.last_run_at) lr.textContent = window.fmtIso(item.last_run_at, 'datetime');
+                    } else if (d.is_running && !firstPendingFound) {
+                        firstPendingFound = true;
+                        sc.innerHTML =
+                            '<span class="spinner-border spinner-border-sm text-primary me-1"></span>' +
+                            '<span class="text-muted" style="font-size:.75rem">Running\u2026</span>';
+                    }
+                    // Remaining items stay as Waiting until their turn.
+                });
+
+                // Done when thread has released is_running.
+                if (!d.is_running) {
+                    clearInterval(pollTimer);
+                    jobRunning = false;
+
+                    const finalCls = d.last_status === 'success' ? 'bg-success'
+                        : d.last_status === 'partial'            ? 'bg-warning text-dark'
+                        : 'bg-danger';
+                    const finalLbl = d.last_status === 'success' ? 'OK'
+                        : d.last_status === 'partial'            ? 'Partial'
+                        : (d.last_status ? 'Failed' : '\u2014');
+                    if (jobStatusEl) jobStatusEl.innerHTML =
+                        '<span class="badge ' + finalCls + '">' + finalLbl + '</span>';
+
+                    const okCount = d.items.filter(i => {
+                        const ranThisRun = i.last_run_at && new Date(i.last_run_at) > runRequestedAt;
+                        return ranThisRun && i.last_status === 'success';
+                    }).length;
+                    const ranCount = d.items.filter(i =>
+                        i.last_run_at && new Date(i.last_run_at) > runRequestedAt
+                    ).length;
+
+                    if (ranCount > 0) {
+                        showToast('Job complete \u2014 ' + okCount + '/' + ranCount + ' importers OK');
+                    } else {
+                        showToast('Job finished (no items ran — check that importers are configured)', 'danger');
+                    }
+
+                    const timingEl = document.getElementById('job-timing-' + jobId);
+                    if (timingEl && d.last_run_at) {
+                        const lastPart = window.fmtIso(d.last_run_at, 'datetime');
+                        const nextPart = d.next_run_at
+                            ? ' \u00b7 Next ' + window.fmtIso(d.next_run_at, 'datetime')
+                            : '';
+                        timingEl.textContent = 'Last ' + lastPart + nextPart;
+                    }
+                    resolve();
+                }
+            }, 2000);
+        });
     }
 
     function renumberItems(jobId) {
@@ -379,33 +440,57 @@
     });
 
     // ── Auto-refresh job and item status every 30 s ──────────────────────
+    const STATUS_URL = toastContainer.dataset.urlStatus;
     setInterval(() => {
-        if (jobRunning) return;
-        fetch(location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then(r => r.text())
-            .then(html => {
-                const doc = new DOMParser().parseFromString(html, 'text/html');
-                document.querySelectorAll('[id^="job-status-"]').forEach(el => {
-                    const fresh = doc.getElementById(el.id);
-                    if (fresh) el.innerHTML = fresh.innerHTML;
-                });
-                document.querySelectorAll('[id^="job-timing-"]').forEach(el => {
-                    const fresh = doc.getElementById(el.id);
-                    if (fresh) el.innerHTML = fresh.innerHTML;
-                });
-                document.querySelectorAll('[id^="item-status-"]').forEach(el => {
-                    const fresh = doc.getElementById(el.id);
-                    if (fresh) el.innerHTML = fresh.innerHTML;
-                });
-                document.querySelectorAll('[id^="item-last-run-"]').forEach(el => {
-                    const fresh = doc.getElementById(el.id);
-                    if (fresh) el.innerHTML = fresh.innerHTML;
-                });
-                document.querySelectorAll('time.fmt-utc[data-utc]').forEach(el => {
-                    el.textContent = window.fmtIso(el.dataset.utc, el.dataset.fmt);
-                });
-                document.querySelectorAll('[id^="item-status-"] [data-bs-toggle="tooltip"]').forEach(el => {
-                    new bootstrap.Tooltip(el);
+        if (jobRunning || !STATUS_URL) return;
+        fetch(STATUS_URL, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status !== 'ok') return;
+                data.jobs.forEach(job => {
+                    const statusEl = document.getElementById('job-status-' + job.id);
+                    if (statusEl) {
+                        const cls = job.last_status === 'success' ? 'bg-success'
+                            : job.last_status === 'partial'       ? 'bg-warning text-dark'
+                            : job.last_status === 'failed'        ? 'bg-danger'
+                            : job.is_running                      ? 'bg-warning text-dark'
+                            : 'bg-secondary';
+                        const lbl = job.is_running    ? 'Running'
+                            : job.last_status === 'success' ? 'OK'
+                            : job.last_status === 'partial' ? 'Partial'
+                            : job.last_status === 'failed'  ? 'Failed'
+                            : '\u2014';
+                        statusEl.innerHTML = '<span class="badge ' + cls + '">' + lbl + '</span>';
+                    }
+                    const timingEl = document.getElementById('job-timing-' + job.id);
+                    if (timingEl && job.last_run_at) {
+                        const nextPart = job.next_run_at
+                            ? ' \u00b7 Next ' + window.fmtIso(job.next_run_at, 'datetime')
+                            : '';
+                        timingEl.textContent = 'Last ' + window.fmtIso(job.last_run_at, 'datetime') + nextPart;
+                    }
+                    job.items.forEach(item => {
+                        const sc = document.getElementById('item-status-' + item.id);
+                        if (sc) {
+                            // Dispose any existing tooltip before replacing innerHTML.
+                            const existing = sc.querySelector('[data-bs-toggle="tooltip"]');
+                            if (existing) bootstrap.Tooltip.getInstance(existing)?.dispose();
+
+                            if (item.last_status === 'success') {
+                                sc.innerHTML = '<span class="badge bg-success">OK' +
+                                    (item.last_row_count != null ? ' \u00b7 ' + item.last_row_count : '') + '</span>';
+                            } else if (item.last_status === 'failed') {
+                                sc.innerHTML = '<span class="badge bg-danger" title="' +
+                                    (item.last_error || '').replace(/"/g, "'") +
+                                    '" data-bs-toggle="tooltip">Failed</span>';
+                                new bootstrap.Tooltip(sc.querySelector('[data-bs-toggle="tooltip"]'));
+                            }
+                        }
+                        const lr = document.getElementById('item-last-run-' + item.id);
+                        if (lr && item.last_run_at) {
+                            lr.textContent = window.fmtIso(item.last_run_at, 'datetime');
+                        }
+                    });
                 });
             })
             .catch(() => {});

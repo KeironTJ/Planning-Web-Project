@@ -255,7 +255,9 @@ def sync_job_update(job_id: int):
     if "enabled" in data:
         job.enabled = bool(data["enabled"])
         if job.enabled:
-            job.schedule_next_run()
+            # Set next_run_at to now so the scheduler picks it up on the very
+            # next tick (within 60 s) rather than waiting a full interval.
+            job.next_run_at = datetime.now(timezone.utc)
         else:
             job.next_run_at = None
 
@@ -310,58 +312,115 @@ def sync_job_delete(job_id: int):
 @login_required
 @admin_required
 def sync_job_run_now(job_id: int):
-    """AJAX: run a job immediately (outside the scheduler)."""
+    """AJAX: start a job immediately in a background thread.
+
+    Claims the job (sets is_running=True) before returning so the very
+    first status poll sees the running state with no race window.
+    The thread then runs the importers and clears is_running when done.
+    """
     from flask import current_app
-    from app.admin.models import SyncJob, SyncJobItem
-    from app.core.epicor_client import KineticClient
-    from app.core.epicor_importers import REGISTRY
-    from app.core.scheduler import _resolve_item_params
+    from datetime import timedelta
+    from app.admin.models import SyncJob
+    from app.core.scheduler import run_job_in_thread
 
     job = SyncJob.query.get_or_404(job_id)
 
-    item_results = []
+    if job.is_running:
+        return jsonify({"status": "already_running", "message": "Job is already running."})
+
+    # Claim the job synchronously so the DB reflects is_running=True
+    # before the route returns and the frontend starts polling.
+    job.is_running = True
+    if job.enabled:
+        job.next_run_at = datetime.now(timezone.utc) + timedelta(minutes=job.interval_minutes)
     try:
-        with KineticClient.from_app(current_app._get_current_object()) as client:
-            for item in job.items:
-                key = item.importer_key
-                if key not in REGISTRY:
-                    continue
-                try:
-                    batch = REGISTRY[key](client).run(
-                        triggered_by_id=current_user.id,
-                        params=_resolve_item_params(item),
-                    )
-                    db.session.add(item)
-                    item.last_status    = SyncJobItem.STATUS_SUCCESS
-                    item.last_row_count = batch.row_count
-                    item.last_error     = None
-                    item_results.append({"key": key, "row_count": batch.row_count, "status": "success"})
-                except Exception as exc:
-                    db.session.add(item)
-                    item.last_status = SyncJobItem.STATUS_FAILED
-                    item.last_error  = str(exc)
-                    item_results.append({"key": key, "row_count": 0, "status": "failed", "error": str(exc)})
-                finally:
-                    item.last_run_at = datetime.now(timezone.utc)
-
-        all_ok     = all(r["status"] == "success" for r in item_results)
-        any_ok     = any(r["status"] == "success" for r in item_results)
-        db.session.add(job)
-        job.last_status   = SyncJob.STATUS_SUCCESS if all_ok else (SyncJob.STATUS_PARTIAL if any_ok else SyncJob.STATUS_FAILED)
-        job.last_run_at   = datetime.now(timezone.utc)
-        if job.enabled:
-            job.schedule_next_run()
         db.session.commit()
-
     except Exception as exc:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(exc)}), 500
 
+    run_job_in_thread(current_app._get_current_object(), job.id)
+    return jsonify({"status": "started", "job_id": job.id})
+
+
+@admin_bp.route("/epicor-sync/schedules/jobs/<int:job_id>/status", methods=["GET"])
+@login_required
+@admin_required
+def sync_job_status(job_id: int):
+    """AJAX: return current job and item status for frontend polling."""
+    from app.admin.models import SyncJob
+
+    job = SyncJob.query.get_or_404(job_id)
+
+    def _iso(dt):
+        """Return an ISO string with explicit UTC marker for JS Date parsing."""
+        if dt is None:
+            return None
+        s = dt.isoformat()
+        # SQLite returns naive datetimes (no +00:00); add Z so JS parses as UTC.
+        if s[-1] not in ('+', 'Z') and '+' not in s[-6:]:
+            s += 'Z'
+        return s
+
     return jsonify({
-        "status":       "ok",
-        "job_id":       job.id,
-        "last_status":  job.last_status,
-        "item_results": item_results,
+        "status":        "ok",
+        "is_running":    job.is_running,
+        "last_status":   job.last_status,
+        "last_run_at":   _iso(job.last_run_at),
+        "next_run_at":   _iso(job.next_run_at),
+        "items": [
+            {
+                "id":             item.id,
+                "importer_key":   item.importer_key,
+                "last_status":    item.last_status,
+                "last_row_count": item.last_row_count,
+                "last_error":     item.last_error,
+                "last_run_at":    _iso(item.last_run_at),
+            }
+            for item in job.items
+        ],
+    })
+
+
+@admin_bp.route("/epicor-sync/schedules/status", methods=["GET"])
+@login_required
+@admin_required
+def sync_schedules_status():
+    """AJAX: lightweight bulk status for all jobs — used by the 30-second
+    auto-refresh so the page does not need to re-render the full template."""
+    from app.admin.models import SyncJob
+
+    def _iso(dt):
+        if dt is None:
+            return None
+        s = dt.isoformat()
+        if s[-1] not in ('+', 'Z') and '+' not in s[-6:]:
+            s += 'Z'
+        return s
+
+    jobs = SyncJob.query.order_by(SyncJob.created_at).all()
+    return jsonify({
+        "status": "ok",
+        "jobs": [
+            {
+                "id":          job.id,
+                "is_running":  job.is_running,
+                "last_status": job.last_status,
+                "last_run_at": _iso(job.last_run_at),
+                "next_run_at": _iso(job.next_run_at),
+                "items": [
+                    {
+                        "id":             item.id,
+                        "last_status":    item.last_status,
+                        "last_row_count": item.last_row_count,
+                        "last_error":     item.last_error,
+                        "last_run_at":    _iso(item.last_run_at),
+                    }
+                    for item in job.items
+                ],
+            }
+            for job in jobs
+        ],
     })
 
 

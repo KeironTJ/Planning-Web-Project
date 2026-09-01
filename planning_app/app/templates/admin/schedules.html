@@ -316,7 +316,8 @@
 </div>
 
 <div class="position-fixed bottom-0 end-0 p-3" style="z-index:1100" id="toast-container"
-     data-url-jobs="{{ url_for('admin.sync_job_create') }}"></div>
+     data-url-jobs="{{ url_for('admin.sync_job_create') }}"
+     data-url-status="{{ url_for('admin.sync_schedules_status') }}"></div>
 
 {% endblock %}
 
