@@ -18,6 +18,17 @@ from app.purchasing.materials.models import MaterialRequirementMain, MrpExemptMa
 from app.purchasing.materials.services.status import get_so_material_status, get_so_component_status, get_job_material_status, get_job_component_status
 from app.purchasing.materials.services.types import MAT_STATUS_META
 
+
+def _wip_job_ordering():
+    """Order WIP jobs by due date, sequence, sales order, then job number."""
+    return (
+        WorksOrder.req_due_date.asc().nullslast(),
+        WorksOrder.order_sort.asc().nullslast(),
+        WorksOrder.order_num.asc().nullslast(),
+        WorksOrder.job_num.asc().nullslast(),
+    )
+
+
 @operations_bp.route('/')
 @operations_bp.route('/dashboard')
 @login_required
@@ -259,9 +270,7 @@ def wip_overview():
     if per_page not in (25, 50, 100, 200):
         per_page = 50
     jobs = WorksOrder.query.filter(*_base, *_shortage_filter).order_by(
-        WorksOrder.req_due_date.asc().nullslast(),
-        WorksOrder.prod_plnwk.asc().nullslast(),
-        WorksOrder.next_op.asc().nullslast(),
+        *_wip_job_ordering()
     ).paginate(
         page=page, per_page=per_page, error_out=False
     )
@@ -378,11 +387,7 @@ def wip_export():
     shortages_only = request.args.get('shortages_only', '0') == '1'
     shortage_group = request.args.get('shortage_group', '')
 
-    rows = WorksOrder.query.filter(*_base).order_by(
-        WorksOrder.req_due_date.asc().nullslast(),
-        WorksOrder.prod_plnwk.asc().nullslast(),
-        WorksOrder.next_op.asc().nullslast(),
-    ).all()
+    rows = WorksOrder.query.filter(*_base).order_by(*_wip_job_ordering()).all()
 
     _order_nums = [str(job.order_num) for job in rows if job.order_num]
     mat_status_map  = get_so_material_status(_order_nums)  if _order_nums else {}

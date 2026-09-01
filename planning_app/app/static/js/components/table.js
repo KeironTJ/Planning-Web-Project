@@ -48,13 +48,15 @@ function exportTableToCsv(tableId, filename) {
     });
 
     const blob = new Blob(['\ufeff' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const objectUrl = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement('a'), {
-        href: URL.createObjectURL(blob),
+        href: objectUrl,
         download: filename,
     });
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
 }
 
 // -----------------------------------------------------------------------

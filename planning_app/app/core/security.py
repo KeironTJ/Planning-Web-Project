@@ -8,6 +8,7 @@ means any blueprint can use them without duplicating code.
 import re
 import secrets
 import hashlib
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -108,27 +109,50 @@ def check_password_strength(password: str) -> tuple[bool, list[str]]:
 _login_attempts: dict[str, list[datetime]] = {}
 _MAX_ATTEMPTS = 5
 _LOCKOUT_MINUTES = 15
+_MAX_TRACKED_IDENTIFIERS = 10_000
+_login_attempts_lock = threading.Lock()
+
+
+def _prune_login_attempts(now: datetime) -> None:
+    cutoff = now - timedelta(minutes=_LOCKOUT_MINUTES)
+    expired = [
+        identifier
+        for identifier, attempts in _login_attempts.items()
+        if not attempts or attempts[-1] <= cutoff
+    ]
+    for identifier in expired:
+        del _login_attempts[identifier]
 
 
 def record_failed_login(identifier: str) -> None:
     """Record a failed login attempt for `identifier` (e.g. IP address or email)."""
     now = datetime.now(timezone.utc)
-    attempts = _login_attempts.setdefault(identifier, [])
-    # Prune attempts older than the lockout window
-    _login_attempts[identifier] = [
-        t for t in attempts if now - t < timedelta(minutes=_LOCKOUT_MINUTES)
-    ]
-    _login_attempts[identifier].append(now)
+    cutoff = now - timedelta(minutes=_LOCKOUT_MINUTES)
+    with _login_attempts_lock:
+        _prune_login_attempts(now)
+        attempts = [
+            attempt
+            for attempt in _login_attempts.pop(identifier, [])
+            if attempt > cutoff
+        ]
+        attempts.append(now)
+
+        if len(_login_attempts) >= _MAX_TRACKED_IDENTIFIERS:
+            oldest_identifier = next(iter(_login_attempts))
+            del _login_attempts[oldest_identifier]
+
+        _login_attempts[identifier] = attempts[-_MAX_ATTEMPTS:]
 
 
 def is_locked_out(identifier: str) -> bool:
     """Return True if `identifier` has exceeded the allowed login attempts."""
     now = datetime.now(timezone.utc)
-    attempts = _login_attempts.get(identifier, [])
-    recent = [t for t in attempts if now - t < timedelta(minutes=_LOCKOUT_MINUTES)]
-    return len(recent) >= _MAX_ATTEMPTS
+    with _login_attempts_lock:
+        _prune_login_attempts(now)
+        return len(_login_attempts.get(identifier, [])) >= _MAX_ATTEMPTS
 
 
 def clear_login_attempts(identifier: str) -> None:
     """Clear failed attempts after a successful login."""
-    _login_attempts.pop(identifier, None)
+    with _login_attempts_lock:
+        _login_attempts.pop(identifier, None)

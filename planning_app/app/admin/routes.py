@@ -5,7 +5,6 @@ All routes here require the "admin" role.  The admin_required decorator
 from core.decorators enforces this at the HTTP layer.
 """
 
-import io
 from datetime import datetime, timezone
 
 from flask import render_template, redirect, url_for, flash, request, jsonify
@@ -1053,10 +1052,11 @@ def import_upload():
         import_type = form.import_type.data
         file_storage = form.file.data
         filename = file_storage.filename
-        stream = io.BytesIO(file_storage.read())
 
         try:
-            batch = _run_importer(import_type, stream, filename, current_user.id)
+            batch = _run_importer(
+                import_type, file_storage.stream, filename, current_user.id
+            )
         except Exception as exc:
             flash(f"Import failed: {exc}", "danger")
             return redirect(url_for("admin.import_upload"))

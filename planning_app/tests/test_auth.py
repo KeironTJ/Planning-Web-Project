@@ -6,6 +6,7 @@ Covers: login, logout, registration, password validation, role checking.
 
 import pytest
 from app.auth.models import User
+from app.core import security
 from app.core.security import check_password_strength
 from .conftest import login
 
@@ -35,6 +36,34 @@ class TestPasswordStrength:
         ok, errors = check_password_strength("SecurPass1234")
         assert not ok
         assert any("special" in e for e in errors)
+
+
+class TestLoginAttemptTracking:
+    def setup_method(self):
+        security._login_attempts.clear()
+
+    def teardown_method(self):
+        security._login_attempts.clear()
+
+    def test_expired_identifier_is_removed(self):
+        from datetime import timedelta
+
+        security.record_failed_login("expired")
+        security._login_attempts["expired"][0] -= timedelta(
+            minutes=security._LOCKOUT_MINUTES + 1
+        )
+
+        assert security.is_locked_out("expired") is False
+        assert "expired" not in security._login_attempts
+
+    def test_identifier_store_is_bounded(self, monkeypatch):
+        monkeypatch.setattr(security, "_MAX_TRACKED_IDENTIFIERS", 2)
+
+        security.record_failed_login("first")
+        security.record_failed_login("second")
+        security.record_failed_login("third")
+
+        assert list(security._login_attempts) == ["second", "third"]
 
 
 class TestLogin:

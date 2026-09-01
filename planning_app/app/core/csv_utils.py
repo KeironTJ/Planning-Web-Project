@@ -110,12 +110,18 @@ def read_csv_rows(stream_or_path) -> Iterator[dict]:
             for row in reader:
                 yield {k.strip(): (v.strip() if v else v) for k, v in row.items()}
     else:
-        # File-like object — read bytes and decode
-        raw = stream_or_path.read()
-        if isinstance(raw, bytes):
-            text = raw.decode("utf-8-sig")
-        else:
-            text = raw
-        reader = csv.DictReader(io.StringIO(text))
-        for row in reader:
-            yield {k.strip(): (v.strip() if v else v) for k, v in row.items()}
+        if isinstance(stream_or_path, io.TextIOBase):
+            reader = csv.DictReader(stream_or_path)
+            for row in reader:
+                yield {k.strip(): (v.strip() if v else v) for k, v in row.items()}
+            return
+
+        text_stream = io.TextIOWrapper(
+            stream_or_path, encoding="utf-8-sig", newline=""
+        )
+        try:
+            reader = csv.DictReader(text_stream)
+            for row in reader:
+                yield {k.strip(): (v.strip() if v else v) for k, v in row.items()}
+        finally:
+            text_stream.detach()
