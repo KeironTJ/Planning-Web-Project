@@ -61,11 +61,16 @@ def order_book():
     per_page              = request.args.get("per_page", 25, type=int)
     due_date_from         = _parse_date(request.args.get("due_from", ""))
     due_date_to           = _parse_date(request.args.get("due_to", ""))
+    order_status          = request.args.get("status", "open")
 
     if per_page not in (25, 50, 100):
         per_page = 25
     if order_by not in ("due_date", "so_number", "customer", "value"):
         order_by = "due_date"
+    if order_status not in ("open", "closed"):
+        order_status = "open"
+    if order_status == "closed":
+        overdue_only = False
 
     pagination, orders = services.get_order_book(
         page=page,
@@ -80,11 +85,12 @@ def order_book():
         order_by=order_by,
         due_date_from=due_date_from,
         due_date_to=due_date_to,
+        order_status=order_status,
     )
-    summary         = services.get_order_book_summary()
-    order_types     = services.get_order_types()
-    customer_groups = services.get_customer_groups()
-    countries       = services.get_countries()
+    summary         = services.get_order_book_summary(order_status)
+    order_types     = services.get_order_types(order_status)
+    customer_groups = services.get_customer_groups(order_status)
+    countries       = services.get_countries(order_status)
 
     comment_summaries = services.get_comment_summaries([o["so_number"] for o in orders])
     for o in orders:
@@ -118,11 +124,11 @@ def order_book():
     # ── Material availability status ─────────────────────────────────────
     try:
         from app.purchasing.materials.services.status import get_so_material_status, get_job_material_status, get_so_component_status, get_job_component_status
-        _so_mat   = get_so_material_status([o["so_number"] for o in orders])
-        _so_comp  = get_so_component_status([o["so_number"] for o in orders])
+        _so_mat   = get_so_material_status([o["so_number"] for o in orders]) if order_status == "open" else {}
+        _so_comp  = get_so_component_status([o["so_number"] for o in orders]) if order_status == "open" else {}
         _all_jobs = [line["job_num"] for o in orders for line in o.get("lines", []) if line.get("job_num")]
-        _job_mat  = get_job_material_status(_all_jobs) if _all_jobs else {}
-        _job_comp = get_job_component_status(_all_jobs) if _all_jobs else {}
+        _job_mat  = get_job_material_status(_all_jobs) if _all_jobs and order_status == "open" else {}
+        _job_comp = get_job_component_status(_all_jobs) if _all_jobs and order_status == "open" else {}
         for o in orders:
             o["mat_status"]  = _so_mat.get(o["so_number"], "no_data")
             o["comp_status"] = _so_comp.get(o["so_number"], "no_data")
@@ -139,7 +145,7 @@ def order_book():
 
     return render_template(
         "orders/order_book.html",
-        title="Open Order Book",
+        title=f"{order_status.title()} Order Book",
         pagination=pagination,
         orders=orders,
         summary=summary,
@@ -157,6 +163,7 @@ def order_book():
         per_page=per_page,
         due_date_from=due_date_from,
         due_date_to=due_date_to,
+        order_status=order_status,
         today=date.today(),
     )
 
@@ -206,6 +213,5 @@ def overdue_report():
         today=date.today(),
         **data,
     )
-
 
 

@@ -16,6 +16,7 @@
  *   8. Overdue report (print)
  *   9. Legend colour indicators
  *  10. Planning: ops panel + comment bubble
+ *   4a. Order book detail rows
  */
 
 /* ============================================================
@@ -122,6 +123,54 @@
 /* Active filter indicator */
 .filter-active {
     border-color: var(--ph-filter-active-border) !important;
+}
+
+/* ============================================================
+   4a. ORDER BOOK DETAIL ROWS
+   Used in: orders/order_book.html
+   ============================================================ */
+
+.ob-detail-grid {
+    display: grid;
+    align-items: center;
+    column-gap: 1rem;
+    min-height: 2.75rem;
+    margin-left: 1.75rem;
+    padding: .5rem 1rem;
+    border-left: 3px solid var(--bs-border-color);
+    background: var(--ph-table-group-row-bg);
+    font-size: .8rem;
+}
+
+.ob-detail-grid-open {
+    grid-template-columns:
+        4.5rem minmax(16rem, 2.5fr) 7rem 4rem 5.5rem
+        minmax(12rem, 1.5fr) 5rem 5rem;
+    min-width: 68rem;
+}
+
+.ob-detail-grid-closed {
+    grid-template-columns:
+        4.5rem minmax(16rem, 2.5fr) 7rem 4rem 5.5rem
+        minmax(12rem, 1.5fr);
+    min-width: 56rem;
+}
+
+.ob-detail-ref {
+    font-size: .7rem;
+}
+
+.ob-detail-product,
+.ob-detail-production {
+    min-width: 0;
+}
+
+.ob-detail-date {
+    font-size: .75rem;
+}
+
+.ob-detail-status {
+    min-width: 0;
 }
 
 /* ============================================================

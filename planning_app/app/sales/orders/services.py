@@ -86,9 +86,10 @@ def get_order_book(
     order_by: str = "due_date",
     due_date_from: Optional[date] = None,
     due_date_to: Optional[date] = None,
+    order_status: str = "open",
 ) -> tuple["SimplePagination", list]:
     """
-    Return open sales orders from SalesOrder, grouped by order_num.
+    Return sales orders for the selected status, grouped by order_num.
 
     Each item in the returned list is a dict:
         so_number           str   (str representation of order_num)
@@ -108,7 +109,8 @@ def get_order_book(
         line_count          int    (distinct order_line count)
     """
     today = date.today()
-    dedup_sub = _so_dedup_subq(open_only=True)
+    is_open = order_status != "closed"
+    dedup_sub = _so_dedup_subq(open_only=is_open, closed_only=not is_open)
 
     # Build filter clauses once; reused by count, aggregation, and lines queries.
     filters = []
@@ -194,7 +196,7 @@ def get_order_book(
     # Fetch full release details for only this page's orders.
     lines_by_order: dict[int, list] = {}
     if page_order_nums:
-        lines_dedup = _so_dedup_subq(open_only=True)
+        lines_dedup = _so_dedup_subq(open_only=is_open, closed_only=not is_open)
         for so in (
             db.session.query(SalesOrder)
             .join(lines_dedup, SalesOrder.id == lines_dedup.c.id)
@@ -254,9 +256,9 @@ def get_order_book(
 # Summary stats
 # ---------------------------------------------------------------------------
 
-def get_order_book_summary() -> dict:
+def get_order_book_summary(order_status: str = "open") -> dict:
     """
-    High-level counts and values for the open order book banner.
+    High-level counts and values for the selected order-book status.
 
     Returns:
         total        - distinct open order count
@@ -266,16 +268,18 @@ def get_order_book_summary() -> dict:
         total_units
     """
     today = date.today()
-    dedup_sub = _so_dedup_subq(open_only=True)
+    is_open = order_status != "closed"
+    status_filter = SalesOrder.open_order.is_(is_open)
+    dedup_sub = _so_dedup_subq(open_only=is_open, closed_only=not is_open)
 
     total = db.session.query(
         func.count(SalesOrder.order_num.distinct())
-    ).filter(SalesOrder.open_order == True).scalar() or 0  # noqa: E712
+    ).filter(status_filter).scalar() or 0
 
     overdue = db.session.query(
         func.count(SalesOrder.order_num.distinct())
     ).filter(
-        SalesOrder.open_order == True,  # noqa: E712
+        status_filter,
         SalesOrder.need_by_date < today,
         SalesOrder.need_by_date.isnot(None),
     ).scalar() or 0
@@ -305,6 +309,7 @@ def get_order_book_summary() -> dict:
         "total_value":   float(total_value),
         "overdue_value": float(overdue_value),
         "total_units":   float(total_units),
+        "average_value": float(total_value) / total if total else 0.0,
     }
 
 
@@ -312,7 +317,7 @@ def get_order_book_summary() -> dict:
 # Dashboard data
 # ---------------------------------------------------------------------------
 
-def _so_dedup_subq(open_only: bool = True):
+def _so_dedup_subq(open_only: bool = True, closed_only: bool = False):
     """
     Subquery returning min(id) per (order_num, order_line, rel_num).
 
@@ -320,8 +325,10 @@ def _so_dedup_subq(open_only: bool = True):
     aggregations are not double-counted.
     """
     q = db.session.query(func.min(SalesOrder.id).label("id"))
-    if open_only:
-        q = q.filter(SalesOrder.open_order == True)  # noqa: E712
+    if closed_only:
+        q = q.filter(SalesOrder.open_order.is_(False))
+    elif open_only:
+        q = q.filter(SalesOrder.open_order.is_(True))
     return q.group_by(
         SalesOrder.order_num, SalesOrder.order_line, SalesOrder.rel_num
     ).subquery()
@@ -834,33 +841,36 @@ def get_overdue_orders(
 # Lookup helpers
 # ---------------------------------------------------------------------------
 
-def get_order_types() -> list[str]:
-    """Return sorted list of distinct SO type descriptions from open orders."""
+def get_order_types(order_status: str = "open") -> list[str]:
+    """Return sorted SO type descriptions for the selected order status."""
+    is_open = order_status != "closed"
     rows = (
         db.session.query(SalesOrder.so_type_desc)
-        .filter(SalesOrder.open_order == True, SalesOrder.so_type_desc.isnot(None))  # noqa: E712
+        .filter(SalesOrder.open_order.is_(is_open), SalesOrder.so_type_desc.isnot(None))
         .distinct()
         .all()
     )
     return sorted(r.so_type_desc for r in rows if r.so_type_desc)
 
 
-def get_customer_groups() -> list[str]:
-    """Return sorted list of distinct non-null customer groups from open orders."""
+def get_customer_groups(order_status: str = "open") -> list[str]:
+    """Return sorted customer groups for the selected order status."""
+    is_open = order_status != "closed"
     rows = (
         db.session.query(SalesOrder.customer_group)
-        .filter(SalesOrder.open_order == True, SalesOrder.customer_group.isnot(None))  # noqa: E712
+        .filter(SalesOrder.open_order.is_(is_open), SalesOrder.customer_group.isnot(None))
         .distinct()
         .all()
     )
     return sorted(r.customer_group for r in rows if r.customer_group)
 
 
-def get_countries() -> list[str]:
-    """Return sorted list of distinct non-null countries from open orders."""
+def get_countries(order_status: str = "open") -> list[str]:
+    """Return sorted countries for the selected order status."""
+    is_open = order_status != "closed"
     rows = (
         db.session.query(SalesOrder.customer_country)
-        .filter(SalesOrder.open_order == True, SalesOrder.customer_country.isnot(None))  # noqa: E712
+        .filter(SalesOrder.open_order.is_(is_open), SalesOrder.customer_country.isnot(None))
         .distinct()
         .all()
     )

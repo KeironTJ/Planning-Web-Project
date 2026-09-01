@@ -2,9 +2,11 @@
 Tests for orders service layer -- comment validation.
 """
 
+from datetime import date, timedelta
+
 import pytest
 
-from app.sales.orders.models import SalesOrderComment
+from app.sales.orders.models import SalesOrder, SalesOrderComment
 from app.core.exceptions import ValidationError
 from app.extensions import db as _db
 
@@ -44,3 +46,61 @@ class TestSoCommentValidation:
         from app.sales.orders.services import add_so_comment
         comment = add_so_comment("DOES-NOT-EXIST", user_id=admin_user.id, body="Orphan note")
         assert comment.id is not None
+
+
+class TestOrderBookStatus:
+    """The shared order-book query keeps open and closed orders separate."""
+
+    @pytest.fixture(autouse=True)
+    def ctx(self, app):
+        with app.app_context():
+            yield
+
+    @pytest.fixture
+    def orders(self, db):
+        db.session.add_all([
+            SalesOrder(
+                order_num=10001,
+                order_line=1,
+                rel_num=1,
+                open_order=True,
+                customer_name="Open Customer",
+                model="Chair",
+                selling_qty=2,
+                release_price_gbp=500,
+                need_by_date=date.today() - timedelta(days=1),
+            ),
+            SalesOrder(
+                order_num=10002,
+                order_line=1,
+                rel_num=1,
+                open_order=False,
+                customer_name="Closed Customer",
+                model="Sofa",
+                selling_qty=3,
+                release_price_gbp=900,
+                need_by_date=date.today() - timedelta(days=30),
+            ),
+        ])
+        db.session.commit()
+
+    def test_get_order_book_switches_between_open_and_closed(self, orders):
+        from app.sales.orders.services import get_order_book
+
+        open_pagination, open_orders = get_order_book(order_status="open")
+        closed_pagination, closed_orders = get_order_book(order_status="closed")
+
+        assert open_pagination.total == 1
+        assert [order["so_number"] for order in open_orders] == ["10001"]
+        assert closed_pagination.total == 1
+        assert [order["so_number"] for order in closed_orders] == ["10002"]
+
+    def test_closed_summary_uses_closed_order_aggregates(self, orders):
+        from app.sales.orders.services import get_order_book_summary
+
+        summary = get_order_book_summary("closed")
+
+        assert summary["total"] == 1
+        assert summary["total_units"] == 3
+        assert summary["total_value"] == 900
+        assert summary["average_value"] == 900

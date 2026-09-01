@@ -1,9 +1,27 @@
 {% extends "base.html" %}
 {% block title %}{{ title }}{% endblock %}
 
+{% block page_title %}
+{{ title }}
+<small class="text-muted fs-6 fw-normal ms-2">Sales orders grouped by order number</small>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group btn-group-sm" role="group" aria-label="Order status">
+  <a href="{{ url_for('orders.order_book', status='open') }}"
+     class="btn {{ 'btn-primary' if order_status == 'open' else 'btn-outline-secondary' }}">
+    <i class="bi bi-hourglass-split me-1"></i>Open
+  </a>
+  <a href="{{ url_for('orders.order_book', status='closed') }}"
+     class="btn {{ 'btn-primary' if order_status == 'closed' else 'btn-outline-secondary' }}">
+    <i class="bi bi-check2-circle me-1"></i>Closed
+  </a>
+</div>
+{% endblock %}
+
 {# ── URL helper macro: carries all current filter state into any page link ── #}
 {% macro furl(page=pagination.page, sort=order_by) -%}
-?page={{ page }}&sort={{ sort }}&q={{ search | urlencode }}&customer={{ customer_filter | urlencode }}&cpo={{ customer_po_filter | urlencode }}&order_type={{ order_type_filter | urlencode }}&country={{ country_filter | urlencode }}&cgroup={{ customer_group_filter | urlencode }}&due_from={{ due_date_from.isoformat() if due_date_from else '' }}&due_to={{ due_date_to.isoformat() if due_date_to else '' }}&overdue={{ '1' if overdue_only else '' }}&per_page={{ per_page }}
+?page={{ page }}&sort={{ sort }}&status={{ order_status }}&q={{ search | urlencode }}&customer={{ customer_filter | urlencode }}&cpo={{ customer_po_filter | urlencode }}&order_type={{ order_type_filter | urlencode }}&country={{ country_filter | urlencode }}&cgroup={{ customer_group_filter | urlencode }}&due_from={{ due_date_from.isoformat() if due_date_from else '' }}&due_to={{ due_date_to.isoformat() if due_date_to else '' }}&overdue={{ '1' if overdue_only else '' }}&per_page={{ per_page }}
 {%- endmacro %}
 
 {% macro sort_link(label, key) %}
@@ -13,41 +31,52 @@
 {% endmacro %}
 
 {% block content %}
-<div class="container-fluid py-3">
-
 {# ── KPI banner ──────────────────────────────────────────────────────────── #}
-<div class="row g-3 mb-3">
-  <div class="col-sm-3">
-    <div class="card border-0 shadow-sm text-center py-2">
-      <div class="fw-bold fs-4">{{ summary.total }}</div>
-      <div class="text-muted small">Open Orders</div>
+{% macro fmt_val(v) %}{% if v >= 1000000 %}£{{ "%.2f"|format(v/1000000) }}m{% elif v >= 1000 %}£{{ "%.0f"|format(v/1000) }}k{% else %}£{{ "%.0f"|format(v) }}{% endif %}{% endmacro %}
+<div class="row g-2 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm text-center p-3 h-100 border-top border-3 border-primary">
+      <div class="fw-bold fs-3 text-primary lh-1">{{ summary.total }}</div>
+      <div class="fw-semibold small mt-2">{{ order_status | title }} Orders</div>
+      <div class="text-muted text-xs">Unique sales orders</div>
     </div>
   </div>
-  <div class="col-sm-3">
-    <div class="card border-0 shadow-sm text-center py-2">
-      <div class="fw-bold fs-4 text-primary">{{ summary.total_units | int }}</div>
-      <div class="text-muted small">Open Units</div>
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm text-center p-3 h-100 border-top border-3 border-info">
+      <div class="fw-bold fs-3 text-info lh-1">{{ summary.total_units | int }}</div>
+      <div class="fw-semibold small mt-2">{{ order_status | title }} Units</div>
+      <div class="text-muted text-xs">Finished-goods quantity</div>
     </div>
   </div>
-  <div class="col-sm-3">
-    <div class="card border-0 shadow-sm text-center py-2">
-      <div class="fw-bold fs-4 text-danger">{{ summary.overdue }}</div>
-      <div class="text-muted small">Overdue</div>
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm text-center p-3 h-100 border-top border-3 border-success">
+      <div class="fw-bold fs-3 text-success lh-1">{{ fmt_val(summary.total_value) }}</div>
+      <div class="fw-semibold small mt-2">Total Value</div>
+      <div class="text-muted text-xs">Release value in GBP</div>
     </div>
   </div>
-  <div class="col-sm-3">
-    <div class="card border-0 shadow-sm text-center py-2">
-      {% set v = summary.total_value %}
-      <div class="fw-bold fs-4">{% if v >= 1000000 %}£{{ "%.2f"|format(v/1000000) }}m{% elif v >= 1000 %}£{{ "%.0f"|format(v/1000) }}k{% else %}£{{ "%.0f"|format(v) }}{% endif %}</div>
-      <div class="text-muted small">Total Value</div>
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm text-center p-3 h-100 border-top border-3 {{ 'border-danger' if order_status == 'open' else 'border-secondary' }}">
+      <div class="fw-bold fs-3 lh-1 {{ 'text-danger' if order_status == 'open' else 'text-secondary' }}">
+        {{ summary.overdue if order_status == 'open' else fmt_val(summary.average_value) }}
+      </div>
+      <div class="fw-semibold small mt-2">{{ 'Overdue Orders' if order_status == 'open' else 'Average Order Value' }}</div>
+      <div class="text-muted text-xs">{{ 'Need-by date has passed' if order_status == 'open' else 'Across closed orders' }}</div>
     </div>
   </div>
 </div>
 
 {# ── Filters ─────────────────────────────────────────────────────────────── #}
 <form method="get" class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent py-2 d-flex align-items-center">
+    <span class="fw-semibold small"><i class="bi bi-funnel me-2 text-primary"></i>Filter {{ order_status }} orders</span>
+    {% if search or customer_filter or customer_po_filter or order_type_filter or country_filter or customer_group_filter or overdue_only or due_date_from or due_date_to %}
+    <span class="badge text-bg-warning ms-2">Active</span>
+    {% endif %}
+  </div>
   <div class="card-body py-2 px-3">
     <div class="row g-2 align-items-end">
+      <input type="hidden" name="status" value="{{ order_status }}">
 
       <div class="col-12 col-md-4 col-lg-3">
         <label class="form-label small mb-1 fw-semibold">Search <span class="fw-normal text-muted">(SO, product, ref…)</span></label>
@@ -104,6 +133,7 @@
                value="{{ due_date_to.isoformat() if due_date_to else '' }}"
                class="form-control form-control-sm">
       </div>
+      {% if order_status == 'open' %}
       <div class="col-6 col-md-auto d-flex align-items-end pb-1">
         <div class="form-check">
           <input class="form-check-input" type="checkbox" name="overdue" value="1"
@@ -111,12 +141,13 @@
           <label class="form-check-label small" for="overdueCheck">Overdue only</label>
         </div>
       </div>
+      {% endif %}
 
       <div class="col-12 d-flex align-items-center gap-2 flex-wrap mt-1">
         <button type="submit" class="btn btn-primary btn-sm px-3">
           <i class="bi bi-search me-1"></i>Filter
         </button>
-        <a href="{{ url_for('orders.order_book') }}" class="btn btn-outline-secondary btn-sm">
+        <a href="{{ url_for('orders.order_book', status=order_status) }}" class="btn btn-outline-secondary btn-sm">
           <i class="bi bi-x-circle me-1"></i>Clear
         </a>
         <div class="ms-auto d-flex align-items-center gap-2">
@@ -168,15 +199,17 @@
           <th class="text-center">Lines</th>
           <th class="text-end">Qty</th>
           <th class="text-end text-nowrap">{{ sort_link('Value (£)', 'value') }}</th>
+          {% if order_status == 'open' %}
           <th class="text-center" title="Fabric/hide material availability">Fabric</th>
           <th class="text-center" title="Component availability">Comp.</th>
+          {% endif %}
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% for o in orders %}
         {% set row_id    = "ob-" ~ loop.index %}
-        {% set is_overdue = o.due_date and o.due_date < today %}
+        {% set is_overdue = order_status == 'open' and o.due_date and o.due_date < today %}
         {% set due_soon   = o.due_date and not is_overdue and o.days_delta is not none and o.days_delta <= 7 %}
         <tr class="{{ 'table-danger' if is_overdue else '' }}">
           <td class="ps-2 text-center">
@@ -215,6 +248,7 @@
           <td class="text-center text-muted">{{ o.line_count }}</td>
           <td class="text-end">{{ "%.0f" | format(o.total_qty) }}</td>
           <td class="text-end text-nowrap fw-semibold">£{{ "{:,.0f}".format(o.total_value) }}</td>
+          {% if order_status == 'open' %}
           <td class="text-center">
             {% if o.mat_status not in ('no_data', 'ok') %}
             <a href="{{ url_for('materials.mrp', so=o.so_number) }}" target="_blank" class="text-decoration-none">
@@ -245,6 +279,7 @@
             </a>
             {% endif %}
           </td>
+          {% endif %}
           <td class="text-end text-nowrap">
             {% if o.comment_count %}
             <span class="badge bg-light text-dark border small"
@@ -261,17 +296,16 @@
         {% set comp = line.qty_completed %}
         {% set done = req > 0 and comp >= req %}
         <tr id="{{ row_id }}" class="ob-detail-row" style="display:none;">
-          <td colspan="15" class="p-0 border-0">
-            <div class="d-flex align-items-center gap-3 flex-wrap px-3 py-2"
-                 style="background:#f8f9fa; border-left:3px solid #dee2e6; margin-left:1.75rem; font-size:.8rem;">
+          <td colspan="{{ 16 if order_status == 'open' else 14 }}" class="p-0 border-0">
+            <div class="ob-detail-grid {{ 'ob-detail-grid-open' if order_status == 'open' else 'ob-detail-grid-closed' }}">
 
               {# Line ref #}
-              <span class="text-muted font-monospace" style="min-width:4rem; font-size:.7rem; flex-shrink:0;">
+              <span class="ob-detail-ref text-muted font-monospace">
                 L{{ line.order_line }}/R{{ line.rel_num }}
               </span>
 
               {# Part description #}
-              <div class="flex-fill" style="min-width:160px;">
+              <div class="ob-detail-product">
                 {% if line.part_num %}<span class="fw-semibold font-monospace">{{ line.part_num }}</span>{% endif %}
                 {% if line.model %}<span class="text-muted ms-1">{{ line.model }}</span>{% endif %}
                 {% if line.size_desc %}<span class="badge text-bg-light border text-dark ms-1" style="font-size:.68rem;">{{ line.size_desc }}</span>{% endif %}
@@ -282,21 +316,21 @@
               </div>
 
               {# Due date #}
-              <div class="text-nowrap text-muted" style="min-width:80px; font-size:.75rem; flex-shrink:0;">
+              <div class="ob-detail-date text-nowrap text-muted">
                 {% if line.need_by_date %}<i class="bi bi-calendar3 me-1"></i>{{ line.need_by_date.strftime('%d %b %Y') }}{% else %}–{% endif %}
               </div>
 
               {# Qty / value #}
-              <div class="text-end text-nowrap" style="min-width:60px; flex-shrink:0;">
+              <div class="ob-detail-qty text-end text-nowrap">
                 <span class="fw-semibold">{{ "%.0f"|format(line.selling_qty) }}</span>
                 {% if line.shipped_qty > 0 %}<div class="text-muted" style="font-size:.68rem;">{{ "%.0f"|format(line.shipped_qty) }} shp</div>{% endif %}
               </div>
-              <div class="text-end text-nowrap fw-semibold" style="min-width:70px; flex-shrink:0;">
+              <div class="ob-detail-value text-end text-nowrap fw-semibold">
                 £{{ "{:,.0f}".format(line.release_price_gbp) }}
               </div>
 
               {# Job / production #}
-              <div class="d-flex align-items-center gap-1 flex-wrap" style="min-width:100px; flex-shrink:0;">
+              <div class="ob-detail-production d-flex align-items-center gap-1 flex-wrap">
                 {% if line.job_num %}
                 <span class="font-monospace text-muted" style="font-size:.7rem;">{{ line.job_num }}</span>
                 {% if done %}
@@ -317,8 +351,9 @@
                 {% endif %}
               </div>
 
+              {% if order_status == 'open' %}
               {# Material status — per job, fixed-width slot so all lines align #}
-              <div style="min-width:72px; flex-shrink:0;">
+              <div class="ob-detail-status">
               {% if line.mat_status not in ('no_data', 'ok') %}
               <a href="{{ url_for('materials.mrp', so=o.so_number) }}" target="_blank" class="text-decoration-none">
               {% if line.mat_status == 'high_risk' %}
@@ -334,7 +369,7 @@
               {% endif %}
               </div>
               {# Component status — per job #}
-              <div style="min-width:72px; flex-shrink:0;">
+              <div class="ob-detail-status">
               {% if line.comp_status not in ('no_data', 'ok') %}
               <a href="{{ url_for('materials.component_shortage') }}?so={{ o.so_number }}" target="_blank" class="text-decoration-none">
               {% if line.comp_status == 'high_risk' %}
@@ -349,6 +384,7 @@
               </a>
               {% endif %}
               </div>
+              {% endif %}
 
             </div>
           </td>
@@ -357,7 +393,7 @@
 
         {% else %}
         <tr>
-          <td colspan="14" class="text-center text-muted py-5">
+          <td colspan="{{ 16 if order_status == 'open' else 14 }}" class="text-center text-muted py-5">
             <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
             No orders match the current filters.
           </td>
@@ -396,7 +432,6 @@
 </nav>
 {% endif %}
 
-</div>
 {% endblock %}
 
 {% block scripts %}
