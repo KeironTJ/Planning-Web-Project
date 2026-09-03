@@ -28,6 +28,85 @@ _unit_qty_so = case(
     else_=0,
 )
 
+# Reusable filter for "real" finished-goods models — see _unit_qty_so above.
+_real_model_filter = db.and_(
+    SalesOrder.model.isnot(None),
+    SalesOrder.model != "",
+    SalesOrder.model != "Scatter",
+)
+
+# The inverse of _real_model_filter — order lines that carry monetary value
+# but can't be attributed to any named model (accessories/scatter items or
+# missing model data). Order Book totals include these; the Model Report
+# breaks them out separately so per-model figures aren't polluted, while
+# still reconciling to the same grand total.
+_unassigned_model_filter = db.or_(
+    SalesOrder.model.is_(None),
+    SalesOrder.model == "",
+    SalesOrder.model == "Scatter",
+)
+
+
+def _compute_sales_performance(monthly_intake: list[dict], closed_summary: dict, top_products_closed: list[dict]) -> dict:
+    """
+    Derive "how well does it sell" signals from data already fetched for the
+    model report, with no extra queries:
+
+    - trend:               recent vs. prior period closed value, % change
+    - consistency:         coefficient of variation of monthly closed units
+                            (low CV = steady seller, high CV = spiky/seasonal)
+    - avg_order_value/units: typical order size for this model
+    - top_variant_share_pct: how concentrated closed sales are in one variant
+    """
+    n = len(monthly_intake)
+
+    trend = None
+    if n >= 2:
+        split = 3 if n >= 6 else max(1, n // 2)
+        recent = monthly_intake[-split:]
+        prior  = monthly_intake[-2 * split:-split] if n >= 2 * split else monthly_intake[:-split]
+        recent_value = sum(m["value"] for m in recent)
+        prior_value  = sum(m["value"] for m in prior)
+        if prior_value:
+            change_pct = round((recent_value - prior_value) / prior_value * 100, 1)
+        else:
+            change_pct = 100.0 if recent_value > 0 else 0.0
+        direction = "up" if change_pct > 1 else "down" if change_pct < -1 else "flat"
+        trend = {
+            "recent_value": recent_value,
+            "prior_value":  prior_value,
+            "change_pct":   change_pct,
+            "direction":    direction,
+        }
+
+    consistency = None
+    if n >= 2:
+        units = [m["units"] for m in monthly_intake]
+        mean = sum(units) / n
+        if mean > 0:
+            variance = sum((u - mean) ** 2 for u in units) / n
+            cv = (variance ** 0.5) / mean
+            label = "Consistent" if cv < 0.3 else "Seasonal" if cv < 0.6 else "Highly Variable"
+        else:
+            cv, label = 0.0, "No recent demand"
+        consistency = {"cv": round(cv, 2), "label": label}
+
+    closed_orders = closed_summary.get("closed_orders") or 0
+    avg_order_value = round(closed_summary["closed_value"] / closed_orders, 2) if closed_orders else 0.0
+    avg_order_units = round(closed_summary["closed_units"] / closed_orders, 1) if closed_orders else 0.0
+
+    top_variant_share_pct = None
+    if top_products_closed and closed_summary.get("closed_value"):
+        top_variant_share_pct = round(top_products_closed[0]["value"] / closed_summary["closed_value"] * 100, 1)
+
+    return {
+        "trend":                 trend,
+        "consistency":           consistency,
+        "avg_order_value":       avg_order_value,
+        "avg_order_units":       avg_order_units,
+        "top_variant_share_pct": top_variant_share_pct,
+    }
+
 
 # ---------------------------------------------------------------------------
 # Pagination helper
@@ -973,6 +1052,395 @@ def get_customer_list() -> list[dict]:
     ]
 
 
+def get_model_list() -> list[dict]:
+    """Return one row per distinct model, ordered by name.
+
+    "Scatter" and blank/NULL values are excluded — these represent
+    non-finished-goods lines rather than a real product model (see
+    ``_unit_qty_so`` above).
+    """
+    rows = (
+        db.session.query(SalesOrder.model)
+        .filter(
+            SalesOrder.model.isnot(None),
+            SalesOrder.model != "",
+            SalesOrder.model != "Scatter",
+        )
+        .group_by(SalesOrder.model)
+        .order_by(SalesOrder.model)
+        .all()
+    )
+    return [{"model": r.model} for r in rows]
+
+
+def get_model_overview(closed_months: int = 12) -> dict:
+    """
+    Return an "all models" summary for the model report landing page — used
+    when no specific model(s) have been selected.
+
+    Aggregates open + closed order data per model (real finished-goods models
+    only; see ``_real_model_filter``) so users can scan and compare models
+    before drilling into an individual model report.
+
+    Order lines with no attributable model (NULL model, or "Scatter"
+    accessories — see ``_unassigned_model_filter``) are surfaced as a single
+    pinned "Unassigned / Scatter" row in ``models_table`` and folded into
+    ``overview_summary``, so the value/unit KPI totals reconcile exactly with
+    the Order Book dashboard rather than silently under-reporting value. They
+    are excluded from ``model_count`` and the "top models" Pareto lists since
+    they aren't a real model.
+
+    ``overview_summary``'s order *counts* (open/overdue/closed) are computed
+    as true distinct-order totals across the whole table, not by summing the
+    per-model/unassigned counts in ``models_table``: an order can contain
+    lines for more than one model (or a mix of a real model and Scatter/
+    unassigned lines), so a naive sum would double-count it. This means the
+    per-row "Orders" figures in ``models_table`` can add up to more than the
+    KPI total — that's expected, not a bug.
+    """
+    today       = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+    closed_from = today - timedelta(days=30 * closed_months)
+
+    dedup_sub = _so_dedup_subq(open_only=True)
+
+    # ── Per-model open stats ──────────────────────────────────────────────────
+    open_rows = (
+        db.session.query(
+            SalesOrder.model,
+            func.count(SalesOrder.order_num.distinct()).label("orders"),
+            func.sum(SalesOrder.selling_qty).label("units"),
+            func.sum(SalesOrder.release_price_gbp).label("value"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(_real_model_filter)
+        .group_by(SalesOrder.model)
+        .all()
+    )
+
+    # ── Per-model overdue stats (any release overdue) ──────────────────────────
+    overdue_rows = (
+        db.session.query(
+            SalesOrder.model,
+            func.count(SalesOrder.order_num.distinct()).label("orders"),
+            func.sum(SalesOrder.release_price_gbp).label("value"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(
+            _real_model_filter,
+            SalesOrder.need_by_date < today,
+            SalesOrder.need_by_date.isnot(None),
+        )
+        .group_by(SalesOrder.model)
+        .all()
+    )
+
+    # ── Per-model part variant count ───────────────────────────────────────────
+    part_count_rows = (
+        db.session.query(
+            SalesOrder.model,
+            func.count(SalesOrder.part_num.distinct()).label("part_count"),
+        )
+        .filter(_real_model_filter)
+        .group_by(SalesOrder.model)
+        .all()
+    )
+
+    # ── Per-model closed stats (last closed_months months) ────────────────────
+    closed_rows = (
+        db.session.query(
+            SalesOrder.model,
+            func.count(SalesOrder.order_num.distinct()).label("orders"),
+            func.sum(SalesOrder.selling_qty).label("units"),
+            func.sum(SalesOrder.release_price_gbp).label("value"),
+        )
+        .filter(
+            _real_model_filter,
+            SalesOrder.open_order == False,  # noqa: E712
+            SalesOrder.order_date >= closed_from,
+        )
+        .group_by(SalesOrder.model)
+        .all()
+    )
+
+    models_by_name: dict[str, dict] = {}
+
+    def _row(name: str) -> dict:
+        return models_by_name.setdefault(name, {
+            "model":         name,
+            "part_count":    0,
+            "open_orders":   0,
+            "open_units":    0.0,
+            "open_value":    0.0,
+            "overdue_orders": 0,
+            "overdue_value": 0.0,
+            "closed_orders": 0,
+            "closed_units":  0.0,
+            "closed_value":  0.0,
+        })
+
+    for r in open_rows:
+        row = _row(r.model)
+        row["open_orders"] = r.orders
+        row["open_units"]  = float(r.units or 0)
+        row["open_value"]  = float(r.value or 0)
+    for r in overdue_rows:
+        row = _row(r.model)
+        row["overdue_orders"] = r.orders
+        row["overdue_value"]  = float(r.value or 0)
+    for r in part_count_rows:
+        _row(r.model)["part_count"] = r.part_count
+    for r in closed_rows:
+        row = _row(r.model)
+        row["closed_orders"] = r.orders
+        row["closed_units"]  = float(r.units or 0)
+        row["closed_value"]  = float(r.value or 0)
+
+    for row in models_by_name.values():
+        row["total_value"] = row["open_value"] + row["closed_value"]
+
+    models_table = sorted(
+        models_by_name.values(), key=lambda r: r["total_value"], reverse=True
+    )
+
+    # ── Overview KPIs ───────────────────────────────────────────────────────────
+    # Order *counts* are computed directly against the whole table (no model
+    # grouping) so they reconcile exactly with the Order Book: an order can
+    # contain lines for more than one model (or a mix of a real model and
+    # Scatter/unassigned lines), so summing per-model distinct-order counts
+    # would double-count it. Value/units are unaffected by this — each order
+    # *line* belongs to exactly one model, so summing those across models is
+    # always exact.
+    true_open_orders = (
+        db.session.query(func.count(SalesOrder.order_num.distinct()))
+        .filter(SalesOrder.open_order == True)  # noqa: E712
+        .scalar() or 0
+    )
+    true_overdue_orders = (
+        db.session.query(func.count(SalesOrder.order_num.distinct()))
+        .filter(
+            SalesOrder.open_order == True,  # noqa: E712
+            SalesOrder.need_by_date < today,
+            SalesOrder.need_by_date.isnot(None),
+        )
+        .scalar() or 0
+    )
+    true_closed_orders = (
+        db.session.query(func.count(SalesOrder.order_num.distinct()))
+        .filter(
+            SalesOrder.open_order == False,  # noqa: E712
+            SalesOrder.order_date >= closed_from,
+        )
+        .scalar() or 0
+    )
+
+    overview_summary = {
+        "model_count":    len(models_table),
+        "open_orders":    true_open_orders,
+        "open_units":     sum(r["open_units"] for r in models_table),
+        "open_value":     sum(r["open_value"] for r in models_table),
+        "overdue_orders": true_overdue_orders,
+        "overdue_value":  sum(r["overdue_value"] for r in models_table),
+        "closed_orders":  true_closed_orders,
+        "closed_units":   sum(r["closed_units"] for r in models_table),
+        "closed_value":   sum(r["closed_value"] for r in models_table),
+    }
+
+    # ── Top models Pareto — open book vs closed book, kept distinct so growth
+    #    in the backlog isn't confused with historical shipped revenue ────────
+    top_models_open = sorted(
+        (r for r in models_table if r["open_value"] > 0),
+        key=lambda r: r["open_value"], reverse=True,
+    )[:15]
+    top_models_closed = sorted(
+        (r for r in models_table if r["closed_value"] > 0),
+        key=lambda r: r["closed_value"], reverse=True,
+    )[:15]
+
+    # ── Unassigned / Scatter row — order lines with no attributable model
+    #    (NULL model or "Scatter" accessories). Order Book totals include this
+    #    value; we surface it as its own row so the models table (and the
+    #    KPI cards above it) reconcile exactly with the Order Book totals,
+    #    instead of silently dropping it. ──────────────────────────────────────
+    unassigned_open = (
+        db.session.query(
+            func.count(SalesOrder.order_num.distinct()).label("orders"),
+            func.sum(SalesOrder.selling_qty).label("units"),
+            func.sum(SalesOrder.release_price_gbp).label("value"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(_unassigned_model_filter)
+        .one()
+    )
+    unassigned_overdue = (
+        db.session.query(
+            func.count(SalesOrder.order_num.distinct()).label("orders"),
+            func.sum(SalesOrder.release_price_gbp).label("value"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(
+            _unassigned_model_filter,
+            SalesOrder.need_by_date < today,
+            SalesOrder.need_by_date.isnot(None),
+        )
+        .one()
+    )
+    unassigned_closed = (
+        db.session.query(
+            func.count(SalesOrder.order_num.distinct()).label("orders"),
+            func.sum(SalesOrder.selling_qty).label("units"),
+            func.sum(SalesOrder.release_price_gbp).label("value"),
+        )
+        .filter(
+            _unassigned_model_filter,
+            SalesOrder.open_order == False,  # noqa: E712
+            SalesOrder.order_date >= closed_from,
+        )
+        .one()
+    )
+    unassigned_part_count = (
+        db.session.query(func.count(SalesOrder.part_num.distinct()))
+        .filter(_unassigned_model_filter)
+        .scalar() or 0
+    )
+    unassigned_row = {
+        "model":          "Unassigned / Scatter",
+        "part_count":     unassigned_part_count,
+        "open_orders":    unassigned_open.orders or 0,
+        "open_units":     float(unassigned_open.units or 0),
+        "open_value":     float(unassigned_open.value or 0),
+        "overdue_orders": unassigned_overdue.orders or 0,
+        "overdue_value":  float(unassigned_overdue.value or 0),
+        "closed_orders":  unassigned_closed.orders or 0,
+        "closed_units":   float(unassigned_closed.units or 0),
+        "closed_value":   float(unassigned_closed.value or 0),
+        "is_unassigned":  True,
+    }
+    unassigned_row["total_value"] = unassigned_row["open_value"] + unassigned_row["closed_value"]
+
+    # Fold value/units into the KPI totals so they reconcile with the Order
+    # Book, then append as a pinned last row in the table (excluded from the
+    # model count and the "top models" Pareto charts since it isn't a model).
+    # Order *counts* are NOT added here — they're already the true distinct
+    # totals computed above, which include unassigned/Scatter lines already.
+    overview_summary["open_units"]    += unassigned_row["open_units"]
+    overview_summary["open_value"]    += unassigned_row["open_value"]
+    overview_summary["overdue_value"] += unassigned_row["overdue_value"]
+    overview_summary["closed_units"]  += unassigned_row["closed_units"]
+    overview_summary["closed_value"]  += unassigned_row["closed_value"]
+
+    if unassigned_row["total_value"] > 0:
+        models_table.append(unassigned_row)
+
+    # ── Forward demand by week (next 12 weeks + overdue bucket, all models) ───
+    week_labels: list[str] = ["Overdue"]
+    week_values: list[float] = [0.0]
+    week_units_list: list[float] = [0.0]
+    week_starts: list = [None]
+    for i in range(12):
+        ws = this_monday + timedelta(weeks=i)
+        week_labels.append(f"Wk {ws.isocalendar()[1]}")
+        week_values.append(0.0)
+        week_units_list.append(0.0)
+        week_starts.append(ws)
+
+    so_due_rows = (
+        db.session.query(
+            SalesOrder.order_num,
+            func.min(SalesOrder.need_by_date).label("min_due"),
+            func.sum(SalesOrder.release_price_gbp).label("total_val"),
+            func.sum(_unit_qty_so).label("total_qty"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .group_by(SalesOrder.order_num)
+        .all()
+    )
+    for row in so_due_rows:
+        if not row.min_due:
+            continue
+        val = float(row.total_val or 0)
+        qty = float(row.total_qty or 0)
+        if row.min_due < this_monday:
+            bucket = 0
+        else:
+            bucket = next(
+                (i for i, ws in enumerate(week_starts[1:], 1)
+                 if ws <= row.min_due <= ws + timedelta(days=6)),
+                None,
+            )
+        if bucket is not None:
+            week_values[bucket]     += val
+            week_units_list[bucket] += qty
+
+    # ── Monthly intake trend (last 12 months of closed orders, all models) ────
+    intake_from = today - timedelta(days=365)
+    monthly_rows = (
+        db.session.query(
+            extract("year",  SalesOrder.order_date).label("yr"),
+            extract("month", SalesOrder.order_date).label("mn"),
+            func.sum(SalesOrder.release_price_gbp).label("val"),
+            func.sum(_unit_qty_so).label("qty"),
+            func.count(SalesOrder.order_num.distinct()).label("cnt"),
+        )
+        .filter(
+            SalesOrder.open_order == False,  # noqa: E712
+            SalesOrder.order_date >= intake_from,
+            SalesOrder.order_date.isnot(None),
+        )
+        .group_by(extract("year", SalesOrder.order_date), extract("month", SalesOrder.order_date))
+        .order_by(extract("year", SalesOrder.order_date), extract("month", SalesOrder.order_date))
+        .all()
+    )
+    monthly_intake = [
+        {
+            "month":  f"{int(r.yr)}-{int(r.mn):02d}",
+            "value":  round(float(r.val or 0), 2),
+            "units":  round(float(r.qty or 0), 0),
+            "orders": r.cnt,
+        }
+        for r in monthly_rows
+    ]
+
+    # ── Order type breakdown (open orders, all models) ────────────────────────
+    by_order_type_rows = (
+        db.session.query(
+            SalesOrder.so_type_desc,
+            func.sum(_unit_qty_so).label("cnt"),
+            func.sum(SalesOrder.release_price_gbp).label("val"),
+            func.count(SalesOrder.order_num.distinct()).label("orders"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(SalesOrder.so_type_desc.isnot(None))
+        .group_by(SalesOrder.so_type_desc)
+        .order_by(func.sum(SalesOrder.release_price_gbp).desc())
+        .all()
+    )
+
+    return {
+        "overview_summary": overview_summary,
+        "models_table":     models_table,
+        "top_models_open": [
+            {"model": r["model"], "units": r["open_units"], "value": r["open_value"]}
+            for r in top_models_open
+        ],
+        "top_models_closed": [
+            {"model": r["model"], "units": r["closed_units"], "value": r["closed_value"]}
+            for r in top_models_closed
+        ],
+        "weekly_schedule": {
+            "labels": week_labels,
+            "values": [round(v, 2) for v in week_values],
+            "units":  [round(v, 0) for v in week_units_list],
+        },
+        "monthly_intake": monthly_intake,
+        "by_order_type": [
+            {"order_type": r.so_type_desc, "units": float(r.cnt or 0),
+             "value": float(r.val or 0), "orders": r.orders}
+            for r in by_order_type_rows
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Customer report
 # ---------------------------------------------------------------------------
@@ -1347,6 +1815,351 @@ def get_customer_report(customer_ids: list[str], closed_months: int = 12) -> Opt
         "closed_summary":      closed_summary,
         "monthly_intake":      monthly_intake,
         "overdue_age_chart":   overdue_age_chart,
+        "top_products_closed": top_products_closed,
+        "lead_time_dist":      lead_time_dist,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Model report
+# ---------------------------------------------------------------------------
+
+def get_model_report(models: list[str], closed_months: int = 12) -> Optional[dict]:
+    """
+    Return all data needed for the model report page.
+
+    Accepts one or more model names so that closely related models can be
+    viewed in a single combined report. Returns None if no records exist
+    for the given models.
+
+    This report is intentionally model-centric: it answers "how well does
+    this model sell and how consistent is that demand", not delivery
+    performance (see Customer Report for OTIF/account-management views) and
+    not customer-by-customer breakdowns (see Customer Report for buying
+    patterns by account).
+    """
+    today       = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+
+    if not db.session.query(SalesOrder.model).filter(SalesOrder.model.in_(models)).first():
+        return None
+
+    selected_models = [{"model": m} for m in models]
+    is_combined = len(models) > 1
+
+    # ── Model info — part/customer counts computed once across the whole
+    #    combined selection so multi-model views don't double-count overlaps ──
+    part_count = (
+        db.session.query(func.count(SalesOrder.part_num.distinct()))
+        .filter(SalesOrder.model.in_(models))
+        .scalar() or 0
+    )
+    customer_order_counts = (
+        db.session.query(
+            SalesOrder.customer_id,
+            func.count(SalesOrder.order_num.distinct()).label("orders"),
+        )
+        .filter(SalesOrder.model.in_(models), SalesOrder.customer_id.isnot(None))
+        .group_by(SalesOrder.customer_id)
+        .all()
+    )
+    customer_count   = len(customer_order_counts)
+    repeat_customers = sum(1 for r in customer_order_counts if r.orders > 1)
+
+    model_info = {
+        "model":              " / ".join(models) if is_combined else models[0],
+        "part_count":         part_count,
+        "customer_count":     customer_count,
+        "repeat_customer_pct": round(repeat_customers / customer_count * 100, 1) if customer_count else 0.0,
+        "is_combined":        is_combined,
+    }
+
+    # ── Open orders (deduped by release, grouped by order_num) ───────────────
+    dedup_sub = _so_dedup_subq(open_only=True)
+
+    all_open_rows = (
+        db.session.query(SalesOrder)
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(SalesOrder.model.in_(models))
+        .order_by(SalesOrder.need_by_date.asc().nullslast(), SalesOrder.order_num)
+        .all()
+    )
+
+    seen: dict[int, dict] = {}
+    open_orders: list[dict] = []
+    for so in all_open_rows:
+        if so.order_num not in seen:
+            entry: dict = {
+                "so_number":          str(so.order_num),
+                "customer_name":      so.customer_name or "",
+                "customer_order_ref": so.po_num,
+                "order_type":         so.so_type_desc or "",
+                "so_type":            so.so_type or "",
+                "order_date":         so.order_date,
+                "_releases":          [],
+            }
+            seen[so.order_num] = entry
+            open_orders.append(entry)
+        seen[so.order_num]["_releases"].append(so)
+
+    for entry in open_orders:
+        releases = entry.pop("_releases")
+        due_dates = [r.need_by_date for r in releases if r.need_by_date]
+        entry["due_date"]    = min(due_dates) if due_dates else None
+        entry["days_delta"]  = (entry["due_date"] - today).days if entry["due_date"] else None
+        entry["total_qty"]   = sum(float(r.selling_qty or 0) for r in releases)
+        entry["total_value"] = sum(float(r.release_price_gbp or 0) for r in releases)
+        entry["line_count"]  = len({r.order_line for r in releases})
+
+    # ── Open summary KPIs ─────────────────────────────────────────────────────
+    open_units = float(
+        db.session.query(func.sum(SalesOrder.selling_qty))
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(SalesOrder.model.in_(models))
+        .scalar() or 0.0
+    )
+    overdue_list = [o for o in open_orders if o["due_date"] and o["due_date"] < today]
+
+    open_summary = {
+        "open_orders":    len(open_orders),
+        "overdue_orders": len(overdue_list),
+        "open_value":     sum(o["total_value"] for o in open_orders),
+        "overdue_value":  sum(o["total_value"] for o in overdue_list),
+        "open_units":     open_units,
+    }
+
+    # ── Forward demand by week (next 12 weeks + overdue bucket) ──────────────
+    week_labels: list[str] = ["Overdue"]
+    week_values: list[float] = [0.0]
+    week_units_list: list[float] = [0.0]
+    week_starts: list = [None]
+    for i in range(12):
+        ws = this_monday + timedelta(weeks=i)
+        week_labels.append(f"Wk {ws.isocalendar()[1]}")
+        week_values.append(0.0)
+        week_units_list.append(0.0)
+        week_starts.append(ws)
+
+    for o in open_orders:
+        if not o["due_date"]:
+            continue
+        if o["due_date"] < this_monday:
+            bucket = 0
+        else:
+            bucket = next(
+                (i for i, ws in enumerate(week_starts[1:], 1)
+                 if ws <= o["due_date"] <= ws + timedelta(days=6)),
+                None,
+            )
+        if bucket is not None:
+            week_values[bucket]      += o["total_value"]
+            week_units_list[bucket]  += o["total_qty"]
+
+    # ── Order mix: by size (variant spread within the model) ──────────────────
+    by_size_rows = (
+        db.session.query(
+            SalesOrder.size_desc,
+            func.sum(SalesOrder.selling_qty).label("cnt"),
+            func.sum(SalesOrder.release_price_gbp).label("val"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(
+            SalesOrder.model.in_(models),
+            SalesOrder.size_desc.isnot(None),
+            SalesOrder.size_desc != "",
+        )
+        .group_by(SalesOrder.size_desc)
+        .order_by(func.sum(SalesOrder.release_price_gbp).desc())
+        .all()
+    )
+
+    # ── Closed orders (last closed_months months, grouped by order_num) ───────
+    closed_from = today - timedelta(days=30 * closed_months)
+
+    closed_rows = (
+        db.session.query(
+            SalesOrder.order_num,
+            SalesOrder.po_num,
+            SalesOrder.order_date,
+            SalesOrder.so_type_desc,
+            func.max(SalesOrder.customer_name).label("customer_name"),
+            func.min(SalesOrder.need_by_date).label("min_due"),
+            func.sum(SalesOrder.release_price_gbp).label("total_value"),
+            func.sum(SalesOrder.selling_qty).label("total_qty"),
+            func.count(SalesOrder.order_line.distinct()).label("line_count"),
+        )
+        .filter(
+            SalesOrder.model.in_(models),
+            SalesOrder.open_order == False,  # noqa: E712
+            SalesOrder.order_date >= closed_from,
+        )
+        .group_by(
+            SalesOrder.order_num,
+            SalesOrder.po_num,
+            SalesOrder.order_date,
+            SalesOrder.so_type_desc,
+        )
+        .order_by(SalesOrder.order_date.desc())
+        .all()
+    )
+
+    closed_orders = [
+        {
+            "so_number":          str(r.order_num),
+            "customer_name":      r.customer_name or "",
+            "customer_order_ref": r.po_num,
+            "order_date":         r.order_date,
+            "order_type":         r.so_type_desc or "",
+            "due_date":           r.min_due,
+            "total_qty":          float(r.total_qty or 0),
+            "total_value":        float(r.total_value or 0),
+            "line_count":         r.line_count,
+        }
+        for r in closed_rows
+    ]
+
+    closed_summary = {
+        "closed_orders": len(closed_orders),
+        "closed_value":  sum(o["total_value"] for o in closed_orders),
+        "closed_units":  sum(o["total_qty"] for o in closed_orders),
+    }
+
+    # ── Monthly intake trend (last 12 months of closed orders, by month) ──────
+    intake_from = today - timedelta(days=365)
+    monthly_rows = (
+        db.session.query(
+            extract("year",  SalesOrder.order_date).label("yr"),
+            extract("month", SalesOrder.order_date).label("mn"),
+            func.sum(SalesOrder.release_price_gbp).label("val"),
+            func.sum(SalesOrder.selling_qty).label("qty"),
+            func.count(SalesOrder.order_num.distinct()).label("cnt"),
+        )
+        .filter(
+            SalesOrder.model.in_(models),
+            SalesOrder.open_order == False,  # noqa: E712
+            SalesOrder.order_date >= intake_from,
+            SalesOrder.order_date.isnot(None),
+        )
+        .group_by(extract("year", SalesOrder.order_date), extract("month", SalesOrder.order_date))
+        .order_by(extract("year", SalesOrder.order_date), extract("month", SalesOrder.order_date))
+        .all()
+    )
+    monthly_intake = [
+        {
+            "month":  f"{int(r.yr)}-{int(r.mn):02d}",
+            "value":  round(float(r.val or 0), 2),
+            "units":  round(float(r.qty or 0), 0),
+            "orders": r.cnt,
+        }
+        for r in monthly_rows
+    ]
+
+    # ── Top part variants from closed history ────────────────────────────────
+    top_products_rows = (
+        db.session.query(
+            SalesOrder.part_num,
+            SalesOrder.part_desc,
+            func.sum(SalesOrder.selling_qty).label("qty"),
+            func.sum(SalesOrder.release_price_gbp).label("val"),
+            func.count(SalesOrder.order_num.distinct()).label("cnt"),
+        )
+        .filter(
+            SalesOrder.model.in_(models),
+            SalesOrder.open_order == False,  # noqa: E712
+            SalesOrder.order_date >= closed_from,
+            SalesOrder.part_num.isnot(None),
+            SalesOrder.part_num != "",
+        )
+        .group_by(SalesOrder.part_num, SalesOrder.part_desc)
+        .order_by(func.sum(SalesOrder.release_price_gbp).desc())
+        .limit(10)
+        .all()
+    )
+    top_products_closed = [
+        {
+            "part_num":  r.part_num,
+            "part_desc": r.part_desc or r.part_num,
+            "units":     round(float(r.qty or 0), 0),
+            "value":     round(float(r.val or 0), 2),
+            "orders":    r.cnt,
+        }
+        for r in top_products_rows
+    ]
+
+    # ── Lead time distribution (order_date → need_by_date, all orders) ────────
+    # Reflects how far ahead demand for this model is typically placed — a
+    # planning/demand-predictability signal, not delivery performance.
+    lt_rows = (
+        db.session.query(
+            SalesOrder.order_date,
+            SalesOrder.need_by_date,
+        )
+        .filter(
+            SalesOrder.model.in_(models),
+            SalesOrder.order_date.isnot(None),
+            SalesOrder.need_by_date.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    lt_labels = ["<2 wks", "2–4 wks", "4–8 wks", "8–12 wks", "12–24 wks", "24 wks+"]
+    lt_counts = [0, 0, 0, 0, 0, 0]
+    for r in lt_rows:
+        days = (r.need_by_date - r.order_date).days
+        if   days <  14: lt_counts[0] += 1
+        elif days <  28: lt_counts[1] += 1
+        elif days <  56: lt_counts[2] += 1
+        elif days <  84: lt_counts[3] += 1
+        elif days < 168: lt_counts[4] += 1
+        else:            lt_counts[5] += 1
+    lead_time_dist = {"labels": lt_labels, "counts": lt_counts}
+
+    # ── Order type breakdown (open orders) ────────────────────────────────────
+    by_order_type_rows = (
+        db.session.query(
+            SalesOrder.so_type_desc,
+            func.sum(SalesOrder.selling_qty).label("cnt"),
+            func.sum(SalesOrder.release_price_gbp).label("val"),
+            func.count(SalesOrder.order_num.distinct()).label("orders"),
+        )
+        .join(dedup_sub, SalesOrder.id == dedup_sub.c.id)
+        .filter(
+            SalesOrder.model.in_(models),
+            SalesOrder.so_type_desc.isnot(None),
+        )
+        .group_by(SalesOrder.so_type_desc)
+        .order_by(func.sum(SalesOrder.release_price_gbp).desc())
+        .all()
+    )
+
+    # ── Sales performance: trend, demand consistency, order size, variant mix ──
+    # These answer "how well does this model sell" — the core purpose of this
+    # report — as distinct from delivery/OTIF or customer-account analysis.
+    sales_performance = _compute_sales_performance(monthly_intake, closed_summary, top_products_closed)
+
+    return {
+        "model_info":       model_info,
+        "selected_models":  selected_models,
+        "open_summary":     open_summary,
+        "open_orders":      open_orders,
+        "weekly_schedule": {
+            "labels": week_labels,
+            "values": [round(v, 2) for v in week_values],
+            "units":  [round(v, 0) for v in week_units_list],
+        },
+        "by_size": [
+            {"size": r.size_desc, "units": float(r.cnt or 0), "value": float(r.val or 0)}
+            for r in by_size_rows
+        ],
+        "by_order_type": [
+            {"order_type": r.so_type_desc, "units": float(r.cnt or 0),
+             "value": float(r.val or 0), "orders": r.orders}
+            for r in by_order_type_rows
+        ],
+        "closed_orders":       closed_orders,
+        "closed_summary":      closed_summary,
+        "monthly_intake":      monthly_intake,
+        "sales_performance":   sales_performance,
         "top_products_closed": top_products_closed,
         "lead_time_dist":      lead_time_dist,
     }

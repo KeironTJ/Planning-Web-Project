@@ -43,6 +43,12 @@
                     <i class="bi bi-person-lines-fill me-2"></i>Customer Report
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'sales.model_report' %}active{% endif %}"
+                   href="{{ url_for('sales.model_report') }}">
+                    <i class="bi bi-box-seam me-2"></i>Model Report
+                </a>
+            </li>
             {# Production work-centre quick filters #}
             {% if active_departments %}
             <li class="nav-item mt-1">

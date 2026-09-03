@@ -1,0 +1,820 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block extra_css %}
+<link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js" defer></script>
+<style>
+  @media print {
+    .no-print { display: none !important; }
+    .print-header { display: block !important; }
+    .card { box-shadow: none !important; border: 1px solid #dee2e6 !important; }
+    .collapse { display: block !important; }
+  }
+  .print-header { display: none; }
+  /* Tom Select sizing tweaks */
+  .ts-wrapper.form-control, .ts-wrapper.form-select { padding: 0; }
+  .ts-control { min-height: 2rem; font-size: 0.875rem; }
+</style>
+{% endblock %}
+
+{% block page_actions %}
+{% if models_selected and model_info is defined %}
+<a href="{{ url_for('orders.order_book') }}"
+   class="btn btn-sm btn-outline-secondary no-print">
+  <i class="bi bi-grid-3x3-gap me-1"></i>Order Book
+</a>
+<button onclick="window.print()" class="btn btn-sm btn-outline-secondary no-print">
+  <i class="bi bi-printer me-1"></i>Print
+</button>
+{% elif not models_selected and overview_summary is defined %}
+<button onclick="window.print()" class="btn btn-sm btn-outline-secondary no-print">
+  <i class="bi bi-printer me-1"></i>Print
+</button>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+{# Print-only header #}
+<div class="print-header mb-3 pb-2 border-bottom">
+  <h4 class="mb-0">Model Report{% if models_selected and model_info is defined %} &mdash; {{ model_info.model }}{% elif not models_selected %} &mdash; All Models Overview{% endif %}</h4>
+  <p class="text-muted small mb-0">{{ today.strftime('%d %B %Y') }}</p>
+</div>
+
+{# ── Model selector ────────────────────────────────────────────────────────── #}
+<form method="get" class="card border-0 shadow-sm mb-4 no-print">
+  <div class="card-body py-2 px-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-md-6 col-lg-5">
+        <label class="form-label small mb-1 fw-semibold">
+          Model
+          <span class="text-muted fw-normal">(leave blank for an overview of all models)</span>
+        </label>
+        <select id="modelSelect" name="model" multiple class="form-select form-select-sm">
+          {% for m in models %}
+          <option value="{{ m.model }}" {% if m.model in models_selected %}selected{% endif %}>
+            {{ m.model }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-3 col-lg-2">
+        <label class="form-label small mb-1 fw-semibold">Closed history</label>
+        <select name="closed_months" class="form-select form-select-sm" onchange="this.form.submit()">
+          {% for m in [3, 6, 12] %}
+          <option value="{{ m }}" {% if m == closed_months %}selected{% endif %}>{{ m }} months</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm px-3">
+          <i class="bi bi-box-seam me-1"></i>View Report
+        </button>
+        {% if models_selected %}
+        <a href="{{ url_for('sales.model_report') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-x-circle me-1"></i>Clear
+        </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</form>
+
+{% if not models_selected %}
+{# ════════════════════════════════════════════════════════════════════════════ #}
+{# ── All models overview ─────────────────────────────────────────────────── #}
+{# ════════════════════════════════════════════════════════════════════════════ #}
+
+<div class="d-flex align-items-center gap-3 mb-4">
+  <div class="rounded-3 p-3 bg-info bg-opacity-10 flex-shrink-0">
+    <i class="bi bi-grid-3x3-gap-fill fs-2 text-info"></i>
+  </div>
+  <div>
+    <h4 class="mb-1 fw-semibold">All Models Overview</h4>
+    <p class="text-muted mb-0 small">{{ overview_summary.model_count }} models tracked &mdash; select one or more above for a detailed report</p>
+  </div>
+</div>
+
+{# ── OPEN ORDER BOOK ─────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center gap-2 mb-3 mt-2">
+  <i class="bi bi-basket3-fill text-primary fs-5"></i>
+  <h5 class="mb-0 fw-semibold">Open Order Book</h5>
+  <span class="text-muted small">&mdash; outstanding, undelivered demand</span>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2">{{ overview_summary.open_orders }}</div>
+      <div class="small text-muted">Open Orders</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2 text-primary">{{ overview_summary.open_units | int }}</div>
+      <div class="small text-muted">Open Units</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      {% set v = overview_summary.open_value %}
+      <div class="fw-bold fs-2">
+        {% if v >= 1000000 %}£{{ "%.2f"|format(v / 1000000) }}m
+        {% elif v >= 1000 %}£{{ "%.0f"|format(v / 1000) }}k
+        {% else %}£{{ "%.0f"|format(v) }}{% endif %}
+      </div>
+      <div class="small text-muted">Open Value</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card {% if overview_summary.overdue_orders > 0 %}border-danger{% else %}border-0{% endif %} shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2 {% if overview_summary.overdue_orders > 0 %}text-danger{% else %}text-muted{% endif %}">
+        {{ overview_summary.overdue_orders }}
+      </div>
+      <div class="small {% if overview_summary.overdue_orders > 0 %}text-danger{% else %}text-muted{% endif %}">
+        Overdue Orders
+        {% if overview_summary.overdue_value %}
+        <span class="d-block">
+          {% set ov = overview_summary.overdue_value %}
+          {% if ov >= 1000000 %}£{{ "%.2f"|format(ov / 1000000) }}m
+          {% elif ov >= 1000 %}£{{ "%.0f"|format(ov / 1000) }}k
+          {% else %}£{{ "%.0f"|format(ov) }}{% endif %} at risk
+        </span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Forward demand chart ─────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0 pb-0">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-bar-chart-line me-2 text-primary"></i>Forward Demand Schedule
+    </h6>
+    <p class="text-muted small mb-0">Open order value due by week &mdash; next 12 weeks, all models</p>
+  </div>
+  <div class="card-body">
+    <canvas id="chartDemand" style="max-height:260px;"></canvas>
+  </div>
+</div>
+
+{# ── Row: Top models by open value + Order type breakdown ──────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-12 col-lg-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-bar-chart-steps me-2 text-primary"></i>Top Models &mdash; Open Book
+        </h6>
+        <p class="text-muted small mb-0">Value of outstanding orders by model, with cumulative % line</p>
+      </div>
+      <div class="card-body">
+        {% if top_models_open %}
+        <canvas id="chartModelsParetoOpen" style="max-height:260px;"></canvas>
+        {% else %}
+        <div class="text-center text-muted py-4 small">No open orders.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-tag me-2 text-warning"></i>Open Orders &mdash; Order Type
+        </h6>
+        <p class="text-muted small mb-0">Value and count split by order type</p>
+      </div>
+      <div class="card-body">
+        {% if by_order_type %}
+        <canvas id="chartOrderType" style="max-height:230px;"></canvas>
+        {% else %}
+        <div class="text-center text-muted py-4 small">No open orders.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── CLOSED / SHIPPED ORDER BOOK ─────────────────────────────────────────── #}
+<div class="d-flex align-items-center gap-2 mb-3 mt-2">
+  <i class="bi bi-archive-fill text-secondary fs-5"></i>
+  <h5 class="mb-0 fw-semibold">Closed / Shipped Order Book</h5>
+  <span class="text-muted small">&mdash; fulfilled demand, last {{ closed_months }} months</span>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2">{{ overview_summary.closed_orders }}</div>
+      <div class="small text-muted">Closed Orders</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2 text-secondary">{{ overview_summary.closed_units | int }}</div>
+      <div class="small text-muted">Closed Units</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-4">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      {% set cv = overview_summary.closed_value %}
+      <div class="fw-bold fs-2 text-secondary">
+        {% if cv >= 1000000 %}£{{ "%.2f"|format(cv / 1000000) }}m
+        {% elif cv >= 1000 %}£{{ "%.0f"|format(cv / 1000) }}k
+        {% else %}£{{ "%.0f"|format(cv) }}{% endif %}
+      </div>
+      <div class="small text-muted">Closed Value ({{ closed_months }}m)</div>
+    </div>
+  </div>
+</div>
+
+{# ── Row: Monthly intake trend + Top models by closed value ────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-12 col-lg-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-calendar3 me-2 text-success"></i>Monthly Order Intake
+        </h6>
+        <p class="text-muted small mb-0">Closed orders value by month — last 12 months, all models</p>
+      </div>
+      <div class="card-body">
+        {% if monthly_intake %}
+        <canvas id="chartMonthly" style="max-height:260px;"></canvas>
+        {% else %}
+        <div class="text-center text-muted py-4 small">No closed order history available.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-bar-chart-steps me-2 text-secondary"></i>Top Models &mdash; Closed Book
+        </h6>
+        <p class="text-muted small mb-0">Value shipped by model ({{ closed_months }}m)</p>
+      </div>
+      <div class="card-body">
+        {% if top_models_closed %}
+        <canvas id="chartModelsParetoClosed" style="max-height:260px;"></canvas>
+        {% else %}
+        <div class="text-center text-muted py-4 small">No closed order history available.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── All models table (open + closed side-by-side) ──────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-table me-2 text-success"></i>All Models &mdash; Open vs Closed
+      <span class="badge text-bg-primary ms-1">{{ overview_summary.model_count }}</span>
+    </h6>
+    <p class="text-muted small mb-0">
+      Order counts in the Total row are true distinct order totals (matching the Order Book) &mdash;
+      they can be lower than the sum of the rows above, since an order may include lines from more than one model.
+    </p>
+  </div>
+  <div class="card-body p-0">
+    {% if models_table %}
+    <div class="table-responsive">
+      <table id="modelsOverviewTable" class="table table-sm table-hover mb-0 align-middle" style="font-size:0.85rem;">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3" rowspan="2" style="vertical-align:middle;">Model</th>
+            <th class="text-end" rowspan="2" style="vertical-align:middle;">Variants</th>
+            <th class="text-center border-start bg-primary bg-opacity-10" colspan="3">Open Book</th>
+            <th class="text-center border-start bg-secondary bg-opacity-10" colspan="2">Closed Book ({{ closed_months }}m)</th>
+            <th class="text-end pe-3 border-start" rowspan="2" style="vertical-align:middle;">Total Value (£)</th>
+            <th rowspan="2"></th>
+          </tr>
+          <tr>
+            <th class="text-end border-start bg-primary bg-opacity-10">Orders</th>
+            <th class="text-end bg-primary bg-opacity-10">Overdue</th>
+            <th class="text-end bg-primary bg-opacity-10">Value (£)</th>
+            <th class="text-end border-start bg-secondary bg-opacity-10">Units</th>
+            <th class="text-end bg-secondary bg-opacity-10">Value (£)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in models_table %}
+          <tr class="{{ 'table-light' if m.is_unassigned else '' }}">
+            <td class="ps-3 fw-semibold {{ 'fst-italic text-muted fw-normal' if m.is_unassigned else '' }}">
+              {{ m.model }}
+              {% if m.is_unassigned %}
+              <i class="bi bi-info-circle text-muted ms-1" title="Open/closed order lines with no model recorded, or accessory/scatter items — not a sellable model, shown here so totals reconcile with the Order Book."></i>
+              {% endif %}
+            </td>
+            <td class="text-end text-muted">{{ m.part_count }}</td>
+            <td class="text-end border-start">{{ m.open_orders }}</td>
+            <td class="text-end {% if m.overdue_orders %}text-danger fw-semibold{% else %}text-muted{% endif %}">{{ m.overdue_orders }}</td>
+            <td class="text-end">£{{ "{:,.0f}".format(m.open_value) }}</td>
+            <td class="text-end border-start text-muted">{{ "%.0f" | format(m.closed_units) }}</td>
+            <td class="text-end text-muted">£{{ "{:,.0f}".format(m.closed_value) }}</td>
+            <td class="text-end pe-3 fw-semibold border-start">£{{ "{:,.0f}".format(m.total_value) }}</td>
+            <td class="text-end pe-2">
+              {% if not m.is_unassigned %}
+              <a href="{{ url_for('sales.model_report', model=m.model, closed_months=closed_months) }}"
+                 class="btn btn-sm btn-outline-primary py-0 px-2">View</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light fw-semibold">
+          <tr>
+            <td class="ps-3" colspan="2">Total</td>
+            <td class="text-end border-start">{{ overview_summary.open_orders }}</td>
+            <td class="text-end {% if overview_summary.overdue_orders %}text-danger{% endif %}">{{ overview_summary.overdue_orders }}</td>
+            <td class="text-end">£{{ "{:,.0f}".format(overview_summary.open_value) }}</td>
+            <td class="text-end border-start">{{ "%.0f" | format(overview_summary.closed_units) }}</td>
+            <td class="text-end">£{{ "{:,.0f}".format(overview_summary.closed_value) }}</td>
+            <td class="text-end pe-3 border-start">£{{ "{:,.0f}".format(overview_summary.open_value + overview_summary.closed_value) }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="card-footer bg-transparent border-top d-flex align-items-center gap-3 no-print" id="modelsOverviewNav"></div>
+    {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
+      <p class="mb-0">No model data available.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% elif model_info is not defined %}
+{# ── No matching records ────────────────────────────────────────────────── #}
+<div class="alert alert-warning">
+  <i class="bi bi-exclamation-triangle me-2"></i>
+  No orders found for the selected model(s): <strong>{{ models_selected | join(', ') }}</strong>.
+</div>
+
+
+{% else %}
+{# ════════════════════════════════════════════════════════════════════════════ #}
+{# ── Full report ─────────────────────────────────────────────────────────── #}
+{# ════════════════════════════════════════════════════════════════════════════ #}
+
+{# ── Model header ─────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <div class="rounded-3 p-3 bg-info bg-opacity-10 flex-shrink-0">
+    <i class="bi bi-box-seam fs-2 text-info"></i>
+  </div>
+  <div>
+    <h4 class="mb-1 fw-semibold">{{ model_info.model }}</h4>
+    <div class="d-flex flex-wrap gap-2">
+      {% if model_info.is_combined %}
+        {% for sm in selected_models %}
+        <span class="badge text-bg-primary">{{ sm.model }}</span>
+        {% endfor %}
+      {% else %}
+        <span class="badge text-bg-secondary">{{ model_info.model }}</span>
+      {% endif %}
+      <span class="badge text-bg-light border text-dark">
+        <i class="bi bi-upc-scan me-1"></i>{{ model_info.part_count }} part variant{{ 's' if model_info.part_count != 1 else '' }}
+      </span>
+      <span class="badge text-bg-light border text-dark">
+        <i class="bi bi-people me-1"></i>{{ model_info.customer_count }} customer{{ 's' if model_info.customer_count != 1 else '' }}
+        {% if model_info.customer_count %}&middot; {{ model_info.repeat_customer_pct }}% repeat{% endif %}
+      </span>
+    </div>
+  </div>
+</div>
+
+{# ── KPI cards ────────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2">{{ open_summary.open_orders }}</div>
+      <div class="small text-muted">Open Orders</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2 text-primary">{{ open_summary.open_units | int }}</div>
+      <div class="small text-muted">Open Units</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-3">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      {% set v = open_summary.open_value %}
+      <div class="fw-bold fs-2">
+        {% if v >= 1000000 %}£{{ "%.2f"|format(v / 1000000) }}m
+        {% elif v >= 1000 %}£{{ "%.0f"|format(v / 1000) }}k
+        {% else %}£{{ "%.0f"|format(v) }}{% endif %}
+      </div>
+      <div class="small text-muted">Open Value</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card {% if open_summary.overdue_orders > 0 %}border-danger{% else %}border-0{% endif %} shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2 {% if open_summary.overdue_orders > 0 %}text-danger{% else %}text-muted{% endif %}">
+        {{ open_summary.overdue_orders }}
+      </div>
+      <div class="small {% if open_summary.overdue_orders > 0 %}text-danger{% else %}text-muted{% endif %}">Overdue Orders</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-3">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      {% set cv = closed_summary.closed_value %}
+      <div class="fw-bold fs-2 text-secondary">
+        {% if cv >= 1000000 %}£{{ "%.2f"|format(cv / 1000000) }}m
+        {% elif cv >= 1000 %}£{{ "%.0f"|format(cv / 1000) }}k
+        {% else %}£{{ "%.0f"|format(cv) }}{% endif %}
+      </div>
+      <div class="small text-muted">Closed ({{ closed_months }}m)</div>
+    </div>
+  </div>
+</div>
+
+{# ── Forward demand chart ─────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0 pb-0">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-bar-chart-line me-2 text-primary"></i>Forward Demand Schedule
+    </h6>
+    <p class="text-muted small mb-0">Open order value due by week &mdash; next 12 weeks</p>
+  </div>
+  <div class="card-body">
+    <canvas id="chartDemand" style="max-height:260px;"></canvas>
+  </div>
+</div>
+
+{# ── Row: Open vs Closed donut + Monthly intake trend ───────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-12 col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-pie-chart-fill me-2 text-primary"></i>Open vs Shipped
+        </h6>
+        <p class="text-muted small mb-0">Outstanding vs closed ({{ closed_months }}m)</p>
+      </div>
+      <div class="card-body d-flex align-items-center justify-content-center">
+        <canvas id="chartOpenClosed" style="max-height:220px;max-width:220px;"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-8">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-calendar3 me-2 text-success"></i>Monthly Order Intake
+        </h6>
+        <p class="text-muted small mb-0">Closed orders value by month — last 12 months</p>
+      </div>
+      <div class="card-body">
+        {% if monthly_intake %}
+        <canvas id="chartMonthly" style="max-height:220px;"></canvas>
+        {% else %}
+        <div class="text-center text-muted py-4 small">No closed order history available.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Order Lead Time Distribution ─────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0 pb-0">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-hourglass-split me-2 text-warning"></i>Order Lead Time Distribution
+    </h6>
+    <p class="text-muted small mb-0">Order date &rarr; due date, all orders &mdash; how far ahead demand is typically placed</p>
+  </div>
+  <div class="card-body">
+    <canvas id="chartLeadTime" style="max-height:200px;"></canvas>
+  </div>
+</div>
+
+{# ── Row: Size mix + Order type breakdown ──────────────────────────────── #}
+{% if by_size or by_order_type %}
+<div class="row g-3 mb-4">
+  {% if by_size %}
+  <div class="{{ 'col-12 col-lg-6' if by_order_type else 'col-12' }}">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-pie-chart me-2 text-success"></i>Open Mix &mdash; Size
+        </h6>
+      </div>
+      <div class="card-body">
+        <canvas id="chartSize" style="max-height:230px;"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% if by_order_type %}
+  <div class="{{ 'col-12 col-lg-6' if by_size else 'col-12' }}">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent border-0 pb-0">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-tag me-2 text-warning"></i>Open Orders &mdash; Order Type
+        </h6>
+        <p class="text-muted small mb-0">Value and count split by order type</p>
+      </div>
+      <div class="card-body">
+        <canvas id="chartOrderType" style="max-height:230px;"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ── Sales performance: how well does this model sell? ─────────────────────── #}
+<div class="d-flex align-items-center gap-2 mb-3 mt-2">
+  <i class="bi bi-graph-up-arrow text-info fs-5"></i>
+  <h5 class="mb-0 fw-semibold">Sales Performance</h5>
+  <span class="text-muted small">&mdash; demand trend, consistency &amp; order profile</span>
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      {% if sales_performance.trend %}
+      {% set t = sales_performance.trend %}
+      <div class="fw-bold fs-2 {% if t.direction == 'up' %}text-success{% elif t.direction == 'down' %}text-danger{% else %}text-muted{% endif %}">
+        {% if t.direction == 'up' %}<i class="bi bi-arrow-up-right"></i>{% elif t.direction == 'down' %}<i class="bi bi-arrow-down-right"></i>{% else %}<i class="bi bi-arrow-right"></i>{% endif %}
+        {{ "%+.0f"|format(t.change_pct) }}%
+      </div>
+      <div class="small text-muted">Sales Trend</div>
+      {% else %}
+      <div class="fw-bold fs-2 text-muted">&ndash;</div>
+      <div class="small text-muted">Sales Trend</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-3">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      {% if sales_performance.consistency %}
+      <div class="fw-bold fs-4">{{ sales_performance.consistency.label }}</div>
+      <div class="small text-muted">Demand Consistency <span class="text-muted">(CV {{ sales_performance.consistency.cv }})</span></div>
+      {% else %}
+      <div class="fw-bold fs-4 text-muted">&ndash;</div>
+      <div class="small text-muted">Demand Consistency</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2">£{{ "{:,.0f}".format(sales_performance.avg_order_value) }}</div>
+      <div class="small text-muted">Avg Order Value</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      <div class="fw-bold fs-2 text-primary">{{ "%.1f"|format(sales_performance.avg_order_units) }}</div>
+      <div class="small text-muted">Avg Order Units</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-3">
+    <div class="card border-0 shadow-sm h-100 text-center py-3">
+      {% if sales_performance.top_variant_share_pct is not none %}
+      <div class="fw-bold fs-2 text-secondary">{{ sales_performance.top_variant_share_pct }}%</div>
+      <div class="small text-muted">Top Variant Share ({{ closed_months }}m)</div>
+      {% else %}
+      <div class="fw-bold fs-2 text-muted">&ndash;</div>
+      <div class="small text-muted">Top Variant Share</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ── Top part variants from closed history ─────────────────────────────────── #}
+{% if top_products_closed %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0 pb-0">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-trophy me-2 text-warning"></i>Top Part Variants (last {{ closed_months }} months)
+    </h6>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0 align-middle" style="font-size:0.85rem;">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3">Part No.</th>
+          <th>Description</th>
+          <th class="text-center">Orders</th>
+          <th class="text-end">Units</th>
+          <th class="text-end pe-3">Value (£)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in top_products_closed %}
+        <tr>
+          <td class="ps-3 fw-semibold text-nowrap">{{ p.part_num }}</td>
+          <td class="text-muted small">{{ p.part_desc }}</td>
+          <td class="text-center text-muted">{{ p.orders }}</td>
+          <td class="text-end">{{ p.units | int }}</td>
+          <td class="text-end pe-3">£{{ "{:,.0f}".format(p.value) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Open orders table ────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-table me-2 text-success"></i>Open Orders
+      <span class="badge text-bg-primary ms-1">{{ open_summary.open_orders }}</span>
+      {% if open_summary.overdue_orders %}
+      <span class="badge text-bg-danger ms-1">{{ open_summary.overdue_orders }} overdue</span>
+      {% endif %}
+    </h6>
+  </div>
+  <div class="card-body p-0">
+    {% if open_orders %}
+    <div class="table-responsive">
+      <table id="openOrdersTable" class="table table-sm table-hover mb-0 align-middle" style="font-size:0.85rem;">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3 text-nowrap">SO #</th>
+            <th>Customer</th>
+            <th style="min-width:120px;">Customer PO</th>
+            <th>Type</th>
+            <th class="text-nowrap">Order Date</th>
+            <th class="text-nowrap">Due Date</th>
+            <th class="text-center">Lines</th>
+            <th class="text-end">Qty</th>
+            <th class="text-end pe-3 text-nowrap">Value (£)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for o in open_orders %}
+          {% set is_overdue = o.due_date and o.due_date < today %}
+          {% set due_soon   = o.due_date and not is_overdue and o.days_delta is not none and o.days_delta <= 7 %}
+          <tr class="{{ 'table-danger' if is_overdue else '' }}">
+            <td class="ps-3 fw-semibold text-nowrap">{{ o.so_number }}</td>
+            <td class="small text-muted">{{ o.customer_name }}</td>
+            <td class="text-muted small">{{ o.customer_order_ref or '–' }}</td>
+            <td>
+              <span class="badge {% if o.so_type and o.so_type.startswith('Z') %}text-bg-info{% else %}text-bg-secondary{% endif %}">
+                {{ o.order_type or '–' }}
+              </span>
+            </td>
+            <td class="small text-muted text-nowrap">
+              {{ o.order_date.strftime('%d %b %Y') if o.order_date else '–' }}
+            </td>
+            <td class="text-nowrap {% if is_overdue %}text-danger fw-semibold{% elif due_soon %}text-warning fw-semibold{% endif %}">
+              {% if o.due_date %}
+                {{ o.due_date.strftime('%d %b %Y') }}
+                {% if is_overdue %}
+                  <span class="badge text-bg-danger ms-1">{{ (-o.days_delta) | int }}d late</span>
+                {% elif due_soon %}
+                  <span class="badge text-bg-warning text-dark ms-1">{{ o.days_delta }}d</span>
+                {% endif %}
+              {% else %}–{% endif %}
+            </td>
+            <td class="text-center text-muted">{{ o.line_count }}</td>
+            <td class="text-end">{{ "%.0f" | format(o.total_qty) }}</td>
+            <td class="text-end pe-3 fw-semibold">£{{ "{:,.0f}".format(o.total_value) }}</td>
+            <td class="text-end text-nowrap pe-2">
+              {% if o.comment_count %}
+              <span class="badge bg-light text-dark border small"
+                    title="{{ o.latest_comment }}{% if o.latest_user %} — {{ o.latest_user }}{% endif %}{% if o.latest_at %} ({{ o.latest_at }}){% endif %}">
+                <i class="bi bi-chat-left-text me-1 text-info"></i>{{ o.comment_count }}
+              </span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light fw-semibold">
+          <tr>
+            <td class="ps-3" colspan="6">Total</td>
+            <td class="text-end">{{ "%.0f" | format(open_summary.open_units) }}</td>
+            <td class="text-end pe-3">£{{ "{:,.0f}".format(open_summary.open_value) }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="card-footer bg-transparent border-top d-flex align-items-center gap-3 no-print" id="openOrdersNav"></div>
+    {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
+      <p class="mb-0">No open orders for this model.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Closed / shipped orders ─────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent border-0">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <h6 class="mb-0 fw-semibold">
+        <i class="bi bi-archive me-2 text-secondary"></i>Closed / Shipped Orders
+        <span class="badge text-bg-secondary ms-1">{{ closed_summary.closed_orders }}</span>
+        <span class="text-muted small fw-normal ms-1">(last {{ closed_months }} months)</span>
+      </h6>
+      <button class="btn btn-sm btn-outline-secondary no-print" type="button"
+              data-bs-toggle="collapse" data-bs-target="#closedOrdersBody">
+        <i class="bi bi-chevron-down me-1"></i>Toggle
+      </button>
+    </div>
+  </div>
+  <div class="collapse show" id="closedOrdersBody">
+    {% if closed_orders %}
+    <div class="table-responsive">
+      <table id="closedOrdersTable" class="table table-sm table-hover mb-0 align-middle" style="font-size:0.85rem;">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3 text-nowrap">SO #</th>
+            <th>Customer</th>
+            <th style="min-width:120px;">Customer PO</th>
+            <th>Type</th>
+            <th class="text-nowrap">Order Date</th>
+            <th class="text-nowrap">Due Date</th>
+            <th class="text-center">Lines</th>
+            <th class="text-end">Qty</th>
+            <th class="text-end pe-3 text-nowrap">Value (£)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for o in closed_orders %}
+          <tr>
+            <td class="ps-3 fw-semibold text-nowrap">{{ o.so_number }}</td>
+            <td class="small text-muted">{{ o.customer_name }}</td>
+            <td class="text-muted small">{{ o.customer_order_ref or '–' }}</td>
+            <td><span class="badge text-bg-secondary">{{ o.order_type or '–' }}</span></td>
+            <td class="small text-muted text-nowrap">
+              {{ o.order_date.strftime('%d %b %Y') if o.order_date else '–' }}
+            </td>
+            <td class="small text-muted text-nowrap">
+              {{ o.due_date.strftime('%d %b %Y') if o.due_date else '–' }}
+            </td>
+            <td class="text-center text-muted">{{ o.line_count }}</td>
+            <td class="text-end">{{ "%.0f" | format(o.total_qty) }}</td>
+            <td class="text-end pe-3 fw-semibold">£{{ "{:,.0f}".format(o.total_value) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light fw-semibold">
+          <tr>
+            <td class="ps-3" colspan="6">Total</td>
+            <td class="text-end">{{ "%.0f" | format(closed_summary.closed_units) }}</td>
+            <td class="text-end pe-3">£{{ "{:,.0f}".format(closed_summary.closed_value) }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="card-footer bg-transparent border-top d-flex align-items-center gap-3 no-print" id="closedOrdersNav"></div>
+    {% else %}
+    <div class="card-body text-center text-muted py-4">
+      <i class="bi bi-archive fs-2 d-block mb-2 opacity-50"></i>
+      <p class="mb-0">No closed orders found in the last {{ closed_months }} months.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endif %}{# end model selected #}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if models_selected and model_info is defined %}
+<script>
+window.MODEL_REPORT_DATA = {
+  weeklySchedule:  {{ weekly_schedule | tojson }},
+  openSummary:     {{ open_summary | tojson }},
+  closedSummary:   {{ closed_summary | tojson }},
+  closedMonths:    {{ closed_months | tojson }},
+  monthlyIntake:   {{ monthly_intake | tojson if monthly_intake else 'null' }},
+  leadTimeDist:    {{ lead_time_dist | tojson }},
+  bySize:          {{ by_size | tojson if by_size else 'null' }},
+  byOrderType:     {{ by_order_type | tojson if by_order_type else 'null' }},
+};
+</script>
+{% elif not models_selected and overview_summary is defined %}
+<script>
+window.MODEL_OVERVIEW_DATA = {
+  weeklySchedule:   {{ weekly_schedule | tojson }},
+  overviewSummary:  {{ overview_summary | tojson }},
+  closedMonths:     {{ closed_months | tojson }},
+  monthlyIntake:    {{ monthly_intake | tojson if monthly_intake else 'null' }},
+  byOrderType:      {{ by_order_type | tojson if by_order_type else 'null' }},
+  topModelsOpen:    {{ top_models_open | tojson if top_models_open else 'null' }},
+  topModelsClosed:  {{ top_models_closed | tojson if top_models_closed else 'null' }},
+};
+</script>
+{% endif %}
+<script src="{{ url_for('static', filename='js/modules/sales.js') }}" defer></script>
+{% endblock %}
+
