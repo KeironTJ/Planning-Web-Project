@@ -7,19 +7,20 @@ sequence, sharing a single KineticClient session.
 
 Design notes:
 - One tick job; schedule config lives in the DB (not in APScheduler jobs).
-- is_running flag prevents double-execution whether triggered by the
-  scheduler or a manual "Run now" from the UI.
+- Jobs are claimed with a conditional database update so multiple web workers
+  can run ticker threads without double-executing a job.
 - Manual runs spawn their own daemon thread directly — no queuing, no
   dependency on the scheduler thread being active.
 - The scheduler is NOT started during testing (TESTING=True config).
-- With Flask's debug reloader, WERKZEUG_RUN_MAIN guard ensures we only
-  start one scheduler instance.
+- Every worker process starts its own ticker thread (for failover); the
+  atomic claim UPDATE is what prevents double-execution, not process count.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -144,16 +145,70 @@ def run_job_in_thread(app, job_id: int) -> None:
     logger.info("run_job_in_thread: spawned thread for job %d", job_id)
 
 
+def _reset_stuck_jobs(db, SyncJob, now, *, force: bool = False) -> int:
+    """
+    Atomically reset SyncJobs stuck with is_running=True and return the
+    number of rows changed.
+
+    Uses a single conditional UPDATE — not a SELECT-then-write loop — so a
+    job that finishes between the staleness check and the write can never
+    have its fresh result clobbered: the WHERE clause re-evaluates
+    is_running at UPDATE time, so a job that already flipped is_running to
+    False simply won't match and is left alone.
+
+    force=True resets every is_running=True row unconditionally, regardless
+    of how long it has been running. Only safe to use at process startup: a
+    full process restart kills every thread, so any is_running=True row
+    found at that moment is guaranteed orphaned rather than merely "still
+    going". The periodic watchdog (force=False) only resets jobs that have
+    been running for over an hour, since it runs throughout the process
+    lifetime while other jobs may legitimately be mid-run.
+
+    Caller must be inside an app context and is responsible for committing
+    or rolling back the session.
+    """
+    from datetime import timedelta
+
+    query = SyncJob.query.filter(SyncJob.is_running == True)  # noqa: E712
+    if not force:
+        query = query.filter(
+            db.or_(
+                SyncJob.last_run_at <= now - timedelta(hours=1),
+                db.and_(
+                    SyncJob.last_run_at == None,   # noqa: E711
+                    SyncJob.next_run_at <= now - timedelta(hours=1),
+                ),
+            )
+        )
+    return query.update(
+        {
+            SyncJob.is_running: False,
+            SyncJob.last_status: SyncJob.STATUS_FAILED,
+            SyncJob.next_run_at: now,
+        },
+        synchronize_session=False,
+    )
+
+
 def run_due_jobs(app) -> None:
     """
     Check the DB for enabled SyncJobs that are past their next_run_at,
     claim each one (is_running=True), then execute them.
     Called every 60 seconds by the scheduler tick.
+
+    Logging: routine per-tick heartbeat lines (tick fired, N due, claim lost
+    to another worker) are DEBUG — with 4 workers now each running their own
+    ticker, logging these at INFO would produce 4x the routine noise for no
+    operational benefit. Only lines that indicate something actually
+    happened (a job was spawned, a stuck job was reset, an error occurred)
+    are INFO/WARNING/ERROR. Every worker-attributable line is tagged
+    [pid=N] so multi-worker log output can be correlated.
     """
     import os
     from datetime import timedelta
 
-    logger.info("Scheduler tick fired (pid=%d)", os.getpid())
+    pid = os.getpid()
+    logger.debug("Scheduler[pid=%d]: tick fired", pid)
 
     try:
         from app.admin.models import SyncJob
@@ -167,34 +222,19 @@ def run_due_jobs(app) -> None:
             # for more than 1 hour (last_run_at is the start-time proxy).
             # We must NOT reset jobs that are legitimately running but whose
             # next_run_at has already passed (e.g. short-interval jobs).
-            stuck_jobs = (
-                SyncJob.query
-                .filter(SyncJob.is_running == True)    # noqa: E712
-                .filter(
-                    db.or_(
-                        SyncJob.last_run_at <= now - timedelta(hours=1),
-                        db.and_(
-                            SyncJob.last_run_at == None,   # noqa: E711
-                            SyncJob.next_run_at <= now - timedelta(hours=1),
-                        ),
-                    )
-                )
-                .all()
-            )
-            if stuck_jobs:
-                for stuck in stuck_jobs:
+            # See _reset_stuck_jobs: this is a single atomic UPDATE so a job
+            # that finishes mid-check can never have its fresh status clobbered.
+            try:
+                reset_count = _reset_stuck_jobs(db, SyncJob, now)
+                db.session.commit()
+                if reset_count:
                     logger.warning(
-                        "Scheduler: resetting stuck job %d %r (is_running=True, next_run_at=%s)",
-                        stuck.id, stuck.name,
-                        stuck.next_run_at.strftime("%H:%M:%S") if stuck.next_run_at else "None",
+                        "Scheduler[pid=%d]: reset %d stuck job(s) (is_running > 1h)",
+                        pid, reset_count,
                     )
-                    stuck.is_running  = False
-                    stuck.last_status = SyncJob.STATUS_FAILED
-                try:
-                    db.session.commit()
-                except Exception:
-                    db.session.rollback()
-                    logger.exception("Scheduler: failed to reset stuck jobs")
+            except Exception:
+                db.session.rollback()
+                logger.exception("Scheduler[pid=%d]: failed to reset stuck jobs", pid)
             # -----------------------------------------------------------------
 
             due_jobs = (
@@ -213,26 +253,61 @@ def run_due_jobs(app) -> None:
             )
 
             enabled_total = SyncJob.query.filter(SyncJob.enabled == True).count()  # noqa: E712
-            logger.info(
-                "Scheduler tick: %d due (of %d enabled) — now=%s",
-                len(due_jobs), enabled_total, now.strftime("%H:%M:%S"),
+            logger.debug(
+                "Scheduler[pid=%d]: %d due (of %d enabled) — now=%s",
+                pid, len(due_jobs), enabled_total, now.strftime("%H:%M:%S"),
             )
 
-            # Claim each job now (before leaving the app context) so the
-            # is_running flag is committed before execution begins.
+            # Claim each job with a conditional UPDATE. Every web worker runs
+            # a ticker for failover, so only the worker whose UPDATE affects
+            # one row is allowed to execute the job.
             claimed_ids = []
+            claimed_names = {}
             for job in due_jobs:
-                job.is_running  = True
-                job.next_run_at = now + timedelta(minutes=job.interval_minutes)
                 try:
+                    claimed = (
+                        SyncJob.query
+                        .filter(
+                            SyncJob.id == job.id,
+                            SyncJob.enabled == True,       # noqa: E712
+                            SyncJob.is_running == False,   # noqa: E712
+                        )
+                        .filter(
+                            db.or_(
+                                SyncJob.next_run_at == None,   # noqa: E711
+                                SyncJob.next_run_at <= now,
+                            )
+                        )
+                        .update(
+                            {
+                                SyncJob.is_running: True,
+                                SyncJob.last_run_at: now,
+                                SyncJob.next_run_at: (
+                                    now + timedelta(minutes=job.interval_minutes)
+                                ),
+                            },
+                            synchronize_session=False,
+                        )
+                    )
                     db.session.commit()
-                    claimed_ids.append(job.id)
+                    if claimed == 1:
+                        claimed_ids.append(job.id)
+                        claimed_names[job.id] = job.name
+                    else:
+                        # Expected under normal operation: another worker's
+                        # ticker won the race for this job. Not actionable.
+                        logger.debug(
+                            "Scheduler[pid=%d]: job %d %r was claimed by another worker",
+                            pid, job.id, job.name,
+                        )
                 except Exception:
                     db.session.rollback()
-                    logger.exception("Scheduler: failed to claim job %d %r", job.id, job.name)
+                    logger.exception(
+                        "Scheduler[pid=%d]: failed to claim job %d %r", pid, job.id, job.name,
+                    )
 
     except Exception:
-        logger.exception("Scheduler tick: unhandled exception in run_due_jobs")
+        logger.exception("Scheduler[pid=%d]: unhandled exception in run_due_jobs", pid)
         return
 
     # Spawn each job in its own daemon thread so the tick thread is never
@@ -246,7 +321,60 @@ def run_due_jobs(app) -> None:
             name=f"epicor-sched-job-{job_id}",
         )
         t.start()
-        logger.info("Scheduler: spawned thread for job %d", job_id)
+        logger.info(
+            "Scheduler[pid=%d]: spawned thread for job %d %r",
+            pid, job_id, claimed_names.get(job_id),
+        )
+
+
+def _run_scheduler_cycle(app) -> None:
+    """Run one tick and delay without allowing the ticker thread to exit."""
+    import os
+
+    pid = os.getpid()
+    try:
+        run_due_jobs(app)
+    except BaseException:
+        logger.exception("Scheduler[pid=%d]: tick crashed — will retry next cycle", pid)
+    try:
+        time.sleep(60)
+    except BaseException:
+        logger.exception("Scheduler[pid=%d]: tick sleep interrupted — continuing", pid)
+
+
+def _reset_stuck_jobs_at_startup(app) -> None:
+    """
+    Reset any is_running flags left over from a previous crash or restart.
+
+    Safe to call from every gunicorn worker concurrently: a full process
+    restart kills every thread, so any is_running=True row found here is
+    guaranteed orphaned (see _reset_stuck_jobs force=True), and the reset
+    itself is a single atomic UPDATE.  Without this, a job that was mid-run
+    when the process died would otherwise sit is_running=True for up to an
+    hour before the periodic watchdog notices it.
+    """
+    import os
+
+    pid = os.getpid()
+    try:
+        from app.admin.models import SyncJob
+        from app.extensions import db
+
+        with app.app_context():
+            now = datetime.now(timezone.utc)
+            try:
+                count = _reset_stuck_jobs(db, SyncJob, now, force=True)
+                db.session.commit()
+                if count:
+                    logger.warning(
+                        "Scheduler[pid=%d] startup: reset %d stuck job(s) left over from a previous run",
+                        pid, count,
+                    )
+            except Exception:
+                db.session.rollback()
+                logger.exception("Scheduler[pid=%d] startup: failed to reset stuck jobs", pid)
+    except Exception:
+        logger.exception("Scheduler[pid=%d] startup: error during stuck-job reset", pid)
 
 
 def init_scheduler(app) -> None:
@@ -265,7 +393,6 @@ def init_scheduler(app) -> None:
     Always starts when serving HTTP (flask run, gunicorn, wsgi.py, VS Code debugger).
     """
     import os
-    import time
 
     if app.config.get("TESTING"):
         logger.info("Scheduler: skipped (TESTING=True)")
@@ -301,51 +428,16 @@ def init_scheduler(app) -> None:
     # DB flag is sufficient to prevent double-execution if both processes
     # happen to start a scheduler thread simultaneously.
 
-    # With multiple gunicorn workers each worker starts its own scheduler thread.
-    # The is_running DB flag prevents double-execution, but wastes resources.
-    # Restrict the scheduler to worker 1 only (WORKER_ID is set in gunicorn.conf.py).
-    worker_id = os.environ.get("WORKER_ID")
-    if worker_id is not None and worker_id != "1":
-        logger.info("Scheduler: skipped (worker %s — only worker 1 runs the scheduler)", worker_id)
-        return
-
-    def _reset_stuck_jobs_at_startup():
-        """Reset is_running flags left over from a previous crash or restart."""
-        try:
-            from app.admin.models import SyncJob
-            from app.extensions import db
-            with app.app_context():
-                stuck = SyncJob.query.filter(SyncJob.is_running == True).all()  # noqa: E712
-                if stuck:
-                    for job in stuck:
-                        logger.warning(
-                            "Scheduler startup: resetting stuck job %d %r (was is_running=True)",
-                            job.id, job.name,
-                        )
-                        job.is_running = False
-                        job.last_status = SyncJob.STATUS_FAILED
-                    try:
-                        db.session.commit()
-                    except Exception:
-                        db.session.rollback()
-                        logger.exception("Scheduler startup: failed to reset stuck jobs")
-        except Exception:
-            logger.exception("Scheduler startup: error during stuck-job reset")
+    _reset_stuck_jobs_at_startup(app)
 
     def _tick_loop():
-        logger.info("Scheduler thread started (pid=%d)", os.getpid())
+        logger.info("Scheduler[pid=%d]: thread started", os.getpid())
         while True:
-            try:
-                run_due_jobs(app)
-            except Exception:
-                logger.exception("Scheduler: tick crashed — will retry next cycle")
-            time.sleep(60)
-
-    _reset_stuck_jobs_at_startup()
+            _run_scheduler_cycle(app)
 
     t = threading.Thread(target=_tick_loop, daemon=True, name="epicor-sync-tick")
     t.start()
     logger.info(
-        "Epicor sync scheduler started (tick every 60 s) — pid=%d debug=%s",
+        "Scheduler[pid=%d]: started (tick every 60 s, debug=%s)",
         os.getpid(), app.debug,
     )
