@@ -231,6 +231,9 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
     total order value per bucket.
 
     "Open"  = SalesOrder.open_order == True (Epicor API data, daily sync).
+              Fully-shipped releases (shipped_qty >= selling_qty) are excluded —
+              they stay "open" in Epicor until invoiced, but have no remaining
+              material need, so counting them inflates the Overdue bucket.
     Date    = req_date (OrderRel_ReqDate) — the customer-requested delivery date.
     Value   = sum of release_price_gbp, de-duplicated per (order_num, order_line,
               rel_num) so multiple assemblies/jobs don't double-count the value.
@@ -265,6 +268,14 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
             SalesOrder.open_order == True,
             SalesOrder.req_date.isnot(None),
             SalesOrder.req_date <= cutoff,
+            # Exclude releases that are already fully shipped — these stay
+            # "open" in Epicor until invoiced but have no remaining material
+            # need, so counting them inflates the Overdue bucket.
+            db.or_(
+                SalesOrder.selling_qty.is_(None),
+                SalesOrder.shipped_qty.is_(None),
+                SalesOrder.shipped_qty < SalesOrder.selling_qty,
+            ),
         )
         .group_by(
             SalesOrder.order_num,
