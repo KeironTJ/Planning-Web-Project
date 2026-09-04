@@ -1,10 +1,11 @@
 """Tests for Operations WIP ordering."""
 
 from datetime import date
+from types import SimpleNamespace
 
 from app.extensions import db
 from app.operations.models import WorksOrder
-from app.operations.routes import _wip_job_ordering
+from app.operations.routes import _quick_win_jobs, _wip_job_ordering
 
 
 def test_wip_jobs_are_ordered_by_due_date_sequence_order_and_job(app):
@@ -43,3 +44,25 @@ def test_wip_jobs_are_ordered_by_due_date_sequence_order_and_job(app):
             (100, "A-20"),
             (200, "B-20"),
         ]
+
+
+def test_quick_wins_require_uphol_as_earliest_operation_and_no_shortage():
+    completed = SimpleNamespace(order_num=100, job_complete=True, next_op=None)
+    uphol = SimpleNamespace(order_num=100, job_complete=False, next_op="UPHOL")
+    later = SimpleNamespace(order_num=100, job_complete=False, next_op="SEW")
+    finished = SimpleNamespace(order_num=100, job_complete=False, next_op="FINISH")
+    single = SimpleNamespace(order_num=400, job_complete=False, next_op="UPHOL")
+    beyond = SimpleNamespace(order_num=500, job_complete=False, next_op="FINISH")
+    earlier = SimpleNamespace(order_num=200, job_complete=False, next_op="FRAME")
+    blocked = SimpleNamespace(order_num=300, job_complete=False, next_op="UPHOL")
+
+    jobs = _quick_win_jobs(
+        [completed, uphol, later, finished, single, beyond, earlier, blocked],
+        {100, 200, 300},
+        {400, 500},
+        {"100": "ok", "200": "no_data", "300": "high_risk"},
+        {"100": "no_data", "200": "no_data", "300": "ok", "400": "ok", "500": "ok"},
+        {"FRAME": 1, "UPHOL": 2, "SEW": 3, "FINISH": 4},
+    )
+
+    assert jobs == [uphol, later, finished, single, beyond]

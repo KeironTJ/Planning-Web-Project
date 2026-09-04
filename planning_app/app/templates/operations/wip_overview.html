@@ -257,6 +257,7 @@ Operations WIP Overview
                             <th>Model</th>
                             <th>Size</th>
                             <th>Customer</th>
+                            <th class="text-end">Net Value GBP</th>
                             <th>Mat 1</th>
                             <th class="text-center" title="This job: fabric/hide availability">Job Fabric</th>
                             <th class="text-center" title="Whole order: fabric/hide worst case">Order Fabric</th>
@@ -302,6 +303,9 @@ Operations WIP Overview
                             <td class="fw-semibold">{{ job.model or '—' }}</td>
                             <td class="text-muted">{{ job.size_desc or job.size or '—' }}</td>
                             <td>{{ job.customer_name or '—' }}</td>
+                            <td class="text-end">
+                                {%- if job.net_unit_price_gbp is not none %}£{{ "{:,.2f}".format(job.net_unit_price_gbp) }}{%- else %}—{%- endif %}
+                            </td>
                             <td class="text-muted">{{ job.material_1_desc or '—' }}</td>
                             {%- set job_mat_label, job_mat_colour = mat_status_meta.get(job_mat_st, ('—', 'secondary')) %}
                             <td class="text-center">
@@ -401,7 +405,7 @@ Operations WIP Overview
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="18" class="text-center py-4 text-muted">No works orders found.</td>
+                            <td colspan="19" class="text-center py-4 text-muted">No works orders found.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -453,6 +457,77 @@ Operations WIP Overview
     </div>
 </div>
 
+<!-- ── Quick wins ─────────────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mt-3">
+    <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <div>
+            <h6 class="mb-0 fw-semibold">
+                <i class="bi bi-lightning-charge me-1 text-warning"></i>Quick Wins
+            </h6>
+            <div class="text-muted small">Partial orders at UPHOL or downstream with no confirmed material or component shortages</div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge text-bg-warning">{{ quick_win_jobs|length }}</span>
+            <a href="{{ url_for('operations.quick_wins_export', category=category, q=search) }}"
+               class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-download me-1"></i>Export CSV
+            </a>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 align-middle" style="font-size:0.78rem; white-space:nowrap;">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-2">Job</th>
+                    <th>Order #</th>
+                    <th>Current Op</th>
+                    <th>Model</th>
+                    <th>Size</th>
+                    <th>Customer</th>
+                    <th class="text-end">Units</th>
+                    <th class="text-end">Net Value GBP</th>
+                    <th class="text-center">Due Date</th>
+                    <th>Plan Wk</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in quick_win_jobs %}
+                <tr>
+                    <td class="ps-2 fw-semibold font-monospace">{{ job.job_num }}</td>
+                    <td class="text-muted">{{ job.order_num or '—' }}</td>
+                    <td><span class="badge bg-warning text-dark">{{ job.next_op }}</span></td>
+                    <td class="fw-semibold">{{ job.model or '—' }}</td>
+                    <td class="text-muted">{{ job.size_desc or job.size or '—' }}</td>
+                    <td>{{ job.customer_name or '—' }}</td>
+                    <td class="text-end">{{ "{:,.0f}".format(job.required_qty or 0) }}</td>
+                    <td class="text-end">
+                        {%- if job.net_unit_price_gbp is not none %}£{{ "{:,.2f}".format(job.net_unit_price_gbp) }}{%- else %}—{%- endif %}
+                    </td>
+                    <td class="text-center">
+                        {%- if job.req_due_date %}{{ job.req_due_date.strftime('%d %b %Y') }}{%- else %}—{%- endif %}
+                    </td>
+                    <td class="text-center text-muted">
+                        {%- if job.prod_plnwk %}W{{ job.prod_plnwk[2:4] }}/{{ job.prod_plnwk[4:6] }}{%- else %}—{%- endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="10" class="text-center py-3 text-muted">No quick wins found.</td></tr>
+                {% endfor %}
+            </tbody>
+            {% if quick_win_jobs %}
+            <tfoot class="table-light">
+                <tr>
+                    <th colspan="6" class="text-end">Total Quick Wins</th>
+                    <th class="text-end">{{ "{:,.0f}".format(quick_win_total_units) }} units</th>
+                    <th class="text-end">£{{ "{:,.2f}".format(quick_win_total_value) }}</th>
+                    <th colspan="2"></th>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+</div>
+
 <!-- Job Comment modal -->
 <div class="modal fade" id="jobCommentModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-scrollable">
@@ -501,4 +576,3 @@ window.WIP_OVERVIEW_DATA = {
 </script>
 <script src="{{ url_for('static', filename='js/modules/operations.js') }}" defer></script>
 {% endblock %}
-

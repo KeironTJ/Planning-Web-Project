@@ -29,6 +29,56 @@ def _wip_job_ordering():
     )
 
 
+def _quick_win_jobs(
+    rows,
+    completed_order_nums,
+    single_job_order_nums,
+    mat_status_map,
+    comp_status_map,
+    flow,
+):
+    """Return clear partial or single-job orders at UPHOL and downstream."""
+    uphol_flow = flow.get("UPHOL")
+    if uphol_flow is None:
+        return []
+
+    order_rows = defaultdict(list)
+    for job in rows:
+        if job.order_num and (
+            job.order_num in completed_order_nums
+            or job.order_num in single_job_order_nums
+        ):
+            order_rows[job.order_num].append(job)
+
+    quick_win_orders = set()
+    for order_num, jobs in order_rows.items():
+        if (
+            mat_status_map.get(str(order_num), "no_data") not in ("ok", "no_data")
+            or comp_status_map.get(str(order_num), "no_data") not in ("ok", "no_data")
+        ):
+            continue
+        first_job = min(
+            jobs,
+            key=lambda job: (
+                flow.get((job.next_op or "").upper(), 9999),
+                (job.next_op or "").upper(),
+            ),
+        )
+        # Once the earliest active job has reached UPHOL, the order is a
+        # Quick Win even if it has already progressed beyond UPHOL.
+        if flow.get((first_job.next_op or "").upper(), 9999) >= uphol_flow:
+            quick_win_orders.add(order_num)
+
+    return [
+        job for job in rows
+        if (
+            job.order_num in quick_win_orders
+            and not job.job_complete
+            and flow.get((job.next_op or "").upper(), 9999) >= uphol_flow
+        )
+    ]
+
+
 @operations_bp.route('/')
 @operations_bp.route('/dashboard')
 @login_required
@@ -244,7 +294,7 @@ def wip_overview():
         order = d.flow_order or 9999
         if d.op_code:
             _flow[d.op_code.upper()] = order
-        _flow[d.name] = order   # fallback
+        _flow[d.name.upper()] = order  # fallback
     wip_ops = sorted(
         _op_tot.keys(),
         key=lambda op: (_flow.get(op.upper(), _flow.get(op, 9999)), op),
@@ -301,6 +351,53 @@ def wip_overview():
         .all()
         if row.order_num
     }
+    _quick_win_rows = (
+        # Evaluate the earliest operation across the whole order, not only
+        # the department currently selected in the overview filter.
+        WorksOrder.query.filter(*_base_no_dept)
+        .order_by(*_wip_job_ordering())
+        .all()
+    )
+    _quick_order_nums = {
+        str(job.order_num) for job in _quick_win_rows if job.order_num
+    }
+    mat_status_map.update(
+        get_so_material_status(list(_quick_order_nums))
+    )
+    comp_status_map.update(
+        get_so_component_status(list(_quick_order_nums))
+    )
+    _single_job_order_nums = {
+        row.order_num
+        for row in (
+            db.session.query(WorksOrder.order_num)
+            .filter(
+                WorksOrder.assembly_seq == 0,
+                WorksOrder.job_released == True,
+                WorksOrder.order_num.isnot(None),
+                *_cat_filter,
+                *_search_filters,
+            )
+            .group_by(WorksOrder.order_num)
+            .having(func.count(WorksOrder.id) == 1)
+            .all()
+        )
+        if row.order_num
+    }
+    quick_win_jobs = _quick_win_jobs(
+        _quick_win_rows,
+        _completed_order_nums,
+        _single_job_order_nums,
+        mat_status_map,
+        comp_status_map,
+        _flow,
+    )
+    quick_win_total_value = sum(
+        float(job.net_unit_price_gbp or 0) for job in quick_win_jobs
+    )
+    quick_win_total_units = sum(
+        float(job.required_qty or 0) for job in quick_win_jobs
+    )
 
     return render_template(
         'operations/wip_overview.html',
@@ -325,6 +422,9 @@ def wip_overview():
         comp_shortages=comp_shortages,
         either_shortages=either_shortages,
         partial_order_nums=_completed_order_nums,
+        quick_win_jobs=quick_win_jobs,
+        quick_win_total_value=quick_win_total_value,
+        quick_win_total_units=quick_win_total_units,
         mat_status_map=mat_status_map,
         comp_status_map=comp_status_map,
         job_comment_counts=job_comment_counts,
@@ -489,6 +589,114 @@ def wip_export():
         csv_bytes.encode('utf-8'),
         mimetype='text/csv; charset=utf-8',
         headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+@operations_bp.route('/wip/quick-wins/export')
+@login_required
+@permission_required("view_orders")
+@permission_required("export_data")
+def quick_wins_export():
+    """Download the Quick Wins table as CSV."""
+    category = request.args.get('category', 'models').strip().lower()
+    _is_model = db.and_(
+        WorksOrder.model.isnot(None),
+        WorksOrder.model != '',
+        ~WorksOrder.model.ilike('%scatter%'),
+    )
+    _is_parts = db.or_(
+        WorksOrder.model.is_(None),
+        WorksOrder.model == '',
+        WorksOrder.model.ilike('%scatter%'),
+    )
+    _cat_filter = (_is_model,) if category == 'models' else ((_is_parts,) if category == 'parts' else ())
+
+    search = request.args.get('q', '').strip()
+    _search_filters = ()
+    if search:
+        term = f'%{search}%'
+        _search_filters = (db.or_(
+            WorksOrder.job_num.ilike(term),
+            WorksOrder.customer_name.ilike(term),
+            WorksOrder.description.ilike(term),
+            WorksOrder.model.ilike(term),
+        ),)
+
+    _base = (
+        WorksOrder.assembly_seq == 0,
+        WorksOrder.job_released == True,
+        db.or_(WorksOrder.job_complete == False, WorksOrder.job_complete.is_(None)),
+        WorksOrder.next_op.isnot(None),
+        WorksOrder.next_op != '',
+    ) + _cat_filter + _search_filters
+    rows = WorksOrder.query.filter(*_base).order_by(*_wip_job_ordering()).all()
+
+    flow = {}
+    for dept in DeptModel.query.order_by(DeptModel.flow_order.asc().nullslast(), DeptModel.name).all():
+        order = dept.flow_order or 9999
+        if dept.op_code:
+            flow[dept.op_code.upper()] = order
+        flow[dept.name.upper()] = order
+
+    order_nums = {str(job.order_num) for job in rows if job.order_num}
+    mat_status_map = get_so_material_status(list(order_nums)) if order_nums else {}
+    comp_status_map = get_so_component_status(list(order_nums)) if order_nums else {}
+    completed_order_nums = {
+        row.order_num
+        for row in db.session.query(WorksOrder.order_num).filter(
+            WorksOrder.assembly_seq == 0,
+            WorksOrder.job_complete == True,
+            WorksOrder.order_num.isnot(None),
+        ).distinct().all()
+        if row.order_num
+    }
+    single_job_order_nums = {
+        row.order_num
+        for row in db.session.query(WorksOrder.order_num).filter(
+            WorksOrder.assembly_seq == 0,
+            WorksOrder.job_released == True,
+            WorksOrder.order_num.isnot(None),
+            *_cat_filter,
+            *_search_filters,
+        ).group_by(WorksOrder.order_num)
+        .having(func.count(WorksOrder.id) == 1).all()
+        if row.order_num
+    }
+    quick_win_jobs = _quick_win_jobs(
+        rows, completed_order_nums, single_job_order_nums,
+        mat_status_map, comp_status_map, flow,
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'Job', 'Order #', 'Current Op', 'Model', 'Size', 'Customer',
+        'Units', 'Net Value GBP', 'Due Date', 'Plan Week',
+    ])
+    for job in quick_win_jobs:
+        writer.writerow([
+            job.job_num or '',
+            job.order_num or '',
+            job.next_op or '',
+            job.model or '',
+            job.size_desc or job.size or '',
+            job.customer_name or '',
+            float(job.required_qty or 0),
+            float(job.net_unit_price_gbp) if job.net_unit_price_gbp is not None else '',
+            job.req_due_date.strftime('%d/%m/%Y') if job.req_due_date else '',
+            job.prod_plnwk or '',
+        ])
+    writer.writerow([
+        'TOTAL', '', '', '', '', '',
+        sum(float(job.required_qty or 0) for job in quick_win_jobs),
+        sum(float(job.net_unit_price_gbp or 0) for job in quick_win_jobs),
+        '', '',
+    ])
+    csv_bytes = '\ufeff' + output.getvalue()
+    return Response(
+        csv_bytes.encode('utf-8'),
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="quick_wins.csv"'},
     )
 
 
