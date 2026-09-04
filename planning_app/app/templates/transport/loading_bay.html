@@ -65,7 +65,7 @@
         <div class="card border-0 shadow-sm text-center p-3 h-100 kpi-clickable {% if not status_f %}kpi-active{% endif %}"
              style="border-top:3px solid #6c757d !important;"
              data-bs-toggle="tooltip" data-bs-placement="bottom"
-             data-bs-title="Total value of every Epicor job-complete release across all orders. Covers {{ kpi_summary.total_orders }} orders — Ready to Ship, on hold, and completed releases within partial WIP orders.">
+             data-bs-title="Total value of every Epicor job-complete release, plus unfinished releases with a loading-bay location assigned. Covers {{ kpi_summary.total_orders }} orders — Ready to Ship, on hold, and partial WIP orders.">
             <div class="fs-5 fw-bold text-secondary">{{ fmt_val(kpi_summary.total_value) }}</div>
             <div class="fw-semibold small text-muted">All Finished Goods</div>
             <div class="text-muted text-xs">{{ kpi_summary.total_orders }} orders &middot; {{ kpi_summary.partial_count + kpi_summary.partial_hold_count }} in WIP</div>
@@ -157,7 +157,7 @@
         <i class="bi bi-inbox fs-1 text-muted d-block mb-2"></i>
         <h5 class="fw-semibold text-muted mb-1">No finished goods in loading bay</h5>
         <p class="text-muted mb-0 small">
-            No open orders have completed production jobs at this time.
+            No open orders have completed production jobs or unfinished releases assigned to a loading bay at this time.
         </p>
     </div>
 </div>
@@ -644,6 +644,7 @@
 {% endif %}{# total_orders > 0 #}
 {% endblock %}
 
+
 {% block scripts %}
 <script>
 window.LOADING_BAY_DATA = {
@@ -670,4 +671,3 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 {% endblock %}
-

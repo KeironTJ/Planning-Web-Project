@@ -32,10 +32,8 @@ def loading_bay():
     """
     Finished-goods / Loading Bay report.
 
-    Shows all open sales-order releases where the linked production job is
-    complete (qty_completed >= required_qty).  Orders where *some* releases
-    are still in WIP are flagged as partial so the transport team can see
-    what they can and cannot invoice immediately.
+    Shows open sales-order releases with completed production jobs, plus
+    unfinished releases that have a loading-bay location assigned.
     """
     today = date.today()
 
@@ -214,8 +212,11 @@ def loading_bay():
                 rel["status"] = "not_started"
                 not_started.append(rel)
 
-        # Only include orders that have at least one finished release
-        if not finished:
+        has_bay_assigned_release = any(
+            rel["wip_bin"].strip()
+            for rel in releases
+        )
+        if not finished and not has_bay_assigned_release:
             continue
 
         # Order-level dates
