@@ -15,7 +15,7 @@ class TestLoadingBayReport:
         with app.app_context():
             yield
 
-    def test_includes_finished_or_bay_assigned_orders(self, client, db, admin_user):
+    def test_includes_only_bay_assigned_orders(self, client, db, admin_user):
         db.session.add_all([
             SalesOrder(
                 order_num=10001,
@@ -75,6 +75,6 @@ class TestLoadingBayReport:
 
         assert response.status_code == 200
         assert b"Staged unfinished customer" in response.data
-        assert b"Unassigned finished customer" in response.data
-        assert b"Whitespace location customer" in response.data
+        assert b"Unassigned finished customer" not in response.data
+        assert b"Whitespace location customer" not in response.data
         assert b"Unassigned unfinished customer" not in response.data

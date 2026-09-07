@@ -32,8 +32,9 @@ def loading_bay():
     """
     Finished-goods / Loading Bay report.
 
-    Shows open sales-order releases with completed production jobs, plus
-    unfinished releases that have a loading-bay location assigned.
+    Only orders with at least one release assigned to a loading-bay location
+    are included. This reflects the physical bay state, regardless of whether
+    the job completion flag has updated overnight.
     """
     today = date.today()
 
@@ -213,10 +214,10 @@ def loading_bay():
                 not_started.append(rel)
 
         has_bay_assigned_release = any(
-            rel["wip_bin"].strip()
+            (rel["wip_bin"] or "").strip()
             for rel in releases
         )
-        if not finished and not has_bay_assigned_release:
+        if not has_bay_assigned_release:
             continue
 
         # Order-level dates
@@ -224,8 +225,13 @@ def loading_bay():
         order["due_date"]   = min(due_dates) if due_dates else None
         order["days_delta"] = (order["due_date"] - today).days if order["due_date"] else None
 
+        bay_assigned_releases = [
+            r for r in releases
+            if (r["wip_bin"] or "").strip()
+        ]
+
         # Value & qty totals
-        order["invoiceable_value"] = sum(r["release_price_gbp"] for r in finished)
+        order["invoiceable_value"] = sum(r["release_price_gbp"] for r in bay_assigned_releases)
         order["total_value"]       = sum(r["release_price_gbp"] for r in releases)
         order["units_ready"]       = sum(r["qty_completed"]     for r in finished)
         order["units_total"]       = sum(r["selling_qty"]       for r in releases)
