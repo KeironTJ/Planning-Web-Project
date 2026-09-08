@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from app.extensions import db
 from app.operations.models import WorksOrder
-from app.operations.routes import _quick_win_jobs, _wip_job_ordering
+from app.operations.services import _quick_win_jobs, _wip_job_ordering
 
 
 def test_wip_jobs_are_ordered_by_due_date_sequence_order_and_job(app):
