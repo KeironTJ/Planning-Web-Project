@@ -54,6 +54,7 @@ def loading_bay():
         .filter(
             SalesOrder.open_order == True,       # noqa: E712
             SalesOrder.assembly_seq == 0,
+            SalesOrder.void_line.isnot(True),
         )
     )
 
@@ -187,6 +188,15 @@ def loading_bay():
 
         for rel in releases:
             jobs = rel["jobs"]
+
+            # Shipped-qty classification (independent of build/job status —
+            # a release can be job-complete but not yet shipped, or shipped
+            # against an order that hasn't fully finished production).
+            sell_qty = rel["selling_qty"]
+            ship_qty = rel["shipped_qty"]
+            rel["is_shipped"] = sell_qty > 0 and ship_qty >= sell_qty
+            rel["is_partial_shipped"] = 0 < ship_qty < sell_qty
+
             # A release is finished only when Epicor has formally marked ALL
             # linked jobs as complete (job_complete=True) — matching the
             # "Job Complete" flag in the COOIS BAQ.
@@ -231,8 +241,11 @@ def loading_bay():
         ]
 
         # Value & qty totals
+        # "total_value" is the remaining potential value of the order — it
+        # excludes lines already fully shipped, since that value has
+        # already been realised and isn't part of what's still outstanding.
         order["invoiceable_value"] = sum(r["release_price_gbp"] for r in bay_assigned_releases)
-        order["total_value"]       = sum(r["release_price_gbp"] for r in releases)
+        order["total_value"]       = sum(r["release_price_gbp"] for r in releases if not r["is_shipped"])
         order["units_ready"]       = sum(r["qty_completed"]     for r in finished)
         order["units_total"]       = sum(r["selling_qty"]       for r in releases)
         order["finished_count"]    = len(finished)

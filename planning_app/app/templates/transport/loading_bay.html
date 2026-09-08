@@ -403,7 +403,7 @@
                         <th class="text-center" title="Material availability">Mat.</th>
                         <th class="text-center">Lines</th>
                         <th class="text-end">Units Ready</th>
-                        <th class="text-end pe-3">Invoiceable (GBP)</th>
+                        <th class="text-end pe-3" title="Currently invoiceable value / total remaining potential value (excludes already-shipped lines)">Invoiceable / Potential (GBP)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -519,7 +519,10 @@
                             <span class="text-muted">/ {{ o.total_lines }}</span>
                         </td>
                         <td class="text-end">{{ "%.0f" | format(o.units_ready) }}</td>
-                        <td class="text-end pe-3 text-success">£{{ "{:,.2f}".format(o.invoiceable_value) }}</td>
+                        <td class="text-end pe-3">
+                            <span class="text-success fw-semibold">£{{ "{:,.2f}".format(o.invoiceable_value) }}</span>
+                            <span class="text-muted"> / £{{ "{:,.2f}".format(o.total_value) }}</span>
+                        </td>
                     </tr>
 
                     {# ── Collapsed line detail rows ── #}
@@ -548,7 +551,12 @@
                             {% if rel.need_by_date %}{{ rel.need_by_date.strftime('%d %b %Y') }}{% else %}—{% endif %}
                         </td>
                         <td class="text-center">
-                            {% if rel.status == 'finished' %}
+                            {% if rel.is_shipped %}
+                            <span class="badge text-bg-primary small"
+                                  title="Shipped {{ '%.0f' | format(rel.shipped_qty) }} / {{ '%.0f' | format(rel.selling_qty) }}">
+                                <i class="bi bi-truck me-1"></i>Shipped
+                            </span>
+                            {% elif rel.status == 'finished' %}
                             <span class="badge text-bg-success small">
                                 <i class="bi bi-check2"></i> Finished
                             </span>
@@ -557,15 +565,32 @@
                                 <i class="bi bi-tools"></i> In Progress
                             </span>
                             {% else %}
+                            {% set pending_ops = rel.jobs | selectattr('next_op') | map(attribute='next_op') | unique | list %}
+                            {% if pending_ops %}
+                            {% for op in pending_ops %}
+                            <span class="badge text-bg-info text-dark small d-block{% if not loop.first %} mt-1{% endif %}">
+                                <i class="bi bi-arrow-right-circle me-1"></i>{{ op }}
+                            </span>
+                            {% endfor %}
+                            {% else %}
                             <span class="badge text-bg-secondary small">
                                 <i class="bi bi-clock"></i> WIP
                             </span>
+                            {% endif %}
                             {% endif %}
                             {% if rel.wip_bin %}
                             <div class="mt-1">
                                 <span class="badge text-bg-light border text-dark fw-normal"
                                       style="font-size:.7rem; letter-spacing:.02em;">
                                     <i class="bi bi-geo-alt-fill me-1 text-primary"></i>{{ rel.wip_bin }}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% if rel.is_partial_shipped %}
+                            <div class="mt-1">
+                                <span class="badge text-bg-info text-dark small"
+                                      title="Partially shipped">
+                                    <i class="bi bi-truck me-1"></i>Shipped {{ '%.0f' | format(rel.shipped_qty) }}/{{ '%.0f' | format(rel.selling_qty) }}
                                 </span>
                             </div>
                             {% endif %}
@@ -607,7 +632,7 @@
                         <td class="text-center small text-muted">
                             {% for j in rel.jobs %}
                             <span class="font-monospace d-block" style="font-size:.7rem;">{{ j.job_num }}</span>
-                            {% if rel.status != 'finished' and j.next_op %}
+                            {% if rel.status == 'in_progress' and j.next_op %}
                             <span class="badge text-bg-info text-dark d-block mt-1" style="font-size:.65rem;">
                                 <i class="bi bi-arrow-right-circle me-1"></i>{{ j.next_op }}
                             </span>
