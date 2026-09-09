@@ -170,7 +170,10 @@ def _classify_orders(orders: dict[int, dict], order_keys: list[int], today: date
                 status = "finished" if release["required_qty"] > 0 and release["qty_completed"] >= release["required_qty"] else (
                     "in_progress" if release["qty_completed"] > 0 else "not_started"
                 )
-            elif all(job["job_complete"] for job in jobs):
+            elif (
+                release["required_qty"] > 0
+                and release["qty_completed"] >= release["required_qty"]
+            ) or all(job["job_complete"] for job in jobs):
                 status = "finished"
             elif any(job["job_complete"] or job["qty_completed"] > 0 for job in jobs):
                 status = "in_progress"

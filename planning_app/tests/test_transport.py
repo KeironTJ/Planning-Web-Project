@@ -210,6 +210,50 @@ class TestLoadingBayReport:
         assert "Cutting" in html
         assert 'bi-clock"></i> WIP' not in html
 
+    def test_completed_staged_release_is_ready_when_job_flag_is_stale(self, client, db, admin_user):
+        from app.operations.models import WorksOrder
+
+        db.session.add_all([
+            SalesOrder(
+                order_num=10011,
+                order_line=1,
+                rel_num=1,
+                job_num="JOB-002",
+                open_order=True,
+                assembly_seq=0,
+                customer_name="Completed staged customer",
+                wip_bin="BAY-07",
+                selling_qty=10,
+                shipped_qty=0,
+                required_qty=10,
+                qty_completed=10,
+                need_by_date=date.today(),
+            ),
+            WorksOrder(
+                job_num="JOB-002",
+                assembly_seq=0,
+                job_complete=False,
+                next_op="Packing",
+            ),
+        ])
+        db.session.commit()
+
+        client.post("/auth/login", data={
+            "login": "admin@test.com",
+            "password": "Admin!Pass1234",
+            "remember": False,
+        }, follow_redirects=True)
+        response = client.get("/transport/loading-bay")
+
+        assert response.status_code == 200
+        html = response.data.decode()
+        assert "Completed staged customer" in html
+        assert "Ready to Ship" in html
+        from app.transport.services import get_loading_bay_report
+
+        report = get_loading_bay_report()
+        assert report["orders"][0]["order_status"] == "ready"
+
     def test_invoiceable_column_excludes_shipped_value_from_potential_total(self, client, db, admin_user):
         db.session.add_all([
             SalesOrder(
