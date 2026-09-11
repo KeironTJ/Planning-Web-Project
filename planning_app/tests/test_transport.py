@@ -254,6 +254,68 @@ class TestLoadingBayReport:
         report = get_loading_bay_report()
         assert report["orders"][0]["order_status"] == "ready"
 
+    def test_customer_credit_hold_does_not_put_order_on_hold(self, db):
+        db.session.add_all([
+            SalesOrder(
+                order_num=10012,
+                order_line=1,
+                rel_num=1,
+                open_order=True,
+                assembly_seq=0,
+                customer_name="Customer hold only",
+                customer_credit_hold=True,
+                wip_bin="BAY-08",
+                selling_qty=1,
+                required_qty=1,
+                qty_completed=1,
+                need_by_date=date.today(),
+            ),
+            SalesOrder(
+                order_num=10013,
+                order_line=1,
+                rel_num=1,
+                open_order=True,
+                assembly_seq=0,
+                customer_name="SO credit hold",
+                so_credit_hold=True,
+                wip_bin="BAY-09",
+                selling_qty=1,
+                required_qty=1,
+                qty_completed=1,
+                need_by_date=date.today(),
+            ),
+            SalesOrder(
+                order_num=10014,
+                order_line=1,
+                rel_num=1,
+                open_order=True,
+                assembly_seq=0,
+                customer_name="Order hold",
+                order_held=True,
+                wip_bin="BAY-10",
+                selling_qty=1,
+                required_qty=1,
+                qty_completed=1,
+                need_by_date=date.today(),
+            ),
+        ])
+        db.session.commit()
+
+        from app.transport.services import get_loading_bay_report, get_loading_bay_state
+
+        report_holds = {
+            order["order_num"]: order["on_hold"]
+            for order in get_loading_bay_report()["orders"]
+        }
+        state_holds = {
+            line["order_num"]: line["on_hold"]
+            for bay in get_loading_bay_state()["bay_board"]
+            for line in bay["lines"]
+        }
+
+        assert report_holds == {10012: False, 10013: True, 10014: True}
+        assert state_holds == {10012: False, 10013: True, 10014: True}
+
     def test_invoiceable_column_excludes_shipped_value_from_potential_total(self, client, db, admin_user):
         db.session.add_all([
             SalesOrder(

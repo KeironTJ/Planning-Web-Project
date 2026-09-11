@@ -455,7 +455,7 @@
                             <span class="badge text-bg-danger">
                                 <i class="bi bi-slash-circle me-1"></i>Ready &mdash; On Hold
                             </span>
-                            {% if o.so_credit_hold or o.customer_credit_hold %}
+                            {% if o.so_credit_hold %}
                             <span class="badge text-bg-danger bg-opacity-75 ms-1" style="font-size:.65rem;">Credit</span>
                             {% endif %}
                             {% elif o.on_hold %}
@@ -466,7 +466,7 @@
                             <span class="badge text-bg-orange text-xxs ms-1">
                                 <i class="bi bi-slash-circle me-1"></i>On Hold
                             </span>
-                            {% if o.so_credit_hold or o.customer_credit_hold %}
+                            {% if o.so_credit_hold %}
                             <span class="badge text-bg-danger bg-opacity-75 ms-1" style="font-size:.65rem;">Credit</span>
                             {% endif %}
                             {% elif o.order_status == 'ready' %}

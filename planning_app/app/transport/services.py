@@ -27,6 +27,10 @@ _VALID_STATUSES = {"", "ready", "ready_hold", "partial", "partial_hold"}
 _VALID_SORTS = {"due_date", "customer", "value", "so_number"}
 
 
+def _is_on_hold(so_credit_hold: bool | None, order_held: bool | None) -> bool:
+    return bool(so_credit_hold or order_held)
+
+
 def get_loading_bay_report(
     search: str = "",
     customer: str = "",
@@ -194,9 +198,7 @@ def _classify_orders(orders: dict[int, dict], order_keys: list[int], today: date
         order["finished_count"], order["wip_count"], order["total_lines"] = (
             len(finished), len(in_progress) + len(not_started), len(releases)
         )
-        order["on_hold"] = any(
-            order[key] for key in ("so_credit_hold", "customer_credit_hold", "order_held")
-        )
+        order["on_hold"] = _is_on_hold(order["so_credit_hold"], order["order_held"])
         order["is_international"] = bool(
             order["customer_country"] and order["customer_country"].lower() not in _DOMESTIC_COUNTRIES
         )
@@ -356,7 +358,7 @@ def get_loading_bay_state(today: date | None = None) -> dict:
             "release_price_gbp": float(row.release_price_gbp or 0),
             "need_by_date": row.need_by_date,
             "days_delta": (row.need_by_date - today).days if row.need_by_date else None,
-            "on_hold": bool(row.so_credit_hold or row.customer_credit_hold or row.order_held),
+            "on_hold": _is_on_hold(row.so_credit_hold, row.order_held),
             "is_international": bool(row.customer_country and row.customer_country.lower() not in _DOMESTIC_COUNTRIES),
         })
     bay_board = sorted((
