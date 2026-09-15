@@ -87,6 +87,8 @@ def get_wip_overview(args):
     category = args.get('category', 'models').strip().lower()
     shortages_only = args.get('shortages_only', '0') == '1'
     dept_filter = args.get('dept', '').strip()
+    plan_week = args.get('plan_week', '').strip()
+    plan_sequence = args.get('plan_sequence', '').strip()
 
     _all_depts_for_filter = DeptModel.query.order_by(DeptModel.flow_order.asc().nullslast(), DeptModel.name).all()
     # Build set of next_op values that match the selected department.
@@ -122,6 +124,17 @@ def get_wip_overview(args):
             WorksOrder.model.ilike(term),
         ),)
 
+    _plan_week_filter = ()
+    _plan_week_base_filter = ()
+    if plan_week == 'unplanned':
+        _plan_week_base_filter = (db.or_(WorksOrder.prod_plnwk.is_(None), WorksOrder.prod_plnwk == ''),)
+        _plan_week_filter = _plan_week_base_filter
+    elif plan_week:
+        _plan_week_base_filter = (WorksOrder.prod_plnwk.like(f'{plan_week}%'),)
+        _plan_week_filter = _plan_week_base_filter
+        if plan_sequence:
+            _plan_week_filter += (WorksOrder.prod_plnwk == f'{plan_week}{plan_sequence}',)
+
     _dept_filter_clause = (
         (db.func.upper(WorksOrder.next_op).in_(_dept_next_ops),)
         if _dept_next_ops else ()
@@ -133,7 +146,7 @@ def get_wip_overview(args):
         db.or_(WorksOrder.job_complete == False, WorksOrder.job_complete.is_(None)),
         WorksOrder.next_op.isnot(None),
         WorksOrder.next_op != '',
-    ) + _cat_filter + _search_filters + _dept_filter_clause
+    ) + _cat_filter + _search_filters + _dept_filter_clause + _plan_week_filter
 
     # Distinct next_ops without dept filter — drives which dept buttons are shown.
     _base_no_dept = (
@@ -142,7 +155,50 @@ def get_wip_overview(args):
         db.or_(WorksOrder.job_complete == False, WorksOrder.job_complete.is_(None)),
         WorksOrder.next_op.isnot(None),
         WorksOrder.next_op != '',
-    ) + _cat_filter + _search_filters
+    ) + _cat_filter + _search_filters + _plan_week_filter
+    _plan_week_options = [
+        row.prod_plnwk[:4]
+        for row in (
+            db.session.query(WorksOrder.prod_plnwk)
+            .filter(
+                WorksOrder.assembly_seq == 0,
+                WorksOrder.job_released == True,
+                db.or_(WorksOrder.job_complete == False, WorksOrder.job_complete.is_(None)),
+                WorksOrder.next_op.isnot(None),
+                WorksOrder.next_op != '',
+                *_cat_filter,
+                *_search_filters,
+            )
+            .filter(WorksOrder.prod_plnwk.isnot(None), WorksOrder.prod_plnwk != '')
+            .distinct()
+            .order_by(WorksOrder.prod_plnwk.asc())
+            .all()
+        )
+        if row.prod_plnwk
+    ]
+    _plan_week_options = list(dict.fromkeys(_plan_week_options))
+    _plan_sequence_options = [
+        row.prod_plnwk[4:]
+        for row in (
+            db.session.query(WorksOrder.prod_plnwk)
+            .filter(
+                WorksOrder.assembly_seq == 0,
+                WorksOrder.job_released == True,
+                db.or_(WorksOrder.job_complete == False, WorksOrder.job_complete.is_(None)),
+                WorksOrder.next_op.isnot(None),
+                WorksOrder.next_op != '',
+                *_cat_filter,
+                *_search_filters,
+                *_plan_week_base_filter,
+            )
+            .filter(WorksOrder.prod_plnwk.isnot(None), WorksOrder.prod_plnwk != '')
+            .distinct()
+            .order_by(WorksOrder.prod_plnwk.asc())
+            .all()
+        )
+        if row.prod_plnwk and len(row.prod_plnwk) >= 6
+    ]
+    _plan_sequence_options = list(dict.fromkeys(_plan_sequence_options))
     _active_ops = {
         r.next_op.upper()
         for r in db.session.query(WorksOrder.next_op).filter(*_base_no_dept).distinct().all()
@@ -420,6 +476,10 @@ def get_wip_overview(args):
         job_comp_map=job_comp_map,
         mat_status_meta=MAT_STATUS_META,
         dept_filter=dept_filter,
+        plan_week=plan_week,
+        plan_week_options=_plan_week_options,
+        plan_sequence=plan_sequence,
+        plan_sequence_options=_plan_sequence_options,
         all_depts=_all_depts_for_filter,
         visible_depts=visible_depts,
     )
@@ -440,6 +500,8 @@ def get_wip_export(args):
     _cat_filter = (_is_model,) if category == 'models' else ((_is_parts,) if category == 'parts' else ())
 
     search = args.get('q', '').strip()
+    plan_week = args.get('plan_week', '').strip()
+    plan_sequence = args.get('plan_sequence', '').strip()
     _search_filters = ()
     if search:
         term = f'%{search}%'
@@ -449,6 +511,13 @@ def get_wip_export(args):
             WorksOrder.description.ilike(term),
             WorksOrder.model.ilike(term),
         ),)
+    _plan_week_filter = ()
+    if plan_week == 'unplanned':
+        _plan_week_filter = (db.or_(WorksOrder.prod_plnwk.is_(None), WorksOrder.prod_plnwk == ''),)
+    elif plan_week:
+        _plan_week_filter = (WorksOrder.prod_plnwk.like(f'{plan_week}%'),)
+        if plan_sequence:
+            _plan_week_filter += (WorksOrder.prod_plnwk == f'{plan_week}{plan_sequence}',)
 
     _base = (
         WorksOrder.assembly_seq == 0,
@@ -456,7 +525,7 @@ def get_wip_export(args):
         db.or_(WorksOrder.job_complete == False, WorksOrder.job_complete.is_(None)),
         WorksOrder.next_op.isnot(None),
         WorksOrder.next_op != '',
-    ) + _cat_filter + _search_filters
+    ) + _cat_filter + _search_filters + _plan_week_filter
 
     _completed_order_nums = {
         row.order_num
@@ -590,6 +659,8 @@ def get_quick_wins_export(args):
     _cat_filter = (_is_model,) if category == 'models' else ((_is_parts,) if category == 'parts' else ())
 
     search = args.get('q', '').strip()
+    plan_week = args.get('plan_week', '').strip()
+    plan_sequence = args.get('plan_sequence', '').strip()
     _search_filters = ()
     if search:
         term = f'%{search}%'
@@ -599,6 +670,13 @@ def get_quick_wins_export(args):
             WorksOrder.description.ilike(term),
             WorksOrder.model.ilike(term),
         ),)
+    _plan_week_filter = ()
+    if plan_week == 'unplanned':
+        _plan_week_filter = (db.or_(WorksOrder.prod_plnwk.is_(None), WorksOrder.prod_plnwk == ''),)
+    elif plan_week:
+        _plan_week_filter = (WorksOrder.prod_plnwk.like(f'{plan_week}%'),)
+        if plan_sequence:
+            _plan_week_filter += (WorksOrder.prod_plnwk == f'{plan_week}{plan_sequence}',)
 
     _base = (
         WorksOrder.assembly_seq == 0,
@@ -606,7 +684,7 @@ def get_quick_wins_export(args):
         db.or_(WorksOrder.job_complete == False, WorksOrder.job_complete.is_(None)),
         WorksOrder.next_op.isnot(None),
         WorksOrder.next_op != '',
-    ) + _cat_filter + _search_filters
+    ) + _cat_filter + _search_filters + _plan_week_filter
     rows = WorksOrder.query.filter(*_base).order_by(*_wip_job_ordering()).all()
 
     flow = {}

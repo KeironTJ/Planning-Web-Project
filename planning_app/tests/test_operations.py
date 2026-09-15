@@ -3,9 +3,11 @@
 from datetime import date
 from types import SimpleNamespace
 
+from werkzeug.datastructures import MultiDict
+
 from app.extensions import db
 from app.operations.models import WorksOrder
-from app.operations.services import _quick_win_jobs, _wip_job_ordering
+from app.operations.services import _quick_win_jobs, _wip_job_ordering, get_wip_overview
 
 
 def test_wip_jobs_are_ordered_by_due_date_sequence_order_and_job(app):
@@ -66,3 +68,53 @@ def test_quick_wins_require_uphol_as_earliest_operation_and_no_shortage():
     )
 
     assert jobs == [uphol, later, finished, single, beyond]
+
+
+def test_wip_overview_filters_jobs_and_pivot_by_plan_week(app):
+    with app.app_context():
+        common = {
+            "assembly_seq": 0,
+            "job_released": True,
+            "job_complete": False,
+            "model": "MODEL",
+            "next_op": "UPH",
+            "required_qty": 1,
+        }
+        db.session.add_all([
+            WorksOrder(job_num="W10", prod_plnwk="2610", **common),
+            WorksOrder(job_num="W11", prod_plnwk="2611", **common),
+        ])
+        db.session.commit()
+
+        result = get_wip_overview(MultiDict([("plan_week", "2610")]))
+
+        assert [job.job_num for job in result["jobs"].items] == ["W10"]
+        assert result["total"] == 1
+        assert result["wip_weeks"] == ["2610"]
+        assert result["plan_week"] == "2610"
+        assert result["plan_week_options"] == ["2610", "2611"]
+
+
+def test_wip_overview_filters_plan_sequence_within_week(app):
+    with app.app_context():
+        common = {
+            "assembly_seq": 0,
+            "job_released": True,
+            "job_complete": False,
+            "model": "MODEL",
+            "next_op": "UPH",
+            "required_qty": 1,
+        }
+        db.session.add_all([
+            WorksOrder(job_num="W10A", prod_plnwk="261001", **common),
+            WorksOrder(job_num="W10B", prod_plnwk="261002", **common),
+        ])
+        db.session.commit()
+
+        result = get_wip_overview(MultiDict([
+            ("plan_week", "2610"),
+            ("plan_sequence", "01"),
+        ]))
+
+        assert [job.job_num for job in result["jobs"].items] == ["W10A"]
+        assert result["plan_sequence_options"] == ["01", "02"]
