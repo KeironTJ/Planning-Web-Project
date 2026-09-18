@@ -82,6 +82,11 @@ Operations WIP Overview
                     <a href="{{ url_for('operations.wip_overview', category=category, q=search, plan_week=plan_week, plan_sequence=plan_sequence, per_page=per_page, shortages_only=1, shortage_group=_g, dept=dept_filter) }}"
                        class="btn text-xs {{ 'btn-danger' if (shortages_only and shortage_group == _g) else 'btn-outline-danger' }}">{{ _gl }}</a>
                     {%- endfor %}
+                    <a href="{{ url_for('operations.wip_overview', category=category, q=search, plan_week=plan_week, plan_sequence=plan_sequence, per_page=per_page, shortages_only=1, shortage_group='mtl_flag', dept=dept_filter) }}"
+                       class="btn text-xs {{ 'btn-danger' if (shortages_only and shortage_group == 'mtl_flag') else 'btn-outline-danger' }}"
+                       title="Epicor COOIS: Material Shortage flag">
+                        <i class="bi bi-flag-fill me-1"></i>Mtl Shortage Flag{% if mtl_flag_shortages %} <span class="badge text-bg-light text-danger ms-1">{{ mtl_flag_shortages }}</span>{% endif %}
+                    </a>
                     <a href="{{ url_for('operations.wip_overview', category=category, q=search, plan_week=plan_week, plan_sequence=plan_sequence, per_page=per_page, shortages_only=1, shortage_group='no_shortage', dept=dept_filter) }}"
                        class="btn text-xs {{ 'btn-success' if (shortages_only and shortage_group == 'no_shortage') else 'btn-outline-success' }}">No Shortage</a>
                 </div>
@@ -147,6 +152,7 @@ Operations WIP Overview
     <input type="hidden" name="shortage_group" value="{{ shortage_group }}">
     <input type="hidden" name="dept" value="{{ dept_filter }}">
     <input type="hidden" name="plan_week" value="{{ plan_week }}">
+    <input type="hidden" name="plan_sequence" value="{{ plan_sequence }}">
 </form>
 
 {% if shortages_only %}
@@ -156,6 +162,13 @@ Operations WIP Overview
     <span>Showing jobs on orders with <strong>no confirmed material or component shortages</strong>.</span>
     <a href="{{ url_for('operations.wip_overview', category=category, q=search, plan_week=plan_week, plan_sequence=plan_sequence, per_page=per_page, dept=dept_filter) }}"
        class="btn btn-sm btn-outline-success ms-auto py-0">Show all jobs</a>
+</div>
+{%- elif shortage_group == 'mtl_flag' %}
+<div class="alert alert-danger py-2 mb-3 d-flex align-items-center gap-2">
+    <i class="bi bi-flag-fill flex-shrink-0"></i>
+    <span>Showing <strong>{{ mtl_flag_shortages }}</strong> job{{ 's' if mtl_flag_shortages != 1 }} with the Epicor COOIS <strong>Material Shortage</strong> flag set.</span>
+    <a href="{{ url_for('operations.wip_overview', category=category, q=search, plan_week=plan_week, plan_sequence=plan_sequence, per_page=per_page, dept=dept_filter) }}"
+       class="btn btn-sm btn-outline-danger ms-auto py-0">Show all jobs</a>
 </div>
 {%- else %}
 {% set _active_shortages = comp_shortages if shortage_group == 'component' else (either_shortages if shortage_group == 'either' else shortages) %}
@@ -296,6 +309,7 @@ Operations WIP Overview
                             <th>Customer</th>
                             <th class="text-end">Net Value GBP</th>
                             <th>Mat 1</th>
+                            <th class="text-center" title="Epicor COOIS: Material Shortage flag">Mtl Shortage</th>
                             <th class="text-center" title="This job: fabric/hide availability">Job Fabric</th>
                             <th class="text-center" title="Whole order: fabric/hide worst case">Order Fabric</th>
                             <th class="text-center" title="This job: component availability">Job Comp.</th>
@@ -344,6 +358,13 @@ Operations WIP Overview
                                 {%- if job.net_unit_price_gbp is not none %}£{{ "{:,.2f}".format(job.net_unit_price_gbp) }}{%- else %}—{%- endif %}
                             </td>
                             <td class="text-muted">{{ job.material_1_desc or '—' }}</td>
+                            <td class="text-center">
+                                {%- if job.mtl_shortage %}
+                                <i class="bi bi-check-square-fill text-danger" title="Material shortage flagged in Epicor (COOIS)"></i>
+                                {%- else %}
+                                <i class="bi bi-square text-muted" style="opacity:.35;" title="No material shortage flagged"></i>
+                                {%- endif %}
+                            </td>
                             {%- set job_mat_label, job_mat_colour = mat_status_meta.get(job_mat_st, ('—', 'secondary')) %}
                             <td class="text-center">
                                 {%- if job_mat_st == 'no_data' %}
@@ -442,7 +463,7 @@ Operations WIP Overview
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="19" class="text-center py-4 text-muted">No works orders found.</td>
+                            <td colspan="20" class="text-center py-4 text-muted">No works orders found.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -459,7 +480,7 @@ Operations WIP Overview
                 <div class="d-flex align-items-center gap-2 small">
                     <span class="text-muted">Rows:</span>
                     {% for n in [25, 50, 100, 200] %}
-                    <a href="{{ url_for('operations.wip_overview', page=1, q=search, category=category, plan_week=plan_week, plan_sequence=plan_sequence, per_page=n, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group) }}"
+                    <a href="{{ url_for('operations.wip_overview', page=1, q=search, category=category, plan_week=plan_week, plan_sequence=plan_sequence, per_page=n, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group, dept=dept_filter) }}"
                        class="btn btn-xs btn-outline-secondary py-0 px-2 text-xs {{ 'active fw-semibold' if per_page == n }}">{{ n }}</a>
                     {% endfor %}
                 </div>
@@ -468,21 +489,21 @@ Operations WIP Overview
                 <nav aria-label="Job list pagination">
                     <ul class="pagination pagination-sm mb-0">
                         <li class="page-item {{ 'disabled' if not jobs.has_prev }}">
-                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.prev_num, q=search, category=category, plan_week=plan_week, plan_sequence=plan_sequence, per_page=per_page, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group) if jobs.has_prev else '#' }}">
+                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.prev_num, q=search, category=category, plan_week=plan_week, plan_sequence=plan_sequence, per_page=per_page, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group, dept=dept_filter) if jobs.has_prev else '#' }}">
                                 <i class="bi bi-chevron-left"></i>
                             </a>
                         </li>
                         {% for p in jobs.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
                             {% if p %}
                                 <li class="page-item {{ 'active' if p == jobs.page }}">
-                                    <a class="page-link" href="{{ url_for('operations.wip_overview', page=p, q=search, category=category, plan_week=plan_week, plan_sequence=plan_sequence, per_page=per_page, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group) }}">{{ p }}</a>
+                                    <a class="page-link" href="{{ url_for('operations.wip_overview', page=p, q=search, category=category, plan_week=plan_week, plan_sequence=plan_sequence, per_page=per_page, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group, dept=dept_filter) }}">{{ p }}</a>
                                 </li>
                             {% else %}
                                 <li class="page-item disabled"><span class="page-link">…</span></li>
                             {% endif %}
                         {% endfor %}
                         <li class="page-item {{ 'disabled' if not jobs.has_next }}">
-                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.next_num, q=search, category=category, plan_week=plan_week, plan_sequence=plan_sequence, per_page=per_page, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group) if jobs.has_next else '#' }}">
+                            <a class="page-link" href="{{ url_for('operations.wip_overview', page=jobs.next_num, q=search, category=category, plan_week=plan_week, plan_sequence=plan_sequence, per_page=per_page, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group, dept=dept_filter) if jobs.has_next else '#' }}">
                                 <i class="bi bi-chevron-right"></i>
                             </a>
                         </li>
@@ -518,6 +539,7 @@ Operations WIP Overview
                     <th class="ps-2">Job</th>
                     <th>Order #</th>
                     <th>Current Op</th>
+                    <th class="text-center" title="Epicor COOIS: Material Shortage flag">Mtl Shortage</th>
                     <th>Model</th>
                     <th>Size</th>
                     <th>Customer</th>
@@ -533,6 +555,13 @@ Operations WIP Overview
                     <td class="ps-2 fw-semibold font-monospace">{{ job.job_num }}</td>
                     <td class="text-muted">{{ job.order_num or '—' }}</td>
                     <td><span class="badge bg-warning text-dark">{{ job.next_op }}</span></td>
+                    <td class="text-center">
+                        {%- if job.mtl_shortage %}
+                        <i class="bi bi-check-square-fill text-danger" title="Material shortage flagged in Epicor (COOIS)"></i>
+                        {%- else %}
+                        <i class="bi bi-square text-muted" style="opacity:.35;" title="No material shortage flagged"></i>
+                        {%- endif %}
+                    </td>
                     <td class="fw-semibold">{{ job.model or '—' }}</td>
                     <td class="text-muted">{{ job.size_desc or job.size or '—' }}</td>
                     <td>{{ job.customer_name or '—' }}</td>
@@ -548,13 +577,13 @@ Operations WIP Overview
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="10" class="text-center py-3 text-muted">No quick wins found.</td></tr>
+                <tr><td colspan="11" class="text-center py-3 text-muted">No quick wins found.</td></tr>
                 {% endfor %}
             </tbody>
             {% if quick_win_jobs %}
             <tfoot class="table-light">
                 <tr>
-                    <th colspan="6" class="text-end">Total Quick Wins</th>
+                    <th colspan="7" class="text-end">Total Quick Wins</th>
                     <th class="text-end">{{ "{:,.0f}".format(quick_win_total_units) }} units</th>
                     <th class="text-end">£{{ "{:,.2f}".format(quick_win_total_value) }}</th>
                     <th colspan="2"></th>

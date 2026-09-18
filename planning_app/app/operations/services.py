@@ -252,6 +252,14 @@ def get_wip_overview(args):
         .scalar() or 0
     ) if _all_shortage_int else 0
 
+    # COOIS "Material Shortage" flag — a raw per-job Epicor flag, independent
+    # of the netted fabric/component status above.
+    mtl_flag_shortages = (
+        db.session.query(func.count(WorksOrder.id))
+        .filter(*_base, WorksOrder.mtl_shortage == True)
+        .scalar() or 0
+    )
+
     # Shortage-only filter — scope determined by shortage_group
     if shortage_group == 'component':
         _filter_int = _comp_int
@@ -266,11 +274,16 @@ def get_wip_overview(args):
         if shortage_group == 'no_shortage':
             # Exclude orders with any confirmed shortage
             _shortage_filter = (WorksOrder.order_num.notin_(_all_shortage_int),) if _all_shortage_int else ()
+        elif shortage_group == 'mtl_flag':
+            _shortage_filter = (WorksOrder.mtl_shortage == True,)
         else:
             _shortage_filter = (WorksOrder.order_num.in_(_filter_int),) if _filter_int else ()
     else:
         _shortage_filter = ()
-    _no_results = shortages_only and shortage_group != 'no_shortage' and not _filter_int
+    if shortage_group == 'mtl_flag':
+        _no_results = shortages_only and mtl_flag_shortages == 0
+    else:
+        _no_results = shortages_only and shortage_group != 'no_shortage' and not _filter_int
 
     # ── WIP pivot ─────────────────────────────────────────────────────
     OVERDUE = 'Overdue'
@@ -465,6 +478,7 @@ def get_wip_overview(args):
         shortage_group=shortage_group,
         comp_shortages=comp_shortages,
         either_shortages=either_shortages,
+        mtl_flag_shortages=mtl_flag_shortages,
         partial_order_nums=_completed_order_nums,
         quick_win_jobs=quick_win_jobs,
         quick_win_total_value=quick_win_total_value,
@@ -556,6 +570,8 @@ def get_wip_export(args):
             rows = [j for j in rows if j.order_num in _comp_int]
         elif shortage_group == 'either':
             rows = [j for j in rows if j.order_num in _all_int]
+        elif shortage_group == 'mtl_flag':
+            rows = [j for j in rows if j.mtl_shortage]
         else:
             rows = [j for j in rows if j.order_num in _fab_int]
 
@@ -599,7 +615,7 @@ def get_wip_export(args):
     writer.writerow([
         'Job Number', 'Plan Week', 'Seq', 'Due Date', 'Order #',
         'Current Op', 'Model', 'Size', 'Customer',
-        'Mat 1', 'OB Comments', 'GRN', 'Partial Order',
+        'Mat 1', 'Mtl Shortage', 'OB Comments', 'GRN', 'Partial Order',
         'Job Fabric Status', 'Order Fabric Status', 'Job Comp. Status', 'Order Comp. Status',
         'Job Notes',
     ])
@@ -623,6 +639,7 @@ def get_wip_export(args):
             _clean(job.size_desc or job.size),
             _clean(job.customer_name),
             _clean(job.material_1_desc),
+            'Yes' if job.mtl_shortage else 'No',
             _clean(job.order_book_comments),
             _clean(job.grn),
             'Yes' if is_partial else '',
@@ -726,7 +743,7 @@ def get_quick_wins_export(args):
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        'Job', 'Order #', 'Current Op', 'Model', 'Size', 'Customer',
+        'Job', 'Order #', 'Current Op', 'Mtl Shortage', 'Model', 'Size', 'Customer',
         'Units', 'Net Value GBP', 'Due Date', 'Plan Week',
     ])
     for job in quick_win_jobs:
@@ -734,6 +751,7 @@ def get_quick_wins_export(args):
             job.job_num or '',
             job.order_num or '',
             job.next_op or '',
+            'Yes' if job.mtl_shortage else 'No',
             job.model or '',
             job.size_desc or job.size or '',
             job.customer_name or '',
@@ -743,7 +761,7 @@ def get_quick_wins_export(args):
             job.prod_plnwk or '',
         ])
     writer.writerow([
-        'TOTAL', '', '', '', '', '',
+        'TOTAL', '', '', '', '', '', '',
         sum(float(job.required_qty or 0) for job in quick_win_jobs),
         sum(float(job.net_unit_price_gbp or 0) for job in quick_win_jobs),
         '', '',
