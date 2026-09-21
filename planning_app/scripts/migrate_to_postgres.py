@@ -7,15 +7,15 @@ etc.).  Epicor-sourced tables (sales_orders, works_orders, etc.) are skipped —
 they will be repopulated automatically by the first sync after switchover.
 
 Usage (from the planning_app directory):
-    python migrate_to_postgres.py
+    python -m scripts.migrate_to_postgres
 
     # Or with explicit connection strings:
-    python migrate_to_postgres.py \\
+    python -m scripts.migrate_to_postgres \\
         --sqlite "sqlite:///instance/planning_dev.db" \\
         --postgres "postgresql://planuser:pass@localhost:5432/planning_db"
 
     # Force overwrite even if destination tables already have rows:
-    python migrate_to_postgres.py --force
+    python -m scripts.migrate_to_postgres --force
 
 Reads DATABASE_URL and the sqlite path from .env if not supplied via args.
 Run AFTER `flask db upgrade` has already built the schema in PostgreSQL.
@@ -64,11 +64,11 @@ PARTIAL_FILTERS = {
 
 
 def _load_env() -> None:
-    """Load .env from the planning_app directory (one level up from this script's parent)."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    """Load .env from the planning_app directory."""
+    app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for candidate in [
-        os.path.join(script_dir, ".env"),
-        os.path.join(script_dir, "planning_app", ".env"),
+        os.path.join(app_dir, ".env"),
+        os.path.join(app_dir, "planning_app", ".env"),
     ]:
         if os.path.exists(candidate):
             try:
@@ -88,12 +88,11 @@ def _load_env() -> None:
 
 def _resolve_sqlite_url() -> str:
     """Find the SQLite database file and return a SQLAlchemy URL for it."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     candidates = [
-        # script lives in planning_app/, so instance/ is a sibling folder
-        os.path.join(script_dir, "instance", "planning_dev.db"),
-        os.path.join(script_dir, "instance", "planning.db"),
-        os.path.join(script_dir, "instance", "planning_production.db"),
+        os.path.join(app_dir, "instance", "planning_dev.db"),
+        os.path.join(app_dir, "instance", "planning.db"),
+        os.path.join(app_dir, "instance", "planning_production.db"),
     ]
     existing = [p for p in candidates if os.path.exists(p)]
     if existing:

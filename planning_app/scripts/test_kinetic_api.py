@@ -3,7 +3,7 @@
 Quick smoke-test for the Epicor Kinetic API connection.
 
 Run from the planning_app directory with the venv active:
-    python test_kinetic_api.py
+    python -m scripts.test_kinetic_api
 
 Requires a .env file with:
     EPICOR_BASE_URL, EPICOR_USERNAME, EPICOR_PASSWORD, EPICOR_API_KEY
@@ -12,13 +12,14 @@ Requires a .env file with:
 import time
 import traceback
 from datetime import date
+from pathlib import Path
 
 import requests as _requests
 from dotenv import load_dotenv
 
 from app.core.epicor_client import KineticClient
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 today = date.today().isoformat()
 

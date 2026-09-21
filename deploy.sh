@@ -6,7 +6,8 @@
 #   PLANNING_DB_PASS=secret ./setup_postgres.sh
 #   # then set DATABASE_URL in planning_app/.env
 #   ./deploy.sh                                    # builds schema via flask db upgrade
-#   python planning_app/migrate_to_postgres.py     # copies users/roles/departments/etc.
+#   (cd planning_app && python -m scripts.migrate_to_postgres)
+#                                                   # copies users/roles/departments/etc.
 
 set -e  # exit on first error
 
