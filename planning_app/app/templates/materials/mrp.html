@@ -132,6 +132,17 @@
             <span class="text-muted small">Opening: {{ mat.opening_stock | round(2) }}</span>
         </span>
     </div>
+    {% if mat.stock_breakdown %}
+    <div class="px-3 py-2 border-bottom bg-light small d-flex flex-wrap gap-2 align-items-center">
+        <span class="fw-semibold text-muted me-1">Stock buckets:</span>
+        <span class="badge text-bg-success">Available {{ mat.stock_breakdown.available | round(2) }}</span>
+        <span class="text-muted">Stores {{ mat.stock_breakdown.stores | round(2) }}</span>
+        <span class="text-muted">Prod UK {{ mat.stock_breakdown.prod_uk | round(2) }}</span>
+        <span class="text-muted">Romania {{ mat.stock_breakdown.romania | round(2) }}</span>
+        <span class="badge text-bg-warning text-dark">QC / Other {{ mat.stock_breakdown.others | round(2) }}</span>
+        <span class="text-muted">ERP total {{ mat.stock_breakdown.total | round(2) }}</span>
+    </div>
+    {% endif %}
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-sm mb-0 align-middle" style="font-size:.82rem;">
@@ -226,6 +237,7 @@
     <span class="text-danger fw-semibold">Red rows</span> indicate the balance has gone negative at that point.
     PO receipts on the same date are applied before requirements.
     Completed requirements (COMPLETE = Y) are excluded.
+    Opening stock includes Stores, Prod UK and Romania only; QC / Other stock is shown for reference but excluded from availability.
 </div>
 {% endif %}
 

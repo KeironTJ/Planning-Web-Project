@@ -56,6 +56,37 @@ class Stock(db.Model):
 
     imported_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
+    @property
+    def available_qty(self):
+        """
+        Usable stock for MRP availability: Stores + Prod UK + Romania.
+
+        Excludes qty_on_hand_others, which represents QC/other stock that
+        cannot be issued against demand. Mirrors the DB-level expression in
+        services/loaders.py — keep both in sync if the bucket set changes.
+        """
+        return (
+            (self.qty_on_hand_stores or 0)
+            + (self.qty_on_hand_prod_uk or 0)
+            + (self.qty_on_hand_romania or 0)
+        )
+
+    @property
+    def computed_surplus_deficit(self):
+        """
+        Our own surplus/deficit: available_qty (Stores + Prod UK + Romania)
+        minus total required qty. Negative means short.
+
+        Deliberately independent of Epicor's Calculated_SurplusDeficitStock,
+        which may be based on the full qty_on_hand total (including QC/Other).
+        """
+        return self.available_qty - (self.qty_required or 0)
+
+    @property
+    def is_short(self):
+        """True when our computed available stock does not cover requirement."""
+        return self.computed_surplus_deficit < 0
+
     def __repr__(self):
         return f"<Stock {self.part_num} ({self.plant})>"
 

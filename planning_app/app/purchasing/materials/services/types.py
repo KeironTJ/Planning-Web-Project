@@ -49,6 +49,19 @@ class MrpEvent:
 
 
 @dataclass
+class StockBreakdown:
+    stores: Decimal
+    prod_uk: Decimal
+    romania: Decimal
+    others: Decimal
+    total: Decimal
+
+    @property
+    def available(self) -> Decimal:
+        return self.stores + self.prod_uk + self.romania
+
+
+@dataclass
 class MrpMaterial:
     material_code: str
     description: str
@@ -57,6 +70,7 @@ class MrpMaterial:
     events: list
     mat_status: str = "no_data"
     selected_so_status: Optional[str] = None
+    stock_breakdown: Optional[StockBreakdown] = None
 
 
 #: Priority for worst-case rollup — higher number = worse status
@@ -79,4 +93,11 @@ MAT_STATUS_META: dict[str, tuple[str, str]] = {
     "no_data":   ("\u2014",       "secondary"),
 }
 
-__all__ = ["ShortageRow", "MrpEvent", "MrpMaterial", "MAT_STATUS_META", "_MAT_STATUS_PRIORITY"]
+__all__ = [
+    "ShortageRow",
+    "MrpEvent",
+    "StockBreakdown",
+    "MrpMaterial",
+    "MAT_STATUS_META",
+    "_MAT_STATUS_PRIORITY",
+]

@@ -10,6 +10,7 @@ from sqlalchemy import func
 from app.extensions import db
 from ..models import MaterialRequirementMain, PurchaseOrder, Stock
 from ._cache import _cached_group_report, _cached_unfiltered_report
+from .loaders import _available_stock_qty_expr, _computed_surplus_deficit_expr
 
 __all__ = ["get_stock_summary", "get_stock_overview", "get_po_list", "get_stock_list"]
 
@@ -17,9 +18,10 @@ __all__ = ["get_stock_summary", "get_stock_overview", "get_po_list", "get_stock_
 def get_stock_summary() -> dict:
     """Return headline stock stats for the materials dashboard."""
     total = db.session.query(func.count(Stock.id)).scalar() or 0
+    available_qty = _available_stock_qty_expr()
     zero_stock = (
         db.session.query(func.count(Stock.id))
-        .filter(Stock.qty_on_hand <= 0)
+        .filter(available_qty <= 0)
         .scalar() or 0
     )
     total_po_lines  = db.session.query(func.count(PurchaseOrder.id)).scalar() or 0
@@ -63,14 +65,16 @@ def get_stock_overview() -> dict:
         }
     """
     total_lines = db.session.query(func.count(Stock.id)).scalar() or 0
+    available_qty = _available_stock_qty_expr()
+    deficit_expr = _computed_surplus_deficit_expr()
     zero_stock = (
         db.session.query(func.count(Stock.id))
-        .filter(Stock.qty_on_hand <= 0)
+        .filter(available_qty <= 0)
         .scalar() or 0
     )
     in_deficit = (
         db.session.query(func.count(Stock.id))
-        .filter(Stock.insufficient_stock == True)
+        .filter(deficit_expr < 0)
         .scalar() or 0
     )
 
@@ -78,9 +82,9 @@ def get_stock_overview() -> dict:
         db.session.query(
             Stock.class_id,
             func.count(Stock.id).label("count"),
-            func.coalesce(func.sum(Stock.qty_on_hand), 0).label("total_qty"),
+            func.coalesce(func.sum(available_qty), 0).label("total_qty"),
             func.sum(
-                func.cast(Stock.insufficient_stock == True, db.Integer)
+                func.cast(deficit_expr < 0, db.Integer)
             ).label("deficit_count"),
         )
         .group_by(Stock.class_id)
@@ -136,7 +140,8 @@ def get_stock_list(
     class_filter: Optional[str] = None,
 ):
     """Return paginated stock lines, optionally filtered by search and class."""
-    q = Stock.query.order_by(Stock.insufficient_stock.desc(), Stock.part_num)
+    deficit_expr = _computed_surplus_deficit_expr()
+    q = Stock.query.order_by((deficit_expr < 0).desc(), Stock.part_num)
     if search:
         term = f"%{search.strip()}%"
         q = q.filter(

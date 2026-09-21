@@ -11,12 +11,14 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
+from sqlalchemy import func
+
 from app.extensions import db
 from ..models import MaterialRequirementMain, PurchaseOrder, Stock
 from ._cache import _cached_group_report
 from .loaders import _get_group_class_ids, _get_group_lead_days, _load_stock
 from .netting import _row_status
-from .types import MrpEvent, MrpMaterial, _MAT_STATUS_PRIORITY
+from .types import MrpEvent, MrpMaterial, StockBreakdown, _MAT_STATUS_PRIORITY
 
 __all__ = ["get_mrp_pegging"]
 
@@ -110,6 +112,26 @@ def get_mrp_pegging(
         return {"materials": [], "material_count": 0, "stock_imported": bool(stock_map)}
 
     mc_list = sorted(material_codes)
+    stock_breakdown = {
+        r.part_num: StockBreakdown(
+            stores=r.stores or Decimal(0),
+            prod_uk=r.prod_uk or Decimal(0),
+            romania=r.romania or Decimal(0),
+            others=r.others or Decimal(0),
+            total=r.total or Decimal(0),
+        )
+        for r in db.session.query(
+            Stock.part_num,
+            func.coalesce(func.sum(Stock.qty_on_hand_stores), 0).label("stores"),
+            func.coalesce(func.sum(Stock.qty_on_hand_prod_uk), 0).label("prod_uk"),
+            func.coalesce(func.sum(Stock.qty_on_hand_romania), 0).label("romania"),
+            func.coalesce(func.sum(Stock.qty_on_hand_others), 0).label("others"),
+            func.coalesce(func.sum(Stock.qty_on_hand), 0).label("total"),
+        )
+        .filter(Stock.part_num.in_(mc_list))
+        .group_by(Stock.part_num)
+        .all()
+    }
 
     # ---- Load all requirements and POs for these materials ----
     req_query = MaterialRequirementMain.query.filter(
@@ -304,6 +326,7 @@ def get_mrp_pegging(
             events=events,
             mat_status=worst_status,
             selected_so_status=selected_so_status,
+            stock_breakdown=stock_breakdown.get(mc),
         ))
 
     materials.sort(key=lambda m: (0 if m.has_shortage else 1, m.material_code))

@@ -38,7 +38,7 @@
             <div class="fs-3 fw-bold {{ 'text-danger' if overview.in_deficit else 'text-success' }}">
                 {{ '{:,}'.format(overview.in_deficit) }}
             </div>
-            <div class="text-muted small">In Deficit (ERP)</div>
+            <div class="text-muted small">In Deficit</div>
         </div>
     </div>
     <div class="col-6 col-md-3">
@@ -151,7 +151,11 @@
                         <th>Description</th>
                         <th>Class</th>
                         <th>Plant</th>
-                        <th class="text-end">On Hand</th>
+                        <th class="text-end">Stores</th>
+                        <th class="text-end">Prod UK</th>
+                        <th class="text-end">Romania</th>
+                        <th class="text-end">QC / Other</th>
+                        <th class="text-end fw-semibold">Available</th>
                         <th class="text-end">Required</th>
                         <th class="text-end">Surplus / Deficit</th>
                         <th class="text-center">Status</th>
@@ -159,7 +163,7 @@
                 </thead>
                 <tbody>
                     {% for item in stock.items %}
-                    <tr class="{{ 'table-danger' if item.insufficient_stock else '' }}">
+                    <tr class="{{ 'table-danger' if item.is_short else '' }}">
                         <td class="fw-semibold">
                             <a href="{{ url_for('materials.mrp') }}?q={{ item.part_num | urlencode }}"
                                class="text-decoration-none text-body">{{ item.part_num }}</a>
@@ -175,18 +179,20 @@
                             {% else %}—{% endif %}
                         </td>
                         <td class="text-muted small">{{ item.plant or '—' }}</td>
-                        <td class="text-end fw-semibold {{ 'text-danger' if item.qty_on_hand is not none and item.qty_on_hand <= 0 else '' }}">
-                            {{ item.qty_on_hand if item.qty_on_hand is not none else '—' }}
+                        <td class="text-end">{{ item.qty_on_hand_stores if item.qty_on_hand_stores is not none else '—' }}</td>
+                        <td class="text-end">{{ item.qty_on_hand_prod_uk if item.qty_on_hand_prod_uk is not none else '—' }}</td>
+                        <td class="text-end">{{ item.qty_on_hand_romania if item.qty_on_hand_romania is not none else '—' }}</td>
+                        <td class="text-end text-muted">{{ item.qty_on_hand_others if item.qty_on_hand_others is not none else '—' }}</td>
+                        <td class="text-end fw-semibold {{ 'text-danger' if item.available_qty <= 0 else '' }}">
+                            {{ item.available_qty }}
                         </td>
                         <td class="text-end text-muted">{{ item.qty_required if item.qty_required is not none else '—' }}</td>
-                        <td class="text-end fw-semibold {{ 'text-danger' if item.surplus_deficit is not none and item.surplus_deficit < 0 else 'text-success' }}">
-                            {% if item.surplus_deficit is not none %}
-                            {% if item.surplus_deficit < 0 %}<i class="bi bi-arrow-down-circle-fill me-1"></i>{% else %}<i class="bi bi-arrow-up-circle-fill me-1 text-success"></i>{% endif %}
-                            {{ item.surplus_deficit }}
-                            {% else %}—{% endif %}
+                        <td class="text-end fw-semibold {{ 'text-danger' if item.is_short else 'text-success' }}">
+                            {% if item.is_short %}<i class="bi bi-arrow-down-circle-fill me-1"></i>{% else %}<i class="bi bi-arrow-up-circle-fill me-1 text-success"></i>{% endif %}
+                            {{ item.computed_surplus_deficit }}
                         </td>
                         <td class="text-center">
-                            {% if item.insufficient_stock %}
+                            {% if item.is_short %}
                             <span class="badge bg-danger">DEFICIT</span>
                             {% else %}
                             <span class="badge bg-success bg-opacity-75">OK</span>
@@ -195,7 +201,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="8" class="text-center py-4 text-muted">
+                        <td colspan="12" class="text-center py-4 text-muted">
                             No stock data. Run <code>flask epicor sync stock</code> to import.
                         </td>
                     </tr>

@@ -60,8 +60,26 @@ def make_req(
     return req
 
 
-def make_stock(part_num="FAB001", qty_on_hand=0, plant="STORES"):
-    s = Stock(part_num=part_num, qty_on_hand=D(qty_on_hand), plant=plant)
+def make_stock(
+    part_num="FAB001",
+    qty_on_hand=0,
+    plant="STORES",
+    qty_on_hand_stores=None,
+    qty_on_hand_prod_uk=0,
+    qty_on_hand_romania=0,
+    qty_on_hand_others=0,
+):
+    if qty_on_hand_stores is None:
+        qty_on_hand_stores = qty_on_hand
+    s = Stock(
+        part_num=part_num,
+        qty_on_hand=D(qty_on_hand),
+        plant=plant,
+        qty_on_hand_stores=D(qty_on_hand_stores),
+        qty_on_hand_prod_uk=D(qty_on_hand_prod_uk),
+        qty_on_hand_romania=D(qty_on_hand_romania),
+        qty_on_hand_others=D(qty_on_hand_others),
+    )
     _db.session.add(s)
     return s
 
@@ -160,6 +178,34 @@ class TestNettingIntegration:
         make_req("FAB001", qty_for_order=50)
         make_stock("FAB001", qty_on_hand=100)
         rows = [r for r in run_report()["rows"] if r.material_code == "FAB001"]
+        assert rows[0].status == "ok" and rows[0].shortage == D(0)
+
+    def test_qc_other_stock_does_not_cover_requirement(self, db):
+        make_req("FAB001-QC", qty_for_order=50)
+        make_stock(
+            "FAB001-QC",
+            qty_on_hand=100,
+            qty_on_hand_stores=0,
+            qty_on_hand_prod_uk=0,
+            qty_on_hand_romania=0,
+            qty_on_hand_others=100,
+        )
+        rows = [r for r in run_report()["rows"] if r.material_code == "FAB001-QC"]
+        assert rows[0].stock_on_hand == D(0)
+        assert rows[0].status == "high_risk" and rows[0].shortage == D(50)
+
+    def test_available_buckets_are_summed_for_requirement_cover(self, db):
+        make_req("FAB001-AVAIL", qty_for_order=50)
+        make_stock(
+            "FAB001-AVAIL",
+            qty_on_hand=100,
+            qty_on_hand_stores=10,
+            qty_on_hand_prod_uk=15,
+            qty_on_hand_romania=25,
+            qty_on_hand_others=50,
+        )
+        rows = [r for r in run_report()["rows"] if r.material_code == "FAB001-AVAIL"]
+        assert rows[0].stock_on_hand == D(50)
         assert rows[0].status == "ok" and rows[0].shortage == D(0)
 
     def test_no_stock_no_po_is_high_risk(self, db):
@@ -287,6 +333,33 @@ class TestMrpPeggingFilters:
         assert material.mat_status == "high_risk"
         assert len(selected_events) == 1
         assert selected_events[0].reference == "SELECTED-JOB"
+
+    def test_pegging_exposes_stock_bucket_breakdown(self, db):
+        make_req(
+            "PEG-STOCK",
+            qty_for_order=50,
+            so_number="PEG-SO",
+            works_order="PEG-JOB",
+        )
+        make_stock(
+            "PEG-STOCK",
+            qty_on_hand=100,
+            qty_on_hand_stores=10,
+            qty_on_hand_prod_uk=15,
+            qty_on_hand_romania=25,
+            qty_on_hand_others=50,
+        )
+
+        result = run_pegging(so_number="PEG-SO")
+        material = next(m for m in result["materials"] if m.material_code == "PEG-STOCK")
+
+        assert material.opening_stock == D(50)
+        assert material.stock_breakdown.available == D(50)
+        assert material.stock_breakdown.stores == D(10)
+        assert material.stock_breakdown.prod_uk == D(15)
+        assert material.stock_breakdown.romania == D(25)
+        assert material.stock_breakdown.others == D(50)
+        assert material.stock_breakdown.total == D(100)
 
     def test_component_scope_excludes_unconfigured_classes(self, db):
         from app.admin.models import SystemSetting, SETTING_COMPONENT_CLASS_IDS

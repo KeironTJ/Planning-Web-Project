@@ -16,6 +16,25 @@ from app.extensions import db
 from ..models import MrpExemptMaterial, PurchaseOrder, Stock
 
 
+def _available_stock_qty_expr():
+    """Return SQL expression for stock buckets usable for material availability."""
+    return (
+        func.coalesce(Stock.qty_on_hand_stores, 0)
+        + func.coalesce(Stock.qty_on_hand_prod_uk, 0)
+        + func.coalesce(Stock.qty_on_hand_romania, 0)
+    )
+
+
+def _computed_surplus_deficit_expr():
+    """
+    Return SQL expression for our own surplus/deficit: available_qty - qty_required.
+
+    Independent of Epicor's Calculated_SurplusDeficitStock, which may be based
+    on the full qty_on_hand total (including QC/Other stock).
+    """
+    return _available_stock_qty_expr() - func.coalesce(Stock.qty_required, 0)
+
+
 def _load_exempt_codes() -> frozenset[str]:
     """Return the set of material codes exempt from MRP shortage calculations."""
     rows = db.session.query(MrpExemptMaterial.material_code).all()
@@ -24,15 +43,16 @@ def _load_exempt_codes() -> frozenset[str]:
 
 def _load_stock() -> dict[str, Decimal]:
     """
-    Return {part_num: total_qty_on_hand} summed across all plants.
+    Return {part_num: available_qty_on_hand} summed across all plants.
 
     Multi-plant parts (e.g. fabric stored in STORES + PROD) are not
     understated when only the last plant row would otherwise be kept.
+    QC/other stock is intentionally excluded from availability.
     """
     rows = (
         db.session.query(
             Stock.part_num,
-            func.sum(Stock.qty_on_hand).label("total_qty"),
+            func.sum(_available_stock_qty_expr()).label("total_qty"),
         )
         .group_by(Stock.part_num)
         .all()
