@@ -35,6 +35,28 @@
                 </select>
             </div>
             <div class="col-sm-3 col-md-2">
+                <label class="form-label form-label-sm fw-semibold mb-1">Component class</label>
+                <select name="cls" class="form-select form-select-sm">
+                    <option value="">All classes</option>
+                    {% for c in class_options %}
+                    <option value="{{ c.class_id }}" {{ 'selected' if cls_filter == c.class_id }}>
+                        {{ c.label }} ({{ c.count }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-3 col-md-2">
+                <label class="form-label form-label-sm fw-semibold mb-1">Work order status</label>
+                <select name="wo_status" class="form-select form-select-sm">
+                    <option value="">All statuses</option>
+                    {% for w in wo_status_options %}
+                    <option value="{{ w.key }}" {{ 'selected' if wo_status_filter == w.key }}>
+                        {{ w.label }} ({{ w.count }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-3 col-md-2">
                 <label class="form-label form-label-sm fw-semibold mb-1">Due from</label>
                 <input type="date" name="due_from" class="form-control form-control-sm" value="{{ due_from }}">
             </div>
@@ -52,6 +74,35 @@
                 <a href="{{ url_for('materials.component_shortage') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
             </div>
         </form>
+        {% if dept_filter or cls_filter or wo_status_filter or due_from or due_before or search %}
+        <div class="d-flex flex-wrap align-items-center gap-1 mt-2 pt-2 border-top">
+            <span class="text-muted text-xs me-1">Active filters:</span>
+            {% if dept_filter %}
+            <span class="badge text-bg-light border text-dark">Warehouse: {{ dept_filter }}
+                <a href="{{ url_for('materials.component_shortage', dept='', cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+            {% endif %}
+            {% if cls_filter %}
+            <span class="badge text-bg-light border text-dark">Class: {{ class_labels.get(cls_filter, cls_filter) }}
+                <a href="{{ url_for('materials.component_shortage', dept=dept_filter, cls='', wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+            {% endif %}
+            {% if wo_status_filter %}
+            <span class="badge text-bg-light border text-dark">WO status: {{ wo_status_meta[wo_status_filter][0] }}
+                <a href="{{ url_for('materials.component_shortage', dept=dept_filter, cls=cls_filter, wo_status='', due_from=due_from, due_before=due_before, q=search, status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+            {% endif %}
+            {% if due_from %}
+            <span class="badge text-bg-light border text-dark">From: {{ due_from }}
+                <a href="{{ url_for('materials.component_shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from='', due_before=due_before, q=search, status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+            {% endif %}
+            {% if due_before %}
+            <span class="badge text-bg-light border text-dark">Before: {{ due_before }}
+                <a href="{{ url_for('materials.component_shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before='', q=search, status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+            {% endif %}
+            {% if search %}
+            <span class="badge text-bg-light border text-dark">Search: “{{ search }}”
+                <a href="{{ url_for('materials.component_shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q='', status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -71,12 +122,12 @@
 {% endif %}
 
 <!-- KPI filter cards -->
-{% set _hr = shortage_insights.status_counts.get('high_risk', 0) %}
-{% set _lp = shortage_insights.status_counts.get('late_po', 0) %}
-{% set _mr = shortage_insights.status_counts.get('med_risk', 0) %}
-{% set _lr = shortage_insights.status_counts.get('low_risk', 0) %}
+{% set _hr = status_counts_all.get('high_risk', 0) %}
+{% set _lp = status_counts_all.get('late_po', 0) %}
+{% set _mr = status_counts_all.get('med_risk', 0) %}
+{% set _lr = status_counts_all.get('low_risk', 0) %}
 {% set _total = _hr + _lp + _mr + _lr %}
-{% set _base = url_for('materials.component_shortage', dept=dept_filter, due_from=due_from, due_before=due_before, q=search) %}
+{% set _base = url_for('materials.component_shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search) %}
 <div class="row g-3 mb-4">
     {% for st_key, label, sublabel, count, color in [
         ('high_risk', 'Shortage',    'No PO coverage',         _hr,    '#dc3545'),
@@ -108,7 +159,8 @@
     <div class="{{ 'col-lg-7' if shortage_insights.by_class else 'col-12' }}">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-transparent fw-semibold small py-2">
-                <i class="bi bi-bar-chart-horizontal-fill me-1 text-warning"></i>Top Components by Shortage Quantity
+                <i class="bi bi-bar-chart-horizontal-fill me-1 text-warning"></i>Top Components by At-Risk Quantity
+                <span class="text-muted fw-normal ms-1">— genuine shortage + PO-reliant</span>
             </div>
             <div class="card-body py-2">
                 <canvas id="topMaterialsChart"></canvas>
@@ -121,9 +173,10 @@
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-transparent fw-semibold small py-2">
                 <i class="bi bi-pie-chart-fill me-1 text-warning"></i>At-Risk Lines by Material Class
+                <span class="text-muted fw-normal ms-1 d-none d-md-inline">— click a slice to filter</span>
             </div>
             <div class="card-body d-flex align-items-center justify-content-center py-2">
-                <canvas id="byClassChart" style="max-height:220px;"></canvas>
+                <canvas id="byClassChart" style="max-height:220px;cursor:pointer;"></canvas>
             </div>
         </div>
     </div>
@@ -137,7 +190,7 @@
     <div class="card-header bg-transparent fw-semibold small py-2 d-flex align-items-center gap-2">
         <i class="bi bi-table me-1 text-warning"></i>Summary by Component
         <span class="badge text-bg-secondary ms-1">{{ shortage_insights.material_summary | length }}</span>
-        <button onclick="exportTableToCsv('summaryTable', 'component-shortage-summary-{{ today }}.csv')" class="btn btn-outline-secondary btn-sm ms-auto py-0 text-xs">
+        <button onclick="exportTableToCsv('summaryTable', 'component-shortage-summary.csv')" class="btn btn-outline-secondary btn-sm ms-auto py-0 text-xs">
             <i class="bi bi-download me-1"></i>Export CSV
         </button>
     </div>
@@ -146,11 +199,12 @@
             <table id="summaryTable" class="table table-sm table-hover mb-0 align-middle" style="font-size:.82rem;">
                 <thead class="thead-subtle">
                     <tr>
-                        <th>Material</th>
-                        <th>Class</th>
+                        <th data-export-cols="Part Num|Description">Material</th>
+                        <th data-export-cols="Class ID|Class Label">Class</th>
                         <th>Status</th>
                         <th class="text-center">Jobs</th>
-                        <th class="text-end">Total Short</th>
+                        <th class="text-end">Genuine Short</th>
+                        <th class="text-end">At Risk (all tiers)</th>
                         <th class="text-end">PO Cover</th>
                         <th class="text-center">Earliest Due</th>
                         <th></th>
@@ -161,19 +215,22 @@
                     {% set st_label, st_colour = mat_status_meta.get(m.worst_status, ('—', 'secondary')) %}
                     {% set is_overdue = m.earliest_due and m.earliest_due < today %}
                     <tr>
-                        <td>
+                        <td data-export-vals="{{ m.material_code }}|{{ m.description or '' }}">
                             <span class="fw-semibold">{{ m.material_code }}</span>
                             {% if m.description %}
                             <div class="text-muted text-truncate" style="max-width:180px;font-size:.72rem;" title="{{ m.description }}">{{ m.description }}</div>
                             {% endif %}
                         </td>
-                        <td>
-                            {% if m.class_id %}<span class="badge bg-secondary bg-opacity-25 text-dark" style="font-size:.68rem;">{{ m.class_id }}</span>{% else %}—{% endif %}
+                        <td data-export-vals="{{ m.class_id or '' }}|{{ class_labels.get(m.class_id, '') }}">
+                            {% if m.class_id %}<span class="badge bg-secondary bg-opacity-25 text-dark" style="font-size:.68rem;" title="{{ m.class_id }}">{{ class_labels.get(m.class_id, m.class_id) }}</span>{% else %}—{% endif %}
                         </td>
                         <td><span class="badge text-bg-{{ st_colour }}" style="font-size:.72rem;">{{ st_label }}</span></td>
                         <td class="text-center text-muted">{{ m.job_count }}</td>
                         <td class="text-end fw-semibold {{ 'text-danger' if m.total_shortage else 'text-muted' }}">
                             {{ m.total_shortage | round(2) if m.total_shortage else '—' }}
+                        </td>
+                        <td class="text-end fw-semibold {{ 'text-warning' if m.total_at_risk else 'text-muted' }}">
+                            {{ m.total_at_risk | round(2) if m.total_at_risk else '—' }}
                         </td>
                         <td class="text-end {{ 'text-success' if m.total_po_cover > 0 else 'text-muted' }}">
                             {{ m.total_po_cover | round(2) if m.total_po_cover else '—' }}
@@ -205,7 +262,7 @@
         {% set sf_label, sf_colour = mat_status_meta.get(status_filter, ('All', 'secondary')) %}
         <span class="badge text-bg-{{ sf_colour }} ms-1">{{ sf_label }}</span>
         {% endif %}
-        <button onclick="exportTableToCsv('detailTable', 'component-shortage-detail-{{ today }}.csv')" class="btn btn-outline-secondary btn-sm ms-auto py-0 text-xs">
+        <button onclick="exportTableToCsv('detailTable', 'component-shortage-detail.csv')" class="btn btn-outline-secondary btn-sm ms-auto py-0 text-xs">
             <i class="bi bi-download me-1"></i>Export CSV
         </button>
     </div>
@@ -214,10 +271,10 @@
             <table id="detailTable" class="table table-sm table-hover mb-0 align-middle" style="font-size:.81rem;">
                 <thead class="thead-subtle sticky-top">
                     <tr>
-                        <th>Material</th>
-                        <th>Class</th>
+                        <th data-export-cols="Part Num|Description">Material</th>
+                        <th data-export-cols="Class ID|Class Label">Class</th>
                         <th>Whs</th>
-                        <th data-export-cols="Works Order|SO Number|Released">Works Order</th>
+                        <th data-export-cols="Works Order|SO Number|WO Status">Works Order</th>
                         <th>Status</th>
                         <th class="text-center">ERP Due</th>
                         <th class="text-end">Required</th>
@@ -234,24 +291,21 @@
                     <tr class="{{ 'table-danger' if row.shortage > 0 else '' }}"
                         style="cursor:pointer;"
                         onclick="window.location='{{ url_for('materials.mrp') }}?q={{ row.material_code | urlencode }}'">
-                        <td>
+                        <td data-export-vals="{{ row.material_code }}|{{ row.description or '' }}">
                             <span class="fw-semibold">{{ row.material_code }}</span>
                             {% if row.description %}
                             <div class="text-muted text-truncate" style="max-width:200px;font-size:.72rem;" title="{{ row.description }}">{{ row.description }}</div>
                             {% endif %}
                         </td>
-                        <td>
-                            {% if row.class_id %}<span class="badge bg-secondary bg-opacity-25 text-dark" style="font-size:.68rem;">{{ row.class_id }}</span>{% else %}—{% endif %}
+                        <td data-export-vals="{{ row.class_id or '' }}|{{ class_labels.get(row.class_id, '') }}">
+                            {% if row.class_id %}<span class="badge bg-secondary bg-opacity-25 text-dark" style="font-size:.68rem;" title="{{ row.class_id }}">{{ class_labels.get(row.class_id, row.class_id) }}</span>{% else %}—{% endif %}
                         </td>
                         <td class="text-muted" style="font-size:.74rem;">{{ row.department or '—' }}</td>
-                        <td data-export-vals="{{ row.works_order or '' }}|{{ row.so_number or '' }}|{{ 'Released' if row.job_released else 'Unreleased' }}" style="font-size:.74rem;">
+                        <td data-export-vals="{{ row.works_order or '' }}|{{ row.so_number or '' }}|{{ wo_status_meta[wo_status_of(row.job_released, row.job_firm)][0] }}" style="font-size:.74rem;">
                             <span class="text-muted">{{ row.works_order or '—' }}</span>
                             {% if row.so_number %}<div class="text-muted" style="font-size:.68rem;">SO {{ row.so_number }}</div>{% endif %}
-                            {% if row.job_released %}
-                            <span class="badge text-bg-success" style="font-size:.62rem;">Released</span>
-                            {% else %}
-                            <span class="badge text-bg-warning text-dark" style="font-size:.62rem;">Unreleased</span>
-                            {% endif %}
+                            {% set _wo_label, _wo_colour = wo_status_meta[wo_status_of(row.job_released, row.job_firm)] %}
+                            <span class="badge text-bg-{{ _wo_colour }} {{ 'text-dark' if _wo_colour == 'warning' else '' }}" style="font-size:.62rem;">{{ _wo_label }}</span>
                         </td>
                         <td>
                             {% set st_label, st_colour = mat_status_meta.get(row.status, ('—', 'secondary')) %}
@@ -301,7 +355,7 @@
 window.SHORTAGE_DATA = {
   topMaterials: {{ shortage_insights.top_materials | tojson }},
   byClass:      {{ shortage_insights.by_class | tojson }},
-  barColor:     '#ffc107',
+  classFilterUrl: {{ url_for('materials.component_shortage', dept=dept_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, status=status_filter) | tojson }},
 };
 </script>
 <script src="{{ url_for('static', filename='js/components/table.js') }}" defer></script>

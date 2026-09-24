@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<div class="row g-4">
+
+    {# ── Left: configured labels ──────────────────────────────── #}
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent py-2 d-flex justify-content-between align-items-center">
+                <span class="fw-semibold">
+                    <i class="bi bi-tags me-2 text-secondary"></i>Material Class Labels
+                </span>
+                <span class="badge text-bg-secondary">{{ items | length }}</span>
+            </div>
+            {% if items %}
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.83rem;">
+                        <thead class="thead-subtle">
+                            <tr>
+                                <th style="width:120px;">Class ID</th>
+                                <th>Label</th>
+                                <th class="text-center" style="width:150px;">Updated</th>
+                                <th style="width:60px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in items %}
+                            <tr>
+                                <td class="fw-semibold font-monospace">{{ item.class_id }}</td>
+                                <td>
+                                    <form method="POST" action="{{ url_for('materials.class_labels_save') }}"
+                                          class="d-flex gap-2 align-items-center">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="class_id" value="{{ item.class_id }}">
+                                        <input type="text" name="label" value="{{ item.label }}"
+                                               class="form-control form-control-sm" required>
+                                        <button type="submit" class="btn btn-outline-primary btn-sm py-0 px-2"
+                                                title="Save label">
+                                            <i class="bi bi-check2"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                                <td class="text-center text-muted small">
+                                    {{ item.updated_at | utcfmt('date-only') if item.updated_at else '—' }}
+                                </td>
+                                <td class="text-end">
+                                    <form method="POST"
+                                          action="{{ url_for('materials.class_labels_delete', class_id=item.class_id) }}"
+                                          onsubmit="return confirm('Remove the label for class {{ item.class_id }}?')">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2"
+                                                title="Delete label">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% else %}
+            <div class="card-body text-center text-muted py-4">
+                No labels configured yet. Material classes will show their raw Epicor class ID
+                (e.g. <span class="font-monospace">A101</span>) until you add a label.
+            </div>
+            {% endif %}
+        </div>
+    </div>{# /col-lg-8 #}
+
+    {# ── Right: add/update a label ────────────────────────────── #}
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-transparent py-2">
+                <span class="fw-semibold text-success">
+                    <i class="bi bi-plus-circle me-2"></i>Add / Update Label
+                </span>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('materials.class_labels_save') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label form-label-sm fw-semibold">Class ID</label>
+                        <input type="text" name="class_id" class="form-control form-control-sm font-monospace"
+                               placeholder="e.g. A101" required>
+                        <div class="form-text">The raw Epicor Part_ClassID code shown on shortage reports.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label form-label-sm fw-semibold">Label</label>
+                        <input type="text" name="label" class="form-control form-control-sm"
+                               placeholder="e.g. Upholstery Leather" required>
+                        <div class="form-text">Shown instead of the raw class ID throughout the shortage reports.</div>
+                    </div>
+                    <button type="submit" class="btn btn-success btn-sm w-100">
+                        <i class="bi bi-plus-circle me-1"></i>Save Label
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mt-3">
+            <div class="card-body small text-muted">
+                <p class="mb-2">
+                    <i class="bi bi-info-circle me-1"></i>
+                    <strong>What does this do?</strong>
+                </p>
+                <ul class="ps-3 mb-0">
+                    <li>Class IDs come from Epicor's Part_ClassID and are otherwise opaque codes.</li>
+                    <li>Labels are used on the Material and Component Shortage Reports — in the
+                        class filter dropdown, chart legends, and summary/detail tables.</li>
+                    <li>Saving a label with the same class ID updates the existing entry.</li>
+                    <li>Clearing a label's text (or deleting it) reverts that class back to showing
+                        its raw ID.</li>
+                    <li>Labels persist across daily data imports — they are not affected by the
+                        CSV refresh.</li>
+                </ul>
+            </div>
+        </div>
+    </div>{# /col-lg-4 #}
+
+</div>
+
+{% endblock %}

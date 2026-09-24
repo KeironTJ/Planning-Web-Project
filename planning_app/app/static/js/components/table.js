@@ -17,8 +17,13 @@
  * Supports data-export-cols (pipe-separated column names) on <th> and
  * data-export-vals (pipe-separated values) on <td> for multi-value cells.
  *
+ * The filename is stamped with the current date and time (at export time,
+ * not page load) so repeated exports from the same page don't overwrite
+ * each other and reflect exactly when the data was pulled.
+ *
  * @param {string} tableId
- * @param {string} filename
+ * @param {string} filename base filename (with or without a .csv extension) —
+ *   a "_YYYYMMDD_HHMMSS" stamp is inserted before the extension.
  */
 function exportTableToCsv(tableId, filename) {
     const table = document.getElementById(tableId);
@@ -51,12 +56,27 @@ function exportTableToCsv(tableId, filename) {
     const objectUrl = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement('a'), {
         href: objectUrl,
-        download: filename,
+        download: stampFilename(filename),
     });
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+}
+
+/**
+ * Insert a "_YYYYMMDD_HHMMSS" timestamp (local time, at call time) before the
+ * file extension, e.g. "shortage-summary.csv" -> "shortage-summary_20260924_132644.csv".
+ */
+function stampFilename(filename) {
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const stamp = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate())
+        + '_' + pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+    const dot = filename.lastIndexOf('.');
+    return dot === -1
+        ? filename + '_' + stamp
+        : filename.slice(0, dot) + '_' + stamp + filename.slice(dot);
 }
 
 // -----------------------------------------------------------------------

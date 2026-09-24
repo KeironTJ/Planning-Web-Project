@@ -231,3 +231,27 @@ class MrpExemptMaterial(db.Model):
 
     def __repr__(self):
         return f"<MrpExemptMaterial {self.material_code}>"
+
+
+class MaterialClassLabel(db.Model):
+    """
+    Human-readable labels for Epicor material class IDs (Part_ClassID).
+
+    Manually maintained and persists across CSV imports — the raw class_id
+    codes are opaque Epicor codes; this lets planners give them meaningful
+    names for display in shortage report charts/tables/filters.
+    """
+
+    __tablename__ = "material_class_labels"
+
+    class_id = db.Column(db.String(50), primary_key=True)
+    label = db.Column(db.String(100), nullable=False)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    def __repr__(self):
+        return f"<MaterialClassLabel {self.class_id}={self.label}>"

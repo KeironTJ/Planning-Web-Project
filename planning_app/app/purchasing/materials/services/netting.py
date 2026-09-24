@@ -141,6 +141,7 @@ def get_shortage_report(
             "complete":      "Y" if (req.job_closed or req.issued_complete) else "",
             "class_id":      req.class_id or "",
             "job_released":  req.job_released,
+            "job_firm":      req.job_firm,
             "_search_text":  f"{mc} {req.material_description or ''} {req.works_order or ''}".lower(),
         })
 
@@ -232,6 +233,7 @@ def get_shortage_report(
             complete=r["complete"],
             class_id=r.get("class_id") or None,
             job_released=r.get("job_released"),
+            job_firm=r.get("job_firm"),
             po_exists=r.get("_po_exists", False),
             status=_row_status(
                 r["net_required"], r["_shortage"], r["_stock_on_hand"],

@@ -26,6 +26,7 @@ class ShortageRow:
     complete: Optional[str] = None
     class_id: Optional[str] = None
     job_released: Optional[bool] = None
+    job_firm: Optional[bool] = None
     po_exists: bool = False
     status: str = "no_data"  # 5-tier coverage status — set during netting
 
@@ -93,11 +94,30 @@ MAT_STATUS_META: dict[str, tuple[str, str]] = {
     "no_data":   ("\u2014",       "secondary"),
 }
 
+#: 3-state work-order status derived from the job_released / job_firm flags.
+#: Jobs that are closed or fully issued are excluded from these reports upstream,
+#: so only these three states are ever seen here.
+WO_STATUS_META: dict[str, tuple[str, str]] = {
+    "released":              ("Released",               "success"),
+    "unreleased_firm":       ("Unreleased (Firm)",       "warning"),
+    "unreleased_engineered": ("Unreleased (Engineered)", "secondary"),
+}
+
+
+def wo_status(job_released: Optional[bool], job_firm: Optional[bool]) -> str:
+    """Derive the 3-state work-order status used for filtering and display."""
+    if job_released:
+        return "released"
+    return "unreleased_firm" if job_firm else "unreleased_engineered"
+
+
 __all__ = [
     "ShortageRow",
     "MrpEvent",
     "StockBreakdown",
     "MrpMaterial",
     "MAT_STATUS_META",
+    "WO_STATUS_META",
+    "wo_status",
     "_MAT_STATUS_PRIORITY",
 ]

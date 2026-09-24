@@ -6,16 +6,67 @@ from flask import render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 
 from . import materials_bp
+from .services.class_labels import (
+    delete_class_label,
+    get_class_label_map,
+    get_class_labels,
+    set_class_label,
+)
 from .services.dashboard import get_weekly_availability_summary, get_weekly_so_breakdown
 from .services.exempt import add_exemptions, get_exempt_materials, remove_exemptions
 from .services.insights import get_shortage_insights
 from .services.netting import get_shortage_report
 from .services.pegging import get_mrp_pegging
 from .services.stock import get_po_list, get_stock_list, get_stock_overview, get_stock_summary
-from .services.types import MAT_STATUS_META
+from .services.types import MAT_STATUS_META, WO_STATUS_META, wo_status
 from app.extensions import db
 from app.sales.orders.models import Department
 from app.core.decorators import permission_required
+
+
+_AT_RISK_STATUSES = {"high_risk", "late_po", "med_risk", "low_risk"}
+
+
+def _class_options(rows: list, class_labels: dict[str, str] | None = None) -> list[dict]:
+    """Distinct material classes present in the at-risk rows, with counts, for filter dropdowns."""
+    class_labels = class_labels or {}
+    counts: dict[str, int] = {}
+    for r in rows:
+        if r.status in _AT_RISK_STATUSES:
+            cid = r.class_id or "Unassigned"
+            counts[cid] = counts.get(cid, 0) + 1
+    return sorted(
+        (
+            {"class_id": cid, "label": class_labels.get(cid, cid), "count": n}
+            for cid, n in counts.items()
+        ),
+        key=lambda c: c["label"],
+    )
+
+
+def _wo_status_options(rows: list) -> list[dict]:
+    """Distinct work-order statuses present in the at-risk rows, with counts, for filter dropdowns."""
+    counts: dict[str, int] = {}
+    for r in rows:
+        if r.status in _AT_RISK_STATUSES:
+            key = wo_status(r.job_released, r.job_firm)
+            counts[key] = counts.get(key, 0) + 1
+    return [
+        {"key": key, "label": WO_STATUS_META[key][0], "count": counts[key]}
+        for key in WO_STATUS_META
+        if key in counts
+    ]
+
+
+def _status_counts(rows: list) -> dict:
+    """Count at-risk rows per status tier — independent of any status filter, so the
+    KPI filter cards always show totals for the whole class/dept/date/search scope."""
+    counts: dict[str, int] = {}
+    for r in rows:
+        if r.status in _AT_RISK_STATUSES:
+            counts[r.status] = counts.get(r.status, 0) + 1
+    return counts
+
 
 
 @materials_bp.route("/")
@@ -44,6 +95,8 @@ def shortage():
     dept_filter  = request.args.get("dept", "")
     search       = request.args.get("q", "")
     status_filter = request.args.get("status", "")  # "" = all at-risk
+    cls_filter   = request.args.get("cls", "")       # "" = all material classes
+    wo_status_filter = request.args.get("wo_status", "")  # "" = all work-order statuses
     due_before_str = request.args.get("due_before", "")
     due_from_str   = request.args.get("due_from", "")
 
@@ -61,7 +114,8 @@ def shortage():
         except ValueError:
             pass
 
-    # Always fetch all rows so insights reflect the full picture
+    # Always fetch all rows (before class/status filtering) so class options and the
+    # "clear this filter" experience reflect the full picture for the current dept/date/search scope
     data = get_shortage_report(
         source=source,
         dept_filter=dept_filter or None,
@@ -71,17 +125,32 @@ def shortage():
         due_from=due_from,
     )
 
-    # Insights computed on all at-risk rows before display filtering
-    shortage_insights = get_shortage_insights(data["rows"])
+    class_labels = get_class_label_map()
+    class_options = _class_options(data["rows"], class_labels)
+    _valid_cls = cls_filter if cls_filter in {c["class_id"] for c in class_options} else ""
+    if _valid_cls:
+        data["rows"] = [r for r in data["rows"] if (r.class_id or "Unassigned") == _valid_cls]
+
+    wo_status_options = _wo_status_options(data["rows"])
+    _valid_wo_status = wo_status_filter if wo_status_filter in WO_STATUS_META else ""
+    if _valid_wo_status:
+        data["rows"] = [r for r in data["rows"] if wo_status(r.job_released, r.job_firm) == _valid_wo_status]
+
+    # KPI card counts always reflect the full class/dept/date/search scope (all tiers),
+    # independent of the status filter below, so the cards keep working as filter buttons.
+    status_counts_all = _status_counts(data["rows"])
 
     # Filter display rows: all at-risk by default, or a specific status tier
-    _AT_RISK = {"high_risk", "late_po", "med_risk", "low_risk"}
-    _valid_filter = status_filter if status_filter in _AT_RISK else ""
-    if _valid_filter:
-        data["rows"] = [r for r in data["rows"] if r.status == _valid_filter]
+    _valid_status = status_filter if status_filter in _AT_RISK_STATUSES else ""
+    if _valid_status:
+        data["rows"] = [r for r in data["rows"] if r.status == _valid_status]
     else:
-        data["rows"] = [r for r in data["rows"] if r.status in _AT_RISK]
+        data["rows"] = [r for r in data["rows"] if r.status in _AT_RISK_STATUSES]
     data["total_rows"] = len(data["rows"])
+
+    # Charts/summary computed on the same rows as the detail table, so they reflect
+    # every active filter including the status tier.
+    shortage_insights = get_shortage_insights(data["rows"], class_labels=class_labels)
 
     departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
 
@@ -90,12 +159,20 @@ def shortage():
         title="Material Shortage Report",
         data=data,
         shortage_insights=shortage_insights,
+        status_counts_all=status_counts_all,
         departments=departments,
+        class_options=class_options,
+        class_labels=class_labels,
+        wo_status_options=wo_status_options,
+        wo_status_meta=WO_STATUS_META,
+        wo_status_of=wo_status,
         mat_status_meta=MAT_STATUS_META,
         source=source,
         dept_filter=dept_filter,
         search=search,
-        status_filter=_valid_filter,
+        status_filter=_valid_status,
+        cls_filter=_valid_cls,
+        wo_status_filter=_valid_wo_status,
         due_before=due_before_str,
         due_from=due_from_str,
         today=date.today(),
@@ -110,6 +187,8 @@ def component_shortage():
     dept_filter   = request.args.get("dept", "")
     search        = request.args.get("q", "")
     status_filter = request.args.get("status", "")
+    cls_filter    = request.args.get("cls", "")
+    wo_status_filter = request.args.get("wo_status", "")  # "" = all work-order statuses
     due_before_str = request.args.get("due_before", "")
     due_from_str   = request.args.get("due_from", "")
     so_filter      = request.args.get("so", "")
@@ -138,15 +217,31 @@ def component_shortage():
         due_from=due_from,
     )
 
-    shortage_insights = get_shortage_insights(data["rows"])
+    class_labels = get_class_label_map()
+    class_options = _class_options(data["rows"], class_labels)
+    _valid_cls = cls_filter if cls_filter in {c["class_id"] for c in class_options} else ""
+    if _valid_cls:
+        data["rows"] = [r for r in data["rows"] if (r.class_id or "Unassigned") == _valid_cls]
 
-    _AT_RISK = {"high_risk", "late_po", "med_risk", "low_risk"}
-    _valid_filter = status_filter if status_filter in _AT_RISK else ""
-    if _valid_filter:
-        data["rows"] = [r for r in data["rows"] if r.status == _valid_filter]
+    wo_status_options = _wo_status_options(data["rows"])
+    _valid_wo_status = wo_status_filter if wo_status_filter in WO_STATUS_META else ""
+    if _valid_wo_status:
+        data["rows"] = [r for r in data["rows"] if wo_status(r.job_released, r.job_firm) == _valid_wo_status]
+
+    # KPI card counts always reflect the full class/dept/date/search scope (all tiers),
+    # independent of the status filter below, so the cards keep working as filter buttons.
+    status_counts_all = _status_counts(data["rows"])
+
+    _valid_status = status_filter if status_filter in _AT_RISK_STATUSES else ""
+    if _valid_status:
+        data["rows"] = [r for r in data["rows"] if r.status == _valid_status]
     else:
-        data["rows"] = [r for r in data["rows"] if r.status in _AT_RISK]
+        data["rows"] = [r for r in data["rows"] if r.status in _AT_RISK_STATUSES]
     data["total_rows"] = len(data["rows"])
+
+    # Charts/summary computed on the same rows as the detail table, so they reflect
+    # every active filter including the status tier.
+    shortage_insights = get_shortage_insights(data["rows"], class_labels=class_labels)
 
     departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
 
@@ -155,11 +250,19 @@ def component_shortage():
         title="Component Shortage Report",
         data=data,
         shortage_insights=shortage_insights,
+        status_counts_all=status_counts_all,
         departments=departments,
+        class_options=class_options,
+        class_labels=class_labels,
+        wo_status_options=wo_status_options,
+        wo_status_meta=WO_STATUS_META,
+        wo_status_of=wo_status,
         mat_status_meta=MAT_STATUS_META,
         dept_filter=dept_filter,
         search=search,
-        status_filter=_valid_filter,
+        status_filter=_valid_status,
+        cls_filter=_valid_cls,
+        wo_status_filter=_valid_wo_status,
         due_before=due_before_str,
         due_from=due_from_str,
         today=date.today(),
@@ -321,6 +424,46 @@ def exempt_delete(code):
     else:
         flash(f"{code} not found in exempt list.", "warning")
     return redirect(url_for("materials.exempt_materials"))
+
+
+@materials_bp.route("/class-labels", methods=["GET"])
+@login_required
+@permission_required("manage_imports", "manage_purchasing")
+def class_labels():
+    items = get_class_labels()
+    return render_template(
+        "materials/class_labels.html",
+        title="Material Class Labels",
+        items=items,
+    )
+
+
+@materials_bp.route("/class-labels/save", methods=["POST"])
+@login_required
+@permission_required("manage_imports", "manage_purchasing")
+def class_labels_save():
+    class_id = request.form.get("class_id", "")
+    label = request.form.get("label", "")
+    row = set_class_label(class_id, label)
+    if row:
+        flash(f"Label saved for class {row.class_id}.", "success")
+    elif class_id.strip():
+        flash(f"Label removed for class {class_id.strip()} (blank label).", "info")
+    else:
+        flash("Please enter a class ID.", "warning")
+    return redirect(url_for("materials.class_labels"))
+
+
+@materials_bp.route("/class-labels/<string:class_id>/delete", methods=["POST"])
+@login_required
+@permission_required("manage_imports", "manage_purchasing")
+def class_labels_delete(class_id):
+    deleted = delete_class_label(class_id)
+    if deleted:
+        flash(f"Label removed for class {class_id}.", "success")
+    else:
+        flash(f"No label found for class {class_id}.", "warning")
+    return redirect(url_for("materials.class_labels"))
 
 
 @materials_bp.route("/mrp")

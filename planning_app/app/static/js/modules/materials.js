@@ -28,23 +28,37 @@ document.addEventListener('DOMContentLoaded', function () {
         var tmCtx = document.getElementById('topMaterialsChart');
         if (tmCtx && S.topMaterials.length) {
             tmCtx.style.height = Math.max(120, S.topMaterials.length * 24) + 'px';
+            // Same 4 tiers/colours as the KPI filter cards above, so "Soft Risk" (low_risk)
+            // shows as its own segment instead of being merged into a generic "PO-reliant" bucket.
+            var TIERS = [
+                { key: 'high_risk', label: 'Shortage',   color: '#dc3545' },
+                { key: 'late_po',   label: 'Late PO',    color: '#fd7e14' },
+                { key: 'med_risk',  label: 'PO Reliant',color: '#ffc107' },
+                { key: 'low_risk',  label: 'Soft Risk',  color: '#0dcaf0' },
+            ];
             new Chart(tmCtx, {
                 type: 'bar',
                 data: {
                     labels: S.topMaterials.map(function (m) { return m.code; }),
-                    datasets: [{ label: 'Shortage Qty', data: S.topMaterials.map(function (m) { return parseFloat(m.shortage); }),
-                        backgroundColor: S.barColor + '99', borderColor: S.barColor, borderWidth: 1, borderRadius: 3 }],
+                    datasets: TIERS.map(function (t) {
+                        return {
+                            label: t.label,
+                            data: S.topMaterials.map(function (m) { return parseFloat(m[t.key] || 0); }),
+                            backgroundColor: t.color + '99', borderColor: t.color, borderWidth: 1,
+                            borderRadius: 3, stack: 'risk',
+                        };
+                    }),
                 },
                 options: {
                     indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-                    plugins: { legend: { display: false }, tooltip: { callbacks: {
+                    plugins: { legend: { display: true, position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } }, tooltip: { callbacks: {
                         title: function (i) { return S.topMaterials[i[0].dataIndex].description || i[0].label; },
-                        label: function (i) { return ' Shortage: ' + i.raw.toLocaleString('en-GB', { maximumFractionDigits: 2 }); },
+                        label: function (i) { return ' ' + i.dataset.label + ': ' + i.raw.toLocaleString('en-GB', { maximumFractionDigits: 2 }); },
                         afterLabel: function (i) { var d = S.topMaterials[i.dataIndex].earliest_due; return d ? ' Earliest due: ' + d : ''; },
                     }}},
                     scales: {
-                        x: { beginAtZero: true, title: { display: true, text: 'Shortage quantity' } },
-                        y: { grid: { display: false }, ticks: { font: { size: 11 } } },
+                        x: { stacked: true, beginAtZero: true, title: { display: true, text: 'At-risk quantity' } },
+                        y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } },
                     },
                 },
             });
@@ -56,7 +70,7 @@ document.addEventListener('DOMContentLoaded', function () {
             new Chart(bcCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: S.byClass.map(function (c) { return c.class_id; }),
+                    labels: S.byClass.map(function (c) { return c.label || c.class_id; }),
                     datasets: [{ data: S.byClass.map(function (c) { return parseFloat(c.shortage_qty); }),
                         backgroundColor: S.byClass.map(function (_, i) { return palette[i % palette.length]; }), borderWidth: 2 }],
                 },
@@ -68,6 +82,13 @@ document.addEventListener('DOMContentLoaded', function () {
                             return ' ' + i.label + ': ' + i.raw.toLocaleString('en-GB', { maximumFractionDigits: 2 })
                                 + ' (' + S.byClass[i.dataIndex].line_count + ' lines)';
                         }}},
+                    },
+                    onClick: function (e, els) {
+                        if (els.length && S.classFilterUrl) {
+                            var cid = S.byClass[els[0].index].class_id;
+                            var sep = S.classFilterUrl.indexOf('?') === -1 ? '?' : '&';
+                            window.location = S.classFilterUrl + sep + 'cls=' + encodeURIComponent(cid);
+                        }
                     },
                 },
             });
