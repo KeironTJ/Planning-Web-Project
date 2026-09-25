@@ -154,6 +154,12 @@
                 </a>
             </li>
             <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'materials.release_impact' %}active{% endif %}"
+                   href="{{ url_for('materials.release_impact') }}">
+                    <i class="bi bi-cash-stack me-2"></i>Cash Release Impact
+                </a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link {% if request.endpoint == 'purchasing.supplier_delivery' %}active{% endif %}"
                    href="{{ url_for('purchasing.supplier_delivery') }}">
                     <i class="bi bi-truck me-2"></i>Supplier Delivery

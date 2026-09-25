@@ -1,0 +1,583 @@
+{% extends 'base.html' %}
+
+{% block page_actions %}
+<a href="{{ url_for('materials.po_list') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-cart me-1"></i>Open POs
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="alert alert-info border-0 shadow-sm small">
+    <i class="bi bi-info-circle me-1"></i>
+    This is a what-if view. Every open PO release is treated as withheld until selected.
+    Releases marked as committed are included in the baseline supply.
+    Outstanding PO value is used as the cash proxy; it is not an accounts-payable balance.
+    {% if scope == 'all' %}
+    Jobs are only counted as unlocked when all imported fabric and component requirements are covered.
+    {% else %}
+    <strong>Fabric-only mode:</strong> component shortages are ignored when deciding whether a job is unlocked.
+    {% endif %}
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-transparent p-0">
+        <button class="btn btn-link text-start text-decoration-none text-body w-100 px-3 py-2"
+                type="button" data-bs-toggle="collapse" data-bs-target="#releaseImpactGuide"
+                aria-expanded="false" aria-controls="releaseImpactGuide">
+            <i class="bi bi-question-circle me-1 text-primary"></i>
+            <span class="fw-semibold">How to use this page</span>
+            <i class="bi bi-chevron-down float-end"></i>
+        </button>
+    </div>
+    <div class="collapse" id="releaseImpactGuide">
+        <div class="card-body small">
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <h6>1. Start with the baseline</h6>
+                    <p class="text-muted">
+                        The baseline includes available stock and any PO releases you have marked as
+                        <strong>committed</strong>. All other open PO releases are treated as withheld,
+                        allowing the page to measure what changes when each one is released.
+                    </p>
+                    <h6>2. Choose the material scope</h6>
+                    <ul class="text-muted mb-0">
+                        <li>
+                            <strong>Fabric only</strong> is the default. Component shortages do not prevent
+                            a job from being reported as unlocked.
+                        </li>
+                        <li>
+                            <strong>Fabric and components</strong> requires every imported fabric and
+                            component requirement for the job to be covered.
+                        </li>
+                        <li>
+                            Stock and PO supply are allocated to requirements in due-date order. A PO must
+                            arrive early enough for the configured material lead time.
+                        </li>
+                    </ul>
+                </div>
+                <div class="col-lg-6">
+                    <h6>3. Read the scenario sections</h6>
+                    <ul class="text-muted">
+                        <li>
+                            <strong>Supplier Release Impact</strong> recalculates the combined effect of
+                            releasing all remaining candidate POs for one supplier.
+                        </li>
+                        <li>
+                            <strong>Single PO Release Impact</strong> tests one PO release at a time.
+                        </li>
+                        <li>
+                            <strong>Bundled PO Release Impact</strong> shows combinations of two or three
+                            POs that unlock jobs which the individual POs cannot unlock alone.
+                        </li>
+                        <li>
+                            Expand a row to inspect included POs, unlocked jobs, and remaining blockers.
+                        </li>
+                    </ul>
+                    <h6>4. Record decisions</h6>
+                    <p class="text-muted mb-0">
+                        Tick releases in the single-PO table and select <strong>Review staged POs</strong>
+                        to calculate their combined impact. Review the staged cash and value summary, then
+                        select <strong>Commit staged POs</strong> when the release decision is made. They
+                        remain available in the baseline and disappear from future recommendations.
+                    </p>
+                </div>
+            </div>
+            <hr>
+            <div class="row g-3">
+                <div class="col-md-6 col-xl-3">
+                    <strong>Blocked jobs reached</strong>
+                    <div class="text-muted">
+                        Jobs linked to the scenario that are short in the baseline. Jobs already covered
+                        by stock or committed supply are excluded.
+                    </div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <strong>Jobs / orders unlocked</strong>
+                    <div class="text-muted">
+                        A job is unlocked when all requirements in the selected scope are covered. An order
+                        is unlocked only when every linked job is unlocked.
+                    </div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <strong>Cash and value</strong>
+                    <div class="text-muted">
+                        Cash proxy is outstanding PO value, not the accounts-payable amount.
+                        Value less cash is unlocked sales value minus that proxy and is not profit or margin.
+                    </div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <strong>Value / cash</strong>
+                    <div class="text-muted">
+                        Unlocked sales-order value divided by cash proxy. For example, 5.0x means £5 of
+                        order value is unlocked for each £1 of outstanding PO value.
+                    </div>
+                </div>
+            </div>
+            <div class="alert alert-warning py-2 px-3 mt-3 mb-0">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                This is decision support based on the latest imported requirements, stock, PO dates and
+                order values. Confirm supplier terms, actual payment required, delivery confidence and
+                operational capacity before releasing payment.
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-sm-6 col-xl-3">
+        <div class="card border-0 shadow-sm h-100"><div class="card-body">
+            <div class="text-muted small">Remaining PO candidates</div>
+            <div class="fs-3 fw-bold">{{ data.candidate_count }}</div>
+            <div class="small text-muted">
+                {{ data.committed_pos | length }} committed of {{ data.total_candidate_count }}
+            </div>
+        </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <div class="card border-0 shadow-sm h-100"><div class="card-body">
+            <div class="text-muted small">Stock-only blocked jobs</div>
+            <div class="fs-3 fw-bold text-danger">{{ data.baseline_blocked_jobs }}</div>
+        </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <div class="card border-0 shadow-sm h-100"><div class="card-body">
+            <div class="text-muted small">Best single release</div>
+            <div class="fs-3 fw-bold text-success">{{ data.best_jobs_unlocked }}</div>
+            <div class="small text-muted">jobs fully unlocked</div>
+        </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <div class="card border-0 shadow-sm h-100"><div class="card-body">
+            <div class="text-muted small">Synergistic bundles</div>
+            <div class="fs-3 fw-bold text-primary">{{ data.bundle_results | length }}</div>
+            <div class="small text-muted">two or three PO releases</div>
+        </div></div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-center">
+            {% for key in committed_keys %}<input type="hidden" name="committed" value="{{ key }}">{% endfor %}
+            {% for key in staged_keys %}<input type="hidden" name="staged" value="{{ key }}">{% endfor %}
+            <div class="col-sm-6 col-lg-4">
+                <input type="search" name="q" class="form-control form-control-sm"
+                       placeholder="PO, material, description or supplier..." value="{{ search }}">
+            </div>
+            <div class="col-sm-4 col-lg-3">
+                <select name="scope" class="form-select form-select-sm" aria-label="Material calculation scope">
+                    <option value="all" {{ 'selected' if scope == 'all' else '' }}>Fabric and components</option>
+                    <option value="fabric" {{ 'selected' if scope == 'fabric' else '' }}>Fabric only</option>
+                </select>
+            </div>
+            <div class="col-sm-5 col-lg-3">
+                <select name="sort" class="form-select form-select-sm" aria-label="Result ordering">
+                    {% for key, label in sort_options.items() %}
+                    <option value="{{ key }}" {{ 'selected' if sort_by == key else '' }}>Sort: {{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-primary btn-sm" type="submit">Apply</button>
+                {% if search %}
+                <a href="{{ url_for('materials.release_impact', committed=committed_keys, staged=staged_keys, scope=scope, sort=sort_by) }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if data.committed_pos %}
+<div class="card border-success border-opacity-50 shadow-sm mb-3">
+    <div class="card-header bg-success bg-opacity-10">
+        <div class="fw-semibold text-success-emphasis">
+            <i class="bi bi-check-circle me-1"></i>Committed baseline supply
+        </div>
+        <div class="small text-muted">
+            These releases remain available to jobs but are excluded from recommendations.
+            Uncheck one and recalculate to return it to the decision list.
+        </div>
+    </div>
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-center">
+            {% if search %}<input type="hidden" name="q" value="{{ search }}">{% endif %}
+            <input type="hidden" name="scope" value="{{ scope }}">
+            <input type="hidden" name="sort" value="{{ sort_by }}">
+            {% for key in staged_keys %}<input type="hidden" name="staged" value="{{ key }}">{% endfor %}
+            {% for po in data.committed_pos %}
+            <div class="col-md-6 col-xl-4">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="committed"
+                           value="{{ po.key }}" id="committed-{{ loop.index }}" checked>
+                    <label class="form-check-label small" for="committed-{{ loop.index }}">
+                        <strong>{{ po.key }}</strong> - {{ po.material_code }}
+                        {% if po.description %}<span>{{ po.description }}</span>{% endif %}
+                        <span class="text-muted">
+                            ({{ po.supplier or 'Unknown supplier' }};
+                            {{ po.outstanding_qty | round(2) }} {{ po.unit_of_measure or 'units' }} outstanding;
+                            due {{ po.due_date.strftime('%d %b %y') }})
+                        </span>
+                    </label>
+                </div>
+            </div>
+            {% endfor %}
+            <div class="col-12">
+                <button class="btn btn-success btn-sm" type="submit">
+                    <i class="bi bi-arrow-repeat me-1"></i>Recalculate baseline
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if data.staged_result %}
+{% set staged = data.staged_result %}
+<div class="card border-primary shadow-sm mb-3">
+    <div class="card-header bg-primary bg-opacity-10">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="fw-semibold text-primary-emphasis">
+                <i class="bi bi-clipboard-check me-1"></i>Staged Release Decision
+            </span>
+            <span class="badge text-bg-primary">{{ staged.pos | length }} PO releases</span>
+            <span class="badge text-bg-secondary">{{ staged.supplier_groups | length }} suppliers</span>
+            <span class="badge text-bg-{{ staged.result_colour }}">{{ staged.result }}</span>
+        </div>
+        <div class="small text-muted mt-1">
+            This is the combined result of the selected POs, recalculated as one scenario rather than summed from individual rows.
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-6 col-lg">
+                <div class="text-muted small">Cash proxy</div>
+                <div class="fs-5 fw-bold">£{{ '{:,.2f}'.format(staged.cash_proxy | float) }}</div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="text-muted small">Jobs unlocked</div>
+                <div class="fs-5 fw-bold text-success">{{ staged.jobs_unlocked | length }}</div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="text-muted small">Orders unlocked</div>
+                <div class="fs-5 fw-bold">{{ staged.orders_unlocked | length }}</div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="text-muted small">Order value unlocked</div>
+                <div class="fs-5 fw-bold">£{{ '{:,.2f}'.format(staged.order_value_unlocked | float) }}</div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="text-muted small">Value less cash</div>
+                <div class="fs-5 fw-bold {{ 'text-success' if staged.value_less_cash_proxy > 0 else 'text-danger' }}">
+                    £{{ '{:,.2f}'.format(staged.value_less_cash_proxy | float) }}
+                </div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="text-muted small">Value / cash</div>
+                <div class="fs-5 fw-bold">{{ '{:,.1f}'.format(staged.return_ratio | float) ~ 'x' if staged.return_ratio is not none else '—' }}</div>
+            </div>
+        </div>
+        <details class="mb-3">
+            <summary class="small fw-semibold" style="cursor:pointer;">
+                Review {{ staged.pos | length }} staged POs and job impact
+            </summary>
+            <div class="row g-3 mt-1">
+                <div class="col-lg-6">
+                    <div class="small fw-semibold mb-2">Staged POs by supplier</div>
+                    {% for group in staged.supplier_groups %}
+                    <div class="border rounded p-2 mb-2 bg-light">
+                        <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                            <strong>{{ group.supplier }}</strong>
+                            <span class="text-nowrap">
+                                <span class="badge text-bg-secondary">{{ group.po_count }} POs</span>
+                                <span class="fw-semibold ms-1">£{{ '{:,.2f}'.format(group.cash_proxy | float) }}</span>
+                            </span>
+                        </div>
+                        {% for po in group.pos %}
+                        <div class="small border-top pt-1 mt-1">
+                            <strong>{{ po.key }}</strong> -
+                            <a href="{{ url_for('materials.mrp', q=po.material_code) }}">{{ po.material_code }}</a>
+                            {% if po.description %}<span>{{ po.description }}</span>{% endif %}
+                            <div class="text-muted ms-2">
+                                outstanding {{ po.outstanding_qty | round(2) }} {{ po.unit_of_measure or 'units' }} ·
+                                release {{ po.release_qty | round(2) }} ·
+                                received {{ po.received_qty | round(2) }} ·
+                                due {{ po.due_date.strftime('%d %b %y') }} ·
+                                £{{ '{:,.2f}'.format(po.cash_proxy | float) }}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="col-lg-6">
+                    {% for detail in staged.details %}
+                    <div class="small">
+                        <strong>{{ detail.works_order }}</strong>
+                        {% if detail.so_number %}/ SO {{ detail.so_number }}{% endif %}
+                        {% if detail.unlocked %}
+                        <span class="badge text-bg-success">Unlocked</span>
+                        {% else %}
+                        <span class="text-muted">Remaining: {{ detail.blockers | join(', ') }}</span>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <div class="small text-muted">No blocked jobs improve under this staged selection.</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </details>
+        <div class="d-flex flex-wrap gap-2">
+            <form method="GET">
+                {% if search %}<input type="hidden" name="q" value="{{ search }}">{% endif %}
+                <input type="hidden" name="scope" value="{{ scope }}">
+                <input type="hidden" name="sort" value="{{ sort_by }}">
+                {% for key in committed_keys %}<input type="hidden" name="committed" value="{{ key }}">{% endfor %}
+                {% for key in staged_keys %}<input type="hidden" name="committed" value="{{ key }}">{% endfor %}
+                <button class="btn btn-success btn-sm" type="submit">
+                    <i class="bi bi-check-circle me-1"></i>Commit staged POs and recalculate
+                </button>
+            </form>
+            <a href="{{ url_for('materials.release_impact', committed=committed_keys, scope=scope, sort=sort_by, q=search) }}"
+               class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-x-circle me-1"></i>Clear staging
+            </a>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% macro impact_table(rows, bundled=false, selectable=false) %}
+<div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0" style="font-size:.82rem;">
+        <thead class="thead-subtle">
+            <tr>
+                {% if selectable %}<th class="text-center">Commit</th>{% endif %}
+                <th>PO Release{% if bundled %}s{% endif %}</th>
+                <th>Material / Supplier</th>
+                <th class="text-end">Cash proxy</th>
+                <th class="text-center" title="Jobs blocked before this PO scenario and linked to its material supply">Blocked jobs reached</th>
+                <th class="text-center">Jobs unlocked</th>
+                {% if bundled %}<th class="text-center">Bundle-only</th>{% endif %}
+                <th class="text-center">Orders unlocked</th>
+                <th class="text-end">Order value unlocked</th>
+                <th class="text-end" title="Unlocked sales-order value minus the outstanding PO value used as the cash proxy">Value less cash</th>
+                <th class="text-end" title="Unlocked sales-order value divided by cash proxy">Value / cash</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                {% if selectable %}
+                <td class="text-center">
+                    <input class="form-check-input" type="checkbox" name="staged"
+                           value="{{ row.pos[0].key }}" aria-label="Stage PO {{ row.pos[0].key }}"
+                           {{ 'checked' if row.pos[0].key in staged_keys else '' }}>
+                </td>
+                {% endif %}
+                <td class="text-nowrap">
+                    {% for po in row.pos %}
+                    <div class="fw-semibold">{{ po.key }}</div>
+                    {% endfor %}
+                </td>
+                <td>
+                    {% for po in row.pos %}
+                    <div class="{{ 'mb-1' if not loop.last else '' }}">
+                        <a href="{{ url_for('materials.mrp', q=po.material_code) }}" class="text-decoration-none fw-semibold">{{ po.material_code }}</a>
+                        {% if po.description %}
+                        <span class="ms-1">{{ po.description }}</span>
+                        {% endif %}
+                        <div class="text-muted" style="font-size:.72rem;">
+                            {{ po.supplier or 'Unknown supplier' }} ·
+                            Outstanding {{ po.outstanding_qty | round(2) }} {{ po.unit_of_measure or 'units' }} ·
+                            Rel {{ po.release_qty | round(2) }} ·
+                            Rec {{ po.received_qty | round(2) }} ·
+                            Due {{ po.due_date.strftime('%d %b %y') }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </td>
+                <td class="text-end fw-semibold">£{{ '{:,.2f}'.format(row.cash_proxy | float) }}</td>
+                <td class="text-center">{{ row.affected_jobs }}</td>
+                <td class="text-center"><span class="badge text-bg-success">{{ row.jobs_unlocked | length }}</span></td>
+                {% if bundled %}<td class="text-center"><span class="badge text-bg-primary">{{ row.synergy_jobs | length }}</span></td>{% endif %}
+                <td class="text-center">{{ row.orders_unlocked | length }}</td>
+                <td class="text-end fw-semibold">£{{ '{:,.2f}'.format(row.order_value_unlocked | float) }}</td>
+                <td class="text-end {{ 'text-success' if row.value_less_cash_proxy > 0 else ('text-danger' if row.value_less_cash_proxy < 0 else 'text-muted') }}">
+                    £{{ '{:,.2f}'.format(row.value_less_cash_proxy | float) }}
+                </td>
+                <td class="text-end">{{ '{:,.1f}'.format(row.return_ratio | float) ~ 'x' if row.return_ratio is not none else '—' }}</td>
+                <td><span class="badge text-bg-{{ row.result_colour }}">{{ row.result }}</span></td>
+            </tr>
+            {% if row.details %}
+            <tr class="table-light">
+                <td colspan="{{ 11 if bundled else (11 if selectable else 10) }}" class="py-1">
+                    <details>
+                        <summary class="small fw-semibold" style="cursor:pointer;">
+                            Job detail: {{ row.jobs_unlocked | length }} unlocked, {{ row.jobs_improved | length }} partially improved
+                        </summary>
+                        <div class="table-responsive mt-2">
+                            <table class="table table-sm mb-0 small">
+                                <thead><tr><th>Works order</th><th>Sales order</th><th>Before shortage</th><th>After shortage</th><th>Remaining blockers</th></tr></thead>
+                                <tbody>
+                                {% for detail in row.details %}
+                                <tr>
+                                    <td>{{ detail.works_order }} {% if detail.unlocked %}<span class="badge text-bg-success">Unlocked</span>{% endif %}</td>
+                                    <td>{{ detail.so_number or '—' }}</td>
+                                    <td>{{ detail.before_shortage | round(2) }}</td>
+                                    <td>{{ detail.after_shortage | round(2) }}</td>
+                                    <td>{{ detail.blockers | join(', ') if detail.blockers else 'None' }}</td>
+                                </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                </td>
+            </tr>
+            {% endif %}
+            {% else %}
+            <tr><td colspan="{{ 11 if bundled else (11 if selectable else 10) }}" class="text-center text-muted py-4">No matching release impacts.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endmacro %}
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-transparent">
+        <div>
+            <span class="fw-semibold"><i class="bi bi-building me-1 text-primary"></i>Supplier Release Impact</span>
+            <span class="badge text-bg-secondary ms-2">{{ data.supplier_results | length }}</span>
+        </div>
+        <div class="small text-muted mt-1">
+            Each row recalculates the combined impact of releasing all remaining candidate POs for that supplier.
+            Jobs and order value are de-duplicated rather than summed from individual PO rows.
+            Currently ordered by <strong>{{ sort_options[sort_by] }}</strong>.
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0" style="font-size:.82rem;">
+                <thead class="thead-subtle">
+                    <tr>
+                        <th>Supplier</th>
+                        <th class="text-center">PO releases</th>
+                        <th class="text-end">Cash proxy</th>
+                        <th class="text-center">Blocked jobs reached</th>
+                        <th class="text-center">Jobs unlocked</th>
+                        <th class="text-center">Orders unlocked</th>
+                        <th class="text-end">Order value unlocked</th>
+                        <th class="text-end">Value less cash</th>
+                        <th class="text-end">Value / cash</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in data.supplier_results %}
+                    <tr>
+                        <td class="fw-semibold">{{ row.supplier }}</td>
+                        <td class="text-center">{{ row.po_count }}</td>
+                        <td class="text-end fw-semibold">£{{ '{:,.2f}'.format(row.cash_proxy | float) }}</td>
+                        <td class="text-center">{{ row.affected_jobs }}</td>
+                        <td class="text-center"><span class="badge text-bg-success">{{ row.jobs_unlocked | length }}</span></td>
+                        <td class="text-center">{{ row.orders_unlocked | length }}</td>
+                        <td class="text-end fw-semibold">£{{ '{:,.2f}'.format(row.order_value_unlocked | float) }}</td>
+                        <td class="text-end {{ 'text-success' if row.value_less_cash_proxy > 0 else ('text-danger' if row.value_less_cash_proxy < 0 else 'text-muted') }}">
+                            £{{ '{:,.2f}'.format(row.value_less_cash_proxy | float) }}
+                        </td>
+                        <td class="text-end">{{ '{:,.1f}'.format(row.return_ratio | float) ~ 'x' if row.return_ratio is not none else '—' }}</td>
+                        <td><span class="badge text-bg-{{ row.result_colour }}">{{ row.result }}</span></td>
+                    </tr>
+                    <tr class="table-light">
+                        <td colspan="10" class="py-1">
+                            <details>
+                                <summary class="small fw-semibold" style="cursor:pointer;">
+                                    {{ row.po_count }} PO releases; {{ row.jobs_unlocked | length }} jobs unlocked; {{ row.jobs_improved | length }} partially improved
+                                </summary>
+                                <div class="row g-2 mt-1">
+                                    <div class="col-lg-5">
+                                        <div class="small fw-semibold mb-1">Included PO releases</div>
+                                        {% for po in row.pos %}
+                                        <div class="small">
+                                            <strong>{{ po.key }}</strong> -
+                                            <a href="{{ url_for('materials.mrp', q=po.material_code) }}">{{ po.material_code }}</a>
+                                            {% if po.description %}<span>{{ po.description }}</span>{% endif %}
+                                            <div class="text-muted ms-2">
+                                                Outstanding {{ po.outstanding_qty | round(2) }} {{ po.unit_of_measure or 'units' }} ·
+                                                release {{ po.release_qty | round(2) }} ·
+                                                received {{ po.received_qty | round(2) }} ·
+                                                due {{ po.due_date.strftime('%d %b %y') }} ·
+                                                £{{ '{:,.2f}'.format(po.cash_proxy | float) }}
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    <div class="col-lg-7">
+                                        <div class="small fw-semibold mb-1">Job impact</div>
+                                        {% for detail in row.details %}
+                                        <div class="small">
+                                            <strong>{{ detail.works_order }}</strong>
+                                            {% if detail.so_number %}/ SO {{ detail.so_number }}{% endif %}
+                                            {% if detail.unlocked %}
+                                            <span class="badge text-bg-success">Unlocked</span>
+                                            {% else %}
+                                            <span class="text-muted">Remaining: {{ detail.blockers | join(', ') }}</span>
+                                            {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <div class="small text-muted">No jobs improve under this combined release.</div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </details>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="10" class="text-center text-muted py-4">No matching supplier impacts.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-transparent d-flex align-items-center">
+        <div>
+            <span class="fw-semibold"><i class="bi bi-box-arrow-up-right me-1 text-success"></i>Single PO Release Impact</span>
+            <span class="badge text-bg-secondary ms-2">{{ data.single_results | length }}</span>
+            <div class="small text-muted mt-1">
+                Currently ordered by <strong>{{ sort_options[sort_by] }}</strong>.
+                Blocked jobs reached excludes jobs already covered by stock or committed PO supply.
+                Value less cash is a revenue comparison, not a margin or profit calculation.
+            </div>
+        </div>
+    </div>
+    <form method="GET">
+        {% if search %}<input type="hidden" name="q" value="{{ search }}">{% endif %}
+        <input type="hidden" name="scope" value="{{ scope }}">
+        <input type="hidden" name="sort" value="{{ sort_by }}">
+        {% for key in committed_keys %}<input type="hidden" name="committed" value="{{ key }}">{% endfor %}
+        <div class="card-body border-bottom py-2 d-flex align-items-center gap-2">
+            <button class="btn btn-primary btn-sm" type="submit">
+                <i class="bi bi-clipboard-check me-1"></i>Review staged POs
+            </button>
+            <span class="small text-muted">Selection is staged only; nothing moves into the baseline until you commit it from the summary.</span>
+        </div>
+        <div class="card-body p-0">{{ impact_table(data.single_results, false, true) }}</div>
+    </form>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-transparent">
+        <div class="fw-semibold"><i class="bi bi-boxes me-1 text-primary"></i>Bundled PO Release Impact</div>
+        <div class="small text-muted">
+            Only bundles that unlock at least one job which none of their individual PO releases unlock are shown.
+            Ranked by bundle-only jobs unlocked, then the same production-impact measures used above.
+            Suggestions use the 18 releases linked to the most jobs and are capped at three releases per bundle.
+        </div>
+    </div>
+    <div class="card-body p-0">{{ impact_table(data.bundle_results, true) }}</div>
+</div>
+{% endblock %}

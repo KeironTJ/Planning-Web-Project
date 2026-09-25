@@ -87,12 +87,23 @@ def make_stock(
 
 
 def make_po(part_num="FAB001", outstanding_qty=0, due_date=None,
-            po_num=1, po_line=1, po_release=1):
+            po_num=1, po_line=1, po_release=1, unit_cost=1,
+            cost_per_code="E", supplier_name="Test Supplier",
+            line_desc=None, unit_of_measure="M", rel_qty=None, received_qty=0):
+    if rel_qty is None:
+        rel_qty = outstanding_qty
     po = PurchaseOrder(
         po_num=po_num, po_line=po_line, po_release=po_release,
         part_num=part_num,
         outstanding_qty=D(outstanding_qty),
+        rel_qty=D(rel_qty),
+        received_qty=D(received_qty),
+        line_desc=line_desc,
+        unit_of_measure=unit_of_measure,
         due_date=due_date or (TODAY + timedelta(days=5)),
+        unit_cost=D(unit_cost),
+        cost_per_code=cost_per_code,
+        supplier_name=supplier_name,
         open_order=True, open_line=True, open_release=True,
     )
     _db.session.add(po)
@@ -573,3 +584,292 @@ class TestShortageFilters:
         codes = {r.material_code for r in shortages}
         assert "FAB105" not in codes   # ok row hidden
         assert "FAB106" in codes       # shortage row shown
+
+
+# ---------------------------------------------------------------------------
+# Release impact scenarios
+# ---------------------------------------------------------------------------
+
+class TestReleaseImpact:
+    @pytest.fixture(autouse=True)
+    def ctx(self, app, zero_lead_days):
+        with app.test_request_context():
+            yield
+
+    def run_impact(self, committed_keys=None):
+        from app.purchasing.materials.services.release_impact import get_release_impact
+        _db.session.commit()
+        return get_release_impact(committed_keys=committed_keys)
+
+    def test_single_po_unlocks_fully_covered_job(self, db):
+        make_req("FAB201", qty_for_order=10, works_order="WO201", so_number="2201")
+        make_stock("FAB201", qty_on_hand=0)
+        make_po(
+            "FAB201", outstanding_qty=10, po_num=201,
+            unit_cost=5, supplier_name="Fabric Co",
+        )
+
+        data = self.run_impact()
+
+        result = next(row for row in data["single_results"] if row["key"] == "201/1/1")
+        assert result["jobs_unlocked"] == ["WO201"]
+        assert result["cash_proxy"] == D(50)
+        assert result["result"] == "Releases production"
+
+    def test_bundle_finds_job_not_unlocked_by_either_po_alone(self, db):
+        make_req("FAB202", qty_for_order=10, works_order="WO202", so_number="2202")
+        make_req(
+            "COMP202", qty_for_order=4, works_order="WO202", so_number="2202",
+            material_group="component", class_id="COMP",
+        )
+        make_stock("FAB202", qty_on_hand=0)
+        make_stock("COMP202", qty_on_hand=0)
+        make_po("FAB202", outstanding_qty=10, po_num=202)
+        make_po("COMP202", outstanding_qty=4, po_num=203)
+
+        data = self.run_impact()
+
+        assert all(not row["jobs_unlocked"] for row in data["single_results"])
+        bundle = next(
+            row for row in data["bundle_results"]
+            if {po.key for po in row["pos"]} == {"202/1/1", "203/1/1"}
+        )
+        assert bundle["jobs_unlocked"] == ["WO202"]
+        assert bundle["synergy_jobs"] == ["WO202"]
+
+    def test_committed_po_stays_in_baseline_and_leaves_candidates(self, db):
+        make_req("FAB203", qty_for_order=10, works_order="WO203", so_number="2203")
+        make_req(
+            "COMP203", qty_for_order=4, works_order="WO203", so_number="2203",
+            material_group="component", class_id="COMP",
+        )
+        make_stock("FAB203", qty_on_hand=0)
+        make_stock("COMP203", qty_on_hand=0)
+        make_po("FAB203", outstanding_qty=10, po_num=204)
+        make_po("COMP203", outstanding_qty=4, po_num=205)
+
+        data = self.run_impact(committed_keys={"204/1/1"})
+
+        assert [po.key for po in data["committed_pos"]] == ["204/1/1"]
+        assert all(row["key"] != "204/1/1" for row in data["single_results"])
+        component_result = next(
+            row for row in data["single_results"] if row["key"] == "205/1/1"
+        )
+        assert component_result["jobs_unlocked"] == ["WO203"]
+
+    def test_fabric_only_scope_ignores_component_blocker(self, db):
+        make_req("FAB204", qty_for_order=10, works_order="WO204", so_number="2204")
+        make_req(
+            "COMP204", qty_for_order=4, works_order="WO204", so_number="2204",
+            material_group="component", class_id="COMP",
+        )
+        make_stock("FAB204", qty_on_hand=0)
+        make_stock("COMP204", qty_on_hand=0)
+        make_po("FAB204", outstanding_qty=10, po_num=206)
+
+        from app.purchasing.materials.services.release_impact import get_release_impact
+        _db.session.commit()
+        all_materials = get_release_impact(include_components=True)
+        fabric_only = get_release_impact(include_components=False)
+
+        all_result = next(
+            row for row in all_materials["single_results"] if row["key"] == "206/1/1"
+        )
+        fabric_result = next(
+            row for row in fabric_only["single_results"] if row["key"] == "206/1/1"
+        )
+        assert all_result["jobs_unlocked"] == []
+        assert fabric_result["jobs_unlocked"] == ["WO204"]
+
+    def test_release_impact_page_renders(self, client, planner_user):
+        response = client.post("/auth/login", data={
+            "login": planner_user.email,
+            "password": "Planner!Pass1234",
+        })
+        assert response.status_code in (302, 303)
+
+        response = client.get("/purchasing/materials/release-impact?q=FAB")
+
+        assert response.status_code == 200
+        assert b"Cash Release Impact" in response.data
+        assert b"Bundled PO Release Impact" in response.data
+        assert b"Fabric-only mode" in response.data
+
+    def test_single_results_are_ranked_by_production_impact(self, db):
+        make_req("FAB205", qty_for_order=10, works_order="WO205", so_number="2205")
+        make_req("FAB206", qty_for_order=10, works_order="WO206", so_number="2206")
+        make_req("FAB206", qty_for_order=10, works_order="WO207", so_number="2207")
+        make_stock("FAB205", qty_on_hand=0)
+        make_stock("FAB206", qty_on_hand=0)
+        make_po("FAB205", outstanding_qty=10, po_num=207, unit_cost=1)
+        make_po("FAB206", outstanding_qty=20, po_num=208, unit_cost=100)
+
+        data = self.run_impact()
+
+        assert data["single_results"][0]["key"] == "208/1/1"
+        assert data["single_results"][0]["jobs_unlocked"] == ["WO206", "WO207"]
+
+    def test_affected_jobs_excludes_job_already_covered_by_stock(self, db):
+        make_req(
+            "FAB207", qty_for_order=5, works_order="WO208", so_number="2208",
+            due_date=TODAY + timedelta(days=10),
+        )
+        make_req(
+            "FAB207", qty_for_order=10, works_order="WO209", so_number="2209",
+            due_date=TODAY + timedelta(days=20),
+        )
+        make_stock("FAB207", qty_on_hand=5)
+        make_po("FAB207", outstanding_qty=10, po_num=209)
+
+        data = self.run_impact()
+
+        result = next(row for row in data["single_results"] if row["key"] == "209/1/1")
+        assert result["affected_jobs"] == 1
+        assert result["jobs_unlocked"] == ["WO209"]
+        assert "WO208" not in result["jobs_unlocked"]
+
+    def test_cash_comparison_calculates_value_less_cash(self, db):
+        from app.sales.orders.models import SalesOrder
+
+        make_req("FAB208", qty_for_order=10, works_order="WO210", so_number="2210")
+        make_stock("FAB208", qty_on_hand=0)
+        make_po("FAB208", outstanding_qty=10, po_num=210, unit_cost=5)
+        _db.session.add(SalesOrder(
+            order_num=2210,
+            order_line=1,
+            rel_num=1,
+            release_price_gbp=D(250),
+        ))
+
+        data = self.run_impact()
+
+        result = next(row for row in data["single_results"] if row["key"] == "210/1/1")
+        assert result["cash_proxy"] == D(50)
+        assert result["order_value_unlocked"] == D(250)
+        assert result["value_less_cash_proxy"] == D(200)
+        assert result["return_ratio"] == D(5)
+
+    def test_result_sort_options(self):
+        from app.purchasing.materials.services.release_impact import (
+            sort_release_impact_results,
+        )
+
+        low_cash = {
+            "key": "1/1/1", "cash_proxy": D(10),
+            "orders_unlocked": ["1"], "order_value_unlocked": D(100),
+            "value_less_cash_proxy": D(90), "return_ratio": D(10),
+            "jobs_unlocked": ["J1"], "jobs_improved": [],
+            "result": "Releases production",
+        }
+        high_value = {
+            "key": "2/1/1", "cash_proxy": D(100),
+            "orders_unlocked": ["2", "3"], "order_value_unlocked": D(500),
+            "value_less_cash_proxy": D(400), "return_ratio": D(5),
+            "jobs_unlocked": ["J2"], "jobs_improved": [],
+            "result": "Releases production",
+        }
+        rows = [high_value, low_cash]
+
+        assert sort_release_impact_results(rows, "cash_proxy")[0] is low_cash
+        assert sort_release_impact_results(rows, "orders_unlocked")[0] is high_value
+        assert sort_release_impact_results(rows, "order_value_unlocked")[0] is high_value
+        assert sort_release_impact_results(rows, "value_less_cash")[0] is high_value
+        assert sort_release_impact_results(rows, "value_cash")[0] is low_cash
+
+    def test_supplier_result_recalculates_combined_po_impact(self, db):
+        make_req("FAB209", qty_for_order=10, works_order="WO211", so_number="2211")
+        make_req("FAB210", qty_for_order=10, works_order="WO211", so_number="2211")
+        make_stock("FAB209", qty_on_hand=0)
+        make_stock("FAB210", qty_on_hand=0)
+        make_po(
+            "FAB209", outstanding_qty=10, po_num=211,
+            supplier_name="Combined Supplier",
+        )
+        make_po(
+            "FAB210", outstanding_qty=10, po_num=212,
+            supplier_name="Combined Supplier",
+        )
+
+        data = self.run_impact()
+
+        supplier = next(
+            row for row in data["supplier_results"]
+            if row["supplier"] == "Combined Supplier"
+        )
+        assert supplier["po_count"] == 2
+        assert supplier["jobs_unlocked"] == ["WO211"]
+        assert all(
+            "WO211" not in row["jobs_unlocked"]
+            for row in data["single_results"]
+        )
+
+    def test_staged_selection_returns_combined_decision_summary(self, db):
+        make_req("FAB211", qty_for_order=10, works_order="WO212", so_number="2212")
+        make_req("FAB212", qty_for_order=10, works_order="WO212", so_number="2212")
+        make_stock("FAB211", qty_on_hand=0)
+        make_stock("FAB212", qty_on_hand=0)
+        make_po("FAB211", outstanding_qty=10, po_num=213, unit_cost=2)
+        make_po("FAB212", outstanding_qty=10, po_num=214, unit_cost=3)
+
+        from app.purchasing.materials.services.release_impact import get_release_impact
+        _db.session.commit()
+        data = get_release_impact(staged_keys={"213/1/1", "214/1/1"})
+
+        assert data["staged_keys"] == ["213/1/1", "214/1/1"]
+        assert data["staged_result"]["cash_proxy"] == D(50)
+        assert data["staged_result"]["jobs_unlocked"] == ["WO212"]
+        assert data["staged_result"]["supplier_groups"] == [{
+            "supplier": "Test Supplier",
+            "pos": data["staged_result"]["pos"],
+            "po_count": 2,
+            "cash_proxy": D(50),
+            "outstanding_qty": D(20),
+        }]
+
+    def test_staged_selection_groups_pos_by_supplier(self, db):
+        make_req("FAB214", qty_for_order=5, works_order="WO214", so_number="2214")
+        make_req("FAB215", qty_for_order=5, works_order="WO215", so_number="2215")
+        make_stock("FAB214", qty_on_hand=0)
+        make_stock("FAB215", qty_on_hand=0)
+        make_po(
+            "FAB214", outstanding_qty=5, po_num=216, unit_cost=2,
+            supplier_name="Alpha Supplier",
+        )
+        make_po(
+            "FAB215", outstanding_qty=5, po_num=217, unit_cost=3,
+            supplier_name="Beta Supplier",
+        )
+
+        from app.purchasing.materials.services.release_impact import get_release_impact
+        _db.session.commit()
+        data = get_release_impact(staged_keys={"216/1/1", "217/1/1"})
+
+        groups = data["staged_result"]["supplier_groups"]
+        assert [group["supplier"] for group in groups] == [
+            "Alpha Supplier", "Beta Supplier",
+        ]
+        assert [group["cash_proxy"] for group in groups] == [D(10), D(15)]
+
+    def test_po_details_include_name_quantities_uom_and_due_date(self, db):
+        due = TODAY + timedelta(days=7)
+        make_req("FAB213", qty_for_order=8, works_order="WO213", so_number="2213")
+        make_stock("FAB213", qty_on_hand=0)
+        make_po(
+            "FAB213", outstanding_qty=8, po_num=215, due_date=due,
+            line_desc="Blue Herringbone", unit_of_measure="M",
+            rel_qty=12, received_qty=4,
+        )
+
+        data = self.run_impact()
+
+        po = next(
+            row["pos"][0]
+            for row in data["single_results"]
+            if row["key"] == "215/1/1"
+        )
+        assert po.description == "Blue Herringbone"
+        assert po.unit_of_measure == "M"
+        assert po.release_qty == D(12)
+        assert po.received_qty == D(4)
+        assert po.outstanding_qty == D(8)
+        assert po.due_date == due

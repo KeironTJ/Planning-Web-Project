@@ -17,6 +17,7 @@ from .services.exempt import add_exemptions, get_exempt_materials, remove_exempt
 from .services.insights import get_shortage_insights
 from .services.netting import get_shortage_report
 from .services.pegging import get_mrp_pegging
+from .services.release_impact import get_release_impact, sort_release_impact_results
 from .services.stock import get_po_list, get_stock_list, get_stock_overview, get_stock_summary
 from .services.types import MAT_STATUS_META, WO_STATUS_META, wo_status
 from app.extensions import db
@@ -329,6 +330,94 @@ def po_list():
         due_before=due_before_s,
         today=today,
         last_imported=last_po.imported_at if last_po else None,
+    )
+
+
+@materials_bp.route("/release-impact")
+@login_required
+@permission_required("view_materials")
+def release_impact():
+    search = request.args.get("q", "").strip()
+    scope = request.args.get("scope", "fabric").strip().lower()
+    if scope not in {"all", "fabric"}:
+        scope = "fabric"
+    sort_by = request.args.get("sort", "impact").strip().lower()
+    sort_options = {
+        "impact": "Impact",
+        "cash_proxy": "Cash proxy (lowest first)",
+        "orders_unlocked": "Orders unlocked",
+        "order_value_unlocked": "Order value unlocked",
+        "value_less_cash": "Value less cash",
+        "value_cash": "Value / cash",
+    }
+    if sort_by not in sort_options:
+        sort_by = "impact"
+    committed_keys = {
+        key.strip()
+        for key in request.args.getlist("committed")
+        if key.strip()
+    }
+    staged_keys = {
+        key.strip()
+        for key in request.args.getlist("staged")
+        if key.strip()
+    }
+    data = get_release_impact(
+        max_bundle_size=3,
+        committed_keys=committed_keys,
+        staged_keys=staged_keys,
+        include_components=scope == "all",
+    )
+    # Result lists are cached; copy before applying request-specific filters/sorts.
+    data = {
+        **data,
+        "single_results": list(data["single_results"]),
+        "supplier_results": list(data["supplier_results"]),
+        "bundle_results": list(data["bundle_results"]),
+    }
+    if search:
+        term = search.lower()
+
+        def matches(result):
+            return any(
+                term in " ".join((
+                    str(po.po_num),
+                    po.key,
+                    po.material_code,
+                    po.description,
+                    po.supplier,
+                )).lower()
+                for po in result["pos"]
+            )
+
+        data["single_results"] = [
+            result for result in data["single_results"] if matches(result)
+        ]
+        data["supplier_results"] = [
+            result for result in data["supplier_results"] if matches(result)
+        ]
+        data["bundle_results"] = [
+            result for result in data["bundle_results"] if matches(result)
+        ]
+    data["single_results"] = sort_release_impact_results(
+        data["single_results"], sort_by
+    )
+    data["supplier_results"] = sort_release_impact_results(
+        data["supplier_results"], sort_by
+    )
+    data["bundle_results"] = sort_release_impact_results(
+        data["bundle_results"], sort_by, bundled=True
+    )
+    return render_template(
+        "materials/release_impact.html",
+        title="Cash Release Impact",
+        data=data,
+        search=search,
+        scope=scope,
+        sort_by=sort_by,
+        sort_options=sort_options,
+        committed_keys=sorted(committed_keys),
+        staged_keys=data["staged_keys"],
     )
 
 
