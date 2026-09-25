@@ -54,6 +54,10 @@ class _Candidate:
     received_qty: Decimal
     outstanding_qty: Decimal
     cash_proxy: Decimal
+    # False when this PO's material falls outside the current fabric/component
+    # scope, so it plays no part in the current-scope shortage simulation but
+    # must still be shown (and stay manageable) in the committed baseline panel.
+    in_scope: bool = True
 
 
 @dataclass
@@ -112,6 +116,41 @@ def _cash_proxy(po: PurchaseOrder) -> Decimal:
     )
 
 
+def _candidate_from_po(
+    po: PurchaseOrder,
+    descriptions_by_material: dict[str, str],
+    in_scope: bool = True,
+) -> _Candidate:
+    return _Candidate(
+        key=f"{po.po_num}/{po.po_line}/{po.po_release}",
+        po_num=po.po_num,
+        po_line=po.po_line,
+        po_release=po.po_release,
+        material_code=po.part_num or "",
+        description=(
+            po.line_desc
+            or descriptions_by_material.get(po.part_num or "", "")
+        ),
+        unit_of_measure=po.unit_of_measure or "",
+        supplier_key=(
+            f"id:{po.supplier_id}"
+            if po.supplier_id
+            else (
+                f"name:{po.supplier_name}"
+                if po.supplier_name
+                else f"po:{po.po_num}"
+            )
+        ),
+        supplier=po.supplier_name or po.supplier_id or "",
+        due_date=po.due_date,
+        release_qty=po.rel_qty or Decimal(0),
+        received_qty=po.received_qty or Decimal(0),
+        outstanding_qty=po.outstanding_qty or Decimal(0),
+        cash_proxy=_cash_proxy(po),
+        in_scope=in_scope,
+    )
+
+
 def _load_candidates(
     material_codes: set[str],
     descriptions_by_material: dict[str, str],
@@ -128,35 +167,50 @@ def _load_candidates(
         .order_by(PurchaseOrder.due_date, PurchaseOrder.po_num)
         .all()
     )
-    return [
-        _Candidate(
-            key=f"{po.po_num}/{po.po_line}/{po.po_release}",
-            po_num=po.po_num,
-            po_line=po.po_line,
-            po_release=po.po_release,
-            material_code=po.part_num or "",
-            description=(
-                po.line_desc
-                or descriptions_by_material.get(po.part_num or "", "")
-            ),
-            unit_of_measure=po.unit_of_measure or "",
-            supplier_key=(
-                f"id:{po.supplier_id}"
-                if po.supplier_id
-                else (
-                    f"name:{po.supplier_name}"
-                    if po.supplier_name
-                    else f"po:{po.po_num}"
-                )
-            ),
-            supplier=po.supplier_name or po.supplier_id or "",
-            due_date=po.due_date,
-            release_qty=po.rel_qty or Decimal(0),
-            received_qty=po.received_qty or Decimal(0),
-            outstanding_qty=po.outstanding_qty or Decimal(0),
-            cash_proxy=_cash_proxy(po),
+    return [_candidate_from_po(po, descriptions_by_material) for po in rows]
+
+
+def _load_candidates_by_natural_keys(
+    keys: set[str],
+    descriptions_by_material: dict[str, str],
+) -> list[_Candidate]:
+    """
+    Load candidates for explicit PO natural keys regardless of whether their
+    material falls within the current fabric/component scope.
+
+    Used so a committed PO whose material is outside the current scope (for
+    example a component committed while viewing the fabric-only default)
+    still shows up - and stays manageable - in the committed baseline panel,
+    instead of silently disappearing (and being at risk of being withdrawn
+    the next time the baseline is edited from that scope).
+    """
+    if not keys:
+        return []
+    parsed: set[tuple[int, int, int]] = set()
+    po_nums: set[int] = set()
+    for key in keys:
+        try:
+            po_num_s, po_line_s, po_release_s = key.split("/")
+            po_num, po_line, po_release = int(po_num_s), int(po_line_s), int(po_release_s)
+        except (ValueError, AttributeError):
+            continue
+        parsed.add((po_num, po_line, po_release))
+        po_nums.add(po_num)
+    if not po_nums:
+        return []
+    rows = (
+        PurchaseOrder.query
+        .filter(
+            PurchaseOrder.po_num.in_(po_nums),
+            PurchaseOrder.outstanding_qty > 0,
+            PurchaseOrder.due_date.isnot(None),
         )
+        .all()
+    )
+    return [
+        _candidate_from_po(po, descriptions_by_material, in_scope=False)
         for po in rows
+        if (po.po_num, po.po_line, po.po_release) in parsed
     ]
 
 
@@ -518,11 +572,13 @@ def _get_release_impact_uncached(
     for candidate in all_candidates:
         candidates_by_material[candidate.material_code].append(candidate)
     valid_keys = {candidate.key for candidate in all_candidates}
-    committed_keys = set(committed_keys) & valid_keys
+    all_committed_keys = set(committed_keys)
+    committed_keys = all_committed_keys & valid_keys
     staged_keys = (set(staged_keys) & valid_keys) - committed_keys
+    out_of_scope_committed_keys = all_committed_keys - valid_keys
     committed_pos = [
         candidate for candidate in all_candidates if candidate.key in committed_keys
-    ]
+    ] + _load_candidates_by_natural_keys(out_of_scope_committed_keys, descriptions_by_material)
     initial_candidates = [
         candidate for candidate in all_candidates if candidate.key not in committed_keys
     ]
@@ -720,7 +776,10 @@ def _get_release_impact_uncached(
         "bundle_results": bundle_results,
         "committed_pos": committed_pos,
         "committed_value": sum(
-            (po.cash_proxy for po in committed_pos), Decimal(0)
+            (po.cash_proxy for po in committed_pos if po.in_scope), Decimal(0)
+        ),
+        "committed_out_of_scope_count": sum(
+            1 for po in committed_pos if not po.in_scope
         ),
         "total_candidate_count": len(all_candidates),
         "candidate_count": len(candidates),

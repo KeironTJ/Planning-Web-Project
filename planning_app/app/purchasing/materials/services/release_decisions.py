@@ -14,6 +14,7 @@ sync batch to auto-close decisions whose PO has been received.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 
@@ -86,6 +87,8 @@ def get_staged_snapshot() -> Optional[dict]:
         "jobs_unlocked": row.snapshot_jobs_unlocked,
         "orders_unlocked": row.snapshot_orders_unlocked,
         "order_value_unlocked": row.snapshot_order_value_unlocked,
+        "jobs_unlocked_keys": json.loads(row.snapshot_jobs_unlocked_keys or "[]"),
+        "orders_unlocked_keys": json.loads(row.snapshot_orders_unlocked_keys or "[]"),
         "taken_at": row.snapshot_taken_at,
     }
 
@@ -143,6 +146,12 @@ def stage_selection(
         decision.snapshot_jobs_unlocked = len(snapshot.get("jobs_unlocked") or [])
         decision.snapshot_orders_unlocked = len(snapshot.get("orders_unlocked") or [])
         decision.snapshot_order_value_unlocked = snapshot.get("order_value_unlocked")
+        decision.snapshot_jobs_unlocked_keys = json.dumps(
+            sorted(snapshot.get("jobs_unlocked") or [])
+        )
+        decision.snapshot_orders_unlocked_keys = json.dumps(
+            sorted(snapshot.get("orders_unlocked") or [])
+        )
         decision.snapshot_taken_at = now
     db.session.commit()
 

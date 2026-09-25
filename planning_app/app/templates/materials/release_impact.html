@@ -205,6 +205,11 @@
         <div class="small text-muted">
             These releases remain available to jobs but are excluded from recommendations.
             Uncheck one and recalculate to return it to the decision list.
+            {% if data.committed_out_of_scope_count %}
+            <strong>{{ data.committed_out_of_scope_count }}</strong> of these are outside the current
+            material scope and do not affect the numbers below, but are still listed here so they stay
+            manageable and are not accidentally removed.
+            {% endif %}
         </div>
     </div>
     <div class="card-body py-2">
@@ -221,6 +226,9 @@
                     <label class="form-check-label small" for="committed-{{ loop.index }}">
                         <strong>{{ po.key }}</strong> - {{ po.material_code }}
                         {% if po.description %}<span>{{ po.description }}</span>{% endif %}
+                        {% if not po.in_scope %}
+                        <span class="badge text-bg-secondary" title="Outside the current fabric/component scope; not counted in the figures below">Out of scope</span>
+                        {% endif %}
                         <span class="text-muted">
                             ({{ po.supplier or 'Unknown supplier' }};
                             {{ po.outstanding_qty | round(2) }} {{ po.unit_of_measure or 'units' }} outstanding;
@@ -270,6 +278,23 @@
                 Order value unlocked: £{{ '{:,.2f}'.format((staged_drift.previous.order_value_unlocked or 0) | float) }} →
                 £{{ '{:,.2f}'.format(staged_drift.current.order_value_unlocked | float) }}
             </div>
+            {% if staged_drift.jobs_added or staged_drift.jobs_removed or staged_drift.orders_added or staged_drift.orders_removed %}
+            <div class="small mt-2">
+                The specific jobs/orders unlocked have changed, even where the counts above match:
+                {% if staged_drift.jobs_added %}
+                <div>+ Newly unlocked jobs: {{ staged_drift.jobs_added | join(', ') }}</div>
+                {% endif %}
+                {% if staged_drift.jobs_removed %}
+                <div>− No longer unlocked jobs: {{ staged_drift.jobs_removed | join(', ') }}</div>
+                {% endif %}
+                {% if staged_drift.orders_added %}
+                <div>+ Newly unlocked orders: {{ staged_drift.orders_added | join(', ') }}</div>
+                {% endif %}
+                {% if staged_drift.orders_removed %}
+                <div>− No longer unlocked orders: {{ staged_drift.orders_removed | join(', ') }}</div>
+                {% endif %}
+            </div>
+            {% endif %}
         </div>
         {% endif %}
         <div class="row g-3 mb-3">

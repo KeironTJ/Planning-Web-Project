@@ -222,6 +222,13 @@ class ReleaseDecision(db.Model):
     snapshot_order_value_unlocked = db.Column(db.Numeric(14, 2), nullable=True)
     snapshot_taken_at             = db.Column(db.DateTime(timezone=True), nullable=True)
 
+    # JSON-encoded sorted lists of the specific works-order/sales-order keys
+    # unlocked at the time of staging. Counts alone can stay identical across
+    # a sync while the *identities* change (e.g. a stock move swaps which job
+    # is unlocked) - these let drift detection catch that case too.
+    snapshot_jobs_unlocked_keys   = db.Column(db.Text, nullable=True)
+    snapshot_orders_unlocked_keys = db.Column(db.Text, nullable=True)
+
     @property
     def key(self) -> str:
         return f"{self.po_num}/{self.po_line}/{self.po_release}"

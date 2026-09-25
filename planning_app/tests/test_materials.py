@@ -1136,3 +1136,117 @@ class TestReleaseDecisions:
         page = client.get("/purchasing/materials/release-impact")
         assert b"Changed since staged" in page.data
 
+    def test_staged_drift_flagged_when_identities_change_but_counts_match(self, db):
+        """
+        A sync can leave the headline counts unchanged while swapping which
+        specific job/order the release actually unlocks (for example, one
+        job's requirement is fully issued and drops out between staging and
+        the next review). Counts alone would miss this; drift detection must
+        also compare the job/order identities recorded in the snapshot.
+        """
+        from app.purchasing.materials.services.release_decisions import (
+            get_staged_snapshot,
+            stage_selection,
+        )
+        from app.purchasing.materials.services.release_impact import get_release_impact
+
+        same_due = TODAY + timedelta(days=30)
+        make_req(
+            "FABSWAP", qty_for_order=5, works_order="WOA1", so_number="SOA1",
+            due_date=same_due,
+        )
+        make_req(
+            "FABSWAP", qty_for_order=5, works_order="WOA2", so_number="SOA2",
+            due_date=same_due,
+        )
+        make_stock("FABSWAP", qty_on_hand=0)
+        make_po("FABSWAP", outstanding_qty=5, po_num=401, unit_cost=1)
+        _db.session.commit()
+
+        data = get_release_impact(staged_keys={"401/1/1"})
+        staged_result = data["staged_result"]
+        # WOA1 sorts first (due date tie, works_order tiebreak) and consumes
+        # the whole 5-unit release; WOA2 stays blocked.
+        assert staged_result["jobs_unlocked"] == ["WOA1"]
+        assert staged_result["orders_unlocked"] == ["SOA1"]
+        stage_selection(staged_result["pos"], staged_result)
+
+        snapshot = get_staged_snapshot()
+        assert snapshot["jobs_unlocked"] == 1
+        assert snapshot["jobs_unlocked_keys"] == ["WOA1"]
+        assert snapshot["orders_unlocked_keys"] == ["SOA1"]
+
+        # Simulate a sync: WOA1's requirement is fully issued/closed and
+        # drops out of the feed, leaving only WOA2 - which the same release
+        # now fully covers instead. The unlocked count is still 1/1.
+        MaterialRequirementMain.query.filter_by(works_order="WOA1").delete()
+        _db.session.commit()
+
+        new_data = get_release_impact(staged_keys={"401/1/1"})
+        new_staged_result = new_data["staged_result"]
+        assert new_staged_result["jobs_unlocked"] == ["WOA2"]
+        assert new_staged_result["orders_unlocked"] == ["SOA2"]
+        assert len(new_staged_result["jobs_unlocked"]) == snapshot["jobs_unlocked"]
+        assert len(new_staged_result["orders_unlocked"]) == snapshot["orders_unlocked"]
+
+        # Counts match, but the identities recorded in the snapshot don't -
+        # this is exactly what the route-level drift check must catch.
+        current_jobs = set(new_staged_result["jobs_unlocked"])
+        previous_jobs = set(snapshot["jobs_unlocked_keys"])
+        assert current_jobs != previous_jobs
+
+    def test_committed_component_po_stays_visible_and_manageable_in_fabric_scope(self, db):
+        """
+        A component PO committed while viewing "fabric and components" must
+        still be listed (and stay manageable) when later viewing the
+        fabric-only default scope - not silently disappear, and not be
+        dropped from the committed baseline just because the fabric-only
+        view never rendered a checkbox for it.
+        """
+        from app.purchasing.materials.services.release_decisions import (
+            commit_staged,
+            get_active_committed_keys,
+            stage_selection,
+            update_committed_selection,
+        )
+        from app.purchasing.materials.services.release_impact import get_release_impact
+
+        make_req("FAB410", qty_for_order=10, works_order="WO410", so_number="4410")
+        make_req(
+            "COMP410", qty_for_order=10, works_order="WO411", so_number="4411",
+            material_group="component",
+        )
+        make_stock("FAB410", qty_on_hand=0)
+        make_stock("COMP410", qty_on_hand=0)
+        make_po("FAB410", outstanding_qty=10, po_num=410, unit_cost=5)
+        make_po("COMP410", outstanding_qty=10, po_num=411, unit_cost=3)
+        _db.session.commit()
+
+        all_scope = get_release_impact(
+            staged_keys={"410/1/1", "411/1/1"}, include_components=True
+        )
+        stage_selection(all_scope["staged_result"]["pos"], all_scope["staged_result"])
+        commit_staged()
+        assert get_active_committed_keys() == {"410/1/1", "411/1/1"}
+
+        # Fabric-only (the default scope) still shows the component PO in
+        # the committed baseline, flagged as out of scope, and keeps its
+        # value out of the in-scope committed total.
+        fabric_scope = get_release_impact(
+            committed_keys=get_active_committed_keys(), include_components=False
+        )
+        committed_by_key = {po.key: po for po in fabric_scope["committed_pos"]}
+        assert set(committed_by_key) == {"410/1/1", "411/1/1"}
+        assert committed_by_key["410/1/1"].in_scope is True
+        assert committed_by_key["411/1/1"].in_scope is False
+        assert fabric_scope["committed_out_of_scope_count"] == 1
+        assert fabric_scope["committed_value"] == D(50)  # FAB410 only
+
+        # Submitting "update committed baseline" from this fabric-only view
+        # with every rendered checkbox still ticked (the template default)
+        # must not silently drop the out-of-scope component PO.
+        rendered_keys = set(committed_by_key)
+        removed = update_committed_selection(rendered_keys)
+        assert removed == 0
+        assert get_active_committed_keys() == {"410/1/1", "411/1/1"}
+

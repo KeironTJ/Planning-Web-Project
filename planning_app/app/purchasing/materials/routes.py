@@ -421,8 +421,26 @@ def release_impact():
             "orders_unlocked": len(staged_result["orders_unlocked"]),
             "order_value_unlocked": staged_result["order_value_unlocked"],
         }
-        if any(current[k] != (staged_snapshot.get(k) or 0) for k in current):
-            staged_drift = {"previous": staged_snapshot, "current": current}
+        # Compare headline counts first, then the *identities* behind them -
+        # a sync can leave counts unchanged while swapping which specific
+        # jobs/orders are unlocked (e.g. a stock move), which counts alone
+        # would miss.
+        current_job_keys = set(staged_result["jobs_unlocked"])
+        current_order_keys = set(staged_result["orders_unlocked"])
+        previous_job_keys = set(staged_snapshot.get("jobs_unlocked_keys") or [])
+        previous_order_keys = set(staged_snapshot.get("orders_unlocked_keys") or [])
+        counts_changed = any(current[k] != (staged_snapshot.get(k) or 0) for k in current)
+        jobs_changed = current_job_keys != previous_job_keys
+        orders_changed = current_order_keys != previous_order_keys
+        if counts_changed or jobs_changed or orders_changed:
+            staged_drift = {
+                "previous": staged_snapshot,
+                "current": current,
+                "jobs_added": sorted(current_job_keys - previous_job_keys),
+                "jobs_removed": sorted(previous_job_keys - current_job_keys),
+                "orders_added": sorted(current_order_keys - previous_order_keys),
+                "orders_removed": sorted(previous_order_keys - current_order_keys),
+            }
     return render_template(
         "materials/release_impact.html",
         title="Cash Release Impact",
