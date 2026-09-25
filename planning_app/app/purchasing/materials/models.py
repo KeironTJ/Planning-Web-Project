@@ -150,6 +150,86 @@ class PurchaseOrder(db.Model):
         return f"<PurchaseOrder {self.po_num}/{self.po_line}/{self.po_release}>"
 
 
+class ReleaseDecision(db.Model):
+    """
+    Durable staged/committed PO release decision for the Cash Release
+    Impact what-if tool (see services/release_impact.py).
+
+    PurchaseOrder rows are fully truncated and reloaded on every Epicor
+    sync with no stable surrogate key, so decisions are keyed on the
+    natural (po_num, po_line, po_release) business key rather than a
+    PurchaseOrder foreign key — that is the only identifier guaranteed to
+    still mean the same release after a sync.
+
+    Lifecycle: staged -> committed -> fulfilled (auto-closed once the PO
+    drops out of the open-PO sync, i.e. it has become stock) or withdrawn
+    (closed manually by a user). One row per natural key is reused across
+    the lifecycle rather than kept as separate history rows.
+    """
+
+    __tablename__ = "release_decisions"
+    __table_args__ = (
+        db.UniqueConstraint("po_num", "po_line", "po_release", name="uq_release_decision_po"),
+    )
+
+    STATUS_STAGED = "staged"
+    STATUS_COMMITTED = "committed"
+    STATUS_FULFILLED = "fulfilled"
+    STATUS_WITHDRAWN = "withdrawn"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # --- Natural key, matching PurchaseOrder's PORel granularity ---
+    po_num     = db.Column(db.Integer, nullable=False, index=True)
+    po_line    = db.Column(db.Integer, nullable=False)
+    po_release = db.Column(db.Integer, nullable=False)
+
+    # --- Denormalised for display resilience once the PO drops out of sync ---
+    material_code = db.Column(db.String(50), nullable=True)
+    description   = db.Column(db.Text, nullable=True)
+
+    status = db.Column(db.String(20), nullable=False, default=STATUS_STAGED, index=True)
+
+    created_at = db.Column(
+        db.DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_by = db.relationship("User", foreign_keys=[created_by_id])
+
+    staged_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    committed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    committed_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    committed_by = db.relationship("User", foreign_keys=[committed_by_id])
+
+    # 'received' (auto, PO fully received/dropped from sync) | 'cleared' |
+    # 'removed' (manual, unticked from committed baseline) | 'replaced'
+    # (superseded by a new staged selection)
+    closed_at     = db.Column(db.DateTime(timezone=True), nullable=True)
+    closed_reason = db.Column(db.String(30), nullable=True)
+
+    notes = db.Column(db.Text, nullable=True)
+
+    # Snapshot of the combined staged-group impact taken the moment this PO
+    # was (re-)staged. All rows staged together share the same snapshot,
+    # since the calculated impact is one joint scenario, not a sum of
+    # individual PO impacts. Compared against a fresh recalculation to flag
+    # drift after a sync changes the underlying requirements/stock/PO data.
+    snapshot_cash_proxy           = db.Column(db.Numeric(14, 2), nullable=True)
+    snapshot_jobs_unlocked        = db.Column(db.Integer, nullable=True)
+    snapshot_orders_unlocked      = db.Column(db.Integer, nullable=True)
+    snapshot_order_value_unlocked = db.Column(db.Numeric(14, 2), nullable=True)
+    snapshot_taken_at             = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    @property
+    def key(self) -> str:
+        return f"{self.po_num}/{self.po_line}/{self.po_release}"
+
+    def __repr__(self):
+        return f"<ReleaseDecision {self.key} {self.status}>"
+
+
 class MaterialRequirementMain(db.Model):
     """
     MRP material requirements from PlanningMatReq BAQ.  Full replace daily.

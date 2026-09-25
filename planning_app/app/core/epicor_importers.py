@@ -1150,4 +1150,20 @@ def run_batch(
         except Exception as exc:
             results[key] = exc
 
+    if "purchase_orders" in targets and not isinstance(
+        results.get("purchase_orders"), Exception
+    ):
+        # PurchaseOrder is fully truncated and reloaded above, so committed/
+        # staged Cash Release Impact decisions need reconciling against the
+        # fresh open-PO set (drop off releases that are now fully received),
+        # and the calculation cache needs clearing since the underlying data
+        # just changed under the same committed/staged cache key.
+        from app.extensions import cache
+        from app.purchasing.materials.services.release_decisions import (
+            reconcile_release_decisions,
+        )
+
+        reconcile_release_decisions()
+        cache.clear()
+
     return results

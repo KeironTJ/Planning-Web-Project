@@ -17,6 +17,15 @@ from .services.exempt import add_exemptions, get_exempt_materials, remove_exempt
 from .services.insights import get_shortage_insights
 from .services.netting import get_shortage_report
 from .services.pegging import get_mrp_pegging
+from .services.release_decisions import (
+    clear_staged,
+    commit_staged,
+    get_active_committed_keys,
+    get_active_staged_keys,
+    get_staged_snapshot,
+    stage_selection,
+    update_committed_selection,
+)
 from .services.release_impact import get_release_impact, sort_release_impact_results
 from .services.stock import get_po_list, get_stock_list, get_stock_overview, get_stock_summary
 from .services.types import MAT_STATUS_META, WO_STATUS_META, wo_status
@@ -352,16 +361,10 @@ def release_impact():
     }
     if sort_by not in sort_options:
         sort_by = "impact"
-    committed_keys = {
-        key.strip()
-        for key in request.args.getlist("committed")
-        if key.strip()
-    }
-    staged_keys = {
-        key.strip()
-        for key in request.args.getlist("staged")
-        if key.strip()
-    }
+    # Committed/staged decisions are persisted (see services/release_decisions.py)
+    # so they survive the daily Epicor sync, rather than living in the URL.
+    committed_keys = get_active_committed_keys()
+    staged_keys = get_active_staged_keys()
     data = get_release_impact(
         max_bundle_size=3,
         committed_keys=committed_keys,
@@ -408,6 +411,18 @@ def release_impact():
     data["bundle_results"] = sort_release_impact_results(
         data["bundle_results"], sort_by, bundled=True
     )
+    staged_snapshot = get_staged_snapshot()
+    staged_drift = None
+    staged_result = data.get("staged_result")
+    if staged_snapshot and staged_result:
+        current = {
+            "cash_proxy": staged_result["cash_proxy"],
+            "jobs_unlocked": len(staged_result["jobs_unlocked"]),
+            "orders_unlocked": len(staged_result["orders_unlocked"]),
+            "order_value_unlocked": staged_result["order_value_unlocked"],
+        }
+        if any(current[k] != (staged_snapshot.get(k) or 0) for k in current):
+            staged_drift = {"previous": staged_snapshot, "current": current}
     return render_template(
         "materials/release_impact.html",
         title="Cash Release Impact",
@@ -418,7 +433,94 @@ def release_impact():
         sort_options=sort_options,
         committed_keys=sorted(committed_keys),
         staged_keys=data["staged_keys"],
+        staged_drift=staged_drift,
     )
+
+
+def _release_impact_redirect(**overrides):
+    """Redirect back to the release-impact page, preserving q/scope/sort."""
+    params = {
+        "q": request.form.get("q") or request.args.get("q") or None,
+        "scope": request.form.get("scope") or request.args.get("scope"),
+        "sort": request.form.get("sort") or request.args.get("sort"),
+    }
+    params.update(overrides)
+    params = {k: v for k, v in params.items() if v}
+    return redirect(url_for("materials.release_impact", **params))
+
+
+@materials_bp.route("/release-impact/stage", methods=["POST"])
+@login_required
+@permission_required("manage_purchasing")
+def release_impact_stage():
+    """Persist the ticked single-PO selection as the staged decision group."""
+    selected_keys = {
+        key.strip() for key in request.form.getlist("staged") if key.strip()
+    }
+    if not selected_keys:
+        cleared = clear_staged()
+        flash("Staging cleared." if cleared else "Nothing was staged.", "info")
+        return _release_impact_redirect()
+
+    scope = request.form.get("scope", "fabric").strip().lower()
+    data = get_release_impact(
+        max_bundle_size=3,
+        committed_keys=get_active_committed_keys(),
+        staged_keys=selected_keys,
+        include_components=scope == "all",
+    )
+    staged_result = data.get("staged_result")
+    stage_selection(
+        staged_result["pos"] if staged_result else [],
+        staged_result,
+        user_id=current_user.id,
+    )
+    flash(f"{len(selected_keys)} PO release(s) staged for review.", "primary")
+    return _release_impact_redirect()
+
+
+@materials_bp.route("/release-impact/commit", methods=["POST"])
+@login_required
+@permission_required("manage_purchasing")
+def release_impact_commit():
+    """Move every currently staged decision to committed."""
+    count = commit_staged(user_id=current_user.id)
+    flash(
+        f"{count} PO release(s) committed to the baseline."
+        if count else "Nothing was staged to commit.",
+        "success" if count else "info",
+    )
+    return _release_impact_redirect()
+
+
+@materials_bp.route("/release-impact/clear-staged", methods=["POST"])
+@login_required
+@permission_required("manage_purchasing")
+def release_impact_clear_staged():
+    """Withdraw everything currently staged, without committing it."""
+    count = clear_staged()
+    flash(
+        f"{count} staged PO release(s) cleared." if count else "Nothing was staged.",
+        "info",
+    )
+    return _release_impact_redirect()
+
+
+@materials_bp.route("/release-impact/committed/update", methods=["POST"])
+@login_required
+@permission_required("manage_purchasing")
+def release_impact_update_committed():
+    """Remove unticked releases from the committed baseline."""
+    keep_keys = {
+        key.strip() for key in request.form.getlist("committed") if key.strip()
+    }
+    removed = update_committed_selection(keep_keys)
+    flash(
+        f"{removed} PO release(s) removed from the committed baseline."
+        if removed else "Committed baseline unchanged.",
+        "success" if removed else "info",
+    )
+    return _release_impact_redirect()
 
 
 @materials_bp.route("/main-requirements")

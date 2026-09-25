@@ -11,6 +11,8 @@
     <i class="bi bi-info-circle me-1"></i>
     This is a what-if view. Every open PO release is treated as withheld until selected.
     Releases marked as committed are included in the baseline supply.
+    Committed and staged decisions are saved and survive the daily sync — a committed
+    release drops off automatically once it is fully received into stock.
     Outstanding PO value is used as the cash proxy; it is not an accounts-payable balance.
     {% if scope == 'all' %}
     Jobs are only counted as unlocked when all imported fabric and component requirements are covered.
@@ -76,9 +78,18 @@
                     <h6>4. Record decisions</h6>
                     <p class="text-muted mb-0">
                         Tick releases in the single-PO table and select <strong>Review staged POs</strong>
-                        to calculate their combined impact. Review the staged cash and value summary, then
-                        select <strong>Commit staged POs</strong> when the release decision is made. They
-                        remain available in the baseline and disappear from future recommendations.
+                        to calculate their combined impact and save it as your staged decision. Review the
+                        staged cash and value summary, then select <strong>Commit staged POs</strong> when
+                        the release decision is made. Committed releases remain available in the baseline
+                        and disappear from future recommendations.
+                    </p>
+                    <h6>5. Persistence across sync</h6>
+                    <p class="text-muted mb-0">
+                        Staged and committed decisions are saved to the database, not the page URL, so
+                        they survive the daily Epicor sync. A committed release drops off automatically
+                        once it is fully received into stock. A staged decision is never auto-committed —
+                        if the daily sync changes its calculated impact before you commit it, a banner
+                        will flag what changed so you can re-review before deciding.
                     </p>
                 </div>
             </div>
@@ -158,8 +169,6 @@
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
         <form method="GET" class="row g-2 align-items-center">
-            {% for key in committed_keys %}<input type="hidden" name="committed" value="{{ key }}">{% endfor %}
-            {% for key in staged_keys %}<input type="hidden" name="staged" value="{{ key }}">{% endfor %}
             <div class="col-sm-6 col-lg-4">
                 <input type="search" name="q" class="form-control form-control-sm"
                        placeholder="PO, material, description or supplier..." value="{{ search }}">
@@ -180,7 +189,7 @@
             <div class="col-auto">
                 <button class="btn btn-primary btn-sm" type="submit">Apply</button>
                 {% if search %}
-                <a href="{{ url_for('materials.release_impact', committed=committed_keys, staged=staged_keys, scope=scope, sort=sort_by) }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+                <a href="{{ url_for('materials.release_impact', scope=scope, sort=sort_by) }}" class="btn btn-outline-secondary btn-sm">Clear</a>
                 {% endif %}
             </div>
         </form>
@@ -199,11 +208,11 @@
         </div>
     </div>
     <div class="card-body py-2">
-        <form method="GET" class="row g-2 align-items-center">
+        <form method="POST" action="{{ url_for('materials.release_impact_update_committed') }}" class="row g-2 align-items-center">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             {% if search %}<input type="hidden" name="q" value="{{ search }}">{% endif %}
             <input type="hidden" name="scope" value="{{ scope }}">
             <input type="hidden" name="sort" value="{{ sort_by }}">
-            {% for key in staged_keys %}<input type="hidden" name="staged" value="{{ key }}">{% endfor %}
             {% for po in data.committed_pos %}
             <div class="col-md-6 col-xl-4">
                 <div class="form-check">
@@ -223,7 +232,7 @@
             {% endfor %}
             <div class="col-12">
                 <button class="btn btn-success btn-sm" type="submit">
-                    <i class="bi bi-arrow-repeat me-1"></i>Recalculate baseline
+                    <i class="bi bi-arrow-repeat me-1"></i>Update committed baseline
                 </button>
             </div>
         </form>
@@ -248,6 +257,21 @@
         </div>
     </div>
     <div class="card-body">
+        {% if staged_drift %}
+        <div class="alert alert-warning py-2 px-3 mb-3">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            <strong>Changed since staged.</strong> The last sync changed the calculated impact of this
+            staged group. Re-review before committing.
+            <div class="small mt-1">
+                Cash proxy: £{{ '{:,.2f}'.format(staged_drift.previous.cash_proxy | float) }} →
+                £{{ '{:,.2f}'.format(staged_drift.current.cash_proxy | float) }} ·
+                Jobs unlocked: {{ staged_drift.previous.jobs_unlocked or 0 }} → {{ staged_drift.current.jobs_unlocked }} ·
+                Orders unlocked: {{ staged_drift.previous.orders_unlocked or 0 }} → {{ staged_drift.current.orders_unlocked }} ·
+                Order value unlocked: £{{ '{:,.2f}'.format((staged_drift.previous.order_value_unlocked or 0) | float) }} →
+                £{{ '{:,.2f}'.format(staged_drift.current.order_value_unlocked | float) }}
+            </div>
+        </div>
+        {% endif %}
         <div class="row g-3 mb-3">
             <div class="col-6 col-lg">
                 <div class="text-muted small">Cash proxy</div>
@@ -327,20 +351,24 @@
             </div>
         </details>
         <div class="d-flex flex-wrap gap-2">
-            <form method="GET">
+            <form method="POST" action="{{ url_for('materials.release_impact_commit') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 {% if search %}<input type="hidden" name="q" value="{{ search }}">{% endif %}
                 <input type="hidden" name="scope" value="{{ scope }}">
                 <input type="hidden" name="sort" value="{{ sort_by }}">
-                {% for key in committed_keys %}<input type="hidden" name="committed" value="{{ key }}">{% endfor %}
-                {% for key in staged_keys %}<input type="hidden" name="committed" value="{{ key }}">{% endfor %}
                 <button class="btn btn-success btn-sm" type="submit">
                     <i class="bi bi-check-circle me-1"></i>Commit staged POs and recalculate
                 </button>
             </form>
-            <a href="{{ url_for('materials.release_impact', committed=committed_keys, scope=scope, sort=sort_by, q=search) }}"
-               class="btn btn-outline-secondary btn-sm">
-                <i class="bi bi-x-circle me-1"></i>Clear staging
-            </a>
+            <form method="POST" action="{{ url_for('materials.release_impact_clear_staged') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if search %}<input type="hidden" name="q" value="{{ search }}">{% endif %}
+                <input type="hidden" name="scope" value="{{ scope }}">
+                <input type="hidden" name="sort" value="{{ sort_by }}">
+                <button class="btn btn-outline-secondary btn-sm" type="submit">
+                    <i class="bi bi-x-circle me-1"></i>Clear staging
+                </button>
+            </form>
         </div>
     </div>
 </div>
@@ -554,16 +582,16 @@
             </div>
         </div>
     </div>
-    <form method="GET">
+    <form method="POST" action="{{ url_for('materials.release_impact_stage') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         {% if search %}<input type="hidden" name="q" value="{{ search }}">{% endif %}
         <input type="hidden" name="scope" value="{{ scope }}">
         <input type="hidden" name="sort" value="{{ sort_by }}">
-        {% for key in committed_keys %}<input type="hidden" name="committed" value="{{ key }}">{% endfor %}
         <div class="card-body border-bottom py-2 d-flex align-items-center gap-2">
             <button class="btn btn-primary btn-sm" type="submit">
                 <i class="bi bi-clipboard-check me-1"></i>Review staged POs
             </button>
-            <span class="small text-muted">Selection is staged only; nothing moves into the baseline until you commit it from the summary.</span>
+            <span class="small text-muted">Selection is staged and saved; nothing moves into the baseline until you commit it from the summary.</span>
         </div>
         <div class="card-body p-0">{{ impact_table(data.single_results, false, true) }}</div>
     </form>

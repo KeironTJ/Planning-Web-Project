@@ -873,3 +873,266 @@ class TestReleaseImpact:
         assert po.received_qty == D(4)
         assert po.outstanding_qty == D(8)
         assert po.due_date == due
+
+
+# ---------------------------------------------------------------------------
+# Durable persistence: staged/committed release decisions across sync
+# ---------------------------------------------------------------------------
+
+class TestReleaseDecisions:
+    @pytest.fixture(autouse=True)
+    def ctx(self, app, zero_lead_days):
+        with app.test_request_context():
+            yield
+
+    def test_stage_selection_persists_and_can_be_read_back(self, db):
+        from app.purchasing.materials.services.release_decisions import (
+            get_active_staged_keys,
+            get_staged_snapshot,
+            stage_selection,
+        )
+        from app.purchasing.materials.services.release_impact import get_release_impact
+
+        make_req("FAB301", qty_for_order=10, works_order="WO301", so_number="3301")
+        make_stock("FAB301", qty_on_hand=0)
+        make_po("FAB301", outstanding_qty=10, po_num=301, unit_cost=5)
+        _db.session.commit()
+
+        data = get_release_impact(staged_keys={"301/1/1"})
+        stage_selection(data["staged_result"]["pos"], data["staged_result"])
+
+        assert get_active_staged_keys() == {"301/1/1"}
+        snapshot = get_staged_snapshot()
+        assert snapshot["cash_proxy"] == D(50)
+        assert snapshot["jobs_unlocked"] == 1
+
+    def test_restaging_replaces_previous_selection(self, db):
+        from app.purchasing.materials.services.release_decisions import (
+            get_active_staged_keys,
+            stage_selection,
+        )
+        from app.purchasing.materials.services.release_impact import get_release_impact
+
+        make_req("FAB302", qty_for_order=10, works_order="WO302", so_number="3302")
+        make_req("FAB303", qty_for_order=10, works_order="WO303", so_number="3303")
+        make_stock("FAB302", qty_on_hand=0)
+        make_stock("FAB303", qty_on_hand=0)
+        make_po("FAB302", outstanding_qty=10, po_num=302)
+        make_po("FAB303", outstanding_qty=10, po_num=303)
+        _db.session.commit()
+
+        first = get_release_impact(staged_keys={"302/1/1"})
+        stage_selection(first["staged_result"]["pos"], first["staged_result"])
+        assert get_active_staged_keys() == {"302/1/1"}
+
+        second = get_release_impact(staged_keys={"303/1/1"})
+        stage_selection(second["staged_result"]["pos"], second["staged_result"])
+
+        assert get_active_staged_keys() == {"303/1/1"}
+
+    def test_commit_staged_moves_status_and_clears_staged(self, db):
+        from app.purchasing.materials.services.release_decisions import (
+            commit_staged,
+            get_active_committed_keys,
+            get_active_staged_keys,
+            stage_selection,
+        )
+        from app.purchasing.materials.services.release_impact import get_release_impact
+
+        make_req("FAB304", qty_for_order=10, works_order="WO304", so_number="3304")
+        make_stock("FAB304", qty_on_hand=0)
+        make_po("FAB304", outstanding_qty=10, po_num=304)
+        _db.session.commit()
+
+        data = get_release_impact(staged_keys={"304/1/1"})
+        stage_selection(data["staged_result"]["pos"], data["staged_result"])
+
+        committed = commit_staged()
+
+        assert committed == 1
+        assert get_active_staged_keys() == set()
+        assert get_active_committed_keys() == {"304/1/1"}
+
+    def test_clear_staged_withdraws_without_committing(self, db):
+        from app.purchasing.materials.services.release_decisions import (
+            clear_staged,
+            get_active_committed_keys,
+            get_active_staged_keys,
+            stage_selection,
+        )
+        from app.purchasing.materials.services.release_impact import get_release_impact
+
+        make_req("FAB305", qty_for_order=10, works_order="WO305", so_number="3305")
+        make_stock("FAB305", qty_on_hand=0)
+        make_po("FAB305", outstanding_qty=10, po_num=305)
+        _db.session.commit()
+
+        data = get_release_impact(staged_keys={"305/1/1"})
+        stage_selection(data["staged_result"]["pos"], data["staged_result"])
+
+        cleared = clear_staged()
+
+        assert cleared == 1
+        assert get_active_staged_keys() == set()
+        assert get_active_committed_keys() == set()
+
+    def test_update_committed_selection_withdraws_unticked_pos(self, db):
+        from app.purchasing.materials.services.release_decisions import (
+            commit_staged,
+            get_active_committed_keys,
+            stage_selection,
+            update_committed_selection,
+        )
+        from app.purchasing.materials.services.release_impact import get_release_impact
+
+        make_req("FAB306", qty_for_order=10, works_order="WO306", so_number="3306")
+        make_req("FAB307", qty_for_order=10, works_order="WO307", so_number="3307")
+        make_stock("FAB306", qty_on_hand=0)
+        make_stock("FAB307", qty_on_hand=0)
+        make_po("FAB306", outstanding_qty=10, po_num=306)
+        make_po("FAB307", outstanding_qty=10, po_num=307)
+        _db.session.commit()
+
+        data = get_release_impact(staged_keys={"306/1/1", "307/1/1"})
+        stage_selection(data["staged_result"]["pos"], data["staged_result"])
+        commit_staged()
+        assert get_active_committed_keys() == {"306/1/1", "307/1/1"}
+
+        removed = update_committed_selection({"306/1/1"})
+
+        assert removed == 1
+        assert get_active_committed_keys() == {"306/1/1"}
+
+    def test_reconcile_drops_committed_po_once_fully_received(self, db):
+        from app.purchasing.materials.models import ReleaseDecision
+        from app.purchasing.materials.services.release_decisions import (
+            get_active_committed_keys,
+            reconcile_release_decisions,
+        )
+
+        po = make_po("FAB308", outstanding_qty=10, po_num=308)
+        _db.session.add(ReleaseDecision(
+            po_num=308, po_line=1, po_release=1,
+            status=ReleaseDecision.STATUS_COMMITTED,
+        ))
+        _db.session.commit()
+        assert get_active_committed_keys() == {"308/1/1"}
+
+        # Simulate the next sync: the PO has now been fully received.
+        po.outstanding_qty = D(0)
+        _db.session.commit()
+
+        summary = reconcile_release_decisions()
+
+        assert summary == {"checked": 1, "fulfilled": 1}
+        assert get_active_committed_keys() == set()
+        decision = ReleaseDecision.query.filter_by(po_num=308).one()
+        assert decision.status == ReleaseDecision.STATUS_FULFILLED
+        assert decision.closed_reason == "received"
+
+    def test_reconcile_drops_committed_po_removed_from_sync(self, db):
+        from app.purchasing.materials.models import ReleaseDecision
+        from app.purchasing.materials.services.release_decisions import (
+            get_active_committed_keys,
+            reconcile_release_decisions,
+        )
+
+        make_po("FAB309", outstanding_qty=10, po_num=309)
+        _db.session.add(ReleaseDecision(
+            po_num=309, po_line=1, po_release=1,
+            status=ReleaseDecision.STATUS_COMMITTED,
+        ))
+        _db.session.commit()
+
+        # Simulate a full truncate+reload sync where this PO is no longer
+        # in the open-PO set at all (i.e. it has been fully received).
+        PurchaseOrder.query.filter_by(po_num=309).delete()
+        _db.session.commit()
+
+        reconcile_release_decisions()
+
+        assert get_active_committed_keys() == set()
+
+    def test_reconcile_leaves_still_open_decisions_untouched(self, db):
+        from app.purchasing.materials.models import ReleaseDecision
+        from app.purchasing.materials.services.release_decisions import (
+            get_active_committed_keys,
+            reconcile_release_decisions,
+        )
+
+        make_po("FAB310", outstanding_qty=10, po_num=310)
+        _db.session.add(ReleaseDecision(
+            po_num=310, po_line=1, po_release=1,
+            status=ReleaseDecision.STATUS_COMMITTED,
+        ))
+        _db.session.commit()
+
+        summary = reconcile_release_decisions()
+
+        assert summary == {"checked": 1, "fulfilled": 0}
+        assert get_active_committed_keys() == {"310/1/1"}
+
+    def test_stage_commit_clear_routes_persist_across_requests(self, db, client, admin_user):
+        make_req("FAB311", qty_for_order=10, works_order="WO311", so_number="3311")
+        make_stock("FAB311", qty_on_hand=0)
+        make_po("FAB311", outstanding_qty=10, po_num=311, unit_cost=5)
+        _db.session.commit()
+
+        client.post("/auth/login", data={
+            "login": admin_user.email,
+            "password": "Admin!Pass1234",
+        })
+
+        stage_response = client.post(
+            "/purchasing/materials/release-impact/stage",
+            data={"staged": "311/1/1", "scope": "fabric", "sort": "impact"},
+        )
+        assert stage_response.status_code in (302, 303)
+
+        # A fresh request (no query params) should still see the staged PO —
+        # proving the decision lives in the database, not the URL.
+        page = client.get("/purchasing/materials/release-impact")
+        assert b"Staged Release Decision" in page.data
+        assert b"311/1/1" in page.data
+
+        commit_response = client.post(
+            "/purchasing/materials/release-impact/commit",
+            data={"scope": "fabric", "sort": "impact"},
+        )
+        assert commit_response.status_code in (302, 303)
+
+        from app.purchasing.materials.services.release_decisions import (
+            get_active_committed_keys,
+            get_active_staged_keys,
+        )
+        assert get_active_staged_keys() == set()
+        assert get_active_committed_keys() == {"311/1/1"}
+
+    def test_staged_drift_flagged_after_underlying_data_changes(self, db, client, admin_user):
+        from app.purchasing.materials.services.release_decisions import stage_selection
+        from app.purchasing.materials.services.release_impact import get_release_impact
+
+        make_req("FAB312", qty_for_order=10, works_order="WO312", so_number="3312")
+        make_stock("FAB312", qty_on_hand=0)
+        po = make_po("FAB312", outstanding_qty=10, po_num=312, unit_cost=5)
+        _db.session.commit()
+
+        data = get_release_impact(staged_keys={"312/1/1"})
+        stage_selection(data["staged_result"]["pos"], data["staged_result"])
+
+        client.post("/auth/login", data={
+            "login": admin_user.email,
+            "password": "Admin!Pass1234",
+        })
+
+        # A day-one page load, before any sync change, shows no drift.
+        page = client.get("/purchasing/materials/release-impact")
+        assert b"Changed since staged" not in page.data
+
+        # Simulate a sync changing the PO's cost (its cash proxy).
+        po.unit_cost = D(9)
+        _db.session.commit()
+
+        page = client.get("/purchasing/materials/release-impact")
+        assert b"Changed since staged" in page.data
+
