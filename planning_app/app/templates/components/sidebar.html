@@ -279,7 +279,7 @@
                 </div>
             </li>
 
-            {% set transport_active = request.endpoint in ('transport.dashboard', 'transport.loading_bay', 'transport.bay_state') %}
+            {% set transport_active = request.endpoint in ('transport.dashboard', 'transport.loads', 'transport.loading_bay', 'transport.bay_state') %}
             <li class="sidebar-section">
                 <div class="sidebar-section-heading">
                     <a href="{{ url_for('transport.dashboard') }}">
@@ -293,6 +293,12 @@
                 </div>
                 <div class="collapse {% if transport_active %}show{% endif %}" id="transportMenu">
                     <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'transport.loads' %}active{% endif %}"
+                               href="{{ url_for('transport.loads') }}">
+                                <i class="bi bi-truck me-2"></i>Load Board
+                            </a>
+                        </li>
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'transport.loading_bay' %}active{% endif %}"
                                href="{{ url_for('transport.loading_bay') }}">

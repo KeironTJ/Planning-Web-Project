@@ -142,6 +142,7 @@ def _register_blueprints(app: Flask) -> None:
     from .purchasing.materials import models as _materials_models  # noqa: F401
     from .admin import models as _admin_models  # noqa: F401
     from .operations import models as _operations_models  # noqa: F401
+    from .transport import models as _transport_models  # noqa: F401
     # SalesOrder model lives in sales.orders.models — already imported above
 
     from .auth import auth_bp
