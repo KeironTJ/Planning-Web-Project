@@ -61,6 +61,9 @@ def _execute_job(app, job_id: int) -> None:
     Run a SyncJob by ID inside an app context.  Assumes is_running is already
     set to True by the caller (route or scheduler tick).  Runs all items and
     clears is_running when done.  Safe to call from any thread.
+
+    Keep scalar job/item identities across imports: bulk importers may expunge
+    the session, so expired job objects must be reloaded before reuse.
     """
     import os
 
@@ -77,14 +80,19 @@ def _execute_job(app, job_id: int) -> None:
 
         logger.info("_execute_job: starting job %d %r (%d items) pid=%d",
                     job.id, job.name, len(job.items), os.getpid())
+        job_name = job.name
+        item_ids = [item.id for item in job.items]
         item_statuses: list[str] = []
 
         try:
             with KineticClient.from_app(app) as client:
-                for item in job.items:
+                for item_id in item_ids:
+                    item = db.session.get(SyncJobItem, item_id)
+                    if item is None:
+                        raise RuntimeError(f"Sync job item {item_id} disappeared during job {job_id}")
                     key = item.importer_key
                     if key not in REGISTRY:
-                        logger.warning("_execute_job: unknown importer key %r in job %d — skipping", key, job.id)
+                        logger.warning("_execute_job: unknown importer key %r in job %d — skipping", key, job_id)
                         continue
 
                     try:
@@ -94,22 +102,24 @@ def _execute_job(app, job_id: int) -> None:
                         item.last_row_count = batch.row_count
                         item.last_error     = None
                         item_statuses.append("success")
-                        logger.info("_execute_job: job %d item %r → %d rows", job.id, key, batch.row_count)
+                        logger.info("_execute_job: job %d item %r → %d rows", job_id, key, batch.row_count)
                     except Exception as exc:
                         db.session.add(item)
                         item.last_status = SyncJobItem.STATUS_FAILED
                         item.last_error  = str(exc)
                         item_statuses.append("failed")
-                        logger.exception("_execute_job: job %d item %r failed: %s", job.id, key, exc)
+                        logger.exception("_execute_job: job %d item %r failed: %s", job_id, key, exc)
                     finally:
                         item.last_run_at = datetime.now(timezone.utc)
                         try:
                             db.session.commit()
                         except Exception:
                             db.session.rollback()
-                            logger.exception("_execute_job: failed to save item result for %r in job %d", key, job.id)
+                            logger.exception("_execute_job: failed to save item result for %r in job %d", key, job_id)
 
-            db.session.add(job)
+            job = db.session.get(SyncJob, job_id)
+            if job is None:
+                raise RuntimeError(f"Sync job {job_id} disappeared during execution")
             if not item_statuses or all(s == "success" for s in item_statuses):
                 job.last_status = SyncJob.STATUS_SUCCESS
             elif all(s == "failed" for s in item_statuses):
@@ -118,18 +128,21 @@ def _execute_job(app, job_id: int) -> None:
                 job.last_status = SyncJob.STATUS_PARTIAL
 
         except Exception as exc:
-            db.session.add(job)
-            job.last_status = SyncJob.STATUS_FAILED
-            logger.exception("_execute_job: job %d %r crashed: %s", job.id, job.name, exc)
+            db.session.rollback()
+            job = db.session.get(SyncJob, job_id)
+            if job is not None:
+                job.last_status = SyncJob.STATUS_FAILED
+            logger.exception("_execute_job: job %d %r crashed: %s", job_id, job_name, exc)
         finally:
-            db.session.add(job)
-            job.is_running  = False
-            job.last_run_at = datetime.now(timezone.utc)
+            if job is not None:
+                db.session.add(job)
+                job.is_running  = False
+                job.last_run_at = datetime.now(timezone.utc)
             try:
                 db.session.commit()
             except Exception:
                 db.session.rollback()
-                logger.exception("_execute_job: failed to save results for job %d", job.id)
+                logger.exception("_execute_job: failed to save results for job %d", job_id)
 
 
 def run_job_in_thread(app, job_id: int) -> None:

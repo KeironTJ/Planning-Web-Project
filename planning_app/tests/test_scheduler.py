@@ -2,6 +2,11 @@ from datetime import datetime, timedelta, timezone
 
 from app.admin.models import SyncJob
 from app.core import scheduler
+from app.admin.models import SyncJobItem
+from app.core.epicor_sync import EpicorBaqImporter
+from app.extensions import db
+from unittest.mock import Mock
+import pytest
 
 
 class _DeferredThread:
@@ -163,3 +168,53 @@ def test_scheduler_cycle_survives_tick_exit(app, monkeypatch):
     scheduler._run_scheduler_cycle(app)
 
     assert sleep_calls == [60]
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_job_survives_importer_expunge_and_expired_job_attributes(
+    app, db_session, monkeypatch, fails,
+):
+    from app.core.epicor_importers import REGISTRY
+    from app.core.epicor_client import KineticClient
+
+    class ClearingImporter(EpicorBaqImporter):
+        BAQ_NAME = "TestClearing"
+        IMPORT_TYPE = "test_clearing"
+        ALLOW_EMPTY_RESULT = True
+
+        def _sync_records(self, records, batch, now):
+            db.session.expunge_all()
+            if fails:
+                raise RuntimeError("Expected import failure")
+            batch.rows_inserted = 0
+
+    job = SyncJob(name="Bulk sync", is_running=True)
+    job.items = [
+        SyncJobItem(importer_key="test_clear", sort_order=0),
+        SyncJobItem(importer_key="test_clear", sort_order=1),
+    ]
+    db_session.add(job)
+    db_session.commit()
+    job_id = job.id
+    client = Mock()
+    client.get_baq.return_value = []
+    client.__enter__ = Mock(return_value=client)
+    client.__exit__ = Mock(return_value=False)
+    monkeypatch.setattr(KineticClient, "from_app", lambda app: client)
+    monkeypatch.setitem(REGISTRY, "test_clear", ClearingImporter)
+
+    scheduler._execute_job(app, job_id)
+
+    db_session.expire_all()
+    saved = db_session.get(SyncJob, job_id)
+    assert saved.is_running is False
+    assert saved.last_status == ("failed" if fails else "success")
+    assert len(saved.items) == 2
+    for item in saved.items:
+        assert item.last_status == ("failed" if fails else "success")
+        assert item.last_run_at is not None
+        if fails:
+            assert item.last_error == "Expected import failure"
+        else:
+            assert item.last_error is None
+    assert client.get_baq.call_count == 2
