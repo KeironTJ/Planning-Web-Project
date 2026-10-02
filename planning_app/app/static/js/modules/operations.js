@@ -3,7 +3,7 @@
  *
  * Handles:
  *  - operations/daily_output.html — output chart, sync button, trend toggle
- *  - operations/wip_overview.html — WIP chart, drag-scroll, job comment modal
+ *  - operations/wip_overview.html — filters, WIP chart, drag-scroll, job comment modal
  *
  * Reads:
  *  - window.DAILY_OUTPUT_DATA  (set by daily_output.html)
@@ -178,6 +178,52 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // ── WIP overview chart ────────────────────────────────────────────────
     var W = window.WIP_OVERVIEW_DATA;
+    var filterForm = document.getElementById('wip-filter-form');
+    if (W && filterForm) {
+        var planWeek = document.getElementById('wip-plan-week');
+        var planSequence = document.getElementById('wip-plan-sequence');
+        var presets = filterForm.querySelectorAll('[data-wip-material-preset]');
+        var presetFeedback = document.getElementById('wip-preset-feedback');
+        var shortageRestriction = document.getElementById('wip-shortage-restriction');
+        presets.forEach(function (preset) {
+            preset.addEventListener('click', function (event) {
+                if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                var params = new URL(preset.href).searchParams;
+                ['fabric_status', 'component_status', 'shortages_only', 'shortage_group'].forEach(function (name) {
+                    filterForm.elements.namedItem(name).value = params.get(name);
+                });
+                presets.forEach(function (link) {
+                    link.classList.toggle('active', link === preset);
+                });
+                var hasShortage = params.get('shortages_only') === '1';
+                shortageRestriction.classList.toggle('d-none', !hasShortage);
+                if (hasShortage) {
+                    shortageRestriction.textContent = 'Also restricted to: ' + preset.textContent.trim() +
+                        '. Choose All materials to clear this restriction.';
+                }
+                presetFeedback.textContent = preset.textContent.trim() + ' selected. Apply filters to update results.';
+            });
+        });
+        ['fabric_status', 'component_status'].forEach(function (name) {
+            filterForm.elements.namedItem(name).addEventListener('change', function () {
+                presets.forEach(function (link) { link.classList.remove('active'); });
+                presetFeedback.textContent = 'Material selections changed. Apply filters to update results.';
+            });
+        });
+        planWeek.addEventListener('change', function () {
+            planSequence.replaceChildren(new Option('All sequences', ''));
+            (W.planSequences[planWeek.value] || []).forEach(function (sequence) {
+                planSequence.add(new Option(sequence, sequence));
+            });
+            planSequence.disabled = !planWeek.value || planWeek.value === 'unplanned';
+        });
+        filterForm.querySelectorAll('input[name="category"]').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                filterForm.requestSubmit();
+            });
+        });
+    }
     if (W && W.hasWipOps) {
         var wipCtx = document.getElementById('wipChart');
         if (wipCtx) {

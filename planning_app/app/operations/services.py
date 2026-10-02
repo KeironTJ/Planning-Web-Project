@@ -7,7 +7,7 @@ import calendar
 import csv
 import io
 from datetime import date, timedelta
-from flask import Response
+from flask import Response, abort
 
 
 from sqlalchemy import func
@@ -28,6 +28,36 @@ def _wip_job_ordering():
         WorksOrder.order_num.asc().nullslast(),
         WorksOrder.job_num.asc().nullslast(),
     )
+
+
+def _wip_status_filters(args, mat_status_map, comp_status_map):
+    """Combine exact order-level availability statuses, including missing data."""
+    filters = ()
+    for parameter, status_map in (
+        ("fabric_status", mat_status_map),
+        ("component_status", comp_status_map),
+    ):
+        status = args.get(parameter, "").strip()
+        if not status:
+            continue
+        if status not in MAT_STATUS_META:
+            abort(400, description=f"Invalid WIP {parameter}: {status}")
+        if status == "no_data":
+            known_orders = {
+                int(so) for so, value in status_map.items()
+                if so.isdigit() and value != "no_data"
+            }
+            filters += (db.or_(
+                WorksOrder.order_num.is_(None),
+                WorksOrder.order_num.notin_(known_orders),
+            ),)
+        else:
+            matching_orders = {
+                int(so) for so, value in status_map.items()
+                if so.isdigit() and value == status
+            }
+            filters += (WorksOrder.order_num.in_(matching_orders),)
+    return filters
 
 
 def _quick_win_jobs(
@@ -156,8 +186,8 @@ def get_wip_overview(args):
         WorksOrder.next_op.isnot(None),
         WorksOrder.next_op != '',
     ) + _cat_filter + _search_filters + _plan_week_filter
-    _plan_week_options = [
-        row.prod_plnwk[:4]
+    _plan_week_values = [
+        row.prod_plnwk
         for row in (
             db.session.query(WorksOrder.prod_plnwk)
             .filter(
@@ -176,7 +206,11 @@ def get_wip_overview(args):
         )
         if row.prod_plnwk
     ]
-    _plan_week_options = list(dict.fromkeys(_plan_week_options))
+    _plan_week_options = list(dict.fromkeys(value[:4] for value in _plan_week_values))
+    plan_sequences_by_week = defaultdict(list)
+    for value in _plan_week_values:
+        if len(value) >= 6 and value[4:] not in plan_sequences_by_week[value[:4]]:
+            plan_sequences_by_week[value[:4]].append(value[4:])
     _plan_sequence_options = [
         row.prod_plnwk[4:]
         for row in (
@@ -277,9 +311,10 @@ def get_wip_overview(args):
         elif shortage_group == 'mtl_flag':
             _shortage_filter = (WorksOrder.mtl_shortage == True,)
         else:
-            _shortage_filter = (WorksOrder.order_num.in_(_filter_int),) if _filter_int else ()
+            _shortage_filter = (WorksOrder.order_num.in_(_filter_int),)
     else:
         _shortage_filter = ()
+    _shortage_filter += _wip_status_filters(args, mat_status_map, comp_status_map)
     if shortage_group == 'mtl_flag':
         _no_results = shortages_only and mtl_flag_shortages == 0
     else:
@@ -476,6 +511,8 @@ def get_wip_overview(args):
         per_page=per_page,
         shortages_only=shortages_only,
         shortage_group=shortage_group,
+        fabric_status=args.get('fabric_status', '').strip(),
+        component_status=args.get('component_status', '').strip(),
         comp_shortages=comp_shortages,
         either_shortages=either_shortages,
         mtl_flag_shortages=mtl_flag_shortages,
@@ -492,6 +529,7 @@ def get_wip_overview(args):
         dept_filter=dept_filter,
         plan_week=plan_week,
         plan_week_options=_plan_week_options,
+        plan_sequences_by_week=dict(plan_sequences_by_week),
         plan_sequence=plan_sequence,
         plan_sequence_options=_plan_sequence_options,
         all_depts=_all_depts_for_filter,
@@ -499,7 +537,7 @@ def get_wip_overview(args):
     )
 
 def get_wip_export(args):
-    """Download WIP job detail as CSV, respecting the same category/search filters."""
+    """Download WIP job detail with the overview's availability and scope filters."""
     category = args.get('category', 'models').strip().lower()
     _is_model = db.and_(
         WorksOrder.model.isnot(None),
@@ -540,6 +578,15 @@ def get_wip_export(args):
         WorksOrder.next_op.isnot(None),
         WorksOrder.next_op != '',
     ) + _cat_filter + _search_filters + _plan_week_filter
+    dept_filter = args.get('dept', '').strip()
+    if dept_filter:
+        next_ops = set()
+        for department in DeptModel.query.filter_by(name=dept_filter).all():
+            next_ops.add(department.name.upper())
+            if department.op_code:
+                next_ops.add(department.op_code.upper())
+        if next_ops:
+            _base += (db.func.upper(WorksOrder.next_op).in_(next_ops),)
 
     _completed_order_nums = {
         row.order_num
@@ -557,6 +604,13 @@ def get_wip_export(args):
     _order_nums = [str(job.order_num) for job in rows if job.order_num]
     mat_status_map  = get_so_material_status(_order_nums)  if _order_nums else {}
     comp_status_map = get_so_component_status(_order_nums) if _order_nums else {}
+    status_filters = _wip_status_filters(args, mat_status_map, comp_status_map)
+    if status_filters:
+        matching_ids = {
+            row.id for row in db.session.query(WorksOrder.id)
+            .filter(*_base, *status_filters).all()
+        }
+        rows = [job for job in rows if job.id in matching_ids]
 
     if shortages_only:
         _fab_risk  = {so for so, st in mat_status_map.items()  if st not in ('ok', 'no_data')}
@@ -627,7 +681,8 @@ def get_wip_export(args):
         comp_st    = comp_status_map.get(so_key, 'no_data')
         job_mat_st  = job_mat_map.get(job_key,  'no_data')
         job_comp_st = job_comp_map.get(job_key, 'no_data')
-        def _label(st): return 'OK' if st in ('no_data', 'ok') else _mat_label_map.get(st, '')
+        def _label(st):
+            return 'No Data' if st == 'no_data' else ('OK' if st == 'ok' else _mat_label_map.get(st, ''))
         writer.writerow([
             job.job_num or '',
             job.prod_plnwk or '',

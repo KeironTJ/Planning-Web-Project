@@ -1,0 +1,133 @@
+{% set shortage_labels = {'fabric': 'Fabric / Hide issues', 'component': 'Component issues', 'either': 'Any material issues', 'mtl_flag': 'Epicor shortage flag', 'no_shortage': 'No confirmed shortages'} %}
+{% set applied = namespace(items=[]) %}
+{% if category %}{% set applied.items = applied.items + [('category', 'Show', 'Models' if category == 'models' else 'Parts / Scatters')] %}{% endif %}
+{% if search %}{% set applied.items = applied.items + [('q', 'Search', search)] %}{% endif %}
+{% if shortages_only %}{% set applied.items = applied.items + [('shortage_group', 'Materials', shortage_labels.get(shortage_group, shortage_labels['fabric']))] %}{% endif %}
+{% for field, label, selected in [('fabric_status', 'Fabric / Hide', fabric_status), ('component_status', 'Components', component_status)] %}
+{% if selected %}{% set applied.items = applied.items + [(field, label, 'Available' if selected == 'ok' else ('No Data' if selected == 'no_data' else mat_status_meta[selected][0]))] %}{% endif %}
+{% endfor %}
+{% if plan_week %}{% set applied.items = applied.items + [('plan_week', 'Week', 'Unplanned' if plan_week == 'unplanned' else 'W' ~ plan_week[2:4] ~ '/20' ~ plan_week[0:2])] %}{% endif %}
+{% if plan_week and plan_week != 'unplanned' and plan_sequence %}{% set applied.items = applied.items + [('plan_sequence', 'Sequence', plan_sequence)] %}{% endif %}
+{% if dept_filter %}{% set applied.items = applied.items + [('dept', 'Department', dept_filter)] %}{% endif %}
+
+{% macro filter_url(remove='', overrides={}) -%}
+    {%- set params = dict(category=category, q=search, shortages_only='1' if shortages_only else '0', shortage_group=shortage_group, fabric_status=fabric_status, component_status=component_status, plan_week=plan_week, plan_sequence=plan_sequence, dept=dept_filter, per_page=per_page) -%}
+    {%- if remove %}{% set _ = params.update({remove: ''}) %}{% endif -%}
+    {%- if remove == 'shortage_group' %}{% set _ = params.update(shortages_only='0') %}{% endif -%}
+    {%- if remove == 'plan_week' %}{% set _ = params.update(plan_sequence='') %}{% endif -%}
+    {%- set _ = params.update(overrides) -%}
+    {{- url_for('operations.wip_overview', **params) -}}
+{%- endmacro %}
+
+<form method="GET" id="wip-filter-form" class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2 px-3">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <div class="btn-group btn-group-sm" role="group" aria-label="Job category">
+                {% for value, label in [('', 'All'), ('models', 'Models'), ('parts', 'Parts / Scatters')] %}
+                <input type="radio" class="btn-check" name="category" id="wip-category-{{ loop.index }}" value="{{ value }}" {{ 'checked' if category == value }}>
+                <label class="btn btn-outline-secondary" for="wip-category-{{ loop.index }}">{{ label }}</label>
+                {% endfor %}
+            </div>
+            <div class="d-flex gap-2 flex-grow-1">
+                <label for="wip-search" class="visually-hidden">Search jobs, customers or models</label>
+                <input id="wip-search" type="search" name="q" class="form-control form-control-sm" placeholder="Job, customer, model..." value="{{ search }}">
+                <button type="submit" class="btn btn-primary btn-sm">Search</button>
+            </div>
+            {% if applied.items %}
+            <a href="{{ url_for('operations.wip_overview', category='', per_page=per_page) }}" class="btn btn-outline-secondary btn-sm">Clear all</a>
+            {% endif %}
+        </div>
+
+        <details id="wip-filter-panel" class="mt-2">
+            <summary class="text-primary small fw-semibold">
+                <i class="bi bi-funnel me-1" aria-hidden="true"></i>Filters
+                {% if applied.items %}<span class="badge text-bg-primary rounded-pill ms-1">{{ applied.items | length }}<span class="visually-hidden"> applied</span></span>{% endif %}
+                <span class="text-muted fw-normal ms-2">Materials, schedule and department</span>
+            </summary>
+            <div class="row g-3 pt-3">
+                <fieldset class="col-12 col-lg-6">
+                    <legend class="small fw-semibold mb-2">Materials</legend>
+                    <div class="row g-2">
+                        {% for field, label, selected in [('fabric_status', 'Fabric / Hide', fabric_status), ('component_status', 'Components', component_status)] %}
+                        <div class="col-12 col-sm-6">
+                            <label for="{{ field }}" class="form-label small mb-1">{{ label }}</label>
+                            <select id="{{ field }}" name="{{ field }}" class="form-select form-select-sm" aria-describedby="wip-availability-help">
+                                <option value="">All statuses</option>
+                                {% for status, meta in mat_status_meta.items() %}
+                                <option value="{{ status }}" {{ 'selected' if selected == status }}>{{ 'Available (Mat. OK)' if status == 'ok' else ('No Data' if status == 'no_data' else meta[0]) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <p id="wip-availability-help" class="text-muted small mt-2 mb-2">Order-level availability. Both selections must match. No Data is not confirmed availability.</p>
+                    <div class="d-flex flex-wrap gap-1" role="group" aria-label="Material quick presets">
+                        <a data-wip-material-preset class="btn btn-sm btn-outline-secondary {{ 'active' if not shortages_only and not fabric_status and not component_status }}" href="{{ filter_url(overrides=dict(shortages_only='0', shortage_group='', fabric_status='', component_status='')) }}">All materials</a>
+                        <a data-wip-material-preset class="btn btn-sm btn-outline-success {{ 'active' if not shortages_only and fabric_status == 'ok' and component_status == 'ok' }}" href="{{ filter_url(overrides=dict(shortages_only='0', shortage_group='', fabric_status='ok', component_status='ok')) }}">Both available</a>
+                        {% for group in ['either', 'no_shortage', 'fabric', 'component', 'mtl_flag'] %}
+                        <a data-wip-material-preset class="btn btn-sm btn-outline-secondary {{ 'active' if shortages_only and shortage_group == group and not fabric_status and not component_status }}"
+                           href="{{ filter_url(overrides=dict(shortages_only='1', shortage_group=group, fabric_status='', component_status='')) }}">{{ shortage_labels[group] }}</a>
+                        {% endfor %}
+                    </div>
+                    <p class="text-muted small mt-2 mb-0">Presets replace material filters. No confirmed shortages can include No Data; Both available requires confirmed OK.</p>
+                    <div id="wip-shortage-restriction" class="small mt-2 {{ 'd-none' if not shortages_only }}">Also restricted to: <strong>{{ shortage_labels.get(shortage_group, shortage_labels['fabric']) }}</strong>. Choose All materials to clear this restriction.</div>
+                    <div id="wip-preset-feedback" class="small text-primary mt-2" role="status"></div>
+                </fieldset>
+                <fieldset class="col-12 col-sm-6 col-lg-3">
+                    <legend class="small fw-semibold mb-2">Schedule</legend>
+                    <label for="wip-plan-week" class="form-label small mb-1">Plan week</label>
+                    <select id="wip-plan-week" name="plan_week" class="form-select form-select-sm">
+                        <option value="">All weeks</option>
+                        {% for week in plan_week_options %}
+                        <option value="{{ week }}" {{ 'selected' if plan_week == week }}>W{{ week[2:4] }}/20{{ week[0:2] }}</option>
+                        {% endfor %}
+                        {% if plan_week and plan_week != 'unplanned' and plan_week not in plan_week_options %}
+                        <option value="{{ plan_week }}" selected>W{{ plan_week[2:4] }}/20{{ plan_week[0:2] }} (no jobs in scope)</option>
+                        {% endif %}
+                        <option value="unplanned" {{ 'selected' if plan_week == 'unplanned' }}>Unplanned</option>
+                    </select>
+                    <label for="wip-plan-sequence" class="form-label small mt-2 mb-1">Sequence</label>
+                    <select id="wip-plan-sequence" name="plan_sequence" class="form-select form-select-sm" aria-describedby="wip-sequence-help" {{ 'disabled' if not plan_week or plan_week == 'unplanned' }}>
+                        <option value="">All sequences</option>
+                        {% if plan_week and plan_week != 'unplanned' %}
+                        {% for sequence in plan_sequence_options %}
+                        <option value="{{ sequence }}" {{ 'selected' if plan_sequence == sequence }}>{{ sequence }}</option>
+                        {% endfor %}
+                        {% if plan_sequence and plan_sequence not in plan_sequence_options %}<option value="{{ plan_sequence }}" selected>{{ plan_sequence }} (no jobs in scope)</option>{% endif %}
+                        {% endif %}
+                    </select>
+                    <p id="wip-sequence-help" class="text-muted small mt-2 mb-0">Choose a week to filter by sequence.</p>
+                    <noscript><p class="text-muted small">Apply the week first, then choose a sequence.</p></noscript>
+                </fieldset>
+                <fieldset class="col-12 col-sm-6 col-lg-3">
+                    <legend class="small fw-semibold mb-2">Production</legend>
+                    <label for="wip-department" class="form-label small mb-1">Department</label>
+                    <select id="wip-department" name="dept" class="form-select form-select-sm">
+                        <option value="">All departments</option>
+                        {% for department in all_depts %}
+                        <option value="{{ department.name }}" {{ 'selected' if dept_filter == department.name }}>{{ department.name }}</option>
+                        {% endfor %}
+                    </select>
+                </fieldset>
+            </div>
+            <div class="d-flex justify-content-end border-top mt-3 pt-2">
+                <button type="submit" class="btn btn-primary btn-sm">Apply filters</button>
+            </div>
+        </details>
+
+        {% if applied.items %}
+        <div class="d-flex flex-wrap align-items-center gap-1 border-top mt-2 pt-2" role="group" aria-label="Applied filters">
+            {% for field, label, value in applied.items %}
+            <a href="{{ filter_url(remove=field) }}" class="btn btn-sm btn-outline-secondary rounded-pill py-0 text-wrap text-break text-start mw-100"
+               aria-label="Remove {{ label }} filter: {{ value }}">
+                {{ label }}: {{ value }} <i class="bi bi-x ms-1" aria-hidden="true"></i>
+            </a>
+            {% endfor %}
+            <span class="text-muted small ms-sm-auto">{{ jobs.total }} matching job{{ 's' if jobs.total != 1 }}</span>
+        </div>
+        {% endif %}
+    </div>
+    <input type="hidden" name="per_page" value="{{ per_page }}">
+    <input type="hidden" name="shortages_only" value="{{ '1' if shortages_only else '0' }}">
+    <input type="hidden" name="shortage_group" value="{{ shortage_group }}">
+</form>
