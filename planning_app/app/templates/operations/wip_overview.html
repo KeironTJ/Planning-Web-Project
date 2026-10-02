@@ -230,7 +230,7 @@ Operations WIP Overview
                             {%- set job_mat_label, job_mat_colour = mat_status_meta.get(job_mat_st, ('—', 'secondary')) %}
                             <td class="text-center">
                                 {%- if job_mat_st == 'no_data' %}
-                                <span class="badge text-bg-secondary" style="font-size:.7rem;" title="Availability not confirmed">No Data</span>
+                                <span class="badge text-bg-success" style="font-size:.7rem;opacity:.6;" title="Fabric already consumed; no outstanding fabric requirements">Mat. OK</span>
                                 {%- elif job_mat_st == 'ok' %}
                                 <a href="{{ url_for('materials.mrp', so=so_key, q=job.job_num, material_group='fabric') }}"
                                    class="badge text-bg-success text-decoration-none"
@@ -249,7 +249,7 @@ Operations WIP Overview
                             {%- set mat_label, mat_colour = mat_status_meta.get(mat_st, ('—', 'secondary')) %}
                             <td class="text-center">
                                 {%- if mat_st == 'no_data' %}
-                                <span class="badge text-bg-secondary" style="font-size:.7rem;" title="Availability not confirmed">No Data</span>
+                                <span class="badge text-bg-success" style="font-size:.7rem;opacity:.6;" title="Fabric already consumed; no outstanding fabric requirements">Mat. OK</span>
                                 {%- elif mat_st == 'ok' %}
                                 <a href="{{ url_for('materials.mrp', so=so_key, material_group='fabric') }}"
                                    class="badge text-bg-success text-decoration-none"

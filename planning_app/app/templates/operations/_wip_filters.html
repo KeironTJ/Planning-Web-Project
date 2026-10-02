@@ -4,7 +4,7 @@
 {% if search %}{% set applied.items = applied.items + [('q', 'Search', search)] %}{% endif %}
 {% if shortages_only %}{% set applied.items = applied.items + [('shortage_group', 'Materials', shortage_labels.get(shortage_group, shortage_labels['fabric']))] %}{% endif %}
 {% for field, label, selected in [('fabric_status', 'Fabric / Hide', fabric_status), ('component_status', 'Components', component_status)] %}
-{% if selected %}{% set applied.items = applied.items + [(field, label, 'Available' if selected == 'ok' else ('No Data' if selected == 'no_data' else mat_status_meta[selected][0]))] %}{% endif %}
+{% if selected %}{% set applied.items = applied.items + [(field, label, 'Available' if selected == 'ok' else (('Already consumed' if field == 'fabric_status' else 'No Data') if selected == 'no_data' else mat_status_meta[selected][0]))] %}{% endif %}
 {% endfor %}
 {% if plan_week %}{% set applied.items = applied.items + [('plan_week', 'Week', 'Unplanned' if plan_week == 'unplanned' else 'W' ~ plan_week[2:4] ~ '/20' ~ plan_week[0:2])] %}{% endif %}
 {% if plan_week and plan_week != 'unplanned' and plan_sequence %}{% set applied.items = applied.items + [('plan_sequence', 'Sequence', plan_sequence)] %}{% endif %}
@@ -54,13 +54,13 @@
                             <select id="{{ field }}" name="{{ field }}" class="form-select form-select-sm" aria-describedby="wip-availability-help">
                                 <option value="">All statuses</option>
                                 {% for status, meta in mat_status_meta.items() %}
-                                <option value="{{ status }}" {{ 'selected' if selected == status }}>{{ 'Available (Mat. OK)' if status == 'ok' else ('No Data' if status == 'no_data' else meta[0]) }}</option>
+                                <option value="{{ status }}" {{ 'selected' if selected == status }}>{{ 'Available (Mat. OK)' if status == 'ok' else (('Already consumed (Mat. OK)' if field == 'fabric_status' else 'No Data') if status == 'no_data' else meta[0]) }}</option>
                                 {% endfor %}
                             </select>
                         </div>
                         {% endfor %}
                     </div>
-                    <p id="wip-availability-help" class="text-muted small mt-2 mb-2">Order-level availability. Both selections must match. No Data is not confirmed availability.</p>
+                    <p id="wip-availability-help" class="text-muted small mt-2 mb-2">Order-level availability. Both selections must match. Fabric Available includes already consumed fabric with no outstanding requirements. Component No Data is not confirmed availability.</p>
                     <div class="d-flex flex-wrap gap-1" role="group" aria-label="Material quick presets">
                         <a data-wip-material-preset class="btn btn-sm btn-outline-secondary {{ 'active' if not shortages_only and not fabric_status and not component_status }}" href="{{ filter_url(overrides=dict(shortages_only='0', shortage_group='', fabric_status='', component_status='')) }}">All materials</a>
                         <a data-wip-material-preset class="btn btn-sm btn-outline-success {{ 'active' if not shortages_only and fabric_status == 'ok' and component_status == 'ok' }}" href="{{ filter_url(overrides=dict(shortages_only='0', shortage_group='', fabric_status='ok', component_status='ok')) }}">Both available</a>
@@ -69,7 +69,7 @@
                            href="{{ filter_url(overrides=dict(shortages_only='1', shortage_group=group, fabric_status='', component_status='')) }}">{{ shortage_labels[group] }}</a>
                         {% endfor %}
                     </div>
-                    <p class="text-muted small mt-2 mb-0">Presets replace material filters. No confirmed shortages can include No Data; Both available requires confirmed OK.</p>
+                    <p class="text-muted small mt-2 mb-0">Presets replace material filters. Both available includes consumed fabric and requires components OK. No confirmed shortages can include component No Data.</p>
                     <div id="wip-shortage-restriction" class="small mt-2 {{ 'd-none' if not shortages_only }}">Also restricted to: <strong>{{ shortage_labels.get(shortage_group, shortage_labels['fabric']) }}</strong>. Choose All materials to clear this restriction.</div>
                     <div id="wip-preset-feedback" class="small text-primary mt-2" role="status"></div>
                 </fieldset>

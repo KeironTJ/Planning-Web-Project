@@ -31,7 +31,7 @@ def _wip_job_ordering():
 
 
 def _wip_status_filters(args, mat_status_map, comp_status_map):
-    """Combine exact order-level availability statuses, including missing data."""
+    """Combine WIP statuses; absent fabric demand means fabric already consumed."""
     filters = ()
     for parameter, status_map in (
         ("fabric_status", mat_status_map),
@@ -42,7 +42,16 @@ def _wip_status_filters(args, mat_status_map, comp_status_map):
             continue
         if status not in MAT_STATUS_META:
             abort(400, description=f"Invalid WIP {parameter}: {status}")
-        if status == "no_data":
+        if parameter == "fabric_status" and status == "ok":
+            risk_orders = {
+                int(so) for so, value in status_map.items()
+                if so.isdigit() and value not in ("ok", "no_data")
+            }
+            filters += (db.or_(
+                WorksOrder.order_num.is_(None),
+                WorksOrder.order_num.notin_(risk_orders),
+            ),)
+        elif status == "no_data":
             known_orders = {
                 int(so) for so, value in status_map.items()
                 if so.isdigit() and value != "no_data"
@@ -698,8 +707,8 @@ def get_wip_export(args):
             _clean(job.order_book_comments),
             _clean(job.grn),
             'Yes' if is_partial else '',
-            _label(job_mat_st),
-            _label(mat_st),
+            _label('ok' if job_mat_st == 'no_data' else job_mat_st),
+            _label('ok' if mat_st == 'no_data' else mat_st),
             _label(job_comp_st),
             _label(comp_st),
             job_notes_map.get(job.job_num or '', ''),
