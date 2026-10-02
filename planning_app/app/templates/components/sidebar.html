@@ -1,8 +1,6 @@
-﻿<nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-body-secondary sidebar collapse border-end">
+<nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-body-secondary sidebar collapse border-end" aria-label="Sidebar navigation">
     <div class="position-sticky pt-3 sidebar-sticky">
         <ul class="nav flex-column">
-
-            {# -- Home -------------------------------------------------- #}
             <li class="nav-item mb-1">
                 <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}"
                    href="{{ url_for('index') }}">
@@ -10,206 +8,76 @@
                 </a>
             </li>
 
-            {# -- Sales ------------------------------------------------- #}
             {% if current_user.has_permission('view_orders') %}
-            <li class="mt-1">
-                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">
-                    <a href="{{ url_for('sales.dashboard') }}" class="text-body-secondary text-decoration-none">
+            {% set sales_endpoints = ('sales.dashboard', 'orders.order_book_dashboard', 'orders.order_book', 'orders.overdue_report', 'sales.customer_report', 'sales.model_report') %}
+            {% set sales_active = request.endpoint in sales_endpoints %}
+            <li class="sidebar-section">
+                <div class="sidebar-section-heading">
+                    <a href="{{ url_for('sales.dashboard') }}">
                         <i class="bi bi-graph-up-arrow me-1"></i>Sales
                     </a>
-                </h6>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'orders.order_book_dashboard' %}active{% endif %}"
-                   href="{{ url_for('orders.order_book_dashboard') }}">
-                    <i class="bi bi-speedometer2 me-2"></i>Dashboard
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'orders.order_book' %}active{% endif %}"
-                   href="{{ url_for('orders.order_book') }}">
-                    <i class="bi bi-grid-3x3-gap me-2"></i>Order Book
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'orders.overdue_report' %}active{% endif %}"
-                   href="{{ url_for('orders.overdue_report') }}">
-                    <i class="bi bi-exclamation-triangle me-2"></i>Overdue Report
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'sales.customer_report' %}active{% endif %}"
-                   href="{{ url_for('sales.customer_report') }}">
-                    <i class="bi bi-person-lines-fill me-2"></i>Customer Report
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'sales.model_report' %}active{% endif %}"
-                   href="{{ url_for('sales.model_report') }}">
-                    <i class="bi bi-box-seam me-2"></i>Model Report
-                </a>
-            </li>
-            {# Production work-centre quick filters #}
-            {% if active_departments %}
-            <li class="nav-item mt-1">
-                <span class="nav-link py-1 text-muted small disabled pe-none">
-                    <i class="bi bi-funnel me-1"></i>Filter by dept
-                </span>
-            </li>
-            {% for dept in active_departments %}
-            <li class="nav-item">
-                <a class="nav-link py-1 sidebar-dept-link ps-4 {% if request.endpoint == 'orders.order_book' and request.args.get('dept_id')|int == dept.id %}active{% endif %}"
-                   href="{{ url_for('orders.order_book', dept_id=dept.id) }}">
-                    {{ dept.name }}
-                </a>
-            </li>
-            {% endfor %}
-            {% endif %}
-            {% endif %}
-
-            {# -- Planning ---------------------------------------------- #}
-            {% if current_user.has_permission('view_capacity') %}
-            <li class="mt-3">
-                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">
-                    <a href="{{ url_for('planning.dashboard') }}" class="text-body-secondary text-decoration-none">
-                        <i class="bi bi-calendar2-range me-1"></i>Planning
-                    </a>
-                </h6>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'capacity.dashboard' %}active{% endif %}"
-                   href="{{ url_for('capacity.dashboard') }}">
-                    <i class="bi bi-bar-chart-fill me-2"></i>Capacity
-                </a>
-            </li>
-            {% if current_user.has_permission('override_capacity') %}
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint in ('capacity.labour_plan_list', 'capacity.labour_plan_save') %}active{% endif %}"
-                   href="{{ url_for('capacity.labour_plan_list') }}">
-                    <i class="bi bi-people me-2"></i>Labour Plan
-                </a>
-            </li>
-            {% endif %}
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('workorder_plan.') %}active{% endif %}"
-                   href="{{ url_for('workorder_plan.sessions') }}">
-                    <i class="bi bi-kanban me-2"></i>Capacity Planner
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint in ('workorder_plan.groups_list', 'workorder_plan.groups_edit', 'workorder_plan.groups_create') %}active{% endif %}"
-                   href="{{ url_for('workorder_plan.groups_list') }}">
-                    <i class="bi bi-people me-2"></i>Customer Groups
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'workorder_plan.capacity_targets' %}active{% endif %}"
-                   href="{{ url_for('workorder_plan.capacity_targets') }}">
-                    <i class="bi bi-sliders me-2"></i>Capacity Targets
-                </a>
-            </li>
-            {% endif %}
-
-            {# -- Purchasing -------------------------------------------- #}
-            {% if current_user.has_permission('view_materials') %}
-            {% set purchasing_data_endpoints = ('materials.stock_list', 'materials.po_list', 'materials.main_requirements', 'materials.exempt_materials', 'materials.class_labels') %}
-            <li class="mt-3">
-                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">
-                    <a href="{{ url_for('purchasing.dashboard') }}" class="text-body-secondary text-decoration-none">
-                        <i class="bi bi-box-seam me-1"></i>Purchasing
-                    </a>
-                </h6>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'purchasing.overview' %}active{% endif %}"
-                   href="{{ url_for('purchasing.overview') }}">
-                    <i class="bi bi-speedometer2 me-2"></i>Overview
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'materials.index' %}active{% endif %}"
-                   href="{{ url_for('materials.index') }}">
-                    <i class="bi bi-layers me-2"></i>Fabric/Hide Availability
-                </a>
-            </li>
-
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'materials.shortage' %}active{% endif %}"
-                   href="{{ url_for('materials.shortage') }}">
-                    <i class="bi bi-list-ul me-2"></i>Fabric/Hide Shortages
-                </a>
-            </li>
-            
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'materials.component_shortage' %}active{% endif %}"
-                   href="{{ url_for('materials.component_shortage') }}">
-                    <i class="bi bi-layers me-2"></i>Component Shortages
-                </a>
-            </li>
-
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'materials.mrp' %}active{% endif %}"
-                   href="{{ url_for('materials.mrp') }}">
-                    <i class="bi bi-diagram-2 me-2"></i>MRP Pegging
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'materials.release_impact' %}active{% endif %}"
-                   href="{{ url_for('materials.release_impact') }}">
-                    <i class="bi bi-cash-stack me-2"></i>Cash Release Impact
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'purchasing.supplier_delivery' %}active{% endif %}"
-                   href="{{ url_for('purchasing.supplier_delivery') }}">
-                    <i class="bi bi-truck me-2"></i>Supplier Delivery
-                </a>
-            </li>
-
-            {# Collapsible data sub-menu #}
-            {% set _data_active = request.endpoint in purchasing_data_endpoints %}
-            <li class="nav-item mt-1">
-                <a class="nav-link d-flex align-items-center justify-content-between py-1
-                          {% if _data_active %}active{% endif %}"
-                   data-bs-toggle="collapse" href="#purchasingDataMenu" role="button"
-                   aria-expanded="{{ 'true' if _data_active else 'false' }}"
-                   aria-controls="purchasingDataMenu"
-                   style="cursor:pointer;">
-                    <span><i class="bi bi-database me-2"></i>Data &amp; Stock</span>
-                    <i class="bi bi-chevron-down small transition-icon"></i>
-                </a>
-                <div class="collapse {% if _data_active %}show{% endif %}" id="purchasingDataMenu">
-                    <ul class="nav flex-column ps-3 border-start ms-3 mt-1">
+                    <button class="sidebar-section-toggle" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#salesMenu" aria-expanded="{{ 'true' if sales_active else 'false' }}"
+                            aria-controls="salesMenu" aria-label="Toggle Sales menu">
+                        <i class="bi bi-chevron-down transition-icon" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div class="collapse {% if sales_active %}show{% endif %}" id="salesMenu">
+                    <ul class="nav flex-column">
                         <li class="nav-item">
-                            <a class="nav-link py-1 {% if request.endpoint == 'materials.stock_list' %}active{% endif %}"
-                               href="{{ url_for('materials.stock_list') }}">
-                                <i class="bi bi-boxes me-2"></i>Stock on Hand
+                            <a class="nav-link {% if request.endpoint == 'orders.order_book_dashboard' %}active{% endif %}"
+                               href="{{ url_for('orders.order_book_dashboard') }}">
+                                <i class="bi bi-speedometer2 me-2"></i>Dashboard
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link py-1 {% if request.endpoint == 'materials.po_list' %}active{% endif %}"
-                               href="{{ url_for('materials.po_list') }}">
-                                <i class="bi bi-cart me-2"></i>Open POs
+                            <a class="nav-link {% if request.endpoint == 'orders.order_book' %}active{% endif %}"
+                               href="{{ url_for('orders.order_book') }}">
+                                <i class="bi bi-grid-3x3-gap me-2"></i>Order Book
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link py-1 {% if request.endpoint == 'materials.main_requirements' %}active{% endif %}"
-                               href="{{ url_for('materials.main_requirements') }}">
-                                <i class="bi bi-list-columns me-2"></i>Material Reqs
-                            </a>
-                        </li>
-                        {% if current_user.has_permission('manage_imports') %}
-                        <li class="nav-item">
-                            <a class="nav-link py-1 {% if request.endpoint == 'materials.exempt_materials' %}active{% endif %}"
-                               href="{{ url_for('materials.exempt_materials') }}">
-                                <i class="bi bi-shield-check me-2"></i>MRP Exemptions
+                            <a class="nav-link {% if request.endpoint == 'orders.overdue_report' %}active{% endif %}"
+                               href="{{ url_for('orders.overdue_report') }}">
+                                <i class="bi bi-exclamation-triangle me-2"></i>Overdue Report
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link py-1 {% if request.endpoint == 'materials.class_labels' %}active{% endif %}"
-                               href="{{ url_for('materials.class_labels') }}">
-                                <i class="bi bi-tags me-2"></i>Class Labels
+                            <a class="nav-link {% if request.endpoint == 'sales.customer_report' %}active{% endif %}"
+                               href="{{ url_for('sales.customer_report') }}">
+                                <i class="bi bi-person-lines-fill me-2"></i>Customer Report
                             </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'sales.model_report' %}active{% endif %}"
+                               href="{{ url_for('sales.model_report') }}">
+                                <i class="bi bi-box-seam me-2"></i>Model Report
+                            </a>
+                        </li>
+                        {% if active_departments %}
+                        {% set dept_filter_active = request.endpoint == 'orders.order_book' and request.args.get('dept_id') %}
+                        <li class="nav-item mt-1">
+                            <button class="nav-link sidebar-submenu-toggle {% if dept_filter_active %}active{% endif %}"
+                                    type="button" data-bs-toggle="collapse" data-bs-target="#salesDeptFiltersMenu"
+                                    aria-expanded="{{ 'true' if dept_filter_active else 'false' }}"
+                                    aria-controls="salesDeptFiltersMenu">
+                                <span><i class="bi bi-funnel me-2"></i>Filter by department</span>
+                                <i class="bi bi-chevron-down transition-icon" aria-hidden="true"></i>
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <div class="collapse {% if dept_filter_active %}show{% endif %}" id="salesDeptFiltersMenu">
+                                <ul class="nav flex-column sidebar-submenu">
+                                    {% for dept in active_departments %}
+                                    <li class="nav-item">
+                                        <a class="nav-link sidebar-dept-link {% if request.endpoint == 'orders.order_book' and request.args.get('dept_id')|int == dept.id %}active{% endif %}"
+                                           href="{{ url_for('orders.order_book', dept_id=dept.id) }}">
+                                            {{ dept.name }}
+                                        </a>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
                         </li>
                         {% endif %}
                     </ul>
@@ -217,114 +85,309 @@
             </li>
             {% endif %}
 
-            {# -- Operations -------------------------------------------- #}
-            <li class="mt-3">
-                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">
-                    <a href="{{ url_for('operations.dashboard') }}" class="text-body-secondary text-decoration-none">
+            {% if current_user.has_permission('view_capacity') %}
+            {% set planning_active = request.endpoint in ('capacity.dashboard', 'capacity.labour_plan_list', 'capacity.labour_plan_save') or (request.endpoint and request.endpoint.startswith('workorder_plan.')) %}
+            <li class="sidebar-section">
+                <div class="sidebar-section-heading">
+                    <a href="{{ url_for('planning.dashboard') }}">
+                        <i class="bi bi-calendar2-range me-1"></i>Planning
+                    </a>
+                    <button class="sidebar-section-toggle" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#planningMenu" aria-expanded="{{ 'true' if planning_active else 'false' }}"
+                            aria-controls="planningMenu" aria-label="Toggle Planning menu">
+                        <i class="bi bi-chevron-down transition-icon" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div class="collapse {% if planning_active %}show{% endif %}" id="planningMenu">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'capacity.dashboard' %}active{% endif %}"
+                               href="{{ url_for('capacity.dashboard') }}">
+                                <i class="bi bi-bar-chart-fill me-2"></i>Capacity
+                            </a>
+                        </li>
+                        {% if current_user.has_permission('override_capacity') %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint in ('capacity.labour_plan_list', 'capacity.labour_plan_save') %}active{% endif %}"
+                               href="{{ url_for('capacity.labour_plan_list') }}">
+                                <i class="bi bi-people me-2"></i>Labour Plan
+                            </a>
+                        </li>
+                        {% endif %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint and request.endpoint.startswith('workorder_plan.') %}active{% endif %}"
+                               href="{{ url_for('workorder_plan.sessions') }}">
+                                <i class="bi bi-kanban me-2"></i>Capacity Planner
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint in ('workorder_plan.groups_list', 'workorder_plan.groups_edit', 'workorder_plan.groups_create') %}active{% endif %}"
+                               href="{{ url_for('workorder_plan.groups_list') }}">
+                                <i class="bi bi-people me-2"></i>Customer Groups
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'workorder_plan.capacity_targets' %}active{% endif %}"
+                               href="{{ url_for('workorder_plan.capacity_targets') }}">
+                                <i class="bi bi-sliders me-2"></i>Capacity Targets
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </li>
+            {% endif %}
+
+            {% if current_user.has_permission('view_materials') %}
+            {% set purchasing_data_endpoints = ('materials.stock_list', 'materials.po_list', 'materials.main_requirements', 'materials.exempt_materials', 'materials.class_labels') %}
+            {% set purchasing_endpoints = ('purchasing.overview', 'materials.index', 'materials.shortage', 'materials.component_shortage', 'materials.mrp', 'materials.release_impact', 'purchasing.supplier_delivery') + purchasing_data_endpoints %}
+            {% set purchasing_active = request.endpoint in purchasing_endpoints %}
+            {% set purchasing_data_active = request.endpoint in purchasing_data_endpoints %}
+            <li class="sidebar-section">
+                <div class="sidebar-section-heading">
+                    <a href="{{ url_for('purchasing.dashboard') }}">
+                        <i class="bi bi-box-seam me-1"></i>Purchasing
+                    </a>
+                    <button class="sidebar-section-toggle" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#purchasingMenu" aria-expanded="{{ 'true' if purchasing_active else 'false' }}"
+                            aria-controls="purchasingMenu" aria-label="Toggle Purchasing menu">
+                        <i class="bi bi-chevron-down transition-icon" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div class="collapse {% if purchasing_active %}show{% endif %}" id="purchasingMenu">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'purchasing.overview' %}active{% endif %}"
+                               href="{{ url_for('purchasing.overview') }}">
+                                <i class="bi bi-speedometer2 me-2"></i>Overview
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'materials.index' %}active{% endif %}"
+                               href="{{ url_for('materials.index') }}">
+                                <i class="bi bi-layers me-2"></i>Fabric/Hide Availability
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'materials.shortage' %}active{% endif %}"
+                               href="{{ url_for('materials.shortage') }}">
+                                <i class="bi bi-list-ul me-2"></i>Fabric/Hide Shortages
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'materials.component_shortage' %}active{% endif %}"
+                               href="{{ url_for('materials.component_shortage') }}">
+                                <i class="bi bi-layers me-2"></i>Component Shortages
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'materials.mrp' %}active{% endif %}"
+                               href="{{ url_for('materials.mrp') }}">
+                                <i class="bi bi-diagram-2 me-2"></i>MRP Pegging
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'materials.release_impact' %}active{% endif %}"
+                               href="{{ url_for('materials.release_impact') }}">
+                                <i class="bi bi-cash-stack me-2"></i>Cash Release Impact
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'purchasing.supplier_delivery' %}active{% endif %}"
+                               href="{{ url_for('purchasing.supplier_delivery') }}">
+                                <i class="bi bi-truck me-2"></i>Supplier Delivery
+                            </a>
+                        </li>
+                        <li class="nav-item mt-1">
+                            <button class="nav-link sidebar-submenu-toggle {% if purchasing_data_active %}active{% endif %}"
+                                    type="button" data-bs-toggle="collapse" data-bs-target="#purchasingDataMenu"
+                                    aria-expanded="{{ 'true' if purchasing_data_active else 'false' }}"
+                                    aria-controls="purchasingDataMenu">
+                                <span><i class="bi bi-database me-2"></i>Data &amp; Stock</span>
+                                <i class="bi bi-chevron-down transition-icon" aria-hidden="true"></i>
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <div class="collapse {% if purchasing_data_active %}show{% endif %}" id="purchasingDataMenu">
+                                <ul class="nav flex-column sidebar-submenu">
+                                    <li class="nav-item">
+                                        <a class="nav-link {% if request.endpoint == 'materials.stock_list' %}active{% endif %}"
+                                           href="{{ url_for('materials.stock_list') }}">
+                                            <i class="bi bi-boxes me-2"></i>Stock on Hand
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link {% if request.endpoint == 'materials.po_list' %}active{% endif %}"
+                                           href="{{ url_for('materials.po_list') }}">
+                                            <i class="bi bi-cart me-2"></i>Open POs
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link {% if request.endpoint == 'materials.main_requirements' %}active{% endif %}"
+                                           href="{{ url_for('materials.main_requirements') }}">
+                                            <i class="bi bi-list-columns me-2"></i>Material Reqs
+                                        </a>
+                                    </li>
+                                    {% if current_user.has_permission('manage_imports') %}
+                                    <li class="nav-item">
+                                        <a class="nav-link {% if request.endpoint == 'materials.exempt_materials' %}active{% endif %}"
+                                           href="{{ url_for('materials.exempt_materials') }}">
+                                            <i class="bi bi-shield-check me-2"></i>MRP Exemptions
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link {% if request.endpoint == 'materials.class_labels' %}active{% endif %}"
+                                           href="{{ url_for('materials.class_labels') }}">
+                                            <i class="bi bi-tags me-2"></i>Class Labels
+                                        </a>
+                                    </li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </li>
+            {% endif %}
+
+            {% set operations_active = request.endpoint in ('operations.dashboard', 'operations.wip_overview', 'operations.daily_output') %}
+            <li class="sidebar-section">
+                <div class="sidebar-section-heading">
+                    <a href="{{ url_for('operations.dashboard') }}">
                         <i class="bi bi-gear-wide-connected me-1"></i>Operations
                     </a>
-                </h6>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'operations.wip_overview' %}active{% endif %}"
-                   href="{{ url_for('operations.wip_overview') }}">
-                    <i class="bi bi-diagram-3 me-2"></i>WIP Overview
-                </a>
-            </li>
-            <!-- Production Output Report -->
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'operations.daily_output' %}active{% endif %}"
-                   href="{{ url_for('operations.daily_output') }}">
-                    <i class="bi bi-bar-chart-line me-2"></i>Production Output
-                </a>
+                    <button class="sidebar-section-toggle" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#operationsMenu" aria-expanded="{{ 'true' if operations_active else 'false' }}"
+                            aria-controls="operationsMenu" aria-label="Toggle Operations menu">
+                        <i class="bi bi-chevron-down transition-icon" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div class="collapse {% if operations_active %}show{% endif %}" id="operationsMenu">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'operations.wip_overview' %}active{% endif %}"
+                               href="{{ url_for('operations.wip_overview') }}">
+                                <i class="bi bi-diagram-3 me-2"></i>WIP Overview
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'operations.daily_output' %}active{% endif %}"
+                               href="{{ url_for('operations.daily_output') }}">
+                                <i class="bi bi-bar-chart-line me-2"></i>Production Output
+                            </a>
+                        </li>
+                    </ul>
+                </div>
             </li>
 
-            {# -- Transport --------------------------------------------- #}
-            <li class="mt-3">
-                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">
-                    <a href="{{ url_for('transport.dashboard') }}" class="text-body-secondary text-decoration-none">
+            {% set transport_active = request.endpoint in ('transport.dashboard', 'transport.loading_bay', 'transport.bay_state') %}
+            <li class="sidebar-section">
+                <div class="sidebar-section-heading">
+                    <a href="{{ url_for('transport.dashboard') }}">
                         <i class="bi bi-truck me-1"></i>Transport
                     </a>
-                </h6>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link py-1 {% if request.endpoint == 'transport.loading_bay' %}active{% endif %}"
-                   href="{{ url_for('transport.loading_bay') }}">
-                    <i class="bi bi-graph-up-arrow me-2"></i>Shipping Value
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link py-1 {% if request.endpoint == 'transport.bay_state' %}active{% endif %}"
-                   href="{{ url_for('transport.bay_state') }}">
-                    <i class="bi bi-geo-alt-fill me-2"></i>Bay State
-                </a>
+                    <button class="sidebar-section-toggle" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#transportMenu" aria-expanded="{{ 'true' if transport_active else 'false' }}"
+                            aria-controls="transportMenu" aria-label="Toggle Transport menu">
+                        <i class="bi bi-chevron-down transition-icon" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div class="collapse {% if transport_active %}show{% endif %}" id="transportMenu">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'transport.loading_bay' %}active{% endif %}"
+                               href="{{ url_for('transport.loading_bay') }}">
+                                <i class="bi bi-graph-up-arrow me-2"></i>Shipping Value
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'transport.bay_state' %}active{% endif %}"
+                               href="{{ url_for('transport.bay_state') }}">
+                                <i class="bi bi-geo-alt-fill me-2"></i>Bay State
+                            </a>
+                        </li>
+                    </ul>
+                </div>
             </li>
 
-            {# -- IT ---------------------------------------------------- #}
-            <li class="mt-3">
-                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">
-                    <a href="{{ url_for('it.dashboard') }}" class="text-body-secondary text-decoration-none">
+            <li class="sidebar-section">
+                <div class="sidebar-section-heading sidebar-section-heading-static">
+                    <a href="{{ url_for('it.dashboard') }}">
                         <i class="bi bi-hdd-network me-1"></i>IT
                     </a>
-                </h6>
-            </li>
-            <li class="nav-item">
-                <span class="nav-link py-1 text-muted small pe-none" style="opacity:.6;">
-                    <i class="bi bi-hourglass me-2"></i>Tools coming soon
-                </span>
+                </div>
             </li>
 
-            {# -- Data Management (manage_imports, non-admin) ------------ #}
             {% if current_user.has_permission('manage_imports') and not current_user.is_admin %}
-            <li class="mt-3">
-                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">Data Management</h6>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint in ('admin.import_list', 'admin.import_upload', 'admin.import_detail') %}active{% endif %}"
-                   href="{{ url_for('admin.import_list') }}">
-                    <i class="bi bi-cloud-upload me-2"></i>CSV Imports
-                </a>
+            {% set imports_active = request.endpoint in ('admin.import_list', 'admin.import_upload', 'admin.import_detail') %}
+            <li class="sidebar-section">
+                <div class="sidebar-section-heading">
+                    <span><i class="bi bi-cloud-upload me-1"></i>Data Management</span>
+                    <button class="sidebar-section-toggle" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#dataManagementMenu" aria-expanded="{{ 'true' if imports_active else 'false' }}"
+                            aria-controls="dataManagementMenu" aria-label="Toggle Data Management menu">
+                        <i class="bi bi-chevron-down transition-icon" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div class="collapse {% if imports_active %}show{% endif %}" id="dataManagementMenu">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if imports_active %}active{% endif %}"
+                               href="{{ url_for('admin.import_list') }}">
+                                CSV Imports
+                            </a>
+                        </li>
+                    </ul>
+                </div>
             </li>
             {% endif %}
 
-            {# -- Administration ---------------------------------------- #}
             {% if current_user.is_admin %}
-            <li class="mt-3">
-                <h6 class="sidebar-heading px-3 mt-1 mb-1 text-body-secondary text-uppercase small">Administration</h6>
+            {% set admin_active = request.endpoint and request.endpoint.startswith('admin.') %}
+            <li class="sidebar-section">
+                <div class="sidebar-section-heading">
+                    <span><i class="bi bi-shield-lock me-1"></i>Administration</span>
+                    <button class="sidebar-section-toggle" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#administrationMenu" aria-expanded="{{ 'true' if admin_active else 'false' }}"
+                            aria-controls="administrationMenu" aria-label="Toggle Administration menu">
+                        <i class="bi bi-chevron-down transition-icon" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div class="collapse {% if admin_active %}show{% endif %}" id="administrationMenu">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.') and request.endpoint not in ('admin.dept_list', 'admin.dept_edit', 'admin.import_list', 'admin.import_upload', 'admin.import_detail', 'admin.system_settings', 'admin.sync_schedules', 'admin.sync_job_create', 'admin.sync_job_update', 'admin.sync_job_delete', 'admin.sync_job_run_now', 'admin.sync_job_item_add', 'admin.sync_job_item_update', 'admin.sync_job_item_delete', 'admin.epicor_sync') %}active{% endif %}"
+                               href="{{ url_for('admin.dashboard') }}">
+                                <i class="bi bi-speedometer2 me-2"></i>Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint in ('admin.dept_list', 'admin.dept_edit') %}active{% endif %}"
+                               href="{{ url_for('admin.dept_list') }}">
+                                <i class="bi bi-building me-2"></i>Departments
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint in ('admin.import_list', 'admin.import_upload', 'admin.import_detail') %}active{% endif %}"
+                               href="{{ url_for('admin.import_list') }}">
+                                <i class="bi bi-cloud-upload me-2"></i>CSV Imports
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint in ('admin.user_list', 'admin.user_detail') %}active{% endif %}"
+                               href="{{ url_for('admin.user_list') }}">
+                                <i class="bi bi-people me-2"></i>Users
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'admin.system_settings' %}active{% endif %}"
+                               href="{{ url_for('admin.system_settings') }}">
+                                <i class="bi bi-gear me-2"></i>Settings
+                            </a>
+                        </li>
+                    </ul>
+                </div>
             </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.') and request.endpoint not in ('admin.dept_list', 'admin.dept_edit', 'admin.import_list', 'admin.import_upload', 'admin.import_detail', 'admin.system_settings', 'admin.sync_schedules', 'admin.sync_job_create', 'admin.sync_job_update', 'admin.sync_job_delete', 'admin.sync_job_run_now', 'admin.sync_job_item_add', 'admin.sync_job_item_update', 'admin.sync_job_item_delete', 'admin.epicor_sync') %}active{% endif %}"
-                   href="{{ url_for('admin.dashboard') }}">
-                    <i class="bi bi-speedometer2 me-2"></i>Dashboard
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint in ('admin.dept_list', 'admin.dept_edit') %}active{% endif %}"
-                   href="{{ url_for('admin.dept_list') }}">
-                    <i class="bi bi-building me-2"></i>Departments
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint in ('admin.import_list', 'admin.import_upload', 'admin.import_detail') %}active{% endif %}"
-                   href="{{ url_for('admin.import_list') }}">
-                    <i class="bi bi-cloud-upload me-2"></i>CSV Imports
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint in ('admin.user_list', 'admin.user_detail') %}active{% endif %}"
-                   href="{{ url_for('admin.user_list') }}">
-                    <i class="bi bi-people me-2"></i>Users
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'admin.system_settings' %}active{% endif %}"
-                   href="{{ url_for('admin.system_settings') }}">
-                    <i class="bi bi-gear me-2"></i>Settings
-                </a>
-            </li>
-
             {% endif %}
-
         </ul>
     </div>
 </nav>
