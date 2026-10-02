@@ -8,6 +8,7 @@ from app.extensions import db
 from app.sales.orders.models import ImportBatch
 from .importer import TransportLoadImporter
 from .models import LOAD_STAGES, TransportLoad
+from .readiness import populate_readiness, summarise_readiness
 
 
 STAGE_META = (
@@ -18,13 +19,14 @@ STAGE_META = (
 )
 
 
-def _totals(loads: list[dict]) -> dict:
+def _totals(loads: list[dict], order_synced: bool) -> dict:
     return {
         "count": len(loads),
         "quantity": sum((load["order_qty"] or Decimal(0) for load in loads), Decimal(0)),
         "value": sum((load["order_value"] or Decimal(0) for load in loads), Decimal(0)),
         "missing_value": sum(load["order_value"] is None for load in loads),
         "missing_quantity": sum(load["order_qty"] is None for load in loads),
+        "readiness": summarise_readiness(loads, order_synced),
     }
 
 
@@ -87,19 +89,21 @@ def get_load_board(
             "due_today": row.status != "SHIPPED" and row.ship_date == today,
         })
 
+    order_sync = populate_readiness(loads)
+    order_synced = order_sync["success"] is not None
     stages = []
     for key, label, description, icon, style in STAGE_META:
         members = [load for load in loads if load["status"] == key]
         stages.append({
             "key": key, "label": label, "description": description, "icon": icon,
-            "style": style, "loads": members, **_totals(members),
+            "style": style, "loads": members, **_totals(members, order_synced),
         })
     unknown = [load for load in loads if load["status"] not in LOAD_STAGES]
     if unknown:
         stages.append({
             "key": "OTHER", "label": "Other status", "description": "Review status in Epicor",
             "icon": "exclamation-triangle", "style": "other",
-            "loads": unknown, **_totals(unknown),
+            "loads": unknown, **_totals(unknown, order_synced),
         })
 
     by_date: dict[date, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -128,7 +132,7 @@ def get_load_board(
         .order_by(TransportLoad.route).all()
     ]
     return {
-        "stages": stages, "summary": _totals(loads), "timeline": timeline,
+        "stages": stages, "summary": _totals(loads, order_synced), "timeline": timeline,
         "active_count": sum(load["status"] != "SHIPPED" for load in loads),
         "overdue_count": sum(load["overdue"] for load in loads),
         "today_count": sum(load["due_today"] for load in loads),
@@ -137,4 +141,5 @@ def get_load_board(
         "unknown_count": len(unknown), "routes": routes,
         "search": search, "route_f": route, "ship_from": ship_from, "ship_to": ship_to,
         "today": today, "latest_sync": latest, "last_success": last_success,
+        "order_sync": order_sync,
     }

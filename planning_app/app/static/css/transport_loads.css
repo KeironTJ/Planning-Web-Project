@@ -38,7 +38,26 @@
 .load-summary-value { font-size: 1.5rem; overflow-wrap: anywhere; }
 .load-summary-value .small { font-size: .8rem; }
 .load-summary-units { font-size: 1rem; }
-.load-summary-total { font-variant-numeric: tabular-nums; }
+.load-summary-total {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .75rem 1.5rem;
+    padding: .75rem 1rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    background: var(--bs-tertiary-bg);
+    font-variant-numeric: tabular-nums;
+}
+.load-summary-total > div { min-width: 0; }
+.load-summary-total .load-summary-readiness {
+    flex: 1 1 320px;
+    margin-top: 0;
+    border-top: 0;
+    padding-top: 0;
+}
+.load-summary-readiness { margin-top: .5rem; border-top: 1px solid var(--bs-border-color); padding-top: .5rem; }
+.load-summary-readiness > span { margin-right: .5rem; }
 .load-lane h3 { scroll-margin-top: 5rem; }
 .load-lane {
     min-width: 0;
@@ -72,6 +91,7 @@
     background: var(--bs-body-bg);
     padding: .9rem;
 }
+.load-card:has(.load-details[open]) { grid-column: 1 / -1; }
 .load-card-id { overflow-wrap: anywhere; font-size: 1.1rem; }
 .load-card-route { overflow-wrap: anywhere; font-size: .9rem; }
 .load-card-metrics { font-size: .95rem; font-variant-numeric: tabular-nums; }
@@ -81,6 +101,14 @@
 .load-capacity-track .progress-bar { background: var(--load-accent); }
 .load-details summary { cursor: pointer; color: var(--bs-link-color); }
 .load-details dd { overflow-wrap: anywhere; margin-bottom: .5rem; color: var(--bs-secondary-color); }
+.load-readiness { border-top: 1px solid var(--bs-border-color); padding-top: .65rem; }
+.load-readiness-track { height: .3rem; background: var(--bs-border-color); }
+.load-release-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+    gap: .75rem;
+}
+.load-release-list li { border-top: 1px solid var(--bs-border-color); padding: .65rem 0; overflow-wrap: anywhere; }
 .load-empty { grid-column: 1 / -1; padding: 1rem .5rem; }
 .load-timeline { position: relative; width: 100%; height: 240px; }
 .load-timeline canvas { max-width: 100%; }

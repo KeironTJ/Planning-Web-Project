@@ -12,6 +12,28 @@
 {% macro load_date(value, time) -%}
 {{ value.strftime('%d %b %Y') if value else 'Not set' }}{% if time and time != '00:00:00' %} at {{ time }}{% endif %}
 {%- endmacro %}
+{% macro readiness_summary(ready) %}
+<div class="load-summary-readiness small">
+  <div class="fw-semibold">Production readiness</div>
+  {% if not ready.synced %}
+  <div class="text-body-secondary">Order data not synced</div>
+  {% elif ready.count %}
+  <div>{{ ready.complete }} / {{ ready.count }} observed releases job-complete <span class="text-body-secondary">({{ number(ready.pct) }}%)</span></div>
+  <div class="progress load-readiness-track mt-1" role="img" aria-label="{{ ready.complete }} of {{ ready.count }} observed releases job-complete">
+    <div class="progress-bar {{ 'bg-success' if ready.clear else 'bg-warning' }}" style="width: {{ ready.pct }}%"></div>
+  </div>
+  {% if ready.outstanding %}<span class="text-body-secondary d-inline-block mt-1">{{ ready.outstanding }} awaiting production</span>{% endif %}
+  {% if ready.unknown %}<span class="text-warning-emphasis d-inline-block mt-1">{{ ready.unknown }} readiness unknown</span>{% endif %}
+  {% if ready.held %}<span class="text-danger d-inline-block mt-1">{{ ready.held }} releases on hold</span>{% endif %}
+  {% if ready.unchecked_holds %}<span class="text-warning-emphasis d-inline-block mt-1">{{ ready.unchecked_holds }} hold flags unknown</span>{% endif %}
+  {% else %}
+  <div class="text-body-secondary">No observed order releases</div>
+  {% endif %}
+  {% if ready.coverage_issues %}
+  <div class="text-warning-emphasis mt-1">Check order coverage: {{ ready.coverage_issues }} {{ 'load' if ready.coverage_issues == 1 else 'loads' }}</div>
+  {% endif %}
+</div>
+{% endmacro %}
 {% block content %}
 <div class="transport-loads">
   <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
@@ -50,6 +72,22 @@
   </div>
   {% endif %}
 
+  {% if order_sync.latest and order_sync.latest.status == 'failed' %}
+  <div class="alert alert-warning small" role="status">The latest order-readiness sync failed. Any readiness figures below are from the last successful order snapshot.</div>
+  {% elif order_sync.latest and order_sync.latest.status == 'pending' %}
+  <div class="alert alert-info small" role="status">Order-readiness sync is pending. Figures below use the last successful order snapshot.</div>
+  {% endif %}
+  {% if order_sync.success %}
+  <div class="small text-body-secondary mb-2">
+    Production readiness updated: {{ order_sync.success.uploaded_at | utcfmt('datetime-year') }}
+    {% if last_success and order_sync.success.uploaded_at < last_success.uploaded_at %}
+    <span class="text-warning-emphasis">&middot; Order data is older than the load snapshot; refresh transport_orders.</span>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="alert alert-info small" role="status">Production readiness is not available yet. Sync <strong>transport_orders</strong> (CSGTransportWBOrders) to show completed jobs and holds per load.</div>
+  {% endif %}
+
   <form method="get" class="card mb-3 load-filters" aria-label="Filter transport loads">
     <div class="load-filter-toolbar">
       <div class="load-filter-search">
@@ -80,13 +118,14 @@
   </form>
 
   <section class="mb-3" aria-labelledby="load-summary-heading">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-      <h2 id="load-summary-heading" class="h5 mb-0">At a glance</h2>
-      <div class="load-summary-total small">
+    <h2 id="load-summary-heading" class="h5 mb-2">At a glance</h2>
+    <div class="load-summary-total mb-3">
+      <div class="small">
         Total: <strong>{{ money(summary.value) }}</strong> value &middot;
         <strong>{{ number(summary.quantity) }}</strong> units &middot;
         <strong>{{ summary.count }}</strong> loads
       </div>
+      {{ readiness_summary(summary.readiness) }}
     </div>
     <div class="load-summary-grid" aria-label="Value and units by current status">
       {% for stage in stages %}
@@ -97,6 +136,7 @@
         </div>
         <div class="load-summary-value fw-bold">{{ money(stage.value) }} <span class="small fw-normal text-body-secondary">value</span></div>
         <div class="load-summary-units"><strong>{{ number(stage.quantity) }}</strong> <span class="text-body-secondary">units</span></div>
+        {{ readiness_summary(stage.readiness) }}
       </a>
       {% endfor %}
     </div>
@@ -131,6 +171,7 @@
         <div class="load-stage-totals small mt-2">
           <strong>{{ money(stage.value) }}</strong> value &middot; <strong>{{ number(stage.quantity) }}</strong> units
         </div>
+        {{ readiness_summary(stage.readiness) }}
       </header>
       <div class="load-lane-body" role="region" aria-label="{{ stage.label }} load cards">
         {% for load in stage.loads %}
@@ -162,6 +203,27 @@
           </div>
           {% if load.overdue %}<div class="badge bg-danger-subtle text-danger-emphasis mt-2">Past ship date</div>
           {% elif load.due_today %}<div class="badge bg-success-subtle text-success-emphasis mt-2">Shipping today</div>{% endif %}
+          {% set ready = load.readiness %}
+          <div class="load-readiness small mt-2">
+            <div class="fw-semibold mb-1">Production readiness</div>
+            {% if not ready.synced %}
+            <span class="text-body-secondary">Order data not synced</span>
+            {% elif ready.count %}
+            <div>{{ ready.complete }} / {{ ready.count }} releases job-complete</div>
+            <div class="progress load-readiness-track mt-1" role="img" aria-label="{{ ready.complete }} of {{ ready.count }} observed order releases have all jobs complete">
+              <div class="progress-bar {% if ready.complete == ready.count and ready.coverage_matches and not ready.held and not ready.unchecked_holds %}bg-success{% else %}bg-warning{% endif %}" style="width: {{ ready.pct }}%"></div>
+            </div>
+            {% if ready.outstanding %}<div class="text-body-secondary mt-1">{{ ready.outstanding }} awaiting production</div>{% endif %}
+            {% if ready.unknown %}<div class="text-warning-emphasis mt-1">{{ ready.unknown }} with unknown readiness</div>{% endif %}
+            {% if ready.held %}<div class="text-danger mt-1">{{ ready.held }} releases on hold</div>{% endif %}
+            {% if ready.unchecked_holds %}<div class="text-warning-emphasis mt-1">{{ ready.unchecked_holds }} with unknown hold flags</div>{% endif %}
+            {% if not ready.coverage_matches %}<div class="text-warning-emphasis mt-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Check order coverage</div>{% endif %}
+            {% elif load.order_qty == 0 %}
+            <span class="text-body-secondary">No assigned order releases</span>
+            {% else %}
+            <span class="text-warning-emphasis">No matching order releases returned</span>
+            {% endif %}
+          </div>
           <details class="load-details mt-2">
             <summary class="small">Load details</summary>
             <dl class="small mb-0 mt-2">
@@ -169,7 +231,34 @@
               <dt>Load date</dt><dd>{{ load_date(load.load_date, load.load_time) }}</dd>
               <dt>Return date</dt><dd>{{ load_date(load.return_date, load.return_time) }}</dd>
               <dt>Available capacity (BAQ)</dt><dd>{{ number(load.available_pct) }}{% if load.available_pct is not none %}%{% endif %}</dd>
+              {% if ready.synced %}
+              <dt>Order coverage</dt>
+              <dd>{{ number(ready.quantity) }} observed units / {{ number(load.order_qty) }} load units{% if not ready.coverage_matches %} &middot; Counts may not cover the full load{% endif %}</dd>
+              {% if ready.pack_refs %}
+              <dt>Pack references</dt><dd>{{ ready.pack_refs | join(', ') }} (not proof of physical loading)</dd>
+              {% endif %}
+              {% endif %}
             </dl>
+            {% if ready.issues %}
+            <div class="small fw-semibold mt-3 mb-2">Releases needing attention</div>
+            <ul class="load-release-list list-unstyled small mb-0">
+              {% for release in ready.issues %}
+              <li>
+                <div class="fw-semibold">SO {{ release.order_num }} / {{ release.order_line }} / {{ release.rel_num }} &middot; {{ number(release.quantity) }} units</div>
+                <div>{{ release.customer or 'Customer not set' }}</div>
+                <div class="text-body-secondary">{{ release.part_num or 'Part not set' }}{% if release.part_description %} &middot; {{ release.part_description }}{% endif %}</div>
+                <div>Jobs: {{ release.job_statuses | join(', ') or 'Status not supplied' }}{% if release.jobs %} ({{ release.jobs | join(', ') }}){% endif %}</div>
+                <div class="text-body-secondary">Location: {{ release.locations | join(', ') or 'Not supplied' }}</div>
+                {% for hold in release.holds %}<div class="text-danger">{{ hold }}</div>{% endfor %}
+                {% if release.hold_unknown %}<div class="text-warning-emphasis">Hold flags not fully supplied</div>{% endif %}
+                {% if release.pack_refs %}<div>Pack references: {{ release.pack_refs | join(', ') }}</div>{% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            {% elif ready.count %}
+            <p class="small text-body-secondary mb-0">No production or hold exceptions in the observed releases.</p>
+            {% endif %}
+            <p class="small text-body-secondary mt-2 mb-0">Based on job status per order release. Production completion is not packing or physical loading progress.</p>
           </details>
         </article>
         {% else %}

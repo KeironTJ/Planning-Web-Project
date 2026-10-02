@@ -39,3 +39,38 @@ class TransportLoad(db.Model):
     ship_time = db.Column(db.String(30), nullable=True)
     return_time = db.Column(db.String(30), nullable=True)
     imported_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
+class TransportOrderRelease(db.Model):
+    """One assigned order release, collapsed across jobs/bins/pack joins.
+
+    CSGTransportWBOrders uses OrderRel_CSGTransportNum_c to join to a load.
+    Production readiness requires every returned job status to be Complete.
+    Order status and pack references are retained but do not imply readiness
+    or physical loading. Release quantities are counted once, never per job.
+    """
+
+    __tablename__ = "transport_order_releases"
+    __table_args__ = (
+        db.UniqueConstraint("order_num", "order_line", "rel_num", name="uq_transport_order_release"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    load_id = db.Column(db.String(100), nullable=False, index=True)
+    order_num = db.Column(db.Integer, nullable=False)
+    order_line = db.Column(db.Integer, nullable=False)
+    rel_num = db.Column(db.Integer, nullable=False)
+    customer = db.Column(db.Text, nullable=True)
+    part_num = db.Column(db.Text, nullable=True)
+    part_description = db.Column(db.Text, nullable=True)
+    quantity = db.Column(db.Numeric(18, 4), nullable=True)
+    production_state = db.Column(db.String(20), nullable=False)
+    order_statuses = db.Column(db.JSON, nullable=False)
+    job_statuses = db.Column(db.JSON, nullable=False)
+    jobs = db.Column(db.JSON, nullable=False)
+    locations = db.Column(db.JSON, nullable=False)
+    pack_refs = db.Column(db.JSON, nullable=False)
+    order_held = db.Column(db.Boolean, nullable=True)
+    customer_credit_hold = db.Column(db.Boolean, nullable=True)
+    so_credit_hold = db.Column(db.Boolean, nullable=True)
+    imported_at = db.Column(db.DateTime(timezone=True), nullable=False)

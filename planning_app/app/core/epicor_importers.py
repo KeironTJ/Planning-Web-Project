@@ -22,6 +22,7 @@ from datetime import date, datetime
 from app.core.epicor_sync import EpicorBaqImporter
 from app.sales.orders.models import ImportBatch
 from app.transport.importer import TransportLoadImporter
+from app.transport.order_importer import TransportOrderImporter
 
 
 # ---------------------------------------------------------------------------
@@ -1122,6 +1123,7 @@ REGISTRY: dict[str, type[EpicorBaqImporter]] = {
     "sales_closed":             SalesOrderClosedImporter,
     "production_output":        ProductionOutputImporter,
     "transport_loads":          TransportLoadImporter,
+    "transport_orders":         TransportOrderImporter,
 }
 
 
