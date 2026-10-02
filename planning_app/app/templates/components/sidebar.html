@@ -351,7 +351,9 @@
             {% set admin_active = request.endpoint and request.endpoint.startswith('admin.') %}
             <li class="sidebar-section">
                 <div class="sidebar-section-heading">
-                    <span><i class="bi bi-shield-lock me-1"></i>Administration</span>
+                    <a href="{{ url_for('admin.dashboard') }}">
+                        <i class="bi bi-shield-lock me-1"></i>Administration
+                    </a>
                     <button class="sidebar-section-toggle" type="button" data-bs-toggle="collapse"
                             data-bs-target="#administrationMenu" aria-expanded="{{ 'true' if admin_active else 'false' }}"
                             aria-controls="administrationMenu" aria-label="Toggle Administration menu">
