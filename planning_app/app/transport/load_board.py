@@ -9,6 +9,7 @@ from app.sales.orders.models import ImportBatch
 from .importer import TransportLoadImporter
 from .models import LOAD_STAGES, TransportLoad
 from .readiness import populate_readiness, summarise_readiness
+from .manifest_history import attach_manifest_fallback
 
 
 STAGE_META = (
@@ -90,6 +91,7 @@ def get_load_board(
         })
 
     order_sync = populate_readiness(loads)
+    history_sync = attach_manifest_fallback(loads)
     order_synced = order_sync["success"] is not None
     stages = []
     for key, label, description, icon, style in STAGE_META:
@@ -142,4 +144,5 @@ def get_load_board(
         "search": search, "route_f": route, "ship_from": ship_from, "ship_to": ship_to,
         "today": today, "latest_sync": latest, "last_success": last_success,
         "order_sync": order_sync,
+        "manifest_sync": history_sync,
     }

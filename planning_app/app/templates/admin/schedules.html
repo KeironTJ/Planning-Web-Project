@@ -20,7 +20,7 @@
 {% set PRESETS = [(5,"5 min"),(15,"15 min"),(30,"30 min"),(60,"1 hr"),(120,"2 hr"),(240,"4 hr"),(480,"8 hr"),(1440,"24 hr")] %}
 
 {# ── Importers that accept date params ──────────────────────────────────── #}
-{% set PARAM_IMPORTERS = ['production_output', 'sales_closed'] %}
+{% set PARAM_IMPORTERS = ['production_output', 'sales_closed', 'transport_manifest'] %}
 
 {% if not jobs %}
 <div class="text-center text-muted py-5">
@@ -211,6 +211,29 @@
                            value="{{ pp.get('DateTo', '') }}" style="width:130px">
                   </div>
                 </div>
+
+                {% elif item.importer_key == 'transport_manifest' %}
+                <div class="small fw-semibold mb-2 text-primary">Date mode - Transport Manifest</div>
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                  {% for val, lbl in [('auto', 'Auto: 90 days back / 90 days ahead'), ('range', 'Fixed date range')] %}
+                  <div class="form-check">
+                    <input class="form-check-input manifest-mode-radio" type="radio"
+                           name="manifest_mode_item_{{ item.id }}" id="manifest_{{ val }}_{{ item.id }}"
+                           value="{{ val }}" data-item="{{ item.id }}" data-job="{{ job.id }}"
+                           {% if (not pp and val == 'auto') or pp.get('mode') == val %}checked{% endif %}>
+                    <label class="form-check-label small" for="manifest_{{ val }}_{{ item.id }}">{{ lbl }}</label>
+                  </div>
+                  {% endfor %}
+                  <div class="d-flex flex-wrap gap-2 {% if pp.get('mode') != 'range' %}d-none{% endif %}" id="manifest-range-{{ item.id }}">
+                    <div><label class="small" for="manifest-from-{{ item.id }}">DateFrom (inclusive)</label>
+                      <input type="date" id="manifest-from-{{ item.id }}" class="form-control form-control-sm manifest-from"
+                             data-item="{{ item.id }}" data-job="{{ job.id }}" value="{{ pp.get('DateFrom', '') }}" required></div>
+                    <div><label class="small" for="manifest-before-{{ item.id }}">DateBefore (exclusive)</label>
+                      <input type="date" id="manifest-before-{{ item.id }}" class="form-control form-control-sm manifest-before"
+                             data-item="{{ item.id }}" data-job="{{ job.id }}" value="{{ pp.get('DateBefore', '') }}" required></div>
+                  </div>
+                </div>
+                <div class="small text-body-secondary mt-2">Scheduled load-header dates; auto recalculates each run. Older history stays retained. Fixed ranges repeat unchanged.</div>
 
                 {# sales_closed #}
                 {% elif item.importer_key == 'sales_closed' %}

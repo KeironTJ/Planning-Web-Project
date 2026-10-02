@@ -1,0 +1,58 @@
+<section class="card p-3 mb-3 history-insights" aria-labelledby="history-insights-heading">
+  <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2 mb-2">
+    <h2 class="h5 mb-0" id="history-insights-heading">History insights</h2>
+    <span class="small text-body-secondary">{{ 'All matching manifests' if search or route_f or ship_from or ship_to else 'All saved manifests' }} &middot; not just this page</span>
+  </div>
+  <dl class="history-insight-kpis mb-3">
+    <div><dt>Saved loads</dt><dd>{{ "{:,}".format(insights.count) }}</dd></div>
+    <div><dt>Distinct orders</dt><dd>{{ "{:,}".format(insights.orders) }}</dd></div>
+    <div><dt>Release appearances</dt><dd>{{ "{:,}".format(insights.releases) }}</dd></div>
+    <div><dt>Average orders / load</dt><dd>{{ "{:,.1f}".format(insights.orders_per_load) if insights.orders_per_load is not none else '-' }}</dd></div>
+  </dl>
+  {% if insights.count %}
+  <div class="history-insight-charts">
+    <section aria-labelledby="history-monthly-heading">
+      <h3 class="h6" id="history-monthly-heading">Loads by scheduled month</h3>
+      <div class="small text-body-secondary mb-2">Latest {{ insights.monthly | length }} calendar {{ 'month' if insights.monthly | length == 1 else 'months' }} in scope</div>
+      {% for row in insights.monthly %}
+      <div class="history-insight-bar-row small">
+        <span>{{ row.label }}</span>
+        <div class="history-insight-track" aria-hidden="true"><div style="width: {{ row.width }}%"></div></div>
+        <strong>{{ "{:,}".format(row.count) }}</strong>
+      </div>
+      {% else %}<p class="small text-body-secondary">No scheduled header dates available.</p>{% endfor %}
+    </section>
+    <section aria-labelledby="history-routes-heading">
+      <h3 class="h6" id="history-routes-heading">Route mix</h3>
+      <div class="small text-body-secondary mb-2">Top five routes &middot; share of saved loads</div>
+      {% for row in insights.routes %}
+      <div class="history-insight-route small">
+        <div class="d-flex justify-content-between gap-2">
+          {% if row.route %}<a href="{{ url_for('transport.manifest_history', q=search, route=row.route, ship_from=ship_from.isoformat() if ship_from else '', ship_to=ship_to.isoformat() if ship_to else '') }}">{{ row.label }}</a>{% else %}<span>{{ row.label }}</span>{% endif %}
+          <span class="text-nowrap"><strong>{{ "{:,}".format(row.count) }}</strong> <span class="text-body-secondary">({{ row.share }}%)</span></span>
+        </div>
+        <div class="history-insight-track mt-1" aria-hidden="true"><div style="width: {{ row.width }}%"></div></div>
+      </div>
+      {% endfor %}
+    </section>
+    <section aria-labelledby="history-consolidation-heading">
+      <h3 class="h6" id="history-consolidation-heading">Orders per load</h3>
+      <div class="small text-body-secondary mb-2">Distinct order numbers on each manifest</div>
+      {% for row in insights.distribution %}
+      <div class="history-insight-bar-row small">
+        <span>{{ row.label }}</span>
+        <div class="history-insight-track" aria-hidden="true"><div style="width: {{ row.width }}%"></div></div>
+        <strong>{{ "{:,}".format(row.count) }}</strong>
+      </div>
+      {% endfor %}
+      <p class="small text-body-secondary mt-2 mb-0">{{ "{:,}".format(insights.multi_load_orders) }} {{ 'order appears' if insights.multi_load_orders == 1 else 'orders appear' }} on multiple loads in this scope.</p>
+    </section>
+  </div>
+  {% else %}<p class="small text-body-secondary mb-2">No saved manifests in this scope.</p>{% endif %}
+  <div class="small text-body-secondary mt-2">
+    Scheduled header dates, not actual dispatch. Order/release appearances are not shipped units or utilisation.
+    {% if insights.undated %}<span class="text-warning-emphasis">{{ "{:,}".format(insights.undated) }} undated {{ 'load' if insights.undated == 1 else 'loads' }} excluded from the monthly chart.</span>{% endif %}
+    {% if insights.future %}<span class="text-warning-emphasis">{{ "{:,}".format(insights.future) }} future-dated {{ 'load' if insights.future == 1 else 'loads' }} included.</span>{% endif %}
+    {% if insights.status_changed %}<span class="text-warning-emphasis">{{ "{:,}".format(insights.status_changed) }} saved {{ 'load now has' if insights.status_changed == 1 else 'loads now have' }} a non-shipped source status.</span>{% endif %}
+  </div>
+</section>

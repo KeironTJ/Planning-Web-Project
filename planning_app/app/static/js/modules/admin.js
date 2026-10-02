@@ -58,6 +58,15 @@
     }
 
     function buildItemParams(itemId, importerKey) {
+        if (importerKey === 'transport_manifest') {
+            const mode = document.querySelector('input[name="manifest_mode_item_' + itemId + '"]:checked')?.value;
+            if (!mode || mode === 'auto') return null;
+            return {
+                mode: 'range',
+                DateFrom: document.querySelector('.manifest-from[data-item="' + itemId + '"]')?.value || '',
+                DateBefore: document.querySelector('.manifest-before[data-item="' + itemId + '"]')?.value || '',
+            };
+        }
         if (importerKey === 'production_output') {
             const mode = document.querySelector('input[name="prod_mode_item_' + itemId + '"]:checked')?.value;
             if (!mode || mode === 'auto') return null;
@@ -82,6 +91,11 @@
 
     async function saveItemParams(itemId, jobId, importerKey) {
         const params = buildItemParams(itemId, importerKey);
+        if (importerKey === 'transport_manifest' && params &&
+            (!params.DateFrom || !params.DateBefore || params.DateFrom >= params.DateBefore)) {
+            showToast('Choose both dates; exclusive DateBefore must be after DateFrom. Not saved.', 'danger');
+            return;
+        }
         const data   = await apiPost(itemUrl(jobId, itemId), { action: 'save_params', schedule_params: params });
         if (data.status !== 'ok') { showToast(data.message || 'Save failed', 'danger'); return; }
         const badge = document.querySelector('.params-badge-' + itemId);
@@ -439,6 +453,18 @@
         });
     });
 
+    document.querySelectorAll('.manifest-mode-radio').forEach(radio => {
+        radio.addEventListener('change', function () {
+            document.getElementById('manifest-range-' + this.dataset.item)?.classList.toggle('d-none', this.value !== 'range');
+            saveItemParams(this.dataset.item, this.dataset.job, 'transport_manifest');
+        });
+    });
+    document.querySelectorAll('.manifest-from, .manifest-before').forEach(input => {
+        input.addEventListener('change', function () {
+            saveItemParams(this.dataset.item, this.dataset.job, 'transport_manifest');
+        });
+    });
+
     // ── Auto-refresh job and item status every 30 s ──────────────────────
     const STATUS_URL = toastContainer.dataset.urlStatus;
     setInterval(() => {
@@ -519,6 +545,14 @@
         new FormData(form).forEach((v, k) => { if (k !== 'csrf_token') p[k] = v; });
         return p;
     }
+    document.querySelectorAll('.manifest-sync-mode').forEach(select => {
+        select.addEventListener('change', function () {
+            const range = this.form.querySelector('.manifest-sync-range');
+            const enabled = this.value === 'range';
+            range.classList.toggle('d-none', !enabled);
+            range.querySelectorAll('input').forEach(input => { input.disabled = !enabled; });
+        });
+    });
 
     function mkRow(key, state, detail) {
         const icons  = { wait: '<i class="bi bi-clock text-muted me-2"></i>', run: '<span class="spinner-border spinner-border-sm me-2 text-primary"></span>', ok: '<i class="bi bi-check-circle-fill text-success me-2"></i>', err: '<i class="bi bi-x-circle-fill text-danger me-2"></i>' };

@@ -324,6 +324,10 @@ class SyncJobItem(db.Model):
     @property
     def params_label(self) -> str:
         pp = self.parsed_params
+        if self.importer_key == "transport_manifest":
+            if not pp or pp.get("mode") == "auto":
+                return "Auto (-90 / +90 days)"
+            return f"{pp.get('DateFrom', '')} to before {pp.get('DateBefore', '')}"
         if not pp:
             return "Auto"
         mode = pp.get("mode")

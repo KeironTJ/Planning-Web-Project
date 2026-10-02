@@ -75,6 +75,22 @@
               <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">
                 <i class="bi bi-arrow-clockwise"></i></button>
             </form>
+            {% elif key == 'transport_manifest' %}
+            <form class="individual-sync d-flex flex-column gap-1" data-key="{{ key }}">
+              <label class="visually-hidden" for="manifestSyncMode">Manifest date mode</label>
+              <select name="mode" id="manifestSyncMode" class="form-select form-select-sm manifest-sync-mode">
+                <option value="auto">Auto: 90 days back / 90 days ahead</option>
+                <option value="range">Custom date range</option>
+              </select>
+              <div class="manifest-sync-range d-none">
+                <label class="small" for="manifestSyncFrom">DateFrom (inclusive)</label>
+                <input type="date" id="manifestSyncFrom" name="DateFrom" value="{{ defaults.transport_manifest.DateFrom }}" class="form-control form-control-sm" disabled required>
+                <label class="small" for="manifestSyncBefore">DateBefore (exclusive)</label>
+                <input type="date" id="manifestSyncBefore" name="DateBefore" value="{{ defaults.transport_manifest.DateBefore }}" class="form-control form-control-sm" disabled required>
+              </div>
+              <div class="small text-body-secondary">Scheduled header dates. Auto today: {{ defaults.transport_manifest.DateFrom }} to before {{ defaults.transport_manifest.DateBefore }}.</div>
+              <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-clockwise me-1"></i>Sync manifest</button>
+            </form>
             {% else %}
             <form class="individual-sync" data-key="{{ key }}">
               <button type="submit" class="btn btn-sm btn-outline-primary">

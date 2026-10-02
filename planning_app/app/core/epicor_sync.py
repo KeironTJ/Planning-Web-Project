@@ -112,7 +112,7 @@ class EpicorBaqImporter:
 
     def run(self, params: dict | None = None, triggered_by_id: int | None = None):
         """
-        Execute the full sync: fetch BAQ → truncate → reload → commit.
+        Commit a pending audit, then fetch BAQ and atomically sync target data.
 
         Args:
             params:           Additional / override BAQ filter params for this run.
@@ -134,12 +134,12 @@ class EpicorBaqImporter:
             uploaded_by_id=triggered_by_id,
             status=ImportBatch.STATUS_PENDING,
         )
-        db.session.add(batch)
-        db.session.flush()  # get batch.id without committing
-
         now = datetime.now(timezone.utc)
 
         try:
+            db.session.add(batch)
+            # Network pagination can take minutes; do not hold a SQLite write lock.
+            db.session.commit()
             logger.info("EpicorSync starting  BAQ=%s  batch_id=%d", self.BAQ_NAME, batch.id)
 
             records = self._fetch_records(merged_params)

@@ -10,6 +10,7 @@ from . import transport_bp
 from .services import get_loading_bay_report, get_loading_bay_state
 from .load_board import get_load_board
 from .overview import build_overview, build_management_summary
+from .manifest_history import get_manifest_history
 
 
 @transport_bp.route("/")
@@ -28,8 +29,7 @@ def dashboard():
     )
 
 
-def _filtered_load_board() -> dict:
-    """Keep overview and operational filters identical."""
+def _ship_date_filters() -> dict:
     dates = {}
     for key in ("ship_from", "ship_to"):
         value = request.args.get(key, "").strip()
@@ -39,8 +39,33 @@ def _filtered_load_board() -> dict:
             abort(400, description="Ship dates must use YYYY-MM-DD.")
     if dates["ship_from"] and dates["ship_to"] and dates["ship_from"] > dates["ship_to"]:
         abort(400, description="Ship from must be on or before ship to.")
+    return dates
+
+
+def _filtered_load_board() -> dict:
+    """Keep overview and operational filters identical."""
     return get_load_board(
-        search=request.args.get("q", ""), route=request.args.get("route", ""), **dates,
+        search=request.args.get("q", ""), route=request.args.get("route", ""), **_ship_date_filters(),
+    )
+
+
+@transport_bp.route("/manifest-history")
+@login_required
+@permission_required("view_transport")
+def manifest_history():
+    """Retained shipped contents, filtered by scheduled load-header dates."""
+    try:
+        page = int(request.args.get("page", "1"))
+        if page < 1:
+            raise ValueError
+    except ValueError:
+        abort(400, description="Page must be a positive integer.")
+    return render_template(
+        "transport/manifest_history.html", title="Shipped Manifest History",
+        **get_manifest_history(
+            search=request.args.get("q", ""), route=request.args.get("route", ""),
+            page=page, **_ship_date_filters(),
+        ),
     )
 
 

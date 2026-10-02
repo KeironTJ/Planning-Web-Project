@@ -19,6 +19,7 @@
     </div>
     <div class="overview-actions d-flex align-items-start gap-2">
       <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transport.loads', **filter_args) }}">Load board</a>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transport.manifest_history') }}">Manifest history</a>
       <button type="button" class="btn btn-sm btn-primary" id="overviewPrint"><i class="bi bi-printer me-1" aria-hidden="true"></i>Print / save PDF</button>
     </div>
   </header>

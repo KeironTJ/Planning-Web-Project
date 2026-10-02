@@ -15,6 +15,7 @@ from flask_login import current_user
 
 from app.extensions import db
 from app.sales.orders.models import ImportBatch
+from app.transport.manifest_importer import TransportManifestImporter, manifest_date_params
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +45,7 @@ def handle_epicor_sync():
         "production_output_from": (today - __import__("datetime").timedelta(days=7)).isoformat(),
         "production_output_to":   today.isoformat(),
     }
+    defaults["transport_manifest"] = TransportManifestImporter(None).get_dynamic_params()
 
     return render_template(
         "admin/epicor_sync.html",
@@ -80,6 +82,15 @@ def handle_epicor_sync_run():
             "DateFrom": request.form.get("DateFrom", ""),
             "DateTo":   request.form.get("DateTo", ""),
         }
+    elif baq_key == "transport_manifest":
+        try:
+            extra_params = manifest_date_params({
+                key: request.form[key] for key in ("mode", "DateFrom", "DateBefore")
+                if key in request.form
+            })
+        except ValueError as exc:
+            flash(str(exc), "danger")
+            return redirect(url_for("admin.epicor_sync"))
 
     try:
         with KineticClient.from_app(current_app._get_current_object()) as client:
@@ -120,6 +131,11 @@ def handle_epicor_sync_run_one():
 
     if not baq_key or baq_key not in REGISTRY:
         return jsonify({"status": "error", "message": f"Unknown importer: {baq_key!r}"}), 400
+    if baq_key == "transport_manifest":
+        try:
+            params = manifest_date_params(data.get("params", {}) if data.get("params") is not None else {})
+        except ValueError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
 
     # Convert sales_closed date params from ISO to UK format
     if baq_key == "sales_closed":
@@ -466,6 +482,12 @@ def handle_sync_job_item_update(job_id: int, item_id: int):
 
     elif action == "save_params":
         raw = data.get("schedule_params")
+        if item.importer_key == "transport_manifest":
+            try:
+                dates = manifest_date_params(raw if raw is not None else {})
+            except ValueError as exc:
+                return jsonify({"status": "error", "message": str(exc)}), 400
+            raw = {"mode": "range", **dates} if dates else None
         if raw is None or raw == {}:
             item.schedule_params = None
         else:

@@ -1,0 +1,34 @@
+{% macro contents(manifest) %}
+<div class="small text-body-secondary mt-2">
+  Saved manifest contents &middot; observed {{ manifest.contents_observed_at | utcfmt('datetime-year') }}
+</div>
+<div class="table-responsive mt-2" tabindex="0" role="region" aria-label="Historical order releases">
+  <table class="table table-sm small load-contents mb-0">
+    <caption class="caption-top">Historical order releases &mdash; Epicor transport manifest</caption>
+    <thead><tr><th scope="col">Order / line / release</th><th scope="col">Customer / PO</th><th scope="col">Product</th><th scope="col">Jobs</th><th scope="col">Pack / line</th></tr></thead>
+    {% for order_num, releases in manifest.releases | groupby('order_num') %}
+    <tbody>
+      <tr class="table-active"><th scope="rowgroup" colspan="5">SO {{ order_num }} <span class="fw-normal text-body-secondary">&middot; {{ releases | length }} {{ 'release' if releases | length == 1 else 'releases' }}</span></th></tr>
+      {% for release in releases %}
+      <tr>
+        <th scope="row">{{ release.order_num }} / {{ release.order_line }} / {{ release.rel_num }}</th>
+        <td><div>{{ release.customer or 'Not supplied' }}</div>{% if release.customer_po %}<div class="text-body-secondary">PO {{ release.customer_po }}</div>{% endif %}</td>
+        <td><div>{{ release.part_num or 'Not supplied' }}</div><div class="text-body-secondary">{{ release.part_description or '' }}</div></td>
+        <td>{{ release.jobs | join(', ') or 'Not supplied' }}</td>
+        <td>{% for pack in release.packs %}<div>{{ pack.number }}{% if pack.line %} / {{ pack.line }}{% endif %}</div>{% else %}Not supplied{% endfor %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    {% endfor %}
+  </table>
+</div>
+<p class="small text-body-secondary mt-2 mb-0">This source does not supply shipped units, value or actual dispatch time. Historical contents do not establish current production or hold status.</p>
+{% endmacro %}
+
+{% macro sync_warning(sync) %}
+{% if sync.latest and sync.latest.status == 'failed' %}
+<div class="alert alert-warning small" role="status">The latest manifest sync failed. Saved history remains available from previous successful syncs.</div>
+{% elif sync.latest and sync.latest.status == 'pending' %}
+<div class="alert alert-info small" role="status">Manifest sync is pending. Saved history has not yet refreshed.</div>
+{% endif %}
+{% endmacro %}

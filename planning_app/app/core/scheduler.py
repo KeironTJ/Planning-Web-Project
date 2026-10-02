@@ -36,6 +36,9 @@ def _resolve_item_params(item) -> dict | None:
     params = item.resolved_params()
     if not params:
         return None
+    if item.importer_key == "transport_manifest":
+        from app.transport.manifest_importer import manifest_date_params
+        return manifest_date_params(params) or None
 
     # sales_closed BAQ expects UK-format dates (dd/mm/yyyy);
     # we store them as ISO (YYYY-MM-DD) for the date picker.

@@ -23,6 +23,7 @@ from app.core.epicor_sync import EpicorBaqImporter
 from app.sales.orders.models import ImportBatch
 from app.transport.importer import TransportLoadImporter
 from app.transport.order_importer import TransportOrderImporter
+from app.transport.manifest_importer import TransportManifestImporter
 
 
 # ---------------------------------------------------------------------------
@@ -1124,6 +1125,7 @@ REGISTRY: dict[str, type[EpicorBaqImporter]] = {
     "production_output":        ProductionOutputImporter,
     "transport_loads":          TransportLoadImporter,
     "transport_orders":         TransportOrderImporter,
+    "transport_manifest":       TransportManifestImporter,
 }
 
 

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "transport/manifest_contents.html" import contents, sync_warning %}
+{% block page_header %}{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/transport_loads.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/transport_history.css') }}">
+{% endblock %}
+{% block content %}
+<div class="transport-loads">
+  <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <div class="text-body-secondary small text-uppercase fw-semibold mb-1">Transport / Manifest history</div>
+      <h1 class="h3 mb-1"><i class="bi bi-clock-history me-2" aria-hidden="true"></i>Shipped Manifest History</h1>
+      <p class="small text-body-secondary mb-1">Retained shipped manifests, including loads no longer in the current board. Returned shipped loads refresh their saved contents.</p>
+      <div class="small text-body-secondary">{% if manifest_sync.success %}Last successful sync: {{ manifest_sync.success.uploaded_at | utcfmt('datetime-year') }}{% else %}No successful manifest sync yet{% endif %}</div>
+      {% if manifest_sync.success and manifest_sync.success.notes %}<details class="small text-body-secondary mt-1"><summary>Sync scope</summary>{{ manifest_sync.success.notes }}</details>{% endif %}
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('transport.dashboard') }}">Transport dashboard</a>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transport.loads') }}">Load board</a>
+    </div>
+  </header>
+  {{ sync_warning(manifest_sync) }}
+  {% if not manifest_sync.success %}
+  <div class="alert alert-info small" role="status">Sync <strong>transport_manifest</strong> to populate history.
+    {% if current_user.has_permission('manage_imports') %}<a href="{{ url_for('admin.epicor_sync') }}">Open Epicor Data Sync</a>.{% endif %}
+  </div>
+  {% endif %}
+  <form method="get" class="card p-3 mb-3" aria-label="Filter manifest history">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-4"><label class="form-label small" for="manifestSearch">Load, order, customer, PO or product</label><input class="form-control form-control-sm" id="manifestSearch" name="q" value="{{ search }}"></div>
+      <div class="col-md-2"><label class="form-label small" for="manifestRoute">Route</label><select class="form-select form-select-sm" id="manifestRoute" name="route"><option value="">All routes</option>{% if route_f and route_f not in routes %}<option selected>{{ route_f }}</option>{% endif %}{% for route in routes %}<option {% if route == route_f %}selected{% endif %}>{{ route }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label small" for="manifestFrom">Scheduled header date from</label><input class="form-control form-control-sm" type="date" id="manifestFrom" name="ship_from" value="{{ ship_from.isoformat() if ship_from else '' }}"></div>
+      <div class="col-md-2"><label class="form-label small" for="manifestTo">To</label><input class="form-control form-control-sm" type="date" id="manifestTo" name="ship_to" value="{{ ship_to.isoformat() if ship_to else '' }}"></div>
+      <div class="col-md-2 d-flex gap-2"><button type="submit" class="btn btn-sm btn-primary">Apply</button><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transport.manifest_history') }}">Clear</a></div>
+    </div>
+  </form>
+  {% include "transport/history_insights.html" %}
+  <div class="d-flex flex-wrap justify-content-between gap-2 small mb-3">
+    <strong>{{ pagination.total }} saved {{ 'manifest' if pagination.total == 1 else 'manifests' }}{% if search or route_f or ship_from or ship_to %} matching filters{% endif %}</strong>
+    <span class="text-body-secondary">Dates below are load-header scheduling dates, not verified dispatch dates.</span>
+  </div>
+  {% for manifest in manifests %}
+  <article class="card p-3 mb-3">
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+      <h2 class="h6 mb-0">{{ manifest.load_id }} <span class="fw-normal text-body-secondary">&middot; {{ manifest.route or 'No route' }}</span></h2>
+      <span class="badge bg-success-subtle text-success-emphasis">Saved shipped manifest</span>
+    </div>
+    {% if manifest.source_status != 'SHIPPED' %}<div class="small text-warning-emphasis mt-2">Latest observed Epicor status: {{ manifest.source_status }} ({{ manifest.last_seen_at | utcfmt('datetime-year') }}). Previous shipped contents retained.</div>{% endif %}
+    <div class="d-flex flex-wrap gap-3 small text-body-secondary mt-2">
+      <span>Load header date: {{ manifest.load_date.strftime('%d %b %Y') if manifest.load_date else 'Not supplied' }}</span>
+      <span>Scheduled ship header date: {{ manifest.ship_date.strftime('%d %b %Y') if manifest.ship_date else 'Not supplied' }}</span>
+      <span>First saved: {{ manifest.first_observed_at | utcfmt('datetime-year') }}</span>
+    </div>
+    <details class="load-details mt-2"><summary class="small">View contents ({{ manifest.releases | length }} {{ 'release' if manifest.releases | length == 1 else 'releases' }})</summary>{{ contents(manifest) }}</details>
+  </article>
+  {% else %}
+  <div class="card p-4 text-center text-body-secondary">No saved manifests{% if search or route_f or ship_from or ship_to %} match these filters{% endif %}.</div>
+  {% endfor %}
+  {% if pagination.pages > 1 %}
+  {% set filters = {'q': search, 'route': route_f, 'ship_from': ship_from.isoformat() if ship_from else '', 'ship_to': ship_to.isoformat() if ship_to else ''} %}
+  <nav class="d-flex align-items-center justify-content-between gap-2 mt-3" aria-label="Manifest history pages">
+    <div>{% if pagination.has_prev %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transport.manifest_history', page=pagination.prev_num, **filters) }}">Previous</a>{% endif %}</div>
+    <span class="small">Page {{ pagination.page }} of {{ pagination.pages }}</span>
+    <div>{% if pagination.has_next %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transport.manifest_history', page=pagination.next_num, **filters) }}">Next</a>{% endif %}</div>
+  </nav>
+  {% endif %}
+</div>
+{% endblock %}

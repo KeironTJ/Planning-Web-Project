@@ -41,6 +41,52 @@ class TransportLoad(db.Model):
     imported_at = db.Column(db.DateTime(timezone=True), nullable=False)
 
 
+class TransportManifest(db.Model):
+    """Last observed shipped contents, retained when absent from later syncs.
+
+    Header dates are scheduling dates, not verified dispatch dates. A later
+    non-shipped observation updates source status but preserves shipped contents.
+    """
+
+    __tablename__ = "transport_manifests"
+
+    id = db.Column(db.Integer, primary_key=True)
+    load_id = db.Column(db.String(100), nullable=False, unique=True)
+    route = db.Column(db.String(255), nullable=True, index=True)
+    source_status = db.Column(db.String(50), nullable=False)
+    load_date = db.Column(db.Date, nullable=True)
+    ship_date = db.Column(db.Date, nullable=True, index=True)
+    first_observed_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    last_seen_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    contents_observed_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    releases = db.relationship(
+        "TransportManifestRelease", backref="manifest", cascade="all, delete-orphan",
+        order_by="TransportManifestRelease.order_num, TransportManifestRelease.order_line, TransportManifestRelease.rel_num",
+    )
+
+
+class TransportManifestRelease(db.Model):
+    """Release identities plus deduplicated jobs/pack lines; no inferred units."""
+
+    __tablename__ = "transport_manifest_releases"
+    __table_args__ = (
+        db.UniqueConstraint("manifest_id", "order_num", "order_line", "rel_num",
+                            name="uq_transport_manifest_release"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    manifest_id = db.Column(db.Integer, db.ForeignKey("transport_manifests.id"), nullable=False, index=True)
+    order_num = db.Column(db.Integer, nullable=False, index=True)
+    order_line = db.Column(db.Integer, nullable=False)
+    rel_num = db.Column(db.Integer, nullable=False)
+    customer = db.Column(db.Text, nullable=True)
+    customer_po = db.Column(db.Text, nullable=True)
+    part_num = db.Column(db.Text, nullable=True)
+    part_description = db.Column(db.Text, nullable=True)
+    jobs = db.Column(db.JSON, nullable=False)
+    packs = db.Column(db.JSON, nullable=False)
+
+
 class TransportOrderRelease(db.Model):
     """One assigned order release, collapsed across jobs/bins/pack joins.
 
