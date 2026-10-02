@@ -24,7 +24,7 @@ _MATERIAL_STATUS_PRIORITY = {
     "no_data": -1, "ok": 0, "low_risk": 1, "med_risk": 2, "high_risk": 3,
 }
 _VALID_STATUSES = {"", "ready", "ready_hold", "partial", "partial_hold"}
-_VALID_SORTS = {"due_date", "customer", "value", "so_number"}
+_VALID_SORTS = {"ship_by_date", "customer", "value", "so_number"}
 
 
 def _is_on_hold(so_credit_hold: bool | None, order_held: bool | None) -> bool:
@@ -38,12 +38,16 @@ def get_loading_bay_report(
     sort: str = "due_date",
     today: date | None = None,
 ) -> dict:
-    """Build all data needed by the loading-bay report."""
+    """Build shipping values by earliest current ship-by (OrderRel_ReqDate).
+
+    Missing ship-by dates remain undated; Need By and Original Ship By are
+    not substitutes. The legacy due_date sort parameter remains accepted.
+    """
     today = today or date.today()
     search = search.strip()
     customer = customer.strip()
     status = status if status in _VALID_STATUSES else ""
-    sort = sort if sort in _VALID_SORTS else "due_date"
+    sort = sort if sort in _VALID_SORTS else "ship_by_date"
 
     query = db.session.query(SalesOrder).filter(
         SalesOrder.open_order == True,  # noqa: E712
@@ -62,7 +66,7 @@ def get_loading_bay_report(
         query = query.filter(SalesOrder.customer_name.ilike(f"%{customer}%"))
 
     rows = query.order_by(
-        SalesOrder.need_by_date.asc().nullslast(),
+        SalesOrder.req_date.asc().nullslast(),
         SalesOrder.order_num,
         SalesOrder.order_line,
         SalesOrder.rel_num,
@@ -124,7 +128,7 @@ def _build_orders(rows: list[SalesOrder]) -> tuple[dict[int, dict], list[int]]:
                 "required_qty": float(row.required_qty or 0),
                 "qty_completed": float(row.qty_completed or 0),
                 "release_price_gbp": float(row.release_price_gbp or 0),
-                "need_by_date": row.need_by_date, "wip_bin": row.wip_bin or "", "jobs": [],
+                "ship_by_date": row.req_date, "wip_bin": row.wip_bin or "", "jobs": [],
             }
         else:
             release = order["releases"][release_key]
@@ -188,9 +192,9 @@ def _classify_orders(orders: dict[int, dict], order_keys: list[int], today: date
         bay_releases = [release for release in releases if release["wip_bin"].strip()]
         if not bay_releases:
             continue
-        due_dates = [release["need_by_date"] for release in releases if release["need_by_date"]]
-        order["due_date"] = min(due_dates) if due_dates else None
-        order["days_delta"] = (order["due_date"] - today).days if order["due_date"] else None
+        ship_by_dates = [release["ship_by_date"] for release in releases if release["ship_by_date"]]
+        order["ship_by_date"] = min(ship_by_dates) if ship_by_dates else None
+        order["days_delta"] = (order["ship_by_date"] - today).days if order["ship_by_date"] else None
         order["invoiceable_value"] = sum(release["release_price_gbp"] for release in bay_releases)
         order["total_value"] = sum(release["release_price_gbp"] for release in releases if not release["is_shipped"])
         order["units_ready"] = sum(release["qty_completed"] for release in finished)
@@ -249,9 +253,9 @@ def _weekly_loading(orders: list[dict], today: date) -> dict:
     ] + ["Later / No Date"]
     values = {key: [0.0] * len(labels) for key in ("ready", "ready_hold", "partial", "partial_hold")}
     for order in orders:
-        due_date = order["due_date"]
-        index = len(labels) - 1 if due_date is None else 0 if due_date < week_start else next(
-            (index + 1 for index, (start, end) in enumerate(weeks) if start <= due_date <= end),
+        ship_by_date = order["ship_by_date"]
+        index = len(labels) - 1 if ship_by_date is None else 0 if ship_by_date < today else next(
+            (index + 1 for index, (start, end) in enumerate(weeks) if start <= ship_by_date <= end),
             len(labels) - 1,
         )
         key = "ready_hold" if order["on_hold"] and order["order_status"] == "ready" else "partial_hold" if order["on_hold"] else order["order_status"]
@@ -263,7 +267,7 @@ def _filter_and_sort_orders(orders: list[dict], status: str, sort: str) -> list[
     if status:
         orders = _order_groups(orders)[status]
     if sort == "customer":
-        return sorted(orders, key=lambda order: (order["customer_name"], order["due_date"] or date.max))
+        return sorted(orders, key=lambda order: (order["customer_name"], order["ship_by_date"] or date.max))
     if sort == "value":
         return sorted(orders, key=lambda order: order["invoiceable_value"], reverse=True)
     if sort == "so_number":
@@ -273,7 +277,7 @@ def _filter_and_sort_orders(orders: list[dict], status: str, sort: str) -> list[
             "ready_hold" if order["on_hold"] and order["order_status"] == "ready"
             else "partial_hold" if order["on_hold"] else order["order_status"]
         ),
-        order["due_date"] or date.max,
+        order["ship_by_date"] or date.max,
     ))
 
 
@@ -336,7 +340,10 @@ def _filtered_summary(orders: list[dict]) -> dict:
 
 
 def get_loading_bay_state(today: date | None = None) -> dict:
-    """Build the physical loading-bay state grouped by staging location."""
+    """Group finished goods by location, ordered by current Ship By (ReqDate).
+
+    Missing ship-by dates remain undated, without a Need By fallback.
+    """
     today = today or date.today()
     rows = db.session.query(SalesOrder).filter(
         SalesOrder.open_order == True,  # noqa: E712
@@ -344,7 +351,7 @@ def get_loading_bay_state(today: date | None = None) -> dict:
         SalesOrder.required_qty > 0,
         SalesOrder.qty_completed >= SalesOrder.required_qty,
     ).order_by(
-        SalesOrder.wip_bin, SalesOrder.need_by_date.asc().nullslast(), SalesOrder.order_num,
+        SalesOrder.wip_bin, SalesOrder.req_date.asc().nullslast(), SalesOrder.order_num,
     ).all()
     bays: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
@@ -356,14 +363,14 @@ def get_loading_bay_state(today: date | None = None) -> dict:
             "order_line": row.order_line, "rel_num": row.rel_num,
             "qty_completed": float(row.qty_completed or 0),
             "release_price_gbp": float(row.release_price_gbp or 0),
-            "need_by_date": row.need_by_date,
-            "days_delta": (row.need_by_date - today).days if row.need_by_date else None,
+            "ship_by_date": row.req_date,
+            "days_delta": (row.req_date - today).days if row.req_date else None,
             "on_hold": _is_on_hold(row.so_credit_hold, row.order_held),
             "is_international": bool(row.customer_country and row.customer_country.lower() not in _DOMESTIC_COUNTRIES),
         })
     bay_board = sorted((
         {
-            "bin": bin_name, "lines": sorted(lines, key=lambda line: line["need_by_date"] or date.max),
+            "bin": bin_name, "lines": sorted(lines, key=lambda line: line["ship_by_date"] or date.max),
             "value": round(sum(line["release_price_gbp"] for line in lines), 2),
             "qty": sum(line["qty_completed"] for line in lines), "count": len(lines),
         }

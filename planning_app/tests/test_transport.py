@@ -1,6 +1,6 @@
 """Tests for transport report filtering."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -14,6 +14,104 @@ class TestLoadingBayReport:
     def ctx(self, app):
         with app.app_context():
             yield
+
+    def test_shipping_dates_use_current_ship_by_not_need_by_or_original(self, db):
+        from app.transport.services import get_loading_bay_report
+
+        today = date(2026, 10, 7)
+        dates = [
+            (1, today - timedelta(days=1), today + timedelta(days=20), 10),
+            (2, today, today - timedelta(days=20), 20),
+            (3, today + timedelta(days=2), today - timedelta(days=20), 30),
+            (4, None, today - timedelta(days=20), 40),
+            (5, today + timedelta(days=35), today - timedelta(days=20), 50),
+        ]
+        db.session.add_all([
+            SalesOrder(
+                order_num=order, order_line=1, rel_num=1, open_order=True, assembly_seq=0,
+                wip_bin="BAY-01", required_qty=1, qty_completed=1, selling_qty=1,
+                release_price_gbp=value, req_date=ship_by, need_by_date=need_by,
+                original_ship_by=today - timedelta(days=50), order_held=order == 3,
+            )
+            for order, ship_by, need_by, value in dates
+        ])
+        db.session.commit()
+        report = get_loading_bay_report(today=today)
+        orders = {order["order_num"]: order for order in report["orders"]}
+        assert orders[1]["ship_by_date"] == today - timedelta(days=1)
+        assert orders[1]["days_delta"] == -1
+        assert orders[2]["days_delta"] == 0
+        assert orders[3]["days_delta"] == 2
+        assert orders[4]["ship_by_date"] is None
+        assert orders[4]["days_delta"] is None
+        assert orders[1]["releases"][0]["ship_by_date"] == today - timedelta(days=1)
+        assert report["shipping_horizon"]["ready"] == [10, 20, 0, 0, 0, 50, 40]
+        assert report["shipping_horizon"]["ready_hold"] == [0, 0, 30, 0, 0, 0, 0]
+        assert report["weekly_loading"]["ready"] == [10, 20, 0, 0, 0, 0, 50, 40]
+        assert report["weekly_loading"]["ready_hold"] == [0, 30, 0, 0, 0, 0, 0, 0]
+        assert report["sort"] == "ship_by_date"
+        legacy = get_loading_bay_report(sort="due_date", today=today)
+        assert [order["order_num"] for order in legacy["orders"]] == [1, 2, 5, 4, 3]
+
+    def test_ship_by_uses_earliest_release_and_labels_both_pages(self, client, db, admin_user):
+        from app.transport.services import get_loading_bay_report
+
+        today = date.today()
+        db.session.add_all([
+            SalesOrder(order_num=101, order_line=index, rel_num=1, open_order=True,
+                       assembly_seq=0, wip_bin="BAY-01", required_qty=1, qty_completed=1,
+                       selling_qty=1, release_price_gbp=25, req_date=ship_by,
+                       need_by_date=today + timedelta(days=100))
+            for index, ship_by in enumerate([None, today + timedelta(days=5), today], 1)
+        ])
+        db.session.commit()
+        order = get_loading_bay_report(today=today)["orders"][0]
+        assert order["ship_by_date"] == today
+        assert order["days_delta"] == 0
+        client.post("/auth/login", data={
+            "login": "admin@test.com", "password": "Admin!Pass1234",
+        })
+        html = client.get("/transport/loading-bay?sort=ship_by_date").data.decode()
+        assert "Loading Value by Ship-by Week" in html
+        assert "<th>Ship By</th>" in html
+        assert 'value="ship_by_date" selected' in html
+        assert today.strftime("%d %b %Y") in html
+        assert "<th>Due Date</th>" not in html
+        dashboard = client.get("/transport/dashboard").data.decode()
+        assert "Ready-order value by ship-by date" in dashboard
+        assert "Ready-order value by required date" not in dashboard
+        assert "OrderRel_ReqDate" in dashboard
+
+    def test_bay_state_dates_and_sorting_use_ship_by(self, client, db, admin_user):
+        from app.transport.services import get_loading_bay_state
+
+        today = date.today()
+        db.session.add_all([
+            SalesOrder(order_num=order, order_line=1, rel_num=1, open_order=True,
+                       assembly_seq=0, wip_bin="BAY-01", required_qty=1, qty_completed=1,
+                       req_date=ship_by, need_by_date=need_by,
+                       original_ship_by=today - timedelta(days=100))
+            for order, ship_by, need_by in [
+                (1, today + timedelta(days=7), today - timedelta(days=7)),
+                (2, today - timedelta(days=2), today + timedelta(days=7)),
+                (3, None, today - timedelta(days=7)),
+                (4, today, today + timedelta(days=7)),
+            ]
+        ])
+        db.session.commit()
+        lines = get_loading_bay_state(today=today)["bay_board"][0]["lines"]
+        assert [line["order_num"] for line in lines] == [2, 4, 1, 3]
+        assert [line["days_delta"] for line in lines] == [-2, 0, 7, None]
+        assert lines[3]["ship_by_date"] is None
+        client.post("/auth/login", data={
+            "login": "admin@test.com", "password": "Admin!Pass1234",
+        })
+        html = client.get("/transport/bay-state").data.decode()
+        assert "2d overdue" in html
+        assert "Ship by today" in html
+        assert "Ship by " + (today + timedelta(days=7)).strftime("%d %b %Y") in html
+        assert "Ship by: Not set" in html
+        assert "Due today" not in html
 
     def test_includes_only_bay_assigned_orders(self, client, db, admin_user):
         db.session.add_all([

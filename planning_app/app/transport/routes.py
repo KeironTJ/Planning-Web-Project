@@ -2,13 +2,14 @@
 
 from datetime import date
 
-from flask import abort, render_template, request
+from flask import abort, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from app.core.decorators import permission_required
 from . import transport_bp
 from .services import get_loading_bay_report, get_loading_bay_state
 from .load_board import get_load_board
+from .overview import build_overview, build_management_summary
 
 
 @transport_bp.route("/")
@@ -16,15 +17,19 @@ from .load_board import get_load_board
 @login_required
 @permission_required("view_transport")
 def dashboard():
-    """Render the Transport dashboard."""
-    return render_template("transport/dashboard.html", title="Transport")
+    """Combine load, shipping-value and physical loading-bay snapshots."""
+    board = _filtered_load_board()
+    shipping = get_loading_bay_report(today=board["today"])
+    bay = get_loading_bay_state(today=board["today"])
+    return render_template(
+        "transport/dashboard.html", title="Transport Dashboard",
+        **board, overview=build_overview(board), shipping=shipping, bay=bay,
+        management=build_management_summary(shipping, bay),
+    )
 
 
-@transport_bp.route("/loads")
-@login_required
-@permission_required("view_transport")
-def loads():
-    """Show current transport loads in shipping workflow order."""
+def _filtered_load_board() -> dict:
+    """Keep overview and operational filters identical."""
     dates = {}
     for key in ("ship_from", "ship_to"):
         value = request.args.get(key, "").strip()
@@ -34,13 +39,27 @@ def loads():
             abort(400, description="Ship dates must use YYYY-MM-DD.")
     if dates["ship_from"] and dates["ship_to"] and dates["ship_from"] > dates["ship_to"]:
         abort(400, description="Ship from must be on or before ship to.")
-    return render_template(
-        "transport/loads.html", title="Transport Load Board",
-        **get_load_board(
-            search=request.args.get("q", ""), route=request.args.get("route", ""),
-            **dates,
-        ),
+    return get_load_board(
+        search=request.args.get("q", ""), route=request.args.get("route", ""), **dates,
     )
+
+
+@transport_bp.route("/loads")
+@login_required
+@permission_required("view_transport")
+def loads():
+    """Show current transport loads in shipping workflow order."""
+    return render_template(
+        "transport/loads.html", title="Transport Load Board", **_filtered_load_board(),
+    )
+
+
+@transport_bp.route("/overview")
+@login_required
+@permission_required("view_transport")
+def overview():
+    """Keep the overview shortcut pointing at the combined dashboard."""
+    return redirect(url_for("transport.dashboard", **request.args.to_dict()))
 
 
 @transport_bp.route("/loading-bay")

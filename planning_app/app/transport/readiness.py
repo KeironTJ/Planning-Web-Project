@@ -30,11 +30,39 @@ def summarise_readiness(loads: list[dict], synced: bool) -> dict:
     }
 
 
-def populate_readiness(loads: list[dict]) -> dict:
-    """Count unique releases, keeping production completion and holds separate.
+def _group_orders(releases: list[dict]) -> list[dict]:
+    """Aggregate only the releases assigned to this load, retaining their detail."""
+    grouped: dict[int, list[dict]] = defaultdict(list)
+    for release in releases:
+        grouped[release["order_num"]].append(release)
+    orders = []
+    for order_num, members in sorted(grouped.items()):
+        states = {release["state"] for release in members}
+        orders.append({
+            "order_num": order_num, "releases": members, "count": len(members),
+            "customers": list(dict.fromkeys(release["customer"] for release in members)),
+            "products": list(dict.fromkeys(
+                (release["part_num"], release["part_description"]) for release in members
+            )),
+            "quantity": (
+                sum((release["quantity"] for release in members), Decimal(0))
+                if all(release["quantity"] is not None for release in members) else None
+            ),
+            "complete": sum(release["state"] == "complete" for release in members),
+            "state": "unknown" if "unknown" in states else (
+                "outstanding" if "outstanding" in states else "complete"
+            ),
+            "holds": sorted({hold for release in members for hold in release["holds"]}),
+            "hold_unknown": any(release["hold_unknown"] for release in members),
+        })
+    return orders
 
-    Header quantity reconciliation is a coverage check, not a loading measure.
-    Missing, unmatched or older snapshots never imply a load is ready.
+
+def populate_readiness(loads: list[dict]) -> dict:
+    """Expose assigned releases grouped by order and a subset needing attention.
+
+    Counts keep production completion and holds separate. Header quantity
+    reconciliation checks data coverage, not packing or physical loading.
     """
     batches = ImportBatch.query.filter_by(
         import_type=TransportOrderImporter.IMPORT_TYPE,
@@ -57,6 +85,7 @@ def populate_readiness(loads: list[dict]) -> dict:
         outstanding = sum(release.production_state == "outstanding" for release in releases)
         unknown = sum(release.production_state == "unknown" for release in releases)
         issues = []
+        contents = []
         held = 0
         unchecked_holds = 0
         packs: set[str] = set()
@@ -74,16 +103,18 @@ def populate_readiness(loads: list[dict]) -> dict:
             held += bool(reasons)
             unchecked_holds += hold_unknown
             packs.update(release.pack_refs)
+            detail = {
+                "order_num": release.order_num, "order_line": release.order_line,
+                "rel_num": release.rel_num, "customer": release.customer,
+                "part_num": release.part_num, "part_description": release.part_description,
+                "quantity": release.quantity, "state": release.production_state,
+                "job_statuses": release.job_statuses, "order_statuses": release.order_statuses,
+                "jobs": release.jobs, "locations": release.locations,
+                "pack_refs": release.pack_refs, "holds": reasons, "hold_unknown": hold_unknown,
+            }
+            contents.append(detail)
             if release.production_state != "complete" or reasons or hold_unknown:
-                issues.append({
-                    "order_num": release.order_num, "order_line": release.order_line,
-                    "rel_num": release.rel_num, "customer": release.customer,
-                    "part_num": release.part_num, "part_description": release.part_description,
-                    "quantity": release.quantity, "state": release.production_state,
-                    "job_statuses": release.job_statuses, "order_statuses": release.order_statuses,
-                    "jobs": release.jobs, "locations": release.locations,
-                    "pack_refs": release.pack_refs, "holds": reasons, "hold_unknown": hold_unknown,
-                })
+                issues.append(detail)
         quantity = sum((release.quantity or Decimal(0) for release in releases), Decimal(0))
         quantity_known = all(release.quantity is not None for release in releases)
         coverage_matches = (
@@ -93,7 +124,8 @@ def populate_readiness(loads: list[dict]) -> dict:
         load["readiness"] = {
             "synced": success is not None, "count": len(releases), "complete": complete,
             "outstanding": outstanding, "unknown": unknown, "held": held,
-            "unchecked_holds": unchecked_holds, "issues": issues,
+            "unchecked_holds": unchecked_holds, "issues": issues, "releases": contents,
+            "orders": _group_orders(contents),
             "quantity": quantity if quantity_known else None,
             "coverage_matches": coverage_matches, "pack_refs": sorted(packs),
             "pct": round(complete / len(releases) * 100, 1) if releases else 0,

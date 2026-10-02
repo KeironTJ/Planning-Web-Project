@@ -1,98 +1,191 @@
 {% extends "base.html" %}
-{% block title %}{{ title }}{% endblock %}
+{% from "transport/loads.html" import number, money, readiness_summary with context %}
 {% block page_header %}{% endblock %}
-
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/transport_loads.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/transport_overview.css') }}">
+{% endblock %}
 {% block content %}
-<div class="container-fluid py-3">
-
-  <div class="d-flex align-items-center mb-4 gap-3">
-    <div class="rounded-3 p-3 bg-secondary bg-opacity-10">
-      <i class="bi bi-truck fs-2 text-secondary"></i>
-    </div>
+{% set filter_args = dict(q=search, route=route_f, ship_from=ship_from.isoformat() if ship_from else '', ship_to=ship_to.isoformat() if ship_to else '') %}
+<div class="transport-loads transport-overview">
+  <header class="d-flex flex-wrap justify-content-between gap-3 mb-3">
     <div>
-      <h4 class="mb-0 fw-semibold">Transport</h4>
-      <p class="text-muted mb-0 small">Logistics, delivery management, and fleet tools</p>
+      <div class="small text-uppercase text-body-secondary fw-semibold">Transport / Management overview</div>
+      <h1 class="h3 mt-1 mb-1">Transport Dashboard</h1>
+      <div class="small text-body-secondary">
+        {% if last_success %}Loads updated: {{ last_success.uploaded_at | utcfmt('datetime-year') }}{% else %}No load snapshot available{% endif %}
+        {% if order_sync.success %}&middot; Orders updated: {{ order_sync.success.uploaded_at | utcfmt('datetime-year') }}{% else %}&middot; Order details not synced{% endif %}
+      </div>
     </div>
-  </div>
-
-  <div class="row g-3">
-
-    <div class="col-12 col-md-6 col-lg-4">
-      <a href="{{ url_for('transport.loads') }}" class="text-decoration-none">
-        <div class="card h-100 border-0 shadow-sm">
-          <div class="card-body d-flex align-items-start gap-3 p-4">
-            <div class="rounded-3 p-2 bg-primary bg-opacity-10 flex-shrink-0">
-              <i class="bi bi-truck fs-4 text-primary"></i>
+    <div class="overview-actions d-flex align-items-start gap-2">
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transport.loads', **filter_args) }}">Load board</a>
+      <button type="button" class="btn btn-sm btn-primary" id="overviewPrint"><i class="bi bi-printer me-1" aria-hidden="true"></i>Print / save PDF</button>
+    </div>
+  </header>
+  {% for latest, label in [(latest_sync, 'Load'), (order_sync.latest, 'Order')] %}
+    {% if latest and latest.status == 'failed' %}<div class="alert alert-danger small" role="alert">{{ label }} sync failed. Figures retain the last successful snapshot.</div>
+    {% elif latest and latest.status == 'pending' %}<div class="alert alert-info small" role="status">{{ label }} sync pending. Figures use the last successful snapshot.</div>{% endif %}
+  {% endfor %}
+  {% if not last_success %}<div class="alert alert-info small">Sync transport_loads to populate this overview.</div>{% endif %}
+  {% if last_success and order_sync.success and order_sync.success.uploaded_at < last_success.uploaded_at %}
+  <div class="alert alert-warning small">Order data is older than the load snapshot.</div>
+  {% endif %}
+  <section class="overview-panel mb-4" aria-labelledby="overview-shipping-value">
+    <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+      <h2 class="h5 mb-0" id="overview-shipping-value">Shipping value &amp; loading bay</h2>
+      <div class="overview-actions d-flex gap-3 small"><a href="{{ url_for('transport.loading_bay') }}">Shipping value report</a><a href="{{ url_for('transport.bay_state') }}">Loading bay</a></div>
+    </div>
+    <p class="small text-body-secondary">All open orders in the source reports &middot; Independent of the load filters below. These values overlap with loads; do not add them together.</p>
+    <div class="overview-kpis mb-3">
+      <div><span class="small text-body-secondary">Ready orders &mdash; no holds</span><strong>{{ money(shipping.kpi_summary.ready_value) }}</strong><span class="small text-body-secondary">{{ shipping.kpi_summary.ready_count }} orders</span></div>
+      <div><span class="small text-body-secondary">Ready orders &mdash; on hold</span><strong class="text-danger">{{ money(shipping.kpi_summary.ready_hold_value) }}</strong><span class="small text-body-secondary">{{ shipping.kpi_summary.ready_hold_count }} orders</span></div>
+      <div><span class="small text-body-secondary">Partial orders &mdash; report value</span><strong>{{ money(shipping.kpi_summary.partial_value + shipping.kpi_summary.partial_hold_value) }}</strong><span class="small text-body-secondary">{{ shipping.kpi_summary.partial_count + shipping.kpi_summary.partial_hold_count }} orders (including holds)</span></div>
+      <div><span class="small text-body-secondary">Finished goods &mdash; bay report</span><strong>{{ number(bay.total_qty) }} units</strong><span class="small text-body-secondary">{{ bay.total_lines }} source lines &middot; {{ money(bay.total_value) }}</span></div>
+    </div>
+    <div class="overview-management-grid">
+      <section aria-labelledby="overview-horizon">
+        <h3 class="h6" id="overview-horizon">Ready-order value by ship-by date <button type="button" class="load-help text-body-secondary" data-bs-toggle="tooltip" title="Earliest current Ship By date (OrderRel_ReqDate) across the order's releases. Missing dates remain undated." aria-label="About ship-by dates"><i class="bi bi-info-circle" aria-hidden="true"></i></button></h3>
+        {% if management.negative_values %}<p class="small text-warning-emphasis">Negative report values are present. Bars use absolute values; amounts retain their signs.</p>{% endif %}
+        <div class="overview-legend small mb-2"><span><i class="bg-success" aria-hidden="true"></i>No holds</span><span><i class="bg-danger" aria-hidden="true"></i>On hold</span></div>
+        {% for horizon in management.horizons %}
+        <div class="overview-horizon-row">
+          <span class="small">{{ horizon.label }}</span>
+          <div>
+            <div class="overview-value-track" role="img" aria-label="{{ horizon.label }}: {{ money(horizon.ready) }} no holds; {{ money(horizon.held) }} on hold">
+              <span class="bg-success" style="width: {{ horizon.ready_width }}%"></span><span class="bg-danger" style="width: {{ horizon.held_width }}%"></span>
             </div>
-            <div>
-              <h6 class="fw-semibold mb-1 text-primary">Transport Load Board</h6>
-              <p class="text-muted small mb-0">Planned to shipped: load progress, spare capacity and shipping dates</p>
-            </div>
+            <div class="small text-body-secondary mt-1">{{ money(horizon.ready) }}{% if horizon.held %} &middot; <span class="text-danger">{{ money(horizon.held) }} on hold</span>{% endif %}</div>
           </div>
         </div>
-      </a>
+        {% endfor %}
+      </section>
+      <section aria-labelledby="overview-bays">
+        <div class="d-flex flex-wrap justify-content-between gap-1 mb-2">
+          <h3 class="h6 mb-0" id="overview-bays">Finished goods by bay location</h3>
+          <span class="small text-body-secondary">{{ management.bays | length }} locations</span>
+        </div>
+        <div class="overview-bay-list" role="region" aria-labelledby="overview-bays" tabindex="0">
+        {% for location in management.bays %}
+        <div class="overview-bay-row">
+          <div class="d-flex flex-wrap justify-content-between gap-1 small"><strong>{{ location.bin }}</strong><span>{{ number(location.qty) }} units &middot; {{ money(location.value) }}</span></div>
+          <div class="overview-value-track mt-1" role="img" aria-label="{{ location.bin }}: {{ number(location.qty) }} units"><span class="bg-primary" style="width: {{ location.width }}%"></span></div>
+        </div>
+        {% else %}<p class="small text-body-secondary">No finished-goods lines in the loading-bay report.</p>{% endfor %}
+        </div>
+      </section>
     </div>
-
-    <div class="col-12 col-md-6 col-lg-4">
-      <a href="{{ url_for('transport.loading_bay') }}" class="text-decoration-none">
-      <div class="card h-100 border-0 shadow-sm border-success">
-        <div class="card-body d-flex align-items-start gap-3 p-4">
-          <div class="rounded-3 p-2 bg-success bg-opacity-10 flex-shrink-0">
-            <i class="bi bi-graph-up-arrow fs-4 text-success"></i>
-          </div>
-          <div>
-            <h6 class="fw-semibold mb-1 text-success">Shipping Value Report</h6>
-            <p class="text-muted small mb-0">Invoicing potential, shipping horizon, and customer breakdown</p>
-          </div>
-        </div>
+    <div class="small text-body-secondary mt-3">
+      {% for snapshot in management.snapshots %}
+      <div>{{ snapshot.label }}: {{ snapshot.success.uploaded_at | utcfmt('datetime-year') if snapshot.success else 'No successful Epicor sync recorded' }}
+        {% if snapshot.latest and snapshot.latest.status == 'failed' %}<span class="text-danger">&middot; Latest sync failed</span>
+        {% elif snapshot.latest and snapshot.latest.status == 'pending' %}<span class="text-warning-emphasis">&middot; Sync pending</span>{% endif %}
       </div>
-      </a>
+      {% endfor %}
     </div>
-
-    <div class="col-12 col-md-6 col-lg-4">
-      <a href="{{ url_for('transport.bay_state') }}" class="text-decoration-none">
-      <div class="card h-100 border-0 shadow-sm border-primary">
-        <div class="card-body d-flex align-items-start gap-3 p-4">
-          <div class="rounded-3 p-2 bg-primary bg-opacity-10 flex-shrink-0">
-            <i class="bi bi-geo-alt-fill fs-4 text-primary"></i>
-          </div>
-          <div>
-            <h6 class="fw-semibold mb-1 text-primary">Loading Bay State</h6>
-            <p class="text-muted small mb-0">Physical view of finished goods staged by bin location</p>
-          </div>
-        </div>
+  </section>
+  <h2 class="h5">Load pipeline</h2>
+  <form method="get" class="card load-filters overview-filters mb-3" aria-label="Filter load pipeline">
+    <div class="load-filter-toolbar">
+      <div class="load-filter-search"><label class="visually-hidden" for="overviewSearch">Find a load</label><input class="form-control form-control-sm" id="overviewSearch" name="q" value="{{ search }}" placeholder="Transport ID, route or vehicle"></div>
+      <div class="load-filter-route">
+        <label class="visually-hidden" for="overviewRoute">Route</label>
+        <select class="form-select form-select-sm" id="overviewRoute" name="route">
+          <option value="">All routes</option>
+          {% if route_f and route_f not in routes %}<option selected>{{ route_f }}</option>{% endif %}
+          {% for route in routes %}<option {% if route == route_f %}selected{% endif %}>{{ route }}</option>{% endfor %}
+        </select>
       </div>
-      </a>
+      <div class="load-filter-date"><label class="small" for="overviewFrom">Ship from</label><input class="form-control form-control-sm" type="date" id="overviewFrom" name="ship_from" value="{{ filter_args.ship_from }}"></div>
+      <div class="load-filter-date"><label class="small" for="overviewTo">to</label><input class="form-control form-control-sm" type="date" id="overviewTo" name="ship_to" value="{{ filter_args.ship_to }}"></div>
+      <div class="d-flex gap-2"><button class="btn btn-sm btn-primary">Apply</button><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transport.dashboard') }}">Clear</a></div>
     </div>
-
-    <div class="col-12 col-md-6 col-lg-4">
-      <div class="card h-100 border-0 shadow-sm opacity-75">
-        <div class="card-body d-flex align-items-start gap-3 p-4">
-          <div class="rounded-3 p-2 bg-secondary bg-opacity-10 flex-shrink-0">
-            <i class="bi bi-box-arrow-right fs-4 text-secondary"></i>
+  </form>
+  <p class="small text-body-secondary overview-scope">
+    {{ 'Filtered loads' if search or route_f or ship_from or ship_to else 'All loads in the current snapshot' }}
+    {% if search %}&middot; Search: {{ search }}{% endif %}{% if route_f %}&middot; Route: {{ route_f }}{% endif %}
+    {% if ship_from %}&middot; From {{ ship_from.strftime('%d %b %Y') }}{% endif %}{% if ship_to %}&middot; To {{ ship_to.strftime('%d %b %Y') }}{% endif %}
+  </p>
+  <section class="overview-kpis mb-4" aria-label="Overall load totals">
+    <div><span class="small text-body-secondary">Total order value</span><strong>{{ money(summary.value) }}</strong>{% if summary.missing_value %}<span class="small text-warning-emphasis">{{ summary.missing_value }} values missing</span>{% endif %}</div>
+    <div><span class="small text-body-secondary">Unshipped order value</span><strong>{{ money(overview.active_value) }}</strong>{% if overview.active_missing_value %}<span class="small text-warning-emphasis">{{ overview.active_missing_value }} values missing</span>{% endif %}</div>
+    <div><span class="small text-body-secondary">Order units</span><strong>{{ number(summary.quantity) }}</strong>{% if summary.missing_quantity %}<span class="small text-warning-emphasis">{{ summary.missing_quantity }} quantities missing</span>{% endif %}</div>
+    <div><span class="small text-body-secondary">Loads</span><strong>{{ summary.count }}</strong><span class="small text-body-secondary">{{ active_count }} unshipped</span></div>
+  </section>
+  <section aria-labelledby="overview-stages" class="mb-4">
+    <h2 class="h5 mb-3" id="overview-stages">Value through the shipping stages</h2>
+    <div class="overview-trailers">
+      {% for stage in stages %}
+      <article class="overview-stage load-stage-{{ stage.style }}">
+        <h3 class="h6">{{ stage.label }}</h3>
+        <div class="overview-trailer">
+          <div class="overview-trailer-body">
+            <strong class="overview-trailer-value">{{ money(stage.value) }}</strong>
+            <div>{{ stage.count }} loads &middot; {{ number(stage.quantity) }} units</div>
           </div>
-          <div>
-            <h6 class="fw-semibold mb-1">Deliveries <span class="badge bg-secondary ms-1 small">Coming soon</span></h6>
-            <p class="text-muted small mb-0">Outbound delivery scheduling and tracking</p>
-          </div>
+          <div class="overview-trailer-cab" aria-hidden="true"></div>
+          <span class="overview-wheel overview-wheel-back" aria-hidden="true"></span><span class="overview-wheel overview-wheel-front" aria-hidden="true"></span>
         </div>
-      </div>
+        <div class="small text-body-secondary">{{ 'Order value on shipped loads' if stage.key == 'SHIPPED' else 'Order value on ' ~ (stage.label | lower) ~ ' loads' }}</div>
+        {% if stage.missing_value or stage.missing_quantity %}<div class="small text-warning-emphasis">{{ stage.missing_value }} values / {{ stage.missing_quantity }} quantities missing</div>{% endif %}
+        {{ readiness_summary(stage.readiness) }}
+      </article>
+      {% endfor %}
     </div>
-
-    <div class="col-12 col-md-6 col-lg-4">
-      <div class="card h-100 border-0 shadow-sm opacity-75">
-        <div class="card-body d-flex align-items-start gap-3 p-4">
-          <div class="rounded-3 p-2 bg-info bg-opacity-10 flex-shrink-0">
-            <i class="bi bi-car-front fs-4 text-info"></i>
-          </div>
-          <div>
-            <h6 class="fw-semibold mb-1">Fleet <span class="badge bg-secondary ms-1 small">Coming soon</span></h6>
-            <p class="text-muted small mb-0">Vehicle management and maintenance records</p>
-          </div>
+  </section>
+  <section class="overview-exceptions mb-4" aria-labelledby="overview-attention">
+    <h2 class="h6 mb-2" id="overview-attention">Needs attention</h2>
+    <div class="d-flex flex-wrap gap-2">
+      <span class="overview-flag {{ 'text-danger' if overdue_count else 'text-body-secondary' }}">{{ overdue_count }} past-due unshipped loads</span>
+      <span class="overview-flag {{ 'text-danger' if overview.held_loads else 'text-body-secondary' }}">{{ overview.held_loads if order_sync.success else '-' }} unshipped loads with holds</span>
+      <span class="overview-flag {{ 'text-warning-emphasis' if summary.readiness.coverage_issues else 'text-body-secondary' }}">{{ summary.readiness.coverage_issues if order_sync.success else '-' }} loads with order-data gaps</span>
+      <span class="overview-flag {{ 'text-warning-emphasis' if capacity_issue_count else 'text-body-secondary' }}">{{ capacity_issue_count }} capacity warnings</span>
+      {% if summary.readiness.unchecked_holds %}<span class="overview-flag text-warning-emphasis">{{ summary.readiness.unchecked_holds }} releases with unknown holds</span>{% endif %}
+      {% if unknown_count %}<span class="overview-flag text-warning-emphasis">{{ unknown_count }} loads with other statuses</span>{% endif %}
+    </div>
+  </section>
+  <section class="overview-panel mb-4" aria-labelledby="overview-schedule">
+    <h2 class="h5" id="overview-schedule">Order value by scheduled ship date</h2>
+    <div class="overview-legend small mb-3">{% for stage in stages %}<span class="load-stage-{{ stage.style }}"><i aria-hidden="true"></i>{{ stage.label }}</span>{% endfor %}</div>
+    {% if overview.negative_values %}<p class="small text-warning-emphasis">Negative order values are present. Bar lengths show absolute values; signed amounts are shown below.</p>{% endif %}
+    {% for day in overview.schedule %}
+    <div class="overview-day">
+      <div class="small fw-semibold">{{ day.date.strftime('%d %b %Y') }}</div>
+      <div>
+        <div class="overview-value-track" role="img" aria-label="{{ day.date.strftime('%d %b %Y') }}: {{ money(day.value) }} order value across {{ day.count }} loads">
+          {% for segment in day.segments %}{% if segment.width %}<span class="load-stage-{{ segment.style }}" style="width: {{ segment.width }}%"></span>{% endif %}{% endfor %}
         </div>
+        <div class="small text-body-secondary mt-1">{% for segment in day.segments %}{% if segment.value %}<span class="me-2">{{ segment.label }} {{ money(segment.value) }}</span>{% endif %}{% endfor %}{% if day.missing_value %}<span class="text-warning-emphasis">{{ day.missing_value }} values missing</span>{% endif %}</div>
       </div>
+      <div class="text-end"><strong>{{ money(day.value) }}</strong><div class="small text-body-secondary">{{ day.count }} loads</div></div>
     </div>
-
-  </div>
+    {% else %}<p class="small text-body-secondary mb-0">No dated loads match this view.</p>{% endfor %}
+    {% if undated_count %}<p class="small text-warning-emphasis mt-3 mb-0">{{ undated_count }} undated loads ({{ money(overview.undated_value) }} known value) are not shown on the schedule.</p>{% endif %}
+  </section>
+  <section aria-labelledby="overview-capacity">
+    <div class="d-flex flex-wrap justify-content-between gap-2 mb-2"><h2 class="h5 mb-0" id="overview-capacity">Unshipped loads &amp; allocated capacity</h2><span class="small text-body-secondary">{{ overview.capacity_known }} / {{ active_count }} loads have capacity data</span></div>
+    <p class="small text-body-secondary">Trailer fill represents allocated space, not packing or physical loading.</p>
+    <div class="overview-capacity-grid">
+      {% for load in overview.active_loads %}
+      <article class="overview-capacity-card">
+        <div class="d-flex justify-content-between flex-wrap gap-1"><h3 class="h6 mb-1">{{ load.load_id }}</h3><span class="small text-body-secondary">{{ load.status | title }}</span></div>
+        <div class="small text-body-secondary">{{ load.route or 'Route not set' }}</div>
+        <div class="overview-trailer overview-capacity-trailer">
+          <div class="overview-trailer-body">
+            {% if load.used_pct is not none %}<span class="overview-capacity-fill {{ 'overview-capacity-error' if load.capacity_issue else '' }}" style="width: {{ load.bar_pct }}%" aria-hidden="true"></span>{% endif %}
+            <strong>{{ number(load.used_pct) ~ '% allocated' if load.used_pct is not none else 'Capacity unavailable' }}</strong>
+            <span class="small">{{ number(load.remaining) }} / {{ number(load.capacity) }} {{ load.uom or 'capacity units' }} free</span>
+          </div>
+          <div class="overview-trailer-cab" aria-hidden="true"></div><span class="overview-wheel overview-wheel-back" aria-hidden="true"></span><span class="overview-wheel overview-wheel-front" aria-hidden="true"></span>
+        </div>
+        <div class="d-flex flex-wrap justify-content-between gap-1 small"><strong>{{ money(load.order_value) }}</strong><span>Ship: {{ load.ship_date.strftime('%d %b %Y') if load.ship_date else 'Not set' }}</span></div>
+        {% if load.overdue %}<div class="small text-danger mt-1">Past ship date</div>{% endif %}
+        {% if load.capacity_issue %}<div class="small text-danger mt-1">Check capacity figures</div>{% endif %}
+        {% if load.readiness.held %}<div class="small text-danger mt-1">{{ load.readiness.held }} releases on hold</div>{% endif %}
+      </article>
+      {% else %}<p class="small text-body-secondary">No unshipped loads match this view.</p>{% endfor %}
+    </div>
+  </section>
+  <footer class="small text-body-secondary mt-4">Read-only Epicor snapshot &middot; GBP order values, not invoiced revenue &middot; Production reflects returned job statuses, not physical loading. Known values only where data is missing.</footer>
 </div>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/modules/transport_overview.js') }}" defer></script>{% endblock %}

@@ -78,6 +78,8 @@ def test_collapses_jobs_bins_and_pack_joins_without_summing_release_qty():
     assert readiness()["complete"] == 0
     assert readiness()["outstanding"] == 1
     assert readiness()["quantity"] == 3
+    assert len(readiness()["releases"]) == 1
+    assert readiness()["releases"][0]["jobs"] == ["10001-1-1", "OTHER-JOB"]
 
 
 def test_missing_job_status_does_not_imply_complete():
@@ -181,20 +183,23 @@ def test_rendering_preserves_compact_board_and_shows_coverage_holds_and_unknowns
     ])
     login_admin(client)
     html = client.get("/transport/loads").data.decode()
-    assert "Production readiness" in html
-    assert "1 / 3 releases job-complete" in html
-    assert "1 awaiting production" in html
-    assert "1 with unknown readiness" in html
-    assert "1 releases on hold" in html
-    assert "Check order coverage" in html
-    assert "3 observed units / 5 load units" in html
+    assert "Production complete:" in html
+    assert "1 / 3</strong> releases complete" in html
+    assert "Awaiting production" in html
+    assert "1 production unknown" in html
+    assert "1 on hold" in html
+    assert "Order data needs review: 1 load" in html
+    assert "Order quantities differ" in html
+    assert "3 units in order details / 5 load units" in html
     assert "SO 1 / 1 / 1" in html
     assert "Customer credit hold" in html
     assert "Location: BAY-01" in html
     assert "&lt;script&gt;bad()&lt;/script&gt;" in html
     assert "<script>bad()</script>" not in html
-    assert "not packing or physical loading progress" in html
-    assert "bg-success" not in html.split('class="load-readiness small mt-2"')[1].split("</details>")[0]
+    assert "does not confirm packing or physical loading" in html
+    assert "text-success" not in html.split('class="load-readiness small"')[1].split("</details>")[0]
+    assert "Check order coverage" not in html
+    assert "observed releases" not in html
 
 
 def test_no_orders_shipped_loads_failure_and_older_snapshot_are_honest(client, admin_user, db):
@@ -209,7 +214,7 @@ def test_no_orders_shipped_loads_failure_and_older_snapshot_are_honest(client, a
     login_admin(client)
     html = client.get("/transport/loads").data.decode()
     assert "No assigned order releases" in html
-    assert "No matching order releases returned" in html
+    assert "No order details found" in html
     assert "Order data is older than the load snapshot" in html
     assert "0 / 0 releases job-complete" not in html
     with pytest.raises(ValueError):
@@ -276,11 +281,126 @@ def test_summary_coverage_mismatches_do_not_cancel_or_imply_ready(client, admin_
     assert board["summary"]["readiness"]["coverage_issues"] == 3
     login_admin(client)
     html = client.get("/transport/loads").data.decode()
-    assert "2 / 2 observed releases job-complete" in html
-    assert "Check order coverage: 2 loads" in html
-    assert "No observed order releases" in html
-    assert "0 / 0 observed releases job-complete" not in html
+    assert "2 / 2</strong> releases" in html
+    assert "Order data needs review: 2 loads" in html
+    assert "No order details" in html
+    assert "0 / 0</strong> releases" not in html
     with pytest.raises(ValueError):
         sync_orders([record(Customer_CreditHold="bad")])
     assert get_load_board()["summary"]["readiness"]["count"] == 2
     assert b"latest order-readiness sync failed" in client.get("/transport/loads").data
+
+
+def test_contents_include_complete_releases_and_only_the_selected_load(client, admin_user):
+    sync([baq_record(Calculated_OrderQty=4), baq_record("OTHER", Calculated_OrderQty=1)])
+    sync_orders([
+        record(20, OrderRel_SellingReqQty=3, Customer_Name="Ready customer",
+               Part_PartDescription="<img src=x onerror=alert(1)>", ShipDtl_PackNum=88),
+        record(10, Calculated_JobStatus="In Progress"),
+        record(30, load="OTHER", Customer_Name="Another load customer"),
+    ])
+    result = readiness()
+    assert [release["order_num"] for release in result["releases"]] == [10, 20]
+    assert [release["order_num"] for release in result["issues"]] == [10]
+    assert result["releases"][1]["state"] == "complete"
+    assert result["releases"][1]["quantity"] == 3
+    login_admin(client)
+    html = client.get("/transport/loads?q=LOAD-1").data.decode()
+    details = html.split('<details class="load-details">')[1].split("</table>")[0]
+    assert "View contents &amp; details" in details
+    assert "(2 releases)" in details
+    assert "Assigned order releases" in details
+    assert details.index("SO 10 / 1 / 1") < details.index("SO 20 / 1 / 1")
+    assert "Ready customer" in details
+    assert "Another load customer" not in html
+    assert "&lt;img src=x onerror=alert(1)&gt;" in details
+    assert "<img src=x onerror=alert(1)>" not in html
+    assert "Pack references: 88" in details
+    assert "Job &amp; location details" in details
+    assert "View breakdown" not in details
+    assert "Awaiting production" in details
+    assert ">Complete" in details
+
+
+@pytest.mark.parametrize("load_quantity,release_quantity", [(None, 1), (1, None)])
+def test_missing_quantities_use_explicit_data_flag(client, admin_user, load_quantity, release_quantity):
+    sync([baq_record(Calculated_OrderQty=load_quantity)])
+    sync_orders([record(OrderRel_SellingReqQty=release_quantity)])
+    login_admin(client)
+    html = client.get("/transport/loads").data.decode()
+    assert "Order quantities unavailable" in html
+    assert "A quantity is missing." in html
+    assert "Order quantities differ" not in html
+    assert not get_load_board()["summary"]["readiness"]["clear"]
+
+
+def test_complete_load_contents_stay_collapsed_without_data_warning(client, admin_user):
+    sync([baq_record(Calculated_OrderQty=1)])
+    sync_orders([record()])
+    assert readiness()["issues"] == []
+    assert len(readiness()["releases"]) == 1
+    login_admin(client)
+    html = client.get("/transport/loads").data.decode()
+    assert '<details class="load-details">' in html
+    assert '<details class="load-details" open' not in html
+    assert "Example customer" in html
+    assert "Example sofa" in html
+    assert "Order data needs review" not in html
+    assert "Order quantities differ" not in html
+    assert "text-success" in html.split('class="load-readiness small"')[1].split("</details>")[0]
+
+
+def test_contents_aggregate_orders_without_losing_release_detail(client, admin_user):
+    sync([baq_record(Calculated_OrderQty=9), baq_record("OTHER", Calculated_OrderQty=7)])
+    sync_orders([
+        record(20, OrderRel_OrderLine=2, OrderRel_SellingReqQty=4,
+               OrderRel_PartNum="CHAIR", Part_PartDescription="Example chair",
+               Calculated_JobStatus="In Progress", Customer_CreditHold=True),
+        record(20, OrderRel_SellingReqQty=2, Customer_CreditHold=True),
+        record(20, OrderRel_OrderRelNum=2, OrderRel_SellingReqQty=1),
+        record(10, OrderRel_SellingReqQty=2),
+        record(20, load="OTHER", OrderRel_OrderLine=3, OrderRel_SellingReqQty=7),
+    ])
+    result = readiness()
+    assert [order["order_num"] for order in result["orders"]] == [10, 20]
+    order = result["orders"][1]
+    assert order["quantity"] == 7
+    assert order["count"] == 3
+    assert order["complete"] == 2
+    assert order["state"] == "outstanding"
+    assert order["customers"] == ["Example customer"]
+    assert order["products"] == [("SOFA-1", "Example sofa"), ("CHAIR", "Example chair")]
+    assert order["holds"] == ["Customer credit hold"]
+    assert [(release["order_line"], release["rel_num"]) for release in order["releases"]] == [
+        (1, 1), (1, 2), (2, 1),
+    ]
+    login_admin(client)
+    html = client.get("/transport/loads?q=LOAD-1").data.decode()
+    table = html.split('class="table table-sm small load-contents mb-0">')[1].split("</table>")[0]
+    assert table.count("<tr>") == 5  # Header plus each release.
+    assert table.count('<th scope="rowgroup"') == 2
+    assert table.count("<tbody>") == 2
+    assert 'colspan="6">SO 20' in table
+    assert "&middot; 7 units &middot; 3 releases" in table
+    assert 'class="text-end">4</td>' in table
+    assert ">Awaiting production</td>" in table
+    assert ">Complete</td>" in table
+    assert "SO 20 / 1 / 1" in table
+    assert "SO 20 / 1 / 2" in table
+    assert "SO 20 / 2 / 1" in table
+    assert "SO 20 / 3 / 1" not in table
+
+
+def test_order_aggregation_keeps_unknown_quantities_production_and_holds_explicit():
+    sync([baq_record(Calculated_OrderQty=2)])
+    sync_orders([
+        record(20),
+        record(20, OrderRel_OrderRelNum=2, OrderRel_SellingReqQty=None,
+               Calculated_JobStatus=None, Customer_CreditHold=None),
+    ])
+    order = readiness()["orders"][0]
+    assert order["quantity"] is None
+    assert order["state"] == "unknown"
+    assert order["complete"] == 1
+    assert order["hold_unknown"]
+    assert order["holds"] == []

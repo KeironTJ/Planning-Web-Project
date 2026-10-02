@@ -184,7 +184,7 @@ def test_load_board_renders_real_semantics_and_escapes_data(client, admin_user):
     assert "Space allocated" in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "<script>alert(1)</script>" not in html
-    assert "not today's status changes" in html
+    assert "Read-only Epicor snapshot" in html
     assert "31 Oct 2026 at 00:00:00" not in html
     assert "30 Oct 2026 at 08:30:00" in html
     assert 'id="loadTimelineData"' in html
@@ -202,6 +202,34 @@ def test_empty_and_failed_sync_states(client, admin_user):
     assert b"The latest Epicor sync failed" in response.data
     assert b"RETAINED" in response.data
     assert b"No dated loads to display" in client.get("/transport/loads?q=no-match").data
+
+
+def test_overall_summary_has_labelled_totals_and_respects_filters(client, admin_user):
+    sync([
+        baq_record("ONE", Calculated_OrderQty=3, Calculated_OrderVal=100),
+        baq_record("TWO", "Packed", Calculated_OrderQty=5, Calculated_OrderVal=200),
+    ])
+    login_admin(client)
+    html = client.get("/transport/loads").data.decode()
+    overall = html.split('aria-labelledby="load-overall-heading">')[1].split(
+        '<div class="load-summary-grid"', 1,
+    )[0]
+    assert ">All loads</h3>" in overall
+    assert "<dt>Total loads</dt>" in overall
+    assert "<dd>2</dd>" in overall
+    assert "<dt>Total value</dt>" in overall
+    assert "<dd>£300</dd>" in overall
+    assert "<dt>Total units</dt>" in overall
+    assert "<dd>8</dd>" in overall
+    assert "Production readiness" in overall
+    filtered = client.get("/transport/loads?q=ONE").data.decode()
+    overall = filtered.split('aria-labelledby="load-overall-heading">')[1].split(
+        '<div class="load-summary-grid"', 1,
+    )[0]
+    assert ">Filtered loads</h3>" in overall
+    assert "<dd>1</dd>" in overall
+    assert "<dd>£100</dd>" in overall
+    assert "<dd>3</dd>" in overall
 
 
 def test_load_board_requires_transport_permission(client, db):

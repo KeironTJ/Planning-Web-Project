@@ -14,23 +14,21 @@
 {%- endmacro %}
 {% macro readiness_summary(ready) %}
 <div class="load-summary-readiness small">
-  <div class="fw-semibold">Production readiness</div>
   {% if not ready.synced %}
   <div class="text-body-secondary">Order data not synced</div>
   {% elif ready.count %}
-  <div>{{ ready.complete }} / {{ ready.count }} observed releases job-complete <span class="text-body-secondary">({{ number(ready.pct) }}%)</span></div>
-  <div class="progress load-readiness-track mt-1" role="img" aria-label="{{ ready.complete }} of {{ ready.count }} observed releases job-complete">
-    <div class="progress-bar {{ 'bg-success' if ready.clear else 'bg-warning' }}" style="width: {{ ready.pct }}%"></div>
-  </div>
-  {% if ready.outstanding %}<span class="text-body-secondary d-inline-block mt-1">{{ ready.outstanding }} awaiting production</span>{% endif %}
-  {% if ready.unknown %}<span class="text-warning-emphasis d-inline-block mt-1">{{ ready.unknown }} readiness unknown</span>{% endif %}
-  {% if ready.held %}<span class="text-danger d-inline-block mt-1">{{ ready.held }} releases on hold</span>{% endif %}
-  {% if ready.unchecked_holds %}<span class="text-warning-emphasis d-inline-block mt-1">{{ ready.unchecked_holds }} hold flags unknown</span>{% endif %}
+  <div class="{{ 'text-success' if ready.clear else 'text-body-secondary' }}">Production complete: <strong>{{ ready.complete }} / {{ ready.count }}</strong> releases</div>
+  {% if ready.held %}<span class="text-danger">{{ ready.held }} on hold</span>{% endif %}
+  {% if ready.unknown %}<span class="text-warning-emphasis">{{ ready.unknown }} production unknown</span>{% endif %}
+  {% if ready.unchecked_holds %}<span class="text-warning-emphasis">{{ ready.unchecked_holds }} holds unknown</span>{% endif %}
   {% else %}
-  <div class="text-body-secondary">No observed order releases</div>
+  <div class="text-body-secondary">No order details</div>
   {% endif %}
   {% if ready.coverage_issues %}
-  <div class="text-warning-emphasis mt-1">Check order coverage: {{ ready.coverage_issues }} {{ 'load' if ready.coverage_issues == 1 else 'loads' }}</div>
+  <button type="button" class="load-data-flag text-warning-emphasis" data-bs-toggle="tooltip"
+          title="Order-detail units do not match the load total, or quantities are missing. Production figures may not cover the whole load.">
+    <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Order data needs review: {{ ready.coverage_issues }} {{ 'load' if ready.coverage_issues == 1 else 'loads' }}
+  </button>
   {% endif %}
 </div>
 {% endmacro %}
@@ -40,14 +38,14 @@
     <div>
       <div class="text-body-secondary small text-uppercase fw-semibold mb-1">Transport / CSGTransportWB</div>
       <h1 class="h3 mb-1"><i class="bi bi-truck me-2" aria-hidden="true"></i>Transport Load Board</h1>
-      <p class="text-body-secondary mb-1">From building a load to getting it on the road.</p>
       <div class="small text-body-secondary">
-        {% if last_success %}Last successful sync: {{ last_success.uploaded_at | utcfmt('datetime-year') }}
+        {% if last_success %}Loads updated: {{ last_success.uploaded_at | utcfmt('datetime-year') }}
         {% else %}No successful sync yet{% endif %}
-        <span class="mx-1" aria-hidden="true">&middot;</span>Current snapshot, not today's status changes
+        {% if order_sync.success %}<span class="mx-1" aria-hidden="true">&middot;</span>Orders updated: {{ order_sync.success.uploaded_at | utcfmt('datetime-year') }}{% endif %}
       </div>
     </div>
     <div class="d-flex flex-wrap align-items-center gap-3">
+      <a href="{{ url_for('transport.dashboard', q=search, route=route_f, ship_from=ship_from.isoformat() if ship_from else '', ship_to=ship_to.isoformat() if ship_to else '') }}" class="btn btn-sm btn-outline-primary">Transport dashboard</a>
       <div class="form-check form-switch mb-0">
         <input class="form-check-input" type="checkbox" role="switch" id="loadAutoRefresh" checked>
         <label class="form-check-label small" for="loadAutoRefresh">Refresh view every 60s</label>
@@ -78,12 +76,9 @@
   <div class="alert alert-info small" role="status">Order-readiness sync is pending. Figures below use the last successful order snapshot.</div>
   {% endif %}
   {% if order_sync.success %}
-  <div class="small text-body-secondary mb-2">
-    Production readiness updated: {{ order_sync.success.uploaded_at | utcfmt('datetime-year') }}
     {% if last_success and order_sync.success.uploaded_at < last_success.uploaded_at %}
-    <span class="text-warning-emphasis">&middot; Order data is older than the load snapshot; refresh transport_orders.</span>
+    <div class="small text-warning-emphasis mb-2">Order data is older than the load snapshot; refresh transport_orders.</div>
     {% endif %}
-  </div>
   {% else %}
   <div class="alert alert-info small" role="status">Production readiness is not available yet. Sync <strong>transport_orders</strong> (CSGTransportWBOrders) to show completed jobs and holds per load.</div>
   {% endif %}
@@ -119,25 +114,42 @@
 
   <section class="mb-3" aria-labelledby="load-summary-heading">
     <h2 id="load-summary-heading" class="h5 mb-2">At a glance</h2>
-    <div class="load-summary-total mb-3">
-      <div class="small">
-        Total: <strong>{{ money(summary.value) }}</strong> value &middot;
-        <strong>{{ number(summary.quantity) }}</strong> units &middot;
-        <strong>{{ summary.count }}</strong> loads
+    <div class="load-summary-total mb-3" role="group" aria-labelledby="load-overall-heading">
+      <div class="load-overall-heading">
+        <h3 id="load-overall-heading" class="h6 mb-0">{{ 'Filtered loads' if search or route_f or ship_from or ship_to else 'All loads' }}</h3>
       </div>
-      {{ readiness_summary(summary.readiness) }}
+      <dl class="load-overall-metrics mb-0">
+        <div>
+          <dt>Total loads</dt>
+          <dd>{{ summary.count }}</dd>
+        </div>
+        <div>
+          <dt>Total value</dt>
+          <dd>{{ money(summary.value) }}</dd>
+          {% if summary.missing_value %}<dd class="load-overall-missing text-warning-emphasis">{{ summary.missing_value }} {{ 'value' if summary.missing_value == 1 else 'values' }} missing</dd>{% endif %}
+        </div>
+        <div>
+          <dt>Total units</dt>
+          <dd>{{ number(summary.quantity) }}</dd>
+          {% if summary.missing_quantity %}<dd class="load-overall-missing text-warning-emphasis">{{ summary.missing_quantity }} {{ 'quantity' if summary.missing_quantity == 1 else 'quantities' }} missing</dd>{% endif %}
+        </div>
+      </dl>
+      <div class="load-overall-production">
+        <div class="small fw-semibold mb-1">Production readiness</div>
+        {{ readiness_summary(summary.readiness) }}
+      </div>
     </div>
     <div class="load-summary-grid" aria-label="Value and units by current status">
       {% for stage in stages %}
-      <a href="#stage-{{ stage.key }}" class="load-summary-card load-stage-{{ stage.style }} text-decoration-none">
+      <div class="load-summary-card load-stage-{{ stage.style }}">
         <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
-          <span class="fw-semibold"><i class="bi bi-{{ stage.icon }} me-1" aria-hidden="true"></i>{{ stage.label }}</span>
+          <a href="#stage-{{ stage.key }}" class="fw-semibold text-decoration-none"><i class="bi bi-{{ stage.icon }} me-1" aria-hidden="true"></i>{{ stage.label }}</a>
           <span class="small text-body-secondary">{{ stage.count }} loads</span>
         </div>
         <div class="load-summary-value fw-bold">{{ money(stage.value) }} <span class="small fw-normal text-body-secondary">value</span></div>
         <div class="load-summary-units"><strong>{{ number(stage.quantity) }}</strong> <span class="text-body-secondary">units</span></div>
         {{ readiness_summary(stage.readiness) }}
-      </a>
+      </div>
       {% endfor %}
     </div>
   </section>
@@ -154,10 +166,9 @@
   {% endif %}
 
   <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-    <h2 class="h5 mb-0">The shipping journey</h2>
+    <h2 class="h5 mb-0">Loads by status</h2>
     <div class="small text-body-secondary">{{ summary.count }} loads &middot; {{ number(summary.quantity) }} order units &middot; Earliest ship dates first</div>
   </div>
-  <p class="small text-body-secondary mb-3">Planned &rarr; Scheduled &rarr; Packed &rarr; Shipped. Scroll down through each stage to see every load. Capacity bars show space allocated, not packing progress.</p>
 
   <div class="load-board" aria-label="Loads by current status">
     {% for stage in stages %}
@@ -167,26 +178,32 @@
           <h3 class="h5 mb-0" id="stage-{{ stage.key }}"><i class="bi bi-{{ stage.icon }} me-2" aria-hidden="true"></i>{{ stage.label }}</h3>
           <span class="load-stage-count">{{ stage.count }}</span>
         </div>
-        <div class="small text-body-secondary mt-1">{{ stage.description }}</div>
-        <div class="load-stage-totals small mt-2">
+        <div class="load-stage-totals small mt-1">
           <strong>{{ money(stage.value) }}</strong> value &middot; <strong>{{ number(stage.quantity) }}</strong> units
         </div>
-        {{ readiness_summary(stage.readiness) }}
       </header>
       <div class="load-lane-body" role="region" aria-label="{{ stage.label }} load cards">
         {% for load in stage.loads %}
+        {% set ready = load.readiness %}
         <article class="load-card">
-          <div class="load-card-id fw-semibold">{{ load.load_id }}</div>
-          <div class="load-card-route text-body-secondary mb-2">{{ load.route or 'Route not set' }}</div>
+          <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-1">
+            <div class="load-card-id fw-semibold">{{ load.load_id }}</div>
+            {% if load.overdue %}<span class="badge bg-danger-subtle text-danger-emphasis">Past ship date</span>
+            {% elif load.due_today %}<span class="badge bg-success-subtle text-success-emphasis">Shipping today</span>{% endif %}
+          </div>
+          <div class="load-card-route text-body-secondary">{{ load.route or 'Route not set' }} &middot; {{ load.vehicle or 'Vehicle not assigned' }}</div>
           {% if stage.key == 'OTHER' %}<span class="badge text-bg-warning mb-2">{{ load.status }}</span>{% endif %}
-          <div class="load-card-metrics d-flex flex-wrap justify-content-between gap-2 mb-2">
+          <div class="load-card-metrics d-flex flex-wrap justify-content-between gap-2">
             <span><i class="bi bi-box me-1" aria-hidden="true"></i>{{ number(load.order_qty) }} units</span>
             <span class="fw-semibold">{{ money(load.order_value) }} value</span>
+          </div>
+          <div class="load-card-ship-date">
+            <i class="bi bi-calendar3 me-1" aria-hidden="true"></i>Ship: <strong>{{ load_date(load.ship_date, load.ship_time) }}</strong>
           </div>
           <div class="load-capacity">
             <div class="d-flex justify-content-between gap-2 small mb-1">
               <span>Space allocated</span>
-              <strong>{{ number(load.used_pct) }}{% if load.used_pct is not none %}%{% endif %}</strong>
+              <span><strong>{{ number(load.used_pct) }}{% if load.used_pct is not none %}%{% endif %}</strong> &middot; {{ number(load.remaining) }} {{ load.uom or 'capacity units' }} free</span>
             </div>
             {% if load.used_pct is not none %}
             <div class="progress load-capacity-track" role="img" aria-label="{{ number(load.used_pct) }} percent of capacity allocated">
@@ -195,70 +212,93 @@
             {% else %}
             <div class="small text-body-secondary">Capacity not available</div>
             {% endif %}
-            <div class="small text-body-secondary mt-1">{{ number(load.remaining) }} / {{ number(load.capacity) }} {{ load.uom or 'capacity units' }} free</div>
             {% if load.capacity_issue %}<div class="small text-danger mt-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Check capacity figures</div>{% endif %}
           </div>
-          <div class="load-card-ship-date mt-3">
-            <i class="bi bi-calendar3 me-1" aria-hidden="true"></i>Ship: <strong>{{ load_date(load.ship_date, load.ship_time) }}</strong>
-          </div>
-          {% if load.overdue %}<div class="badge bg-danger-subtle text-danger-emphasis mt-2">Past ship date</div>
-          {% elif load.due_today %}<div class="badge bg-success-subtle text-success-emphasis mt-2">Shipping today</div>{% endif %}
-          {% set ready = load.readiness %}
-          <div class="load-readiness small mt-2">
-            <div class="fw-semibold mb-1">Production readiness</div>
+          <div class="load-readiness small">
             {% if not ready.synced %}
             <span class="text-body-secondary">Order data not synced</span>
             {% elif ready.count %}
-            <div>{{ ready.complete }} / {{ ready.count }} releases job-complete</div>
-            <div class="progress load-readiness-track mt-1" role="img" aria-label="{{ ready.complete }} of {{ ready.count }} observed order releases have all jobs complete">
-              <div class="progress-bar {% if ready.complete == ready.count and ready.coverage_matches and not ready.held and not ready.unchecked_holds %}bg-success{% else %}bg-warning{% endif %}" style="width: {{ ready.pct }}%"></div>
-            </div>
-            {% if ready.outstanding %}<div class="text-body-secondary mt-1">{{ ready.outstanding }} awaiting production</div>{% endif %}
-            {% if ready.unknown %}<div class="text-warning-emphasis mt-1">{{ ready.unknown }} with unknown readiness</div>{% endif %}
-            {% if ready.held %}<div class="text-danger mt-1">{{ ready.held }} releases on hold</div>{% endif %}
-            {% if ready.unchecked_holds %}<div class="text-warning-emphasis mt-1">{{ ready.unchecked_holds }} with unknown hold flags</div>{% endif %}
-            {% if not ready.coverage_matches %}<div class="text-warning-emphasis mt-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Check order coverage</div>{% endif %}
+            <span class="{{ 'text-success' if ready.complete == ready.count and ready.coverage_matches and not ready.held and not ready.unchecked_holds else 'text-body-secondary' }}">Production: <strong>{{ ready.complete }} / {{ ready.count }}</strong> releases complete</span>
+            {% if ready.held %}<span class="badge bg-danger-subtle text-danger-emphasis">{{ ready.held }} on hold</span>{% endif %}
+            {% if ready.unknown %}<span class="text-warning-emphasis">{{ ready.unknown }} production unknown</span>{% endif %}
+            {% if ready.unchecked_holds %}<span class="text-warning-emphasis">{{ ready.unchecked_holds }} holds unknown</span>{% endif %}
             {% elif load.order_qty == 0 %}
             <span class="text-body-secondary">No assigned order releases</span>
             {% else %}
-            <span class="text-warning-emphasis">No matching order releases returned</span>
+            <span class="text-warning-emphasis">No order details found</span>
+            {% endif %}
+            {% if ready.synced and not ready.coverage_matches %}
+            <button type="button" class="load-data-flag text-warning-emphasis" data-bs-toggle="tooltip"
+                    title="Order details: {{ number(ready.quantity) }} units. Load total: {{ number(load.order_qty) }} units. {{ 'A quantity is missing.' if ready.quantity is none or load.order_qty is none else 'The quantities differ.' }} Production figures may not cover the whole load.">
+              <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>{{ 'Order quantities unavailable' if ready.quantity is none or load.order_qty is none else 'Order quantities differ' }}
+            </button>
             {% endif %}
           </div>
-          <details class="load-details mt-2">
-            <summary class="small">Load details</summary>
-            <dl class="small mb-0 mt-2">
-              <dt>Vehicle</dt><dd>{{ load.vehicle or 'Not assigned' }}</dd>
+          <details class="load-details">
+            <summary class="small">View contents &amp; details{% if ready.count %} <span class="text-body-secondary">({{ ready.count }} {{ 'release' if ready.count == 1 else 'releases' }})</span>{% endif %}</summary>
+            <dl class="load-detail-meta small mb-0 mt-2">
               <dt>Load date</dt><dd>{{ load_date(load.load_date, load.load_time) }}</dd>
               <dt>Return date</dt><dd>{{ load_date(load.return_date, load.return_time) }}</dd>
-              <dt>Available capacity (BAQ)</dt><dd>{{ number(load.available_pct) }}{% if load.available_pct is not none %}%{% endif %}</dd>
+              <dt>Capacity</dt><dd>{{ number(load.remaining) }} / {{ number(load.capacity) }} {{ load.uom or 'capacity units' }} free</dd>
+              <dt>Available capacity (Epicor)</dt><dd>{{ number(load.available_pct) }}{% if load.available_pct is not none %}%{% endif %}</dd>
               {% if ready.synced %}
-              <dt>Order coverage</dt>
-              <dd>{{ number(ready.quantity) }} observed units / {{ number(load.order_qty) }} load units{% if not ready.coverage_matches %} &middot; Counts may not cover the full load{% endif %}</dd>
+              <dt>Order quantities</dt>
+              <dd class="{{ 'text-warning-emphasis' if not ready.coverage_matches else '' }}">{{ number(ready.quantity) }} units in order details / {{ number(load.order_qty) }} load units</dd>
               {% if ready.pack_refs %}
-              <dt>Pack references</dt><dd>{{ ready.pack_refs | join(', ') }} (not proof of physical loading)</dd>
+              <dt>Pack references</dt><dd>{{ ready.pack_refs | join(', ') }}</dd>
               {% endif %}
               {% endif %}
             </dl>
-            {% if ready.issues %}
-            <div class="small fw-semibold mt-3 mb-2">Releases needing attention</div>
-            <ul class="load-release-list list-unstyled small mb-0">
-              {% for release in ready.issues %}
-              <li>
-                <div class="fw-semibold">SO {{ release.order_num }} / {{ release.order_line }} / {{ release.rel_num }} &middot; {{ number(release.quantity) }} units</div>
-                <div>{{ release.customer or 'Customer not set' }}</div>
-                <div class="text-body-secondary">{{ release.part_num or 'Part not set' }}{% if release.part_description %} &middot; {{ release.part_description }}{% endif %}</div>
-                <div>Jobs: {{ release.job_statuses | join(', ') or 'Status not supplied' }}{% if release.jobs %} ({{ release.jobs | join(', ') }}){% endif %}</div>
-                <div class="text-body-secondary">Location: {{ release.locations | join(', ') or 'Not supplied' }}</div>
-                {% for hold in release.holds %}<div class="text-danger">{{ hold }}</div>{% endfor %}
-                {% if release.hold_unknown %}<div class="text-warning-emphasis">Hold flags not fully supplied</div>{% endif %}
-                {% if release.pack_refs %}<div>Pack references: {{ release.pack_refs | join(', ') }}</div>{% endif %}
-              </li>
-              {% endfor %}
-            </ul>
-            {% elif ready.count %}
-            <p class="small text-body-secondary mb-0">No production or hold exceptions in the observed releases.</p>
+            {% if ready.releases %}
+            <div class="table-responsive mt-3">
+              <table class="table table-sm small load-contents mb-0">
+                <caption class="caption-top">Assigned order releases</caption>
+                <thead><tr>
+                  <th scope="col">Order / line / release</th><th scope="col">Customer</th>
+                  <th scope="col">Product</th><th scope="col" class="text-end">Units</th>
+                  <th scope="col">Production <button type="button" class="load-help text-body-secondary" data-bs-toggle="tooltip" title="Complete means all jobs for this release are complete. It does not confirm packing or physical loading." aria-label="About production status"><i class="bi bi-info-circle" aria-hidden="true"></i></button></th>
+                  <th scope="col">Holds</th>
+                </tr></thead>
+                {% for order in ready.orders %}
+                <tbody>
+                <tr class="table-active">
+                  <th scope="rowgroup" colspan="6">SO {{ order.order_num }} <span class="fw-normal text-body-secondary">&middot; {{ number(order.quantity) }} units &middot; {{ order.count }} {{ 'release' if order.count == 1 else 'releases' }}</span></th>
+                </tr>
+                {% for release in order.releases %}
+                <tr>
+                  <th scope="row">
+                    <div>SO {{ release.order_num }} / {{ release.order_line }} / {{ release.rel_num }}</div>
+                    <details class="load-release-details fw-normal mt-1">
+                      <summary>Job &amp; location details</summary>
+                      <div class="mt-1">Jobs: {{ release.jobs | join(', ') or 'Not supplied' }}</div>
+                      <div>Job status: {{ release.job_statuses | join(', ') or 'Not supplied' }}</div>
+                      <div>Order status: {{ release.order_statuses | join(', ') or 'Not supplied' }}</div>
+                      <div>Location: {{ release.locations | join(', ') or 'Not supplied' }}</div>
+                      {% if release.pack_refs %}<div>Pack references: {{ release.pack_refs | join(', ') }}</div>{% endif %}
+                    </details>
+                  </th>
+                  <td>{{ release.customer or 'Not supplied' }}</td>
+                  <td><div>{{ release.part_num or 'Not supplied' }}</div><div class="text-body-secondary">{{ release.part_description or '' }}</div></td>
+                  <td class="text-end">{{ number(release.quantity) }}</td>
+                  <td class="{{ 'text-success' if release.state == 'complete' else 'text-warning-emphasis' if release.state == 'unknown' else '' }}">{{ 'Complete' if release.state == 'complete' else 'Awaiting production' if release.state == 'outstanding' else 'Unknown' }}</td>
+                  <td>
+                    {% for hold in release.holds %}<div class="text-danger">{{ hold }}</div>{% endfor %}
+                    {% if release.hold_unknown %}<div class="text-warning-emphasis">Hold status unknown</div>
+                    {% elif not release.holds %}<span class="text-body-secondary">None</span>{% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+                {% endfor %}
+              </table>
+            </div>
+            {% elif not ready.synced %}
+            <p class="small text-body-secondary mt-2 mb-0">Sync transport_orders to see assigned products and customers.</p>
+            {% elif load.order_qty == 0 and ready.coverage_matches %}
+            <p class="small text-body-secondary mt-2 mb-0">No assigned order releases.</p>
+            {% else %}
+            <p class="small text-warning-emphasis mt-2 mb-0">No order details found for this load. Check the order sync in Epicor.</p>
             {% endif %}
-            <p class="small text-body-secondary mt-2 mb-0">Based on job status per order release. Production completion is not packing or physical loading progress.</p>
           </details>
         </article>
         {% else %}
@@ -275,7 +315,7 @@
   <section class="card mt-4" aria-labelledby="shipping-calendar-heading">
     <div class="card-body">
       <h2 id="shipping-calendar-heading" class="h5">Shipping calendar</h2>
-      <p class="small text-body-secondary">Loads by ship date, coloured by their current status. This is a schedule snapshot, not a record of when statuses changed.</p>
+      <p class="small text-body-secondary">Loads by scheduled ship date and current status.</p>
       {% if timeline.labels %}
       <div class="load-timeline"><canvas id="loadShipTimeline" role="img" aria-label="Loads by ship date and current status. Exact counts are in the table below."></canvas></div>
       <details class="mt-3">
@@ -293,7 +333,7 @@
       {% else %}<p class="text-body-secondary mb-0">No dated loads to display.</p>{% endif %}
     </div>
   </section>
-  <p class="small text-body-secondary mt-3 mb-0">Read-only view of Epicor. Refresh reloads the saved snapshot; use scheduled Epicor sync jobs to keep it current. All order values are in GBP (&pound;).</p>
+  <p class="small text-body-secondary mt-3 mb-0">Read-only Epicor snapshot &middot; Values in GBP (&pound;). <button type="button" class="load-help text-body-secondary" data-bs-toggle="tooltip" title="Refresh reloads saved data, not Epicor. Scheduled sync jobs update the snapshot. Capacity shows allocated space, not packing progress; pack references do not confirm physical loading." aria-label="About this snapshot"><i class="bi bi-info-circle" aria-hidden="true"></i></button></p>
 </div>
 {% endblock %}
 {% block scripts %}

@@ -133,27 +133,29 @@ Loading Bay — Current State
                         {% if item.size_desc %}&thinsp;<span class="badge text-bg-light border text-dark" style="font-size:.65rem;">{{ item.size_desc }}</span>{% endif %}
                     </div>
 
-                    {% if item.need_by_date %}
+                    {% if item.ship_by_date %}
                     <div class="mt-1">
                         {% if urgent %}
                         <span class="badge text-bg-danger" style="font-size:.65rem;">
                             <i class="bi bi-exclamation-triangle-fill me-1"></i>
-                            {{ item.days_delta | abs }}d overdue &mdash; {{ item.need_by_date.strftime('%d %b') }}
+                            Ship by {{ item.ship_by_date.strftime('%d %b') }} &mdash; {{ item.days_delta | abs }}d overdue
                         </span>
                         {% elif due_today %}
                         <span class="badge text-bg-warning text-dark" style="font-size:.65rem;">
-                            <i class="bi bi-clock-fill me-1"></i>Due today
+                            <i class="bi bi-clock-fill me-1"></i>Ship by today
                         </span>
                         {% elif due_soon %}
                         <span class="badge text-bg-warning text-dark" style="font-size:.65rem;">
-                            Due {{ item.need_by_date.strftime('%d %b') }} ({{ item.days_delta }}d)
+                            Ship by {{ item.ship_by_date.strftime('%d %b') }} ({{ item.days_delta }}d)
                         </span>
                         {% else %}
                         <span class="text-muted" style="font-size:.72rem;">
-                            Due {{ item.need_by_date.strftime('%d %b %Y') }}
+                            Ship by {{ item.ship_by_date.strftime('%d %b %Y') }}
                         </span>
                         {% endif %}
                     </div>
+                    {% else %}
+                    <div class="text-muted mt-1" style="font-size:.72rem;">Ship by: Not set</div>
                     {% endif %}
 
                 </li>
@@ -175,6 +177,10 @@ Loading Bay — Current State
                     <div class="text-muted text-truncate small">
                         {{ item.part_num }}
                         {% if item.size_desc %}&thinsp;<span class="badge text-bg-light border text-dark" style="font-size:.65rem;">{{ item.size_desc }}</span>{% endif %}
+                    </div>
+                    <div class="small mt-1 {{ 'text-danger' if item.days_delta is not none and item.days_delta < 0 else 'text-warning' if item.days_delta is not none and item.days_delta <= 3 else 'text-muted' }}">
+                        Ship by: {{ item.ship_by_date.strftime('%d %b %Y') if item.ship_by_date else 'Not set' }}
+                        {% if item.days_delta is not none and item.days_delta < 0 %}&middot; {{ item.days_delta | abs }}d overdue{% endif %}
                     </div>
                 </li>
                 {% endfor %}
@@ -198,4 +204,3 @@ Loading Bay — Current State
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/modules/transport.js') }}" defer></script>
 {% endblock %}
-

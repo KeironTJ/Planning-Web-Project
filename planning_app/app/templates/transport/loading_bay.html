@@ -216,8 +216,9 @@
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-transparent border-0 pb-0">
                 <h6 class="mb-0 fw-semibold">
-                    <i class="bi bi-calendar-week me-2 text-primary"></i>Loading Value by Planned Week
+                    <i class="bi bi-calendar-week me-2 text-primary"></i>Loading Value by Ship-by Week
                     <span class="text-muted small fw-normal ms-2">Finished-goods invoicing value &mdash; ready / partial / on hold</span>
+                    <i class="bi bi-info-circle ms-1" tabindex="0" data-bs-toggle="tooltip" title="Earliest current Ship By date (OrderRel_ReqDate) across the order's releases. Missing dates remain undated." aria-label="About ship-by dates"></i>
                 </h6>
             </div>
             <div class="card-body py-2">
@@ -373,7 +374,7 @@
                     <div class="col-6 col-md-2">
                         <label class="form-label small mb-1">Sort by</label>
                         <select name="sort" class="form-select form-select-sm">
-                            <option value="due_date"   {% if sort == 'due_date'   %}selected{% endif %}>Due Date</option>
+                            <option value="ship_by_date" {% if sort == 'ship_by_date' %}selected{% endif %}>Ship By</option>
                             <option value="customer"   {% if sort == 'customer'   %}selected{% endif %}>Customer</option>
                             <option value="value"      {% if sort == 'value'      %}selected{% endif %}>Value</option>
                             <option value="so_number"  {% if sort == 'so_number'  %}selected{% endif %}>SO Number</option>
@@ -398,7 +399,7 @@
                         <th>SO&nbsp;#</th>
                         <th>Customer</th>
                         <th>Cust PO Ref</th>
-                        <th>Due Date</th>
+                        <th>Ship By</th>
                         <th class="text-center">Status</th>
                         <th class="text-center" title="Material availability">Mat.</th>
                         <th class="text-center">Lines</th>
@@ -437,8 +438,8 @@
                             {% if o.days_delta is not none and o.days_delta < 0 %}text-danger
                             {% elif o.days_delta is not none and o.days_delta <= 3 %}text-warning
                             {% else %}text-muted{% endif %}">
-                            {% if o.due_date %}
-                                {{ o.due_date.strftime('%d %b %Y') }}
+                            {% if o.ship_by_date %}
+                                {{ o.ship_by_date.strftime('%d %b %Y') }}
                                 {% if o.days_delta is not none %}
                                     {% if o.days_delta < 0 %}
                                     <span class="badge text-bg-danger ms-1">{{ o.days_delta | abs }}d overdue</span>
