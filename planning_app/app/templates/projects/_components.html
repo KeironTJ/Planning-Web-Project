@@ -1,0 +1,115 @@
+{% macro navigation() %}
+<nav class="work-nav nav nav-pills gap-2 mb-4" aria-label="Project tracking">
+  <a class="nav-link {% if request.endpoint == 'projects.dashboard' %}active{% endif %}" {% if request.endpoint == 'projects.dashboard' %}aria-current="page"{% endif %} href="{{ url_for('projects.dashboard') }}">My dashboard</a>
+  {% for kind in ['projects', 'activities', 'tasks'] %}
+  <a class="nav-link {% if request.view_args.get('kind') == kind %}active{% endif %}" {% if request.view_args.get('kind') == kind %}aria-current="page"{% endif %} href="{{ url_for('projects.listing', kind=kind) }}">{{ kind|title }}</a>
+  {% endfor %}
+  {% for endpoint, label in [('logs', 'Logs & updates'), ('reports', 'Reports'), ('archive', 'Archive')] %}
+  <a class="nav-link {% if request.endpoint == 'projects.' ~ endpoint %}active{% endif %}" {% if request.endpoint == 'projects.' ~ endpoint %}aria-current="page"{% endif %} href="{{ url_for('projects.' ~ endpoint) }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+{% endmacro %}
+
+{% macro status_badge(status) %}
+{% set icons = {'planned': 'calendar3', 'active': 'play-circle', 'blocked': 'pause-circle', 'completed': 'check-circle', 'cancelled': 'x-circle'} %}
+<span class="work-status work-status-{{ status }}"><i class="bi bi-{{ icons[status] }}" aria-hidden="true"></i>{{ status|title }}</span>
+{% endmacro %}
+
+{% macro workflow_legend() %}
+<div class="border rounded p-3 mb-3" aria-label="Workflow status guide">
+  <div class="d-flex flex-wrap gap-3">
+    <span>{{ status_badge('planned') }} <small>Not started</small></span>
+    <span>{{ status_badge('active') }} <small>In progress</small></span>
+    <span>{{ status_badge('blocked') }} <small>Waiting / needs help</small></span>
+    <span>{{ status_badge('completed') }} <small>Finished</small></span>
+    <span>{{ status_badge('cancelled') }} <small>Stopped</small></span>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro completion_summary(completion, kinds=['projects', 'activities', 'tasks']) %}
+<div class="row g-2 mb-3" aria-label="Count-based completion">
+{% for kind in kinds %}
+{% set counts = completion[kind] %}
+<div class="col">
+  <div class="border rounded p-3 h-100">
+    <h3 class="h6">{{ kind|title }}</h3>
+    <p class="mb-1"><strong>{{ counts.completed }} / {{ counts.total }}</strong> complete ({{ counts.percent }}%)</p>
+    <p class="mb-0 small">{{ counts.outstanding }} outstanding / {{ counts.cancelled }} cancelled</p>
+  </div>
+</div>
+{% endfor %}
+</div>
+<p class="small text-muted">Progress is based on item counts, not money. Cancelled items are excluded from completion percentages. No items means 0%. Closing a parent is a separate action after all child work is completed or cancelled.</p>
+{% endmacro %}
+
+{% macro table(items, users) %}
+<div class="table-responsive">
+<table class="table table-striped align-middle">
+  <thead><tr><th>Name</th><th>Context</th><th>Status / priority</th><th>Department / owner</th><th>Deadline</th><th>Budget / actuals</th></tr></thead>
+  <tbody>
+  {% for item in items %}
+  <tr>
+    <td><a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id) }}">{{ item.name }}</a></td>
+    <td>{{ item.kind|work_kind|title }}<br>
+      {% if item.activity_id %}<a href="{{ url_for('projects.detail', kind='activities', identifier=item.activity_id) }}">Activity #{{ item.activity_id }}</a>
+      {% elif item.project_id %}<a href="{{ url_for('projects.detail', kind='projects', identifier=item.project_id) }}">Project #{{ item.project_id }}</a>
+      {% elif item.kind != 'projects' %}Standalone{% else %}Project{% endif %}
+    </td>
+    <td>{{ status_badge(item.status) }}<div class="small mt-1">{{ item.priority|title }} priority</div></td>
+    <td>{{ item.department }}<br>{% for user in users if user.id == item.owner_id %}{{ user.full_name }} {% endfor %}(user #{{ item.owner_id }})</td>
+    <td>{{ item.deadline or '-' }}</td>
+    <td>{{ item.budget }} / {{ item.actuals }}{% if item.over_budget %}<span class="badge text-bg-danger">Over budget</span>{% endif %}</td>
+  </tr>
+  {% else %}<tr><td colspan="6" class="text-muted">No matching work items.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endmacro %}
+
+{% macro progress_bar(progress) %}
+<div class="progress mb-2" role="progressbar" aria-label="Completed tasks" aria-valuenow="{{ progress.percent }}" aria-valuemin="0" aria-valuemax="100">
+  <div class="progress-bar" style="width: {{ progress.percent }}%">{{ progress.percent }}%</div>
+</div>
+<p class="small text-muted">{{ progress.completed }} of {{ progress.total }} tasks complete (cancelled tasks excluded).</p>
+{% endmacro %}
+
+{% macro timeline(logs, users, can_edit=false, can_manage=false) %}
+<ol class="list-group">
+{% for log in logs %}
+<li class="list-group-item work-log-entry {{ log.kind }}">
+  <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+    <span class="badge {{ 'text-bg-info' if log.kind == 'comment' else 'text-bg-secondary' }}">{{ 'Comment' if log.kind == 'comment' else 'Automatic update' }}</span>
+    <time class="small text-muted" datetime="{{ log.created_at }}">{{ log.created_at }}</time>
+  </div>
+  <div class="fw-semibold mb-1">{{ log.summary }}</div>
+  {% if not log.target_deleted %}
+  <a href="{{ url_for('projects.detail', kind=log.target_kind, identifier=log.target_id) }}#logs">{{ log.target_kind|work_kind|title }}: {{ log.target_name }}</a>
+  {% else %}<span>{{ log.target_kind|work_kind|title }}: {{ log.target_name }} (archived)</span>{% endif %}
+  <div class="small text-muted mt-1">By
+    {% for user in users if user.id == log.created_by %}{{ user.full_name }} {% endfor %}(user #{{ log.created_by }}) / {{ log.kind }}
+  </div>
+  {% if log.kind == 'audit' %}
+  <details class="mt-2"><summary>Audit update: full before / after record</summary><pre class="small text-wrap">{{ log.body }}</pre></details>
+  {% else %}
+  <p class="text-break work-log-body mt-2">{{ log.body }}</p>
+  {% if can_edit and (log.created_by == current_user.id or can_manage) %}
+  <details><summary>Edit comment</summary>
+    <form method="post" action="{{ url_for('projects.change_log', identifier=log.id, action='edit') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="version" value="{{ log.version }}">
+      <textarea class="form-control my-2" name="body" required maxlength="10000" aria-label="Comment">{{ log.body }}</textarea>
+      <button class="btn btn-sm btn-primary">Save comment</button>
+    </form>
+  </details>
+  <form method="post" class="mt-2" action="{{ url_for('projects.change_log', identifier=log.id, action='delete') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="version" value="{{ log.version }}">
+    <button class="btn btn-sm btn-outline-danger">Delete comment</button>
+  </form>
+  {% endif %}
+  {% endif %}
+</li>
+{% else %}<li class="list-group-item text-muted">No updates yet.</li>{% endfor %}
+</ol>
+{% endmacro %}

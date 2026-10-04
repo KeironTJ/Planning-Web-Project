@@ -1,0 +1,29 @@
+{% extends "projects/base.html" %}
+{% from "projects/_components.html" import navigation, timeline %}
+{% block content %}
+{{ navigation() }}
+<p class="text-muted">Comments, handovers and automatic audit updates across work you can access. To add a comment, open its project, activity or task and use Logs &amp; updates.</p>
+<form method="get" class="row g-3 border rounded p-3 mb-4">
+  <div class="col-md-3"><label for="log_kind" class="form-label">Entry type</label>
+    <select class="form-select" id="log_kind" name="log_kind"><option value="">All entries</option>
+    {% for value, label in [('comment', 'Comments'), ('audit', 'Automatic updates')] %}<option value="{{ value }}" {% if request.args.get('log_kind') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3"><label for="target_kind" class="form-label">Work type</label>
+    <select class="form-select" id="target_kind" name="target_kind"><option value="">All work</option>
+    {% for kind in ['projects', 'activities', 'tasks'] %}<option value="{{ kind }}" {% if request.args.get('target_kind') == kind %}selected{% endif %}>{{ kind|title }}</option>{% endfor %}</select>
+  </div>
+  <div class="col-md-3"><label for="target_id" class="form-label">Item ID (optional)</label><input type="number" min="1" max="2147483647" class="form-control" name="target_id" id="target_id" value="{{ request.args.get('target_id', '') }}"></div>
+  <div class="col-md-3"><label for="author_id" class="form-label">Author</label>
+    <select class="form-select" name="author_id" id="author_id"><option value="">All authors</option>{% for user in users %}<option value="{{ user.id }}" {% if request.args.get('author_id') == user.id|string %}selected{% endif %}>{{ user.full_name }}</option>{% endfor %}</select>
+  </div>
+  <div class="col-12"><button class="btn btn-primary">Filter logs</button> <a class="btn btn-outline-secondary" href="{{ url_for('projects.logs') }}">Reset</a></div>
+</form>
+<div class="d-flex justify-content-between mb-3"><h2 class="h5">Timeline</h2><span class="text-muted">{{ pagination.total }} entries</span></div>
+{{ timeline(logs, users) }}
+<nav class="d-flex gap-3 mt-3" aria-label="Log pages">
+{% if page_links.previous %}<a href="{{ page_links.previous }}">Previous</a>{% endif %}
+<span>Page {{ pagination.page }} of {{ pagination.pages or 1 }}</span>
+{% if page_links.next %}<a href="{{ page_links.next }}">Next</a>{% endif %}
+</nav>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "projects/base.html" %}
+{% from "projects/_components.html" import navigation, table, status_badge, workflow_legend %}
+{% from "projects/_hierarchy.html" import hierarchy_view %}
+{% block content %}
+{{ navigation() }}
+<a class="btn btn-primary mb-3" href="{{ url_for('projects.edit', kind=kind) }}">New {{ kind|work_kind }}</a>
+<form class="row g-2 mb-4" method="get">
+  {% for field, choices in [('status', statuses), ('department', departments)] %}
+  <div class="col-md-2"><label class="form-label" for="{{ field }}">{{ field|title }}</label>
+    <select class="form-select" id="{{ field }}" name="{{ field }}">
+      <option value="">All</option>
+      {% for value in choices %}<option value="{{ value }}" {% if request.args.get(field) == value %}selected{% endif %}>{{ value|title }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endfor %}
+  <div class="col-md-2"><label class="form-label" for="owner_id">Owner</label><select class="form-select" name="owner_id" id="owner_id">
+    <option value="">All</option>{% for user in users %}<option value="{{ user.id }}" {% if request.args.get('owner_id') == user.id|string %}selected{% endif %}>{{ user.full_name }}</option>{% endfor %}
+  </select></div>
+  <div class="col-md-2"><label class="form-label" for="deadline">Deadline</label><select class="form-select" name="deadline" id="deadline">
+    <option value="">All</option>{% for value in ['overdue', 'upcoming'] %}<option {% if request.args.get('deadline') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+  </select></div>
+  <div class="col-md-2"><label class="form-label" for="scope">Context</label><select class="form-select" name="scope" id="scope">
+    <option value="">All visible</option>{% for value in ['mine', 'standalone', 'project', 'activity'] %}<option {% if request.args.get('scope') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+  </select></div>
+  <div class="col-md-2 align-self-end"><button class="btn btn-primary">Filter</button> <a href="{{ url_for('projects.listing', kind=kind) }}">Reset</a></div>
+</form>
+<h2 class="h5">Work hierarchy</h2>
+{{ workflow_legend() }}
+<p class="small text-muted">
+  Expand a project to see its activities and direct tasks; expand an activity to see its tasks.
+  Filters and pagination select {{ kind }}. {% if kind != 'tasks' %}Their live descendants are included, even when a child's status or owner differs.{% endif %}
+  Parent context provides location only; counts and totals describe the work shown here.
+</p>
+{{ hierarchy_view(hierarchy, users) }}
+<details class="mb-3">
+  <summary class="mb-2">Flat {{ kind }} table (current page)</summary>
+  {{ table(items, users) }}
+</details>
+<nav class="d-flex gap-3 align-items-center" aria-label="Work item pages">
+{% if page_links.previous %}<a href="{{ page_links.previous }}">Previous</a>{% endif %}
+<span>Page {{ pagination.page }} of {{ pagination.pages or 1 }} / {{ pagination.total }} items</span>
+{% if page_links.next %}<a href="{{ page_links.next }}">Next</a>{% endif %}
+</nav>
+{% if kind == 'tasks' %}
+<h2 class="h5 mt-4">Task board (current page)</h2>
+<div class="work-board">
+{% for status in statuses %}
+<section class="work-board-lane"><h3 class="h6">{{ status_badge(status) }} <span class="small">{{ items|selectattr('status', 'equalto', status)|list|length }}</span></h3>
+{% for item in items if item.status == status %}
+<div class="card mb-2"><div class="card-body p-2">
+  <a href="{{ url_for('projects.detail', kind='tasks', identifier=item.id) }}">{{ item.name }}</a>
+  <div class="small">{{ item.priority|title }} / {{ item.deadline or 'No deadline' }}</div>
+</div></div>
+{% endfor %}
+{% if not items|selectattr('status', 'equalto', status)|list %}<p class="small text-muted">No tasks in this status.</p>{% endif %}
+</section>
+{% endfor %}
+</div>
+{% endif %}
+{% endblock %}

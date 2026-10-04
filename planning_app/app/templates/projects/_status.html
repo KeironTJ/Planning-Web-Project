@@ -1,0 +1,14 @@
+{% macro status_controls(item, actions) %}
+{% if actions %}
+<div class="d-flex flex-wrap gap-2 my-3" aria-label="Status actions for {{ item.name }}">
+  {% for action in actions %}
+  <form method="post" action="{{ url_for('projects.change_status', kind=item.kind, identifier=item.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="version" value="{{ item.version }}">
+    <input type="hidden" name="status" value="{{ action.status }}">
+    <button class="btn btn-sm {{ 'btn-success' if action.status == 'completed' else 'btn-outline-secondary' if action.status == 'cancelled' else 'btn-outline-primary' }}">{{ action.label }}</button>
+  </form>
+  {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}

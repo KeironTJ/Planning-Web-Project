@@ -1,0 +1,34 @@
+{% extends "projects/base.html" %}
+{% from "projects/_components.html" import navigation %}
+{% block content %}
+{{ navigation() }}
+<form method="post" class="row g-3">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if item.id %}<input type="hidden" name="version" value="{{ item.version }}">{% endif %}
+  <div class="col-md-8"><label class="form-label" for="name">Name</label><input class="form-control" id="name" name="name" required maxlength="200" value="{{ item.name or '' }}"></div>
+  <div class="col-md-4"><label class="form-label" for="department">Department</label><input class="form-control" id="department" name="department" required maxlength="100" value="{{ item.department }}" list="departments"><datalist id="departments">{% for department in departments %}<option value="{{ department }}">{% endfor %}</datalist></div>
+  <div class="col-12"><label class="form-label" for="description">Description</label><textarea class="form-control" rows="3" id="description" name="description" maxlength="10000">{{ item.description or '' }}</textarea></div>
+  <div class="col-md-4"><label class="form-label" for="owner_id">Owner</label><select class="form-select" id="owner_id" name="owner_id" required>{% for user in users %}<option value="{{ user.id }}" {% if item.owner_id|int == user.id %}selected{% endif %}>{{ user.full_name }}</option>{% endfor %}</select></div>
+  {% for field, choices in [('priority', priorities), ('status', statuses)] %}
+  {% if field != 'status' or item.id %}
+  <div class="col-md-4"><label class="form-label" for="{{ field }}">{{ field|title }}</label><select class="form-select" id="{{ field }}" name="{{ field }}">{% for value in choices %}<option value="{{ value }}" {% if item[field] == value %}selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></div>
+  {% endif %}
+  {% endfor %}
+  {% for field in ['start_date', 'end_date', 'deadline'] %}
+  <div class="col-md-4"><label class="form-label" for="{{ field }}">{{ field|replace('_', ' ')|title }}</label><input class="form-control" type="date" id="{{ field }}" name="{{ field }}" value="{{ item[field] or '' }}"></div>
+  {% endfor %}
+  {% for field in ['budget', 'actuals'] %}
+  <div class="col-md-6"><label class="form-label" for="{{ field }}">{{ field|title }}</label><input class="form-control" type="number" min="0" max="999999999999.99" step="0.01" id="{{ field }}" name="{{ field }}" value="{{ item[field] }}" required></div>
+  {% endfor %}
+  {% if kind != 'projects' %}
+  <div class="col-md-6"><label class="form-label" for="project_id">Project (optional)</label><select class="form-select" id="project_id" name="project_id"><option value="">None</option>{% for project in projects %}<option value="{{ project.id }}" {% if item.project_id|int == project.id %}selected{% endif %}>{{ project.name }}</option>{% endfor %}</select></div>
+  {% endif %}
+  {% if kind == 'tasks' %}
+  <div class="col-md-6"><label class="form-label" for="activity_id">Activity (optional)</label><select class="form-select" id="activity_id" name="activity_id"><option value="">None</option>{% for activity in activities %}<option value="{{ activity.id }}" {% if item.activity_id|int == activity.id %}selected{% endif %}>{{ activity.name }}</option>{% endfor %}</select></div>
+  <p class="small text-muted mb-0">Choose either a project or an activity, or neither for standalone work. An activity inherits its project's visibility.</p>
+  <div class="col-12"><label class="form-label" for="assigned_user_ids">Assigned users</label><select class="form-select" multiple id="assigned_user_ids" name="assigned_user_ids">{% for user in users %}<option value="{{ user.id }}" {% if user.id in item.assigned_user_ids or user.id|string in item.assigned_user_ids %}selected{% endif %}>{{ user.full_name }}</option>{% endfor %}</select><p class="small text-muted">Share viewer/editor access before assigning someone. Hold Ctrl to select multiple users.</p></div>
+  {% endif %}
+  <p class="small text-muted">Budgets and actuals are direct costs for this item only, not a duplicate of child costs. Overspend is allowed and highlighted. New items start as planned.</p>
+  <div class="col-12"><button class="btn btn-primary">Save</button> <a class="btn btn-outline-secondary" href="{{ url_for('projects.listing', kind=kind) }}">Cancel</a></div>
+</form>
+{% endblock %}

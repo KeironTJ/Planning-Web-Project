@@ -162,6 +162,7 @@ def _register_blueprints(app: Flask) -> None:
     from .planning.capacity import capacity_bp
     from .planning.workorder_plan import workorder_plan_bp
     from .purchasing.materials import materials_bp
+    from .projects import projects_bp
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(admin_bp, url_prefix="/admin")
@@ -180,6 +181,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(capacity_bp, url_prefix="/planning/capacity")
     app.register_blueprint(workorder_plan_bp, url_prefix="/planning/workorder-plan")
     app.register_blueprint(materials_bp, url_prefix="/purchasing/materials")
+    app.register_blueprint(projects_bp, url_prefix="/projects")
 
     # Root home page
     from flask import redirect, url_for, render_template as _render
@@ -188,7 +190,9 @@ def _register_blueprints(app: Flask) -> None:
     @app.route("/")
     @_login_required
     def index():
-        return _render("home.html", title="Home")
+        from .projects.services import due_overview
+        work_report = due_overview(_current_user)
+        return _render("home.html", title="Home", work_report=work_report)
 
 
 def _register_error_handlers(app: Flask) -> None:

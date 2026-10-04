@@ -8,6 +8,13 @@
                 </a>
             </li>
 
+            <li class="nav-item mb-1">
+                <a class="nav-link {% if request.blueprint == 'projects' %}active{% endif %}"
+                   href="{{ url_for('projects.dashboard') }}">
+                    <i class="bi bi-kanban me-2"></i>Projects &amp; Tasks
+                </a>
+            </li>
+
             {% if current_user.has_permission('view_orders') %}
             {% set sales_endpoints = ('sales.dashboard', 'orders.order_book_dashboard', 'orders.order_book', 'orders.overdue_report', 'sales.customer_report', 'sales.model_report') %}
             {% set sales_active = request.endpoint in sales_endpoints %}

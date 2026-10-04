@@ -1,0 +1,10 @@
+{% extends "projects/base.html" %}
+{% from "projects/_components.html" import navigation %}
+{% block content %}
+{{ navigation() }}
+<p>Deleted work remains available to root owners, creators and administrators. Audit entries retain snapshots of every change.</p>
+<ul class="list-group">{% for item in items %}<li class="list-group-item">
+<a href="{{ url_for('projects.history', kind=item.kind, identifier=item.id) }}">{{ item.name }}</a>
+({{ item.kind|work_kind }}) deleted {{ item.deleted_at }}
+</li>{% else %}<li class="list-group-item">No archived work.</li>{% endfor %}</ul>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "projects/base.html" %}
+{% from "projects/_components.html" import navigation, table, timeline, progress_bar, completion_summary %}
+{% block content %}
+{{ navigation() }}
+<h2 class="h5">Task completion</h2>{{ progress_bar(report.progress) }}
+{{ completion_summary(report.completion) }}
+<h2 class="h5">Budget vs actuals</h2>
+<p>Direct costs across all visible items: budget {{ report.budget }}, actuals {{ report.actuals }}, remaining {{ report.variance }}.</p>
+<div class="mb-4">
+  <label class="d-block" for="budget-meter">Actual spend against budget</label>
+  <meter id="budget-meter" class="w-100" min="0" max="{{ [report.budget|float, report.actuals|float, 1]|max }}" value="{{ report.actuals }}" optimum="0" high="{{ report.budget }}">{{ report.actuals }}</meter>
+</div>
+{% for kind in ['projects', 'activities'] %}
+<h2 class="h5">{{ kind|title }} progress and finances</h2>
+{% for item in report[kind] %}
+<div class="card mb-3"><div class="card-body">
+  <h3 class="h6"><a href="{{ url_for('projects.detail', kind=kind, identifier=item.id) }}">{{ item.name }}</a>{% if not item.project_id and kind == 'activities' %} (standalone){% endif %}</h3>
+  {{ progress_bar(item.progress) }}
+  {{ completion_summary(item.completion, ['activities', 'tasks'] if kind == 'projects' else ['tasks']) }}
+  <p>Direct budget {{ item.budget }} / actuals {{ item.actuals }} / remaining {{ item.variance }}</p>
+  <p class="mb-0">Including child costs: budget {{ item.rollup.budget }} / actuals {{ item.rollup.actuals }} / remaining {{ item.rollup.variance }}.</p>
+</div></div>
+{% else %}<p>No visible {{ kind }}.</p>{% endfor %}
+{% endfor %}
+<h2 class="h5">Overdue tasks</h2>{{ table(report.overdue_tasks, users) }}
+<h2 class="h5">Workload by user</h2>
+<p class="small text-muted">Open tasks count once for each assigned user; unassigned tasks count against the owner.</p>
+<table class="table"><thead><tr><th>User</th><th>Open tasks</th><th>Overdue</th></tr></thead><tbody>
+{% for row in report.workload %}<tr><td>{% for user in users if user.id == row.user_id %}{{ user.full_name }}{% endfor %}</td><td>{{ row.open_tasks }}</td><td>{{ row.overdue }}</td></tr>
+{% else %}<tr><td colspan="3">No open tasks.</td></tr>{% endfor %}
+</tbody></table>
+<h2 class="h5">Latest updates (up to 100)</h2>{{ timeline(report.timeline, users) }}
+{% endblock %}
