@@ -1,6 +1,7 @@
 """Validation, access control, atomic mutations and visibility-safe reporting."""
 
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -14,6 +15,13 @@ from .models import Activity, LogEntry, Priority, Project, Share, Status, Task, 
 MODELS = {"projects": Project, "activities": Activity, "tasks": Task}
 KIND_LABELS = {"projects": "project", "activities": "activity", "tasks": "task"}
 TERMINAL = {Status.COMPLETED, Status.CANCELLED}
+QUICK_FILTERS = {
+    "mine": "Owned by me",
+    "open": "Open",
+    "blocked": "Blocked",
+    "overdue": "Overdue",
+    "upcoming": "Due soon (14 days)",
+}
 TRANSITIONS = {
     Status.PLANNED: {Status.ACTIVE, Status.CANCELLED},
     Status.ACTIVE: {Status.BLOCKED, Status.COMPLETED, Status.CANCELLED},
@@ -634,9 +642,68 @@ def visible_query(kind, user):
     )
 
 
+def reference_match(kind, value):
+    """Match a complete location reference without materializing visible work."""
+    match = re.fullmatch(r"([AT]?)([0-9]+(?:\.[0-9]+){0,2})", value.upper())
+    if not match:
+        return db.false()
+    prefix, path = match.groups()
+    components = path.split(".")
+    if any(len(part.lstrip("0")) > 18 for part in components):
+        return db.false()
+    numbers = [int(part) for part in components]
+    if kind == "projects" and not prefix and len(numbers) == 1:
+        return Project.id == numbers[0]
+    if kind == "activities":
+        if prefix == "A" and len(numbers) == 1:
+            return (Activity.id == numbers[0]) & Activity.project_id.is_(None)
+        if not prefix and len(numbers) == 2:
+            return (Activity.project_id == numbers[0]) & (Activity.id == numbers[1])
+    if kind == "tasks":
+        if prefix == "T" and len(numbers) == 1:
+            return (
+                (Task.id == numbers[0]) & Task.project_id.is_(None)
+                & Task.activity_id.is_(None)
+            )
+        if prefix == "A" and len(numbers) == 2:
+            return (Task.id == numbers[1]) & Task.activity.has(
+                (Activity.id == numbers[0]) & Activity.project_id.is_(None)
+            )
+        if not prefix and len(numbers) == 3:
+            project_id, activity_id, task_id = numbers
+            location = (
+                (Task.project_id == project_id) & Task.activity_id.is_(None)
+                if activity_id == 0
+                else Task.activity.has(
+                    (Activity.project_id == project_id) & (Activity.id == activity_id)
+                )
+            )
+            return (Task.id == task_id) & location
+    return db.false()
+
+
 def filtered_query(kind, user, filters):
     cls = MODELS[kind]
     query = visible_query(kind, user)
+    search = text(filters.get("q", ""), "search", 200)
+    if search:
+        query = query.filter(or_(
+            cls.name.icontains(search, autoescape=True),
+            cls.description.icontains(search, autoescape=True),
+            reference_match(kind, search),
+        ))
+    quick = filters.get("quick")
+    allowed_quick = {*QUICK_FILTERS, "assigned"} if kind == "tasks" else set(QUICK_FILTERS)
+    if quick not in (None, "") and quick not in allowed_quick:
+        raise BadRequest("Choose a valid quick filter.")
+    if quick == "mine":
+        query = query.filter(cls.owner_id == user.id)
+    elif quick == "assigned":
+        query = query.filter(Task.assigned_users.any(User.id == user.id))
+    elif quick == "open":
+        query = query.filter(cls.status.notin_(TERMINAL))
+    elif quick == "blocked":
+        query = query.filter(cls.status == Status.BLOCKED)
     for field in ("status", "priority", "department", "owner_id"):
         value = filters.get(field)
         if value:
@@ -707,7 +774,10 @@ def filtered_query(kind, user, filters):
     today = date.today()
     if deadline not in (None, "", "overdue", "upcoming"):
         raise BadRequest("Invalid deadline filter.")
-    if deadline:
+    deadline_filters = {deadline}
+    if quick in ("overdue", "upcoming"):
+        deadline_filters.add(quick)
+    for deadline in deadline_filters - {None, ""}:
         query = query.filter(cls.status.notin_(TERMINAL), cls.deadline.is_not(None))
         query = (
             query.filter(cls.deadline < today)

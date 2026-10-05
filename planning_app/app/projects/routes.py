@@ -201,11 +201,28 @@ def listing(kind):
     view_args.pop("kind", None)
     view_args.pop("return_to", None)
     pagination = paginate(svc.filtered_query(kind, current_user, request.args))
+    quick_filters = dict(svc.QUICK_FILTERS)
+    if kind == "tasks":
+        quick_filters["assigned"] = "Assigned to me"
+    quick_args = dict(view_args)
+    quick_args.pop("page", None)
+    quick_args.pop("quick", None)
     return render_template(
         "projects/list.html",
         title=kind.title(),
         kind=kind,
         selected_view=selected_view,
+        quick_links={
+            value: {
+                "label": label,
+                "url": url_for(
+                    "projects.listing", kind=kind, view=selected_view,
+                    quick="" if request.args.get("quick") == value else value,
+                    **quick_args,
+                ),
+            }
+            for value, label in quick_filters.items()
+        },
         view_links={
             view: {
                 "label": label,

@@ -65,6 +65,42 @@ unavailable or malformed, a visible warning explains that remembering the
 workspace is unavailable; ordinary navigation remains usable. No work-item
 contents or permissions are stored in browser preferences.
 
+## Search and quick filters
+
+Every project/activity/task list has **Search work**, matching a case-insensitive
+substring in the item's name or description, or an exact complete hierarchical
+reference (for example `01.03.07`, `A03.07` or `T07`). Leading/trailing whitespace
+is ignored; `%` and `_` are literal search characters, not SQL wildcards.
+Queries are limited to 200 characters. Reference lookup follows current location,
+so old references stop matching after moves unless present in an item's text.
+
+Quick filters are **Owned by me**, **Open**, **Blocked**, **Overdue**, and
+**Due soon (14 days)**. Tasks additionally offer **Assigned to me**.
+Open excludes completed/cancelled items; overdue/due-soon also exclude these
+terminal states. Due soon includes today and the next 14 calendar days.
+Owned by me means ownership, not creation, assignment or shared access.
+Assigned to me includes closed tasks unless narrowed by another filter, and
+never grants access to work whose root sharing has been revoked.
+
+One quick filter is selected at a time; selecting it again removes it.
+It narrows the current search and ordinary filters, rather than clearing them
+(contradictory combinations legitimately produce no matches). Priority now has
+its own ordinary filter alongside status, department, owner, deadline and context.
+The total matching count is shown above the selected view. Ordinary filters are
+grouped under a native **More filters** disclosure, collapsed by default and
+expanded with an active-filter count when any are applied. Search and quick
+filters stay easy to reach without a full filter panel taking up the screen.
+
+Search/quick filters are server-side and apply consistently to List, Hierarchy,
+Board, Timeline and `GET /projects/api/<kind>?q=...&quick=...`.
+Filters select the listed work type, not text on ancestors or descendants;
+hierarchy/timeline retain their documented parent/child context.
+Changing quick filters resets pagination to page one while keeping the view,
+page size, search and other filters. Submitting the form also preserves explicit
+project/activity scope. Switching views and paging retain all filters.
+Reset clears them; the existing tab-local workspace component remembers them.
+Ordinary GET forms and links work without JavaScript.
+
 ## Work quick editing
 
 **Quick edit** is available to editors on project, activity and task rows and
