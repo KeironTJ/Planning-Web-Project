@@ -71,6 +71,20 @@ def work_kind_label(kind):
     return svc.KIND_LABELS[kind]
 
 
+@bp.app_template_global("work_can_quick_edit")
+def can_quick_edit(kind, identifier):
+    if kind not in svc.MODELS:
+        return False
+    permissions = request.environ.setdefault("work_quick_edit_permissions", {})
+    key = (kind, identifier)
+    if key not in permissions:
+        item = db.session.get(svc.MODELS[kind], identifier)
+        permissions[key] = (
+            item is not None and svc.can_access(item, current_user, edit=True)
+        )
+    return permissions[key]
+
+
 def options():
     active_users = users()
     return {
@@ -444,6 +458,25 @@ def change_log(identifier, action):
 @bp.get("/api/reports")
 def api_reports():
     return jsonify(svc.report(current_user))
+
+
+@bp.get("/api/<kind>/<int:identifier>/edit-options")
+def work_edit_options(kind, identifier):
+    item = svc.get_item(kind, identifier, current_user, edit=True)
+    top = svc.root(item)
+    return jsonify(
+        item=svc.serialize(item),
+        priorities=[priority.value for priority in Priority],
+        assignees=(
+            [
+                {"id": user.id, "name": user.full_name}
+                for user in users()
+                if svc.can_access(top, user)
+            ]
+            if kind == "tasks"
+            else []
+        ),
+    )
 
 
 @bp.route("/api/logs", methods=["GET", "POST"])

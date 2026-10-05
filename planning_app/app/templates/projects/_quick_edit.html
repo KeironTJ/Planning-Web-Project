@@ -1,0 +1,48 @@
+{% macro quick_edit_link(item) %}
+{% if work_can_quick_edit(item.kind, item.id) %}
+<a class="btn btn-sm btn-outline-primary" href="{{ url_for('projects.edit', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}" data-quick-edit data-options-url="{{ url_for('projects.work_edit_options', kind=item.kind, identifier=item.id) }}" data-save-url="{{ url_for('projects.api_item', kind=item.kind, identifier=item.id) }}" aria-label="Quick edit {{ item.name }}">Quick edit</a>
+{% endif %}
+{% endmacro %}
+
+{% macro quick_edit_dialog() %}
+<dialog class="work-quick-edit border rounded p-0" data-quick-edit-dialog aria-labelledby="quick-edit-title">
+  <div class="p-3 p-md-4">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+      <h2 class="h5 mb-0" id="quick-edit-title">Quick edit work</h2>
+      <button type="button" class="btn-close" data-quick-edit-close aria-label="Close quick edit"></button>
+    </div>
+    <p data-quick-edit-loading role="status">Loading work...</p>
+    <div class="alert alert-danger" data-quick-edit-error role="alert" hidden></div>
+    <button type="button" class="btn btn-outline-secondary mb-3" data-quick-edit-reload hidden>Reload latest values (discards edits)</button>
+    <form data-quick-edit-form hidden>
+      <div class="mb-3">
+        <label for="quick-edit-deadline" class="form-label">Deadline</label>
+        <input class="form-control" type="date" id="quick-edit-deadline" name="deadline">
+        <div class="form-text">Leave blank to remove the deadline.</div>
+      </div>
+      <div class="mb-3">
+        <label for="quick-edit-priority" class="form-label">Priority</label>
+        <select class="form-select" id="quick-edit-priority" name="priority" required></select>
+      </div>
+      <fieldset class="mb-3" data-task-assignees hidden disabled>
+        <legend class="h6">Assigned users</legend>
+        <label for="quick-edit-assignee-search" class="form-label small">Search people</label>
+        <input class="form-control mb-2" type="search" id="quick-edit-assignee-search" data-assignee-search autocomplete="off">
+        <p class="form-text">Only active people with access are shown. Assignment does not grant access. Clear all selections to leave the task unassigned.</p>
+        <div class="work-assignee-list border rounded p-2" data-assignee-list></div>
+        <p class="small text-muted mt-2 mb-0" data-assignee-empty hidden>No people match your search.</p>
+        <p class="small mt-2 mb-0" data-assignee-count aria-live="polite"></p>
+        <label class="form-check mt-2" data-unavailable-assignees hidden>
+          <input type="checkbox" class="form-check-input" name="remove_unavailable">
+          <span class="form-check-label">Remove existing assignees who are inactive or no longer have access.</span>
+        </label>
+      </fieldset>
+      <div class="d-flex flex-wrap gap-2">
+        <button class="btn btn-primary" type="submit" data-quick-edit-save>Save changes</button>
+        <button class="btn btn-outline-secondary" type="button" data-quick-edit-close>Cancel</button>
+        <a class="btn btn-link" href="{{ url_for('projects.listing', kind='tasks') }}" data-quick-edit-full>Edit all fields</a>
+      </div>
+    </form>
+  </div>
+</dialog>
+{% endmacro %}

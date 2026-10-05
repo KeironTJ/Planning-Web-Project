@@ -1,3 +1,4 @@
+{% from "projects/_quick_edit.html" import quick_edit_link %}
 {% macro navigation() %}
 <nav class="work-nav nav nav-pills gap-2 mb-4" aria-label="Project tracking">
   <a class="nav-link {% if request.endpoint == 'projects.dashboard' %}active{% endif %}" {% if request.endpoint == 'projects.dashboard' %}aria-current="page"{% endif %} href="{{ url_for('projects.dashboard') }}">My dashboard</a>
@@ -51,14 +52,14 @@
 <p class="small text-muted">Progress is based on item counts, not money. Cancelled items are excluded from completion percentages. No items means 0%. Closing a parent is a separate action after all child work is completed or cancelled.</p>
 {% endmacro %}
 
-{% macro table(items, users) %}
+{% macro table(items, users, show_quick_edit=true) %}
 <div class="table-responsive">
 <table class="table table-striped align-middle">
   <thead><tr><th>Name</th><th>Context</th><th>Status / priority</th><th>Department / owner</th><th>Deadline</th><th>Budget / actuals</th></tr></thead>
   <tbody>
   {% for item in items %}
   <tr>
-    <td><a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_return_to() or work_current_url()) }}">{{ item.name }}</a></td>
+    <td><a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_return_to() or work_current_url()) }}">{{ item.name }}</a>{% if show_quick_edit %}<div class="mt-2">{{ quick_edit_link(item) }}</div>{% endif %}</td>
     <td>{{ item.kind|work_kind|title }}<br>
       {% if item.activity_id %}<a href="{{ url_for('projects.detail', kind='activities', identifier=item.activity_id, return_to=work_return_to() or work_current_url()) }}">Activity #{{ item.activity_id }}</a>
       {% elif item.project_id %}<a href="{{ url_for('projects.detail', kind='projects', identifier=item.project_id, return_to=work_return_to() or work_current_url()) }}">Project #{{ item.project_id }}</a>

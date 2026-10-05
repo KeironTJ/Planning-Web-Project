@@ -27,7 +27,7 @@
 {% endif %}
 </div>
 <p class="text-break" style="white-space: pre-wrap">{{ item.description }}</p>
-{{ table([item], users) }}
+{{ table([item], users, show_quick_edit=false) }}
 <section aria-label="Change work status">
   <h2 class="h5">Status: {{ status_badge(item.status) }}</h2>
   {{ status_controls(item, status_actions) }}

@@ -65,6 +65,39 @@ unavailable or malformed, a visible warning explains that remembering the
 workspace is unavailable; ordinary navigation remains usable. No work-item
 contents or permissions are stored in browser preferences.
 
+## Work quick editing
+
+**Quick edit** is available to editors on project, activity and task rows and
+hierarchy cards, and on task board cards, including dashboard/report tables and
+detail summaries. One shared dialog edits deadline and priority for every work
+type without navigating to the full form. Tasks additionally offer assigned
+users; projects and activities do not support task assignments.
+In hierarchy/detail status action rows, Quick edit follows the first workflow
+action (Start, resume, reopen or the first available action) and precedes the
+red-outlined **Cancel / close** action. List and board views retain their
+standalone Quick edit links.
+Assignees use searchable checkboxes; filtering people never clears selections.
+Only active users with inherited viewer/editor access are offered. Existing
+assignees who have become inactive or lost access require explicit confirmation
+of removal before saving. Assignment never grants access.
+
+Opening the editor fetches current values and eligible users from
+`GET /projects/api/<kind>/<id>/edit-options`. Saving uses the existing work PATCH
+endpoint with only deadline, priority and version (plus assignees for tasks); unrelated fields
+are unchanged. A successful save refreshes the current workspace so all copies,
+filters, counts and overdue totals are reconciled. Validation/network failures
+keep entered values in the dialog. Requests time out after 30 seconds; an
+unconfirmed save asks users to reload latest values before retrying, since the
+server may have received the write. Stale versions offer **Reload latest values
+(discards edits)** rather than overwriting someone else's changes.
+
+The editor is implemented in `static/js/modules/projects/quick_edit.js` and uses
+the shared CSRF-aware fetch helper. Native dialogs provide keyboard focus
+containment and Escape/Cancel dismissal; dismissal is disabled during saves to
+avoid unconfirmed writes. **Edit all fields** opens the existing form. Without
+JavaScript/native dialog support, Quick edit is a normal link to that form.
+Viewer-only users see no quick-edit links and cannot access edit options or save.
+
 ## Completing and closing work
 
 Status actions are visible on each detail page and inside the expandable work

@@ -22,6 +22,9 @@
 .work-board { display: grid; grid-template-columns: repeat(5, minmax(190px, 1fr)); gap: 1rem; overflow-x: auto; padding-bottom: 1rem; }
 .work-board-lane { background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-radius: .5rem; padding: .75rem; }
 .work-log-body { white-space: pre-wrap; }
+.work-quick-edit { width: min(560px, calc(100% - 2rem)); max-height: calc(100% - 2rem); overflow-y: auto; color: var(--bs-body-color); background: var(--bs-body-bg); border-color: var(--bs-border-color) !important; }
+.work-quick-edit::backdrop { background: rgb(0 0 0 / 50%); }
+.work-assignee-list { max-height: 220px; overflow-y: auto; }
 @media (max-width: 576px) {
     .work-branch { margin-inline-start: 0; padding-inline-start: .5rem; }
     .work-metrics { gap: .4rem .75rem; }

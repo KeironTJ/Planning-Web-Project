@@ -1,6 +1,7 @@
 {% extends "projects/base.html" %}
 {% from "projects/_components.html" import navigation, table, status_badge, workflow_legend, view_switcher %}
 {% from "projects/_hierarchy.html" import hierarchy_view %}
+{% from "projects/_quick_edit.html" import quick_edit_link %}
 {% block content %}
 {{ navigation() }}
 <a class="btn btn-primary mb-3" href="{{ url_for('projects.edit', kind=kind, return_to=work_current_url()) }}">New {{ kind|work_kind }}</a>
@@ -54,6 +55,7 @@
 <div class="card mb-2"><div class="card-body p-2">
   <a href="{{ url_for('projects.detail', kind='tasks', identifier=item.id, return_to=work_current_url()) }}">{{ item.name }}</a>
   <div class="small">{{ item.priority|title }} / {{ item.deadline or 'No deadline' }}</div>
+  <div class="mt-2">{{ quick_edit_link(item) }}</div>
 </div></div>
 {% endfor %}
 {% if not items|selectattr('status', 'equalto', status)|list %}<p class="small text-muted">No tasks in this status.</p>{% endif %}

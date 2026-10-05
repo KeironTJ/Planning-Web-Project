@@ -1,4 +1,9 @@
 {% extends "base.html" %}
+{% from "projects/_quick_edit.html" import quick_edit_dialog %}
+{% block body %}
+{{ super() }}
+{{ quick_edit_dialog() }}
+{% endblock %}
 {% block extra_css %}
 {{ super() }}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/projects.css') }}">

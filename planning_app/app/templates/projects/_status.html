@@ -1,3 +1,4 @@
+{% from "projects/_quick_edit.html" import quick_edit_link %}
 {% macro status_controls(item, actions) %}
 {% if actions %}
 <div class="d-flex flex-wrap gap-2 my-3" aria-label="Status actions for {{ item.name }}">
@@ -7,8 +8,9 @@
     <input type="hidden" name="version" value="{{ item.version }}">
     <input type="hidden" name="status" value="{{ action.status }}">
     <input type="hidden" name="return_to" value="{{ work_current_url() }}">
-    <button class="btn btn-sm {{ 'btn-success' if action.status == 'completed' else 'btn-outline-secondary' if action.status == 'cancelled' else 'btn-outline-primary' }}">{{ action.label }}</button>
+    <button class="btn btn-sm {{ 'btn-success' if action.status == 'completed' else 'btn-outline-danger' if action.status == 'cancelled' else 'btn-outline-primary' }}">{{ action.label }}</button>
   </form>
+  {% if loop.first %}{{ quick_edit_link(item) }}{% endif %}
   {% endfor %}
 </div>
 {% endif %}
