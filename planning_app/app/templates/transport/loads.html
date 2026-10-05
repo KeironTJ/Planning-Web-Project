@@ -146,7 +146,7 @@
       {% for stage in stages %}
       <div class="load-summary-card load-stage-{{ stage.style }}">
         <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
-          <a href="#stage-{{ stage.key }}" class="fw-semibold text-decoration-none"><i class="bi bi-{{ stage.icon }} me-1" aria-hidden="true"></i>{{ stage.label }}</a>
+          <a href="#stage-{{ stage.key }}" class="load-summary-card-link fw-semibold text-decoration-none"><i class="bi bi-{{ stage.icon }} me-1" aria-hidden="true"></i>{{ stage.label }}</a>
           <span class="small text-body-secondary">{{ stage.count }} loads</span>
         </div>
         <div class="load-summary-value fw-bold">{{ money(stage.value) }} <span class="small fw-normal text-body-secondary">value</span></div>
@@ -204,17 +204,15 @@
             <i class="bi bi-calendar3 me-1" aria-hidden="true"></i>Ship: <strong>{{ load_date(load.ship_date, load.ship_time) }}</strong>
           </div>
           <div class="load-capacity">
-            <div class="d-flex justify-content-between gap-2 small mb-1">
-              <span>Space allocated</span>
-              <span><strong>{{ number(load.used_pct) }}{% if load.used_pct is not none %}%{% endif %}</strong> &middot; {{ number(load.remaining) }} {{ load.uom or 'capacity units' }} free</span>
+            <div class="transport-truck load-card-truck" role="img" aria-label="{% if load.used_pct is not none %}{{ number(load.used_pct) }} percent of capacity allocated; {{ number(load.remaining) }} {{ load.uom or 'capacity units' }} free{% else %}Capacity not available{% endif %}">
+              <div class="transport-truck-body">
+                {% if load.used_pct is not none %}<span class="transport-truck-fill{% if load.capacity_issue %} transport-truck-fill-error{% endif %}" style="width: {{ load.bar_pct }}%"></span>{% endif %}
+                <strong class="transport-truck-value">{% if load.used_pct is not none %}{{ number(load.used_pct) }}% allocated{% else %}Capacity unavailable{% endif %}</strong>
+                {% if load.used_pct is not none %}<span class="small">{{ number(load.remaining) }} {{ load.uom or 'capacity units' }} free</span>{% endif %}
+              </div>
+              <div class="transport-truck-cab" aria-hidden="true"></div>
+              <span class="transport-truck-wheel transport-truck-wheel-back" aria-hidden="true"></span><span class="transport-truck-wheel transport-truck-wheel-front" aria-hidden="true"></span>
             </div>
-            {% if load.used_pct is not none %}
-            <div class="progress load-capacity-track" role="img" aria-label="{{ number(load.used_pct) }} percent of capacity allocated">
-              <div class="progress-bar {% if load.capacity_issue %}bg-danger{% endif %}" style="width: {{ load.bar_pct }}%"></div>
-            </div>
-            {% else %}
-            <div class="small text-body-secondary">Capacity not available</div>
-            {% endif %}
             {% if load.capacity_issue %}<div class="small text-danger mt-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Check capacity figures</div>{% endif %}
           </div>
           <div class="load-readiness small">

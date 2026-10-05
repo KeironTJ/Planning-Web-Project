@@ -118,13 +118,13 @@
       {% for stage in stages %}
       <article class="overview-stage load-stage-{{ stage.style }}">
         <h3 class="h6">{{ stage.label }}</h3>
-        <div class="overview-trailer">
-          <div class="overview-trailer-body">
-            <strong class="overview-trailer-value">{{ money(stage.value) }}</strong>
+        <div class="transport-truck">
+          <div class="transport-truck-body">
+            <strong class="transport-truck-value">{{ money(stage.value) }}</strong>
             <div>{{ stage.count }} loads &middot; {{ number(stage.quantity) }} units</div>
           </div>
-          <div class="overview-trailer-cab" aria-hidden="true"></div>
-          <span class="overview-wheel overview-wheel-back" aria-hidden="true"></span><span class="overview-wheel overview-wheel-front" aria-hidden="true"></span>
+          <div class="transport-truck-cab" aria-hidden="true"></div>
+          <span class="transport-truck-wheel transport-truck-wheel-back" aria-hidden="true"></span><span class="transport-truck-wheel transport-truck-wheel-front" aria-hidden="true"></span>
         </div>
         <div class="small text-body-secondary">{{ 'Order value on shipped loads' if stage.key == 'SHIPPED' else 'Order value on ' ~ (stage.label | lower) ~ ' loads' }}</div>
         {% if stage.missing_value or stage.missing_quantity %}<div class="small text-warning-emphasis">{{ stage.missing_value }} values / {{ stage.missing_quantity }} quantities missing</div>{% endif %}
@@ -170,13 +170,13 @@
       <article class="overview-capacity-card">
         <div class="d-flex justify-content-between flex-wrap gap-1"><h3 class="h6 mb-1">{{ load.load_id }}</h3><span class="small text-body-secondary">{{ load.status | title }}</span></div>
         <div class="small text-body-secondary">{{ load.route or 'Route not set' }}</div>
-        <div class="overview-trailer overview-capacity-trailer">
-          <div class="overview-trailer-body">
-            {% if load.used_pct is not none %}<span class="overview-capacity-fill {{ 'overview-capacity-error' if load.capacity_issue else '' }}" style="width: {{ load.bar_pct }}%" aria-hidden="true"></span>{% endif %}
+        <div class="transport-truck overview-capacity-truck">
+          <div class="transport-truck-body">
+            {% if load.used_pct is not none %}<span class="transport-truck-fill {{ 'transport-truck-fill-error' if load.capacity_issue else '' }}" style="width: {{ load.bar_pct }}%" aria-hidden="true"></span>{% endif %}
             <strong>{{ number(load.used_pct) ~ '% allocated' if load.used_pct is not none else 'Capacity unavailable' }}</strong>
             <span class="small">{{ number(load.remaining) }} / {{ number(load.capacity) }} {{ load.uom or 'capacity units' }} free</span>
           </div>
-          <div class="overview-trailer-cab" aria-hidden="true"></div><span class="overview-wheel overview-wheel-back" aria-hidden="true"></span><span class="overview-wheel overview-wheel-front" aria-hidden="true"></span>
+          <div class="transport-truck-cab" aria-hidden="true"></div><span class="transport-truck-wheel transport-truck-wheel-back" aria-hidden="true"></span><span class="transport-truck-wheel transport-truck-wheel-front" aria-hidden="true"></span>
         </div>
         <div class="d-flex flex-wrap justify-content-between gap-1 small"><strong>{{ money(load.order_value) }}</strong><span>Ship: {{ load.ship_date.strftime('%d %b %Y') if load.ship_date else 'Not set' }}</span></div>
         {% if load.overdue %}<div class="small text-danger mt-1">Past ship date</div>{% endif %}

@@ -181,7 +181,9 @@ def test_load_board_renders_real_semantics_and_escapes_data(client, admin_user):
     assert "95.5%" in html
     assert "4.5 / 100 SEATS free" in html
     assert "21,546" in html
-    assert "Space allocated" in html
+    assert 'class="transport-truck load-card-truck"' in html
+    assert "95.5% allocated" in html
+    assert "95.5 percent of capacity allocated; 4.5 SEATS free" in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "<script>alert(1)</script>" not in html
     assert "Read-only Epicor snapshot" in html
@@ -222,6 +224,8 @@ def test_overall_summary_has_labelled_totals_and_respects_filters(client, admin_
     assert "<dt>Total units</dt>" in overall
     assert "<dd>8</dd>" in overall
     assert "Production readiness" in overall
+    assert 'class="load-summary-card-link fw-semibold text-decoration-none"' in html
+    assert 'href="#stage-PACKED"' in html
     filtered = client.get("/transport/loads?q=ONE").data.decode()
     overall = filtered.split('aria-labelledby="load-overall-heading">')[1].split(
         '<div class="load-summary-grid"', 1,

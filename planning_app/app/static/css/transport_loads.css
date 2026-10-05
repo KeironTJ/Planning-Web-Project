@@ -25,6 +25,7 @@
     gap: .75rem;
 }
 .load-summary-card {
+    position: relative;
     min-width: 0;
     padding: .85rem 1rem;
     border: 1px solid var(--bs-border-color);
@@ -34,6 +35,13 @@
     color: var(--bs-body-color);
     font-variant-numeric: tabular-nums;
 }
+.load-summary-card-link::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+}
+.load-summary-card-link:focus-visible::after { outline: 2px solid var(--bs-primary); outline-offset: 2px; }
+.load-summary-card .load-data-flag { position: relative; z-index: 1; }
 .load-summary-value { font-size: 1.5rem; overflow-wrap: anywhere; }
 .load-summary-value .small { font-size: .8rem; }
 .load-summary-units { font-size: 1rem; }
@@ -100,8 +108,20 @@
 .load-card-metrics { font-size: .875rem; font-variant-numeric: tabular-nums; margin-top: .35rem; }
 .load-card-ship-date { font-size: .8rem; margin-top: .25rem; }
 .load-capacity { margin-top: .4rem; font-variant-numeric: tabular-nums; }
-.load-capacity-track { height: .3rem; background: var(--bs-border-color); }
-.load-capacity-track .progress-bar { background: var(--load-accent); }
+.transport-truck { --trailer-color: var(--load-accent, var(--bs-primary)); display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 4px; position: relative; padding-bottom: 19px; margin: .6rem 0 .4rem; }
+.transport-truck-body { position: relative; isolation: isolate; display: flex; flex-direction: column; justify-content: center; min-width: 0; min-height: 58px; border: 2px solid var(--trailer-color); border-radius: .35rem .2rem .2rem .35rem; padding: .4rem .6rem; font-size: .8rem; overflow: hidden; background: var(--bs-tertiary-bg); }
+.transport-truck-body > :not(.transport-truck-fill) { position: relative; z-index: 1; }
+.transport-truck-value, .transport-truck-body .small { overflow-wrap: anywhere; }
+.transport-truck-value { display: block; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.transport-truck-cab { align-self: end; height: 58px; border: 2px solid var(--trailer-color); border-radius: .6rem .9rem .2rem .2rem; background: var(--bs-secondary-bg); }
+.transport-truck-cab::before { content: ""; display: block; margin: 7px 4px; height: 16px; border: 1px solid var(--trailer-color); border-radius: .15rem .4rem .1rem .1rem; }
+.transport-truck-wheel { position: absolute; bottom: 9px; width: 17px; height: 17px; border: 4px solid var(--bs-secondary-color); background: var(--bs-body-bg); border-radius: 50%; }
+.transport-truck-wheel-back { left: 18px; box-shadow: 23px 0 0 -4px var(--bs-body-bg), 23px 0 0 0 var(--bs-secondary-color); }
+.transport-truck-wheel-front { right: 7px; }
+.transport-truck-fill { position: absolute; z-index: 0; inset: 0 auto 0 0; background: var(--bs-primary-bg-subtle); border-right: 1px solid var(--bs-primary); }
+.transport-truck-fill-error { background: var(--bs-danger-bg-subtle); border-color: var(--bs-danger); }
+.load-card-truck .transport-truck-body { min-height: 66px; }
+.load-card-truck .transport-truck-value { font-size: 1rem; }
 .load-details summary { cursor: pointer; color: var(--bs-link-color); }
 .load-details { margin-top: .4rem; }
 .load-detail-meta {
