@@ -29,6 +29,32 @@ the actual parent chain. Deleted or inaccessible work is never included.
 Expansion uses native HTML disclosures and works with keyboard navigation and
 without JavaScript.
 
+### Remembering your workspace
+
+Modular JavaScript in `static/js/modules/projects.js` uses the reusable
+`static/js/components/workspace_state.js` component to remember expanded
+branches, the flat-table disclosure, page scroll and task-board horizontal scroll.
+Preferences live in session storage, separately for each user and browser tab, with a maximum of
+40 remembered pages. Filtered pages have separate expansion/scroll state.
+Task, activity, project and log lists restore the last filters and page when
+revisited without an explicit query; explicit links take precedence. **Reset**
+clears that list's filters and remembered page state. URL anchors such as
+`#logs` take precedence over remembered scroll positions.
+
+Opening a work item provides **Back to previous view**. New/edit forms preserve
+their origin for both Save and Cancel; validation errors retain it too. Status
+actions return to the screen where they were submitted, including filtered
+hierarchies. Comment actions return to the current item's logs. Sharing changes
+also retain the current detail-page context. Return URLs are validated before
+mutations and must name a local, read-only work screen; external destinations,
+API routes and edit forms are rejected. Permissions, CSRF, workflow validation
+and version checks are unchanged.
+
+The forms and return links also work without JavaScript. If browser storage is
+unavailable or malformed, a visible warning explains that remembering the
+workspace is unavailable; ordinary navigation remains usable. No work-item
+contents or permissions are stored in browser preferences.
+
 ## Completing and closing work
 
 Status actions are visible on each detail page and inside the expandable work

@@ -3,3 +3,8 @@
 {{ super() }}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/projects.css') }}">
 {% endblock %}
+{% block body_attrs %}{{ super() }} data-workspace="projects" data-work-user="{{ current_user.id }}"{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script type="module" src="{{ url_for('static', filename='js/modules/projects.js') }}"></script>
+{% endblock %}

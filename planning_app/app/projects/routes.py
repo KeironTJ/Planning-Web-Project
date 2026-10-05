@@ -1,6 +1,6 @@
 """Session-authenticated HTML and JSON endpoints; CSRF applies to both."""
 
-from flask import abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import abort, flash, g, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
@@ -11,6 +11,7 @@ from app.extensions import db
 from . import projects_bp as bp
 from .models import LogEntry, Priority, Share, Status
 from . import services as svc
+from .navigation import return_to, validate_return_to
 
 
 @bp.before_request
@@ -19,6 +20,14 @@ def require_active_session():
         if request.path.startswith("/projects/api/"):
             return jsonify(error="Authentication required."), 401
         return redirect(url_for("auth.login", next=request.path))
+    if not request.path.startswith("/projects/api/"):
+        g.work_return_to = None
+        value = (
+            request.form.get("return_to")
+            if request.method == "POST"
+            else request.args.get("return_to")
+        )
+        g.work_return_to = validate_return_to(value)
 
 
 @bp.errorhandler(HTTPException)
@@ -257,7 +266,9 @@ def edit(kind, identifier=None):
             db.session.rollback()
             flash(error.description, "danger")
             return render_form(kind, item, request.form), error.code
-        return redirect(url_for("projects.detail", kind=kind, identifier=item.id))
+        return redirect(
+            return_to() or url_for("projects.detail", kind=kind, identifier=item.id)
+        )
     return render_form(kind, item)
 
 
@@ -325,7 +336,9 @@ def change_status(kind, identifier):
     )
     db.session.commit()
     flash(f"Status changed to {item.status.value}.", "success")
-    return redirect(url_for("projects.detail", kind=kind, identifier=identifier))
+    return redirect(
+        return_to() or url_for("projects.detail", kind=kind, identifier=identifier)
+    )
 
 
 @bp.post("/<kind>/<int:identifier>/shares")
@@ -338,7 +351,9 @@ def share(kind, identifier):
         current_user,
     )
     db.session.commit()
-    return redirect(url_for("projects.detail", kind=kind, identifier=identifier))
+    return redirect(
+        return_to() or url_for("projects.detail", kind=kind, identifier=identifier)
+    )
 
 
 @bp.post("/<kind>/<int:identifier>/shares/<int:share_id>/delete")
@@ -347,14 +362,20 @@ def unshare(kind, identifier, share_id):
     item = svc.get_item(kind, identifier, current_user)
     svc.revoke_share(item, share_id, current_user)
     db.session.commit()
-    return redirect(url_for("projects.detail", kind=kind, identifier=identifier))
+    return redirect(
+        return_to() or url_for("projects.detail", kind=kind, identifier=identifier)
+    )
 
 
 @bp.post("/logs")
 @login_required
 def add_log():
     svc.save_log(
-        {key: value for key, value in request.form.items() if key != "csrf_token"},
+        {
+            key: value
+            for key, value in request.form.items()
+            if key not in {"csrf_token", "return_to"}
+        },
         current_user,
     )
     db.session.commit()
@@ -367,7 +388,9 @@ def add_log():
         )
         if request.form.get(field)
     )
-    return redirect(url_for("projects.detail", kind=kind, identifier=identifier))
+    return redirect(
+        return_to() or url_for("projects.detail", kind=kind, identifier=identifier)
+    )
 
 
 @bp.post("/logs/<int:identifier>/<action>")
@@ -379,7 +402,11 @@ def change_log(identifier, action):
     if log is None:
         raise NotFound()
     svc.save_log(
-        {key: value for key, value in request.form.items() if key != "csrf_token"},
+        {
+            key: value
+            for key, value in request.form.items()
+            if key not in {"csrf_token", "return_to"}
+        },
         current_user,
         log,
         delete=action == "delete",
@@ -387,7 +414,8 @@ def change_log(identifier, action):
     db.session.commit()
     item = svc.log_target(log)
     return redirect(
-        url_for("projects.detail", kind=svc.kind_of(item), identifier=item.id)
+        return_to()
+        or url_for("projects.detail", kind=svc.kind_of(item), identifier=item.id)
     )
 
 

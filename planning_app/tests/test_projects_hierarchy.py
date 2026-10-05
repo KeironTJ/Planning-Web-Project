@@ -125,8 +125,7 @@ def test_project_list_and_details_share_nested_structure(signed_client, work):
     )
     response = signed_client.get(f"/projects/projects/{work['project']['id']}")
     assert (
-        b'<details class="border rounded bg-body work-node work-node-projects" open>'
-        in response.data
+        f'data-state-key="{key(work["project"])}" open>'.encode() in response.data
     )
     assert b"No tasks." in response.data
     assert b"2 activities shown" in response.data

@@ -1,5 +1,6 @@
 {% extends "projects/base.html" %}
 {% block content %}
 <div class="alert alert-danger" role="alert">{{ message }}</div>
-<a href="{{ url_for('projects.dashboard') }}" class="btn btn-outline-primary">Back to work dashboard</a>
+{% if work_return_to() %}<a href="{{ work_return_to() }}" class="btn btn-outline-primary">Back to previous view</a>
+{% else %}<a href="{{ url_for('projects.dashboard') }}" class="btn btn-outline-primary">Back to work dashboard</a>{% endif %}
 {% endblock %}

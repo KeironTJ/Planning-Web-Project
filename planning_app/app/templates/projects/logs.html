@@ -3,7 +3,7 @@
 {% block content %}
 {{ navigation() }}
 <p class="text-muted">Comments, handovers and automatic audit updates across work you can access. To add a comment, open its project, activity or task and use Logs &amp; updates.</p>
-<form method="get" class="row g-3 border rounded p-3 mb-4">
+<form method="get" class="row g-3 border rounded p-3 mb-4" data-work-filters>
   <div class="col-md-3"><label for="log_kind" class="form-label">Entry type</label>
     <select class="form-select" id="log_kind" name="log_kind"><option value="">All entries</option>
     {% for value, label in [('comment', 'Comments'), ('audit', 'Automatic updates')] %}<option value="{{ value }}" {% if request.args.get('log_kind') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
@@ -17,7 +17,7 @@
   <div class="col-md-3"><label for="author_id" class="form-label">Author</label>
     <select class="form-select" name="author_id" id="author_id"><option value="">All authors</option>{% for user in users %}<option value="{{ user.id }}" {% if request.args.get('author_id') == user.id|string %}selected{% endif %}>{{ user.full_name }}</option>{% endfor %}</select>
   </div>
-  <div class="col-12"><button class="btn btn-primary">Filter logs</button> <a class="btn btn-outline-secondary" href="{{ url_for('projects.logs') }}">Reset</a></div>
+  <div class="col-12"><button class="btn btn-primary">Filter logs</button> <a data-work-reset class="btn btn-outline-secondary" href="{{ url_for('projects.logs') }}">Reset</a></div>
 </form>
 <div class="d-flex justify-content-between mb-3"><h2 class="h5">Timeline</h2><span class="text-muted">{{ pagination.total }} entries</span></div>
 {{ timeline(logs, users) }}

@@ -4,6 +4,7 @@
 {{ navigation() }}
 <form method="post" class="row g-3">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if work_return_to() %}<input type="hidden" name="return_to" value="{{ work_return_to() }}">{% endif %}
   {% if item.id %}<input type="hidden" name="version" value="{{ item.version }}">{% endif %}
   <div class="col-md-8"><label class="form-label" for="name">Name</label><input class="form-control" id="name" name="name" required maxlength="200" value="{{ item.name or '' }}"></div>
   <div class="col-md-4"><label class="form-label" for="department">Department</label><input class="form-control" id="department" name="department" required maxlength="100" value="{{ item.department }}" list="departments"><datalist id="departments">{% for department in departments %}<option value="{{ department }}">{% endfor %}</datalist></div>
@@ -29,6 +30,6 @@
   <div class="col-12"><label class="form-label" for="assigned_user_ids">Assigned users</label><select class="form-select" multiple id="assigned_user_ids" name="assigned_user_ids">{% for user in users %}<option value="{{ user.id }}" {% if user.id in item.assigned_user_ids or user.id|string in item.assigned_user_ids %}selected{% endif %}>{{ user.full_name }}</option>{% endfor %}</select><p class="small text-muted">Share viewer/editor access before assigning someone. Hold Ctrl to select multiple users.</p></div>
   {% endif %}
   <p class="small text-muted">Budgets and actuals are direct costs for this item only, not a duplicate of child costs. Overspend is allowed and highlighted. New items start as planned.</p>
-  <div class="col-12"><button class="btn btn-primary">Save</button> <a class="btn btn-outline-secondary" href="{{ url_for('projects.listing', kind=kind) }}">Cancel</a></div>
+  <div class="col-12"><button class="btn btn-primary">Save</button> <a class="btn btn-outline-secondary" href="{{ work_return_to() or url_for('projects.listing', kind=kind) }}">Cancel</a></div>
 </form>
 {% endblock %}

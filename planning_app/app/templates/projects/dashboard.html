@@ -6,7 +6,7 @@
 <p class="text-muted">Your own work and work shared with you or your department. Upcoming means the next 14 days.</p>
 <div class="d-flex gap-2 mb-4">
 {% for kind in ['projects', 'activities', 'tasks'] %}
-<a class="btn btn-primary" href="{{ url_for('projects.edit', kind=kind) }}">New {{ kind|work_kind }}</a>
+<a class="btn btn-primary" href="{{ url_for('projects.edit', kind=kind, return_to=work_current_url()) }}">New {{ kind|work_kind }}</a>
 {% endfor %}
 </div>
 {{ progress_bar(report.progress) }}
@@ -22,7 +22,7 @@
     <li class="list-group-item px-0">
       <span class="badge {{ 'text-bg-info' if log.kind == 'comment' else 'text-bg-secondary' }}">{{ 'Comment' if log.kind == 'comment' else 'Update' }}</span>
       <strong class="ms-1">{{ log.summary }}</strong> &mdash;
-      <a href="{{ url_for('projects.detail', kind=log.target_kind, identifier=log.target_id) }}#logs">{{ log.target_name }}</a>
+      <a href="{{ url_for('projects.detail', kind=log.target_kind, identifier=log.target_id, return_to=work_current_url()) }}#logs">{{ log.target_name }}</a>
       {% if log.kind == 'comment' %}<p class="small mb-0 mt-1">{{ log.body|truncate(140) }}</p>{% endif %}
       <time class="d-block small text-muted" datetime="{{ log.created_at }}">{{ log.created_at }}</time>
     </li>

@@ -6,6 +6,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="version" value="{{ item.version }}">
     <input type="hidden" name="status" value="{{ action.status }}">
+    <input type="hidden" name="return_to" value="{{ work_current_url() }}">
     <button class="btn btn-sm {{ 'btn-success' if action.status == 'completed' else 'btn-outline-secondary' if action.status == 'cancelled' else 'btn-outline-primary' }}">{{ action.label }}</button>
   </form>
   {% endfor %}

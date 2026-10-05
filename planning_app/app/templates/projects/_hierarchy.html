@@ -4,7 +4,7 @@
 {% set item = node.item %}
 <li class="mb-2" data-work-key="{{ item.kind }}:{{ item.id }}" data-context-only="{{ 'true' if node.context_only else 'false' }}">
   {% if item.kind != 'tasks' %}
-  <details class="border rounded bg-body work-node work-node-{{ item.kind }}" {% if open_root or node.context_only %}open{% endif %}>
+  <details class="border rounded bg-body work-node work-node-{{ item.kind }}" data-state-key="{{ item.kind }}:{{ item.id }}" {% if open_root or node.context_only %}open{% endif %}>
     <summary class="p-3">
       <span class="work-kind work-kind-{{ item.kind }} me-2"><i class="bi bi-{{ 'folder' if item.kind == 'projects' else 'diagram-3' }}" aria-hidden="true"></i>{{ item.kind|work_kind|title }}</span>
       <strong class="text-break">{{ item.name }}</strong>
@@ -25,8 +25,8 @@
     </summary>
     <div class="px-3 pb-3">
       <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
-        <a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id) }}">Open {{ item.kind|work_kind }} details</a>
-        <a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id) }}#logs"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Logs &amp; comments</a>
+        <a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}">Open {{ item.kind|work_kind }} details</a>
+        <a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}#logs"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Logs &amp; comments</a>
         <span class="small text-muted">Shown work budget {{ node.rollup.budget }} / actuals {{ node.rollup.actuals }} / remaining {{ node.rollup.variance }}</span>
       </div>
       {{ metadata(item, users) }}
@@ -44,14 +44,14 @@
   <div class="border rounded bg-body p-3 work-node work-node-tasks">
     <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
       <span class="work-kind work-kind-tasks"><i class="bi bi-check2-square" aria-hidden="true"></i>Task</span>
-      <a class="fw-semibold text-break" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id) }}">{{ item.name }}</a>
+      <a class="fw-semibold text-break" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}">{{ item.name }}</a>
       {{ status_badge(item.status) }}
       {% if node.overdue_count %}<span class="badge text-bg-danger">Overdue</span>{% endif %}
       {% if item.over_budget %}<span class="badge text-bg-danger">Over budget</span>{% endif %}
       <span class="small text-muted">{{ 'Activity task' if item.activity_id else 'Direct project task' if item.project_id else 'Standalone task' }}</span>
     </div>
     {{ metadata(item, users) }}
-    <a class="small d-inline-block mt-2" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id) }}#logs"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Logs &amp; comments</a>
+    <a class="small d-inline-block mt-2" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}#logs"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Logs &amp; comments</a>
     {{ status_controls(item, node.status_actions) }}
   </div>
   {% endif %}

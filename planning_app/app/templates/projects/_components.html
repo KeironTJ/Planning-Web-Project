@@ -50,10 +50,10 @@
   <tbody>
   {% for item in items %}
   <tr>
-    <td><a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id) }}">{{ item.name }}</a></td>
+    <td><a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_return_to() or work_current_url()) }}">{{ item.name }}</a></td>
     <td>{{ item.kind|work_kind|title }}<br>
-      {% if item.activity_id %}<a href="{{ url_for('projects.detail', kind='activities', identifier=item.activity_id) }}">Activity #{{ item.activity_id }}</a>
-      {% elif item.project_id %}<a href="{{ url_for('projects.detail', kind='projects', identifier=item.project_id) }}">Project #{{ item.project_id }}</a>
+      {% if item.activity_id %}<a href="{{ url_for('projects.detail', kind='activities', identifier=item.activity_id, return_to=work_return_to() or work_current_url()) }}">Activity #{{ item.activity_id }}</a>
+      {% elif item.project_id %}<a href="{{ url_for('projects.detail', kind='projects', identifier=item.project_id, return_to=work_return_to() or work_current_url()) }}">Project #{{ item.project_id }}</a>
       {% elif item.kind != 'projects' %}Standalone{% else %}Project{% endif %}
     </td>
     <td>{{ status_badge(item.status) }}<div class="small mt-1">{{ item.priority|title }} priority</div></td>
@@ -84,20 +84,21 @@
   </div>
   <div class="fw-semibold mb-1">{{ log.summary }}</div>
   {% if not log.target_deleted %}
-  <a href="{{ url_for('projects.detail', kind=log.target_kind, identifier=log.target_id) }}#logs">{{ log.target_kind|work_kind|title }}: {{ log.target_name }}</a>
+  <a href="{{ url_for('projects.detail', kind=log.target_kind, identifier=log.target_id, return_to=work_current_url()) }}#logs">{{ log.target_kind|work_kind|title }}: {{ log.target_name }}</a>
   {% else %}<span>{{ log.target_kind|work_kind|title }}: {{ log.target_name }} (archived)</span>{% endif %}
   <div class="small text-muted mt-1">By
     {% for user in users if user.id == log.created_by %}{{ user.full_name }} {% endfor %}(user #{{ log.created_by }}) / {{ log.kind }}
   </div>
   {% if log.kind == 'audit' %}
-  <details class="mt-2"><summary>Audit update: full before / after record</summary><pre class="small text-wrap">{{ log.body }}</pre></details>
+  <details class="mt-2" data-state-key="audit:{{ log.id }}"><summary>Audit update: full before / after record</summary><pre class="small text-wrap">{{ log.body }}</pre></details>
   {% else %}
   <p class="text-break work-log-body mt-2">{{ log.body }}</p>
   {% if can_edit and (log.created_by == current_user.id or can_manage) %}
-  <details><summary>Edit comment</summary>
+  <details data-state-key="comment:{{ log.id }}"><summary>Edit comment</summary>
     <form method="post" action="{{ url_for('projects.change_log', identifier=log.id, action='edit') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="version" value="{{ log.version }}">
+      <input type="hidden" name="return_to" value="{{ work_current_url().split('#')[0] }}#logs">
       <textarea class="form-control my-2" name="body" required maxlength="10000" aria-label="Comment">{{ log.body }}</textarea>
       <button class="btn btn-sm btn-primary">Save comment</button>
     </form>
@@ -105,6 +106,7 @@
   <form method="post" class="mt-2" action="{{ url_for('projects.change_log', identifier=log.id, action='delete') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="version" value="{{ log.version }}">
+    <input type="hidden" name="return_to" value="{{ work_current_url().split('#')[0] }}#logs">
     <button class="btn btn-sm btn-outline-danger">Delete comment</button>
   </form>
   {% endif %}

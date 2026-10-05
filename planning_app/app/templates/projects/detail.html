@@ -7,7 +7,7 @@
 <nav aria-label="Work location">
   <ol class="breadcrumb">
     {% for ancestor in ancestors %}
-    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', kind=ancestor.kind, identifier=ancestor.id) }}">{{ ancestor.name }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', kind=ancestor.kind, identifier=ancestor.id, return_to=work_return_to()) }}">{{ ancestor.name }}</a></li>
     {% else %}
     <li class="breadcrumb-item">{{ 'Project' if item.kind == 'projects' else 'Standalone ' ~ (item.kind|work_kind) }}</li>
     {% endfor %}
@@ -15,8 +15,9 @@
   </ol>
 </nav>
 <div class="d-flex gap-2 mb-3">
+{% if work_return_to() %}<a class="btn btn-outline-secondary" href="{{ work_return_to() }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back to previous view</a>{% endif %}
 <a class="btn btn-outline-primary" href="#logs"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Logs &amp; comments</a>
-{% if can_edit %}<a class="btn btn-primary" href="{{ url_for('projects.edit', kind=item.kind, identifier=item.id) }}">Edit</a>{% endif %}
+{% if can_edit %}<a class="btn btn-primary" href="{{ url_for('projects.edit', kind=item.kind, identifier=item.id, return_to=work_return_to() or work_current_url()) }}">Edit</a>{% endif %}
 {% if can_manage %}
 <a class="btn btn-outline-secondary" href="{{ url_for('projects.history', kind=item.kind, identifier=item.id) }}">Retained history</a>
 <form method="post" action="{{ url_for('projects.delete', kind=item.kind, identifier=item.id) }}">
@@ -41,8 +42,8 @@
 <p>Including child costs: budget {{ rollup.budget }} / actuals {{ rollup.actuals }} / remaining {{ rollup.variance }}.</p>
 <h2 class="h5">Work hierarchy</h2>
 {% if can_edit %}
-{% if item.kind == 'projects' %}<a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('projects.edit', kind='activities', project_id=item.id) }}">Add activity</a>{% endif %}
-<a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('projects.edit', kind='tasks', project_id=item.id if item.kind == 'projects' else '', activity_id=item.id if item.kind == 'activities' else '') }}">Add task</a>
+{% if item.kind == 'projects' %}<a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('projects.edit', kind='activities', project_id=item.id, return_to=work_current_url()) }}">Add activity</a>{% endif %}
+<a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('projects.edit', kind='tasks', project_id=item.id if item.kind == 'projects' else '', activity_id=item.id if item.kind == 'activities' else '', return_to=work_current_url()) }}">Add task</a>
 {% endif %}
 <p class="small text-muted">Activities and direct project tasks are separate branches. Expand an activity to inspect its tasks.</p>
 {{ hierarchy_view(hierarchy, users, open_roots=true, grouped=false) }}
@@ -54,6 +55,7 @@
 <p>Private to owner, creator and administrators unless shared. Editors may manage work, but cannot share, transfer ownership or delete entities.</p>
 <form class="row g-2 mb-3" method="post" action="{{ url_for('projects.share', kind=item.kind, identifier=item.id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="return_to" value="{{ work_current_url() }}">
   <div class="col-md-4"><label class="form-label" for="share_user">User</label><select class="form-select" id="share_user" name="user_id"><option value="">None</option>{% for user in users %}<option value="{{ user.id }}">{{ user.full_name }}</option>{% endfor %}</select></div>
   <div class="col-md-4"><label class="form-label" for="share_department">Department (or user, not both)</label><select class="form-select" id="share_department" name="department"><option value="">None</option>{% for department in departments %}<option>{{ department }}</option>{% endfor %}</select></div>
   <div class="col-md-2"><label class="form-label" for="share_role">Access</label><select class="form-select" id="share_role" name="role"><option value="viewer">Viewer</option><option value="editor">Editor</option></select></div>
@@ -61,7 +63,7 @@
 </form>
 <ul class="list-group">{% for share in shares %}<li class="list-group-item d-flex justify-content-between">
   <span>{% if share.user_id %}{% for user in users if user.id == share.user_id %}{{ user.full_name }}{% endfor %}{% else %}{{ share.department }} department{% endif %}: {{ share.role }}</span>
-  <form method="post" action="{{ url_for('projects.unshare', kind=item.kind, identifier=item.id, share_id=share.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger">Revoke</button></form>
+  <form method="post" action="{{ url_for('projects.unshare', kind=item.kind, identifier=item.id, share_id=share.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="{{ work_current_url() }}"><button class="btn btn-sm btn-outline-danger">Revoke</button></form>
 </li>{% else %}<li class="list-group-item">No shares.</li>{% endfor %}</ul>
 {% else %}<p>This item is shared with you. Only the owner or creator may change visibility.</p>{% endif %}
 <div class="d-flex flex-wrap justify-content-between align-items-center mt-4 mb-3" id="logs">
@@ -72,6 +74,7 @@
 {% if can_edit %}
 <form method="post" class="mb-3" action="{{ url_for('projects.add_log') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="return_to" value="{{ work_current_url() }}#logs">
   <input type="hidden" name="{{ {'projects': 'project_id', 'activities': 'activity_id', 'tasks': 'task_id'}[item.kind] }}" value="{{ item.id }}">
   <label class="form-label" for="body">Comment / update</label><textarea class="form-control mb-2" id="body" name="body" rows="3" placeholder="Record a handover, decision, blocker or progress update..." required maxlength="10000"></textarea>
   <button class="btn btn-primary">Add log entry</button>
