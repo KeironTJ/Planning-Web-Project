@@ -67,7 +67,7 @@
     </td>
     <td>{{ status_badge(item.status) }}<div class="small mt-1">{{ item.priority|title }} priority</div></td>
     <td>{{ item.department }}<br>{% for user in users if user.id == item.owner_id %}{{ user.full_name }} {% endfor %}(user #{{ item.owner_id }})</td>
-    <td>{{ item.deadline or '-' }}</td>
+    <td>{{ item.deadline|work_date or '-' }}</td>
     <td>{{ item.budget }} / {{ item.actuals }}{% if item.over_budget %}<span class="badge text-bg-danger">Over budget</span>{% endif %}</td>
   </tr>
   {% else %}<tr><td colspan="6" class="text-muted">No matching work items.</td></tr>{% endfor %}
@@ -89,7 +89,7 @@
 <li class="list-group-item work-log-entry {{ log.kind }}">
   <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
     <span class="badge {{ 'text-bg-info' if log.kind == 'comment' else 'text-bg-secondary' }}">{{ 'Comment' if log.kind == 'comment' else 'Automatic update' }}</span>
-    <time class="small text-muted" datetime="{{ log.created_at }}">{{ log.created_at }}</time>
+    <span class="small text-muted">{{ log.created_at|utcfmt('uk-datetime') }}</span>
   </div>
   <div class="fw-semibold mb-1">{{ log.summary }}</div>
   {% if not log.target_deleted %}

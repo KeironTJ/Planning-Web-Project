@@ -71,7 +71,7 @@
   <span>{{ item.department }}</span>
   <span>Owner: {% for user in users if user.id == item.owner_id %}{{ user.full_name }}{% else %}user #{{ item.owner_id }}{% endfor %}</span>
   <span>{{ item.priority|title }} priority</span>
-  <span>Deadline: {{ item.deadline or 'Not set' }}</span>
+  <span>Deadline: {{ item.deadline|work_date or 'Not set' }}</span>
   <span>Direct budget {{ item.budget }} / actuals {{ item.actuals }}</span>
 </div>
 {% endmacro %}

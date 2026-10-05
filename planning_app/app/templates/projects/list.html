@@ -87,7 +87,7 @@
 <div class="card mb-2"><div class="card-body p-2">
   <a href="{{ url_for('projects.detail', kind='tasks', identifier=item.id, return_to=work_current_url()) }}">{{ item.name }}</a>
   <span class="work-reference">{{ item.reference }}</span>
-  <div class="small">{{ item.priority|title }} / {{ item.deadline or 'No deadline' }}</div>
+  <div class="small">{{ item.priority|title }} / {{ item.deadline|work_date or 'No deadline' }}</div>
   <div class="mt-2">{{ quick_edit_link(item) }}</div>
 </div></div>
 {% endfor %}

@@ -1,4 +1,6 @@
 /** Shared contextual creator for projects, activities and tasks. */
+import { isoDate } from '../../components/uk_date_input.js';
+
 export function initWorkQuickAdd(root) {
     const dialog = root.querySelector('[data-quick-add-dialog]');
     if (!dialog || typeof dialog.showModal !== 'function') return;
@@ -63,6 +65,7 @@ export function initWorkQuickAdd(root) {
             parents = data.parents;
             const defaults = data.defaults;
             form.reset();
+            form.elements.deadline.setCustomValidity('');
             form.elements.parent.replaceChildren(new Option(`Standalone ${kinds[kind]}`, ''));
             for (const parent of parents) form.elements.parent.add(new Option(parent.label, parent.value));
             if (defaults.parent && !parents.some(parent => parent.value === defaults.parent)) {
@@ -128,13 +131,16 @@ export function initWorkQuickAdd(root) {
     form.addEventListener('submit', async event => {
         event.preventDefault();
         if (busy) return;
+        let deadline;
+        try { deadline = isoDate(form.elements.deadline.value); }
+        catch (error) { message(error.message); form.elements.deadline.focus(); return; }
         const another = event.submitter?.value === 'another';
         const values = {
             name: form.elements.name.value,
             department: form.elements.department.value,
             owner_id: Number(form.elements.owner_id.value),
             priority: form.elements.priority.value,
-            deadline: form.elements.deadline.value || null,
+            deadline,
         };
         const [parentKind, id] = form.elements.parent.value.split(':');
         if (id) values[parentKind === 'projects' ? 'project_id' : 'activity_id'] = Number(id);

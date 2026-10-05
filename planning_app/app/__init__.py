@@ -221,21 +221,27 @@ def _register_template_globals(app: Flask) -> None:
     def utcfmt_filter(dt, fmt: str = "datetime") -> str:
         """
         Render a UTC-aware datetime as a <time class="fmt-utc"> element.
-        The browser-side fmtIso() in base.html converts it to local time.
+        The browser-side fmtIso() in app.js converts it to local time.
 
         Usage:
             {{ batch.uploaded_at | utcfmt }}            → dd Mon HH:MM (local)
             {{ user.created_at   | utcfmt('date-only')  → dd Mon YYYY  (local)
             {{ batch.uploaded_at | utcfmt('datetime-year') → dd Mon YYYY HH:MM
+            {{ batch.uploaded_at | utcfmt('uk-datetime') }} → dd/mm/yyyy HH:MM:SS
         """
         if dt is None:
             return Markup("—")
-        iso = dt.isoformat()
+        from datetime import datetime as _datetime
+        if isinstance(dt, str):
+            dt = _datetime.fromisoformat(dt)
         # Fallback text (shown before JS runs)
         from datetime import timezone as _tz
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=_tz.utc)
-        if fmt == "date-only":
+        iso = dt.isoformat()
+        if fmt == "uk-datetime":
+            fallback = f"{dt.day:02}/{dt.month:02}/{dt.year:04} {dt:%H:%M:%S}"
+        elif fmt == "date-only":
             fallback = dt.strftime("%d %b %Y")
         elif fmt == "datetime-year":
             fallback = dt.strftime("%d %b %Y %H:%M")

@@ -1,3 +1,5 @@
+import { isoDate, ukDate } from '../../components/uk_date_input.js';
+
 /**
  * One work editor shared by tables, hierarchy cards and task boards.
  * Fetch current values on opening; submit only applicable quick-edit fields.
@@ -78,7 +80,8 @@ export function initWorkQuickEdit(root) {
             dialog.querySelector('#quick-edit-title').textContent = `Quick edit ${label}: ${item.reference} - ${item.name}`;
             assigneeFields.hidden = item.kind !== 'tasks';
             assigneeFields.disabled = item.kind !== 'tasks';
-            form.elements.deadline.value = item.deadline || '';
+            form.elements.deadline.value = ukDate(item.deadline);
+            form.elements.deadline.setCustomValidity('');
             form.elements.priority.replaceChildren(
                 ...data.priorities.map(priority => new Option(
                     priority.charAt(0).toUpperCase() + priority.slice(1), priority,
@@ -157,6 +160,9 @@ export function initWorkQuickEdit(root) {
     form.addEventListener('submit', async event => {
         event.preventDefault();
         if (saving || !item) return;
+        let deadline;
+        try { deadline = isoDate(form.elements.deadline.value); }
+        catch (error) { showError(error.message); form.elements.deadline.focus(); return; }
         const assigned = [...list.querySelectorAll('input:checked')].map(input => Number(input.value));
         if (assigned.length > 100) {
             showError('Select at most 100 assigned users.');
@@ -175,7 +181,7 @@ export function initWorkQuickEdit(root) {
         try {
             const changes = {
                 version: item.version,
-                deadline: form.elements.deadline.value || null,
+                deadline,
                 priority: form.elements.priority.value,
             };
             if (item.kind === 'tasks') changes.assigned_user_ids = assigned;

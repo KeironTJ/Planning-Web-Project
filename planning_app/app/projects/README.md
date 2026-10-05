@@ -65,6 +65,43 @@ unavailable or malformed, a visible warning explains that remembering the
 workspace is unavailable; ordinary navigation remains usable. No work-item
 contents or permissions are stored in browser preferences.
 
+## Actionable dashboard
+
+The work dashboard leads with **Needs attention**: Overdue, Blocked, and Due soon
+across visible projects, activities and tasks. Terminal work is excluded.
+Each section shows the full count and links to each work type's matching quick
+filter, plus at most five compact previews sorted by deadline, name, kind and ID.
+An item may appear in multiple sections (for example blocked and overdue).
+Missing deadlines sort last in Blocked.
+
+Previews include reference, work type, status, priority, deadline, logs/comments
+and the existing status/quick-edit controls for editors. Viewers see no mutation
+controls. Status actions preserve dashboard origin and retain all permissions,
+CSRF, version checks and descendant-completion rules; Quick edit refreshes it.
+Shortcuts open owned work, assigned tasks and the scheduling timeline.
+Progress and the full hierarchy are collapsed disclosures, with expansion
+remembered by the existing workspace component. Recent updates remain visible.
+
+## UK dates and times
+
+Work dates are displayed and entered as **dd/mm/yyyy** throughout lists, cards,
+detail pages, scheduling axes/labels, dashboard previews, reports, home work
+summaries and creation/edit dialogs. Native browser date fields cannot guarantee
+UK display regardless of browser locale, so reusable
+`static/js/components/uk_date_input.js` provides explicit UK text entry with
+calendar chooser buttons where the browser supports `showPicker()`.
+Calendar choices update the UK text; impossible dates are rejected, including
+non-leap-year 29 February. Blank dates remain optional. Without JavaScript the
+full form still accepts and validates UK dates server-side and retains errors.
+
+Work timestamps (created, updated, archived and log times) use the shared
+`utcfmt('uk-datetime')` formatter with **dd/mm/yyyy hh:mm:ss**, in 24-hour time.
+It preserves the app's existing UTC-to-browser-local timezone convention;
+the server-rendered no-JavaScript fallback uses UTC. Calendar dates never undergo
+timezone conversion. Other existing shared formatter modes remain unchanged.
+API dates, timestamp payloads, raw audit snapshots and machine-readable time
+attributes remain ISO. Legacy ISO full-form date submissions remain supported.
+
 ## Search and quick filters
 
 Every project/activity/task list has **Search work**, matching a case-insensitive

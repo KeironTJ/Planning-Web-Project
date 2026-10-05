@@ -1,0 +1,27 @@
+{% from "projects/_components.html" import status_badge %}
+{% from "projects/_status.html" import status_controls with context %}
+{% macro attention_panel(group, label, summary) %}
+<section class="card h-100 {{ 'border-danger' if group == 'overdue' }}" aria-label="{{ label }}">
+  <div class="card-body">
+    <h2 class="h5 {{ 'text-danger' if group == 'overdue' }}">{{ label }} ({{ summary.total }})</h2>
+    <p class="small text-muted">Showing up to five items, earliest deadline first.</p>
+    <div class="d-flex flex-wrap gap-2 mb-3" aria-label="{{ label }} lists">
+    {% for kind, count in summary.counts.items() %}
+      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('projects.listing', kind=kind, quick=group, view='list') }}">{{ kind|title }} ({{ count }})</a>
+    {% endfor %}
+    </div>
+    <ul class="list-group list-group-flush">
+    {% for item in summary['items'] %}
+      <li class="list-group-item px-0" data-attention-item="{{ item.kind }}:{{ item.id }}">
+        <span class="work-reference">{{ item.reference }}</span>
+        <a class="fw-semibold" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}">{{ item.name }}</a>
+        <div class="small mt-1">{{ item.kind|work_kind|title }} / {{ status_badge(item.status) }} / {{ item.priority|title }}</div>
+        <div class="small mt-1">Deadline: {{ item.deadline|work_date or 'Not set' }}</div>
+        {{ status_controls(item, item.status_actions) }}
+        <a class="small" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}#logs">Logs &amp; comments</a>
+      </li>
+    {% else %}<li class="list-group-item px-0 text-muted">No {{ label|lower }} work.</li>{% endfor %}
+    </ul>
+  </div>
+</section>
+{% endmacro %}

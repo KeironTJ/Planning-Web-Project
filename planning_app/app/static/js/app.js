@@ -96,7 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
  * it as UTC rather than local time.
  *
  * @param {string} iso  - ISO-8601 string (with or without timezone)
- * @param {string} fmt  - 'date-only' | 'datetime-year' | '' (default: date + time)
+ * @param {string} fmt  - 'date-only' | 'datetime-year' | 'uk-datetime' | '' (default: date + time)
  * @returns {string}
  */
 function fmtIso(iso, fmt) {
@@ -109,6 +109,9 @@ function fmtIso(iso, fmt) {
     const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
     const date = `${pad(d.getDate())} ${months[d.getMonth()]}`;
     const year = d.getFullYear();
+    if (fmt === 'uk-datetime') {
+        return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${String(year).padStart(4, '0')} ${time}:${pad(d.getSeconds())}`;
+    }
     if (fmt === 'date-only') return `${date} ${year}`;
     if (fmt === 'datetime-year') return `${date} ${year} ${time}`;
     return `${date} ${time}`;

@@ -35,8 +35,8 @@
   {{ status_controls(item, status_actions) }}
   <p class="small text-muted">Start planned work before completing it; resume blocked work before completing it. Complete marks work done. Cancel / close stops work without counting it as completed. Closed items remain visible and can be reopened.</p>
 </section>
-<p>Start: {{ item.start_date or '-' }} / End: {{ item.end_date or '-' }} / Remaining budget: {{ item.variance }}</p>
-<p class="small text-muted">Created {{ item.created_at }} by user #{{ item.created_by }}. Updated {{ item.updated_at }}. Version {{ item.version }}.</p>
+<p>Start: {{ item.start_date|work_date or '-' }} / End: {{ item.end_date|work_date or '-' }} / Remaining budget: {{ item.variance }}</p>
+<p class="small text-muted">Created {{ item.created_at|utcfmt('uk-datetime') }} by user #{{ item.created_by }}. Updated {{ item.updated_at|utcfmt('uk-datetime') }}. Version {{ item.version }}.</p>
 {% if item.kind == 'tasks' %}<p>Assigned: {% for user in users if user.id in item.assigned_user_ids %}{{ user.full_name }}{% if not loop.last %}, {% endif %}{% else %}Unassigned{% endfor %}</p>{% endif %}
 {% if item.kind != 'tasks' %}
 <h2 class="h5">Progress</h2>{{ progress_bar(progress) }}

@@ -2,7 +2,7 @@
 {% from "projects/_components.html" import navigation, timeline %}
 {% block content %}
 {{ navigation() }}
-<p><span class="work-reference">{{ item.reference }}</span> {{ item.name }} / {{ item.status }} / {{ 'Deleted ' ~ item.deleted_at if item.deleted_at else 'Live item' }}</p>
+<p><span class="work-reference">{{ item.reference }}</span> {{ item.name }} / {{ item.status }} / {% if item.deleted_at %}Deleted {{ item.deleted_at|utcfmt('uk-datetime') }}{% else %}Live item{% endif %}</p>
 <p class="text-muted">Read-only retained history, including deleted comments and child work.</p>
 {{ timeline(logs, users) }}
 {% endblock %}

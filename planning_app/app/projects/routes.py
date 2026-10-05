@@ -13,6 +13,7 @@ from .models import LogEntry, Priority, Share, Status
 from . import services as svc
 from .navigation import return_to, validate_return_to
 from .scheduling import schedule
+from .dates import form_date, uk_date
 
 
 @bp.before_request
@@ -75,6 +76,9 @@ def work_kind_label(kind):
 @bp.app_template_filter("work_reference")
 def reference_label(item):
     return svc.work_reference(item)
+
+
+bp.add_app_template_filter(uk_date, "work_date")
 
 
 @bp.app_template_global("work_can_quick_edit")
@@ -151,6 +155,7 @@ def dashboard():
         "projects/dashboard.html",
         title="My work dashboard",
         report=svc.report(current_user),
+        attention=svc.dashboard_attention(visible, current_user),
         hierarchy=svc.work_hierarchy(
             sum(visible.values(), []),
             current_user,
@@ -313,6 +318,8 @@ def form_data(kind):
     if kind == "tasks":
         fields.append("activity_id")
     data = {field: request.form.get(field, "") for field in fields}
+    for field in ("start_date", "end_date", "deadline"):
+        data[field] = form_date(data[field], field)
     if kind == "tasks":
         data["assigned_user_ids"] = request.form.getlist("assigned_user_ids")
     if kind != "projects" and "parent" in request.form:

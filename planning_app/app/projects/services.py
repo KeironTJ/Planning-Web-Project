@@ -950,6 +950,52 @@ def timeline(item, user, archive=False):
     return query.all()
 
 
+def deadline_bucket(item, today):
+    if not item.deadline or item.status in TERMINAL:
+        return None
+    if item.deadline < today:
+        return "overdue"
+    if item.deadline <= today + timedelta(days=14):
+        return "upcoming"
+    return None
+
+
+def dashboard_attention(visible, user):
+    today = date.today()
+    open_items = [
+        item for items in visible.values() for item in items
+        if item.status not in TERMINAL
+    ]
+    groups = {
+        "overdue": [item for item in open_items if deadline_bucket(item, today) == "overdue"],
+        "blocked": [item for item in open_items if item.status == Status.BLOCKED],
+        "upcoming": [
+            item for item in open_items
+            if deadline_bucket(item, today) == "upcoming"
+        ],
+    }
+    return {
+        group: {
+            "total": len(items),
+            "counts": {
+                kind: sum(isinstance(item, model) for item in items)
+                for kind, model in MODELS.items()
+            },
+            "items": [
+                {**serialize(item), "status_actions": status_actions(item, user)}
+                for item in sorted(
+                    items,
+                    key=lambda item: (
+                        item.deadline or date.max, item.name.casefold(),
+                        kind_of(item), item.id,
+                    ),
+                )[:5]
+            ],
+        }
+        for group, items in groups.items()
+    }
+
+
 def report(user):
     visible = visible_items(user)
     all_items = sum(visible.values(), [])
@@ -960,13 +1006,7 @@ def report(user):
         items = [
             serialize(item)
             for item in all_items
-            if item.deadline
-            and item.status not in TERMINAL
-            and (
-                today <= item.deadline <= today + timedelta(days=14)
-                if upcoming
-                else item.deadline < today
-            )
+            if deadline_bucket(item, today) == ("upcoming" if upcoming else "overdue")
         ]
         return sorted(items, key=lambda item: (item["deadline"], item["id"]))
 
