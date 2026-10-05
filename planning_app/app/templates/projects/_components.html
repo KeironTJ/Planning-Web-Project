@@ -10,6 +10,14 @@
 </nav>
 {% endmacro %}
 
+{% macro view_switcher(links, selected) %}
+<nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Work view" data-work-views data-selected-view="{{ selected }}">
+  {% for view, link in links.items() %}
+  <a class="btn btn-sm {{ 'btn-primary' if view == selected else 'btn-outline-primary' }}" href="{{ link.url }}" data-work-view="{{ view }}" {% if view == selected %}aria-current="page"{% endif %}>{{ link.label }}</a>
+  {% endfor %}
+</nav>
+{% endmacro %}
+
 {% macro status_badge(status) %}
 {% set icons = {'planned': 'calendar3', 'active': 'play-circle', 'blocked': 'pause-circle', 'completed': 'check-circle', 'cancelled': 'x-circle'} %}
 <span class="work-status work-status-{{ status }}"><i class="bi bi-{{ icons[status] }}" aria-hidden="true"></i>{{ status|title }}</span>

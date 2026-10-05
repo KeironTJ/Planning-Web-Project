@@ -170,16 +170,38 @@ def logs():
 def listing(kind):
     if kind not in svc.MODELS:
         raise NotFound()
+    views = {"list": "List", "hierarchy": "Hierarchy"}
+    if kind == "tasks":
+        views["board"] = "Board"
+    selected_view = request.args.get("view", "hierarchy")
+    if selected_view not in views:
+        raise BadRequest("Choose a valid work view: " + ", ".join(views) + ".")
+    view_args = request.args.to_dict()
+    view_args.pop("view", None)
+    view_args.pop("kind", None)
+    view_args.pop("return_to", None)
     pagination = paginate(svc.filtered_query(kind, current_user, request.args))
     return render_template(
         "projects/list.html",
         title=kind.title(),
         kind=kind,
+        selected_view=selected_view,
+        view_links={
+            view: {
+                "label": label,
+                "url": url_for("projects.listing", kind=kind, view=view, **view_args),
+            }
+            for view, label in views.items()
+        },
         items=[svc.serialize(item) for item in pagination.items],
-        hierarchy=svc.work_hierarchy(
-            pagination.items,
-            current_user,
-            include_children=kind != "tasks",
+        hierarchy=(
+            svc.work_hierarchy(
+                pagination.items,
+                current_user,
+                include_children=kind != "tasks",
+            )
+            if selected_view == "hierarchy"
+            else []
         ),
         pagination=pagination,
         page_links=page_links(pagination),

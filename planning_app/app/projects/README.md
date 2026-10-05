@@ -20,8 +20,15 @@ group the matching page of tasks beneath their activity/project, without
 bringing in unrelated sibling tasks. Ancestors included solely for location
 are labelled **Parent context**; their own costs are excluded from displayed
 totals. Counts describe the displayed tree, not hidden results on other pages.
-The existing flat table remains available in a disclosure below the hierarchy,
-and the task board remains available.
+The **List / Hierarchy** switcher selects one view at a time on project and
+activity lists; task lists also offer **Board**. Hierarchy remains the default
+for first visits. List shows a flat table of the selected entities, while Board
+groups the current page's tasks by status, with explicit page-local counts.
+Switching views keeps filters, page and page size. Filtering keeps the selected
+view and page size, and returns to the first page. Pagination applies to every
+view. Links use `view=list|hierarchy|board`, so bookmarked/shared views work
+without JavaScript; board is only valid for tasks. Invalid views return an
+explicit validation error.
 
 Project/activity detail pages show the same nested structure with the current
 item expanded. Location breadcrumbs on activity/task details link back through
@@ -33,12 +40,15 @@ without JavaScript.
 
 Modular JavaScript in `static/js/modules/projects.js` uses the reusable
 `static/js/components/workspace_state.js` component to remember expanded
-branches, the flat-table disclosure, page scroll and task-board horizontal scroll.
+branches, page scroll and task-board horizontal scroll.
 Preferences live in session storage, separately for each user and browser tab, with a maximum of
 40 remembered pages. Filtered pages have separate expansion/scroll state.
 Task, activity, project and log lists restore the last filters and page when
 revisited without an explicit query; explicit links take precedence. **Reset**
-clears that list's filters and remembered page state. URL anchors such as
+clears that list's filters and remembered page state while retaining its view.
+View preferences are remembered separately per list, including when arriving
+with new filters but no explicit view. An explicit `view` always takes precedence.
+Each view has separate expansion/scroll state. URL anchors such as
 `#logs` take precedence over remembered scroll positions.
 
 Opening a work item provides **Back to previous view**. New/edit forms preserve

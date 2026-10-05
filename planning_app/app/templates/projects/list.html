@@ -1,10 +1,12 @@
 {% extends "projects/base.html" %}
-{% from "projects/_components.html" import navigation, table, status_badge, workflow_legend %}
+{% from "projects/_components.html" import navigation, table, status_badge, workflow_legend, view_switcher %}
 {% from "projects/_hierarchy.html" import hierarchy_view %}
 {% block content %}
 {{ navigation() }}
 <a class="btn btn-primary mb-3" href="{{ url_for('projects.edit', kind=kind, return_to=work_current_url()) }}">New {{ kind|work_kind }}</a>
 <form class="row g-2 mb-4" method="get" data-work-filters>
+  <input type="hidden" name="view" value="{{ selected_view }}">
+  {% if request.args.get('per_page') %}<input type="hidden" name="per_page" value="{{ request.args.get('per_page') }}">{% endif %}
   {% for field, choices in [('status', statuses), ('department', departments)] %}
   <div class="col-md-2"><label class="form-label" for="{{ field }}">{{ field|title }}</label>
     <select class="form-select" id="{{ field }}" name="{{ field }}">
@@ -22,8 +24,11 @@
   <div class="col-md-2"><label class="form-label" for="scope">Context</label><select class="form-select" name="scope" id="scope">
     <option value="">All visible</option>{% for value in ['mine', 'standalone', 'project', 'activity'] %}<option {% if request.args.get('scope') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
   </select></div>
-  <div class="col-md-2 align-self-end"><button class="btn btn-primary">Filter</button> <a data-work-reset href="{{ url_for('projects.listing', kind=kind) }}">Reset</a></div>
+  <div class="col-md-2 align-self-end"><button class="btn btn-primary">Filter</button> <a data-work-reset href="{{ url_for('projects.listing', kind=kind, view=selected_view) }}">Reset</a></div>
 </form>
+{{ view_switcher(view_links, selected_view) }}
+{% if selected_view == 'hierarchy' %}
+<section aria-label="Hierarchy view">
 <h2 class="h5">Work hierarchy</h2>
 {{ workflow_legend() }}
 <p class="small text-muted">
@@ -32,17 +37,16 @@
   Parent context provides location only; counts and totals describe the work shown here.
 </p>
 {{ hierarchy_view(hierarchy, users) }}
-<details class="mb-3" data-state-key="flat-table">
-  <summary class="mb-2">Flat {{ kind }} table (current page)</summary>
+</section>
+{% elif selected_view == 'list' %}
+<section aria-label="List view">
+  <h2 class="h5">{{ kind|title }} list (current page)</h2>
   {{ table(items, users) }}
-</details>
-<nav class="d-flex gap-3 align-items-center" aria-label="Work item pages">
-{% if page_links.previous %}<a href="{{ page_links.previous }}">Previous</a>{% endif %}
-<span>Page {{ pagination.page }} of {{ pagination.pages or 1 }} / {{ pagination.total }} items</span>
-{% if page_links.next %}<a href="{{ page_links.next }}">Next</a>{% endif %}
-</nav>
-{% if kind == 'tasks' %}
-<h2 class="h5 mt-4">Task board (current page)</h2>
+</section>
+{% elif selected_view == 'board' %}
+<section aria-label="Board view">
+<h2 class="h5">Task board (current page)</h2>
+<p class="small text-muted">Columns show only the tasks on this filtered page, not totals across all pages. Open a task to view its details or change its status.</p>
 <div class="work-board" data-scroll-key="task-board">
 {% for status in statuses %}
 <section class="work-board-lane"><h3 class="h6">{{ status_badge(status) }} <span class="small">{{ items|selectattr('status', 'equalto', status)|list|length }}</span></h3>
@@ -56,5 +60,11 @@
 </section>
 {% endfor %}
 </div>
+</section>
 {% endif %}
+<nav class="d-flex gap-3 align-items-center mt-3" aria-label="Work item pages">
+{% if page_links.previous %}<a href="{{ page_links.previous }}">Previous</a>{% endif %}
+<span>Page {{ pagination.page }} of {{ pagination.pages or 1 }} / {{ pagination.total }} items</span>
+{% if page_links.next %}<a href="{{ page_links.next }}">Next</a>{% endif %}
+</nav>
 {% endblock %}

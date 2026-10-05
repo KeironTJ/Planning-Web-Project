@@ -1,16 +1,19 @@
 /**
  * Tab-local workspace preferences. Opt in with data-state-key on disclosures,
  * data-work-filters on a GET form, and data-work-reset on its reset link.
+ * A data-work-views switcher remembers its data-selected-view independently.
  */
 
 export function initWorkspaceState(root, namespace) {
     const storageKey = `planning-workspace:${namespace}:v1`;
     const url = new URL(window.location.href);
+    const viewSwitcher = root.querySelector('[data-work-views]');
     const pageUrl = new URL(url);
     pageUrl.searchParams.delete('return_to');
+    if (viewSwitcher) pageUrl.searchParams.set('view', viewSwitcher.dataset.selectedView);
     pageUrl.searchParams.sort();
     const pageKey = pageUrl.pathname + pageUrl.search;
-    let state = { pages: {}, filters: {} };
+    let state = { pages: {}, filters: {}, views: {} };
     let available = true;
     let ready = false;
     let resetting = false;
@@ -48,11 +51,14 @@ export function initWorkspaceState(root, namespace) {
             const parsed = JSON.parse(saved);
             if (!isRecord(parsed) || !isRecord(parsed.pages) || !isRecord(parsed.filters)
                 || !Object.values(parsed.pages).every(isPageState)
+                || (parsed.views !== undefined && (!isRecord(parsed.views)
+                    || Object.values(parsed.views).some(view => typeof view !== 'string')))
                 || Object.values(parsed.filters).some(filters => typeof filters !== 'string'
                     || (filters !== '' && !filters.startsWith('?')))) {
                 throw new TypeError('Invalid workspace preferences.');
             }
             state = parsed;
+            if (state.views === undefined) state.views = {};
         }
     } catch (error) {
         if (!(error instanceof DOMException || error instanceof SyntaxError || error instanceof TypeError)) throw error;
@@ -66,15 +72,34 @@ export function initWorkspaceState(root, namespace) {
             if (control.name) filterNames.add(control.name);
         }
         const savedFilters = state.filters[url.pathname];
-        if (available && !url.search && typeof savedFilters === 'string' && savedFilters.startsWith('?')) {
-            window.location.replace(url.pathname + savedFilters);
-            return;
+        if (available) {
+            const destination = new URL(url);
+            if (!url.search && typeof savedFilters === 'string' && savedFilters.startsWith('?')) {
+                destination.search = savedFilters;
+            }
+            const savedView = state.views[url.pathname];
+            const allowedViews = viewSwitcher
+                ? [...viewSwitcher.querySelectorAll('[data-work-view]')].map(link => link.dataset.workView)
+                : [];
+            if (!destination.searchParams.has('view') && allowedViews.includes(savedView)) {
+                destination.searchParams.set('view', savedView);
+            }
+            if (destination.href !== url.href) {
+                window.location.replace(destination.pathname + destination.search + destination.hash);
+                return;
+            }
         }
     }
 
     const disclosures = [...root.querySelectorAll('details[data-state-key]')];
     const scrollContainers = [...root.querySelectorAll('[data-scroll-key]')];
-    const page = state.pages[pageKey];
+    const legacyPageUrl = new URL(pageUrl);
+    legacyPageUrl.searchParams.delete('view');
+    const legacyPageKey = legacyPageUrl.pathname + legacyPageUrl.search;
+    const page = state.pages[pageKey] || (
+        viewSwitcher && viewSwitcher.dataset.selectedView === 'hierarchy'
+            ? state.pages[legacyPageKey] : undefined
+    );
     if (page && page.disclosures && typeof page.disclosures === 'object') {
         for (const disclosure of disclosures) {
             const open = page.disclosures[disclosure.dataset.stateKey];
@@ -109,6 +134,7 @@ export function initWorkspaceState(root, namespace) {
             }
             state.filters[url.pathname] = filters.size ? `?${filters}` : '';
         }
+        if (viewSwitcher) state.views[url.pathname] = viewSwitcher.dataset.selectedView;
         try {
             window.sessionStorage.setItem(storageKey, JSON.stringify(state));
         } catch (error) {
