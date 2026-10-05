@@ -5,7 +5,7 @@
   {% for kind in ['projects', 'activities', 'tasks'] %}
   <a class="nav-link {% if request.view_args.get('kind') == kind %}active{% endif %}" {% if request.view_args.get('kind') == kind %}aria-current="page"{% endif %} href="{{ url_for('projects.listing', kind=kind) }}">{{ kind|title }}</a>
   {% endfor %}
-  {% for endpoint, label in [('logs', 'Logs & updates'), ('reports', 'Reports'), ('archive', 'Archive')] %}
+  {% for endpoint, label in [('scheduling_timeline', 'Timeline'), ('logs', 'Logs & updates'), ('reports', 'Reports'), ('archive', 'Archive')] %}
   <a class="nav-link {% if request.endpoint == 'projects.' ~ endpoint %}active{% endif %}" {% if request.endpoint == 'projects.' ~ endpoint %}aria-current="page"{% endif %} href="{{ url_for('projects.' ~ endpoint) }}">{{ label }}</a>
   {% endfor %}
 </nav>
@@ -59,7 +59,7 @@
   <tbody>
   {% for item in items %}
   <tr>
-    <td><a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_return_to() or work_current_url()) }}">{{ item.name }}</a>{% if show_quick_edit %}<div class="mt-2">{{ quick_edit_link(item) }}</div>{% endif %}</td>
+    <td><span class="work-reference">{{ item.reference }}</span> <a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_return_to() or work_current_url()) }}">{{ item.name }}</a>{% if show_quick_edit %}<div class="mt-2">{{ quick_edit_link(item) }}</div>{% endif %}</td>
     <td>{{ item.kind|work_kind|title }}<br>
       {% if item.activity_id %}<a href="{{ url_for('projects.detail', kind='activities', identifier=item.activity_id, return_to=work_return_to() or work_current_url()) }}">Activity #{{ item.activity_id }}</a>
       {% elif item.project_id %}<a href="{{ url_for('projects.detail', kind='projects', identifier=item.project_id, return_to=work_return_to() or work_current_url()) }}">Project #{{ item.project_id }}</a>
@@ -93,8 +93,8 @@
   </div>
   <div class="fw-semibold mb-1">{{ log.summary }}</div>
   {% if not log.target_deleted %}
-  <a href="{{ url_for('projects.detail', kind=log.target_kind, identifier=log.target_id, return_to=work_current_url()) }}#logs">{{ log.target_kind|work_kind|title }}: {{ log.target_name }}</a>
-  {% else %}<span>{{ log.target_kind|work_kind|title }}: {{ log.target_name }} (archived)</span>{% endif %}
+  <a href="{{ url_for('projects.detail', kind=log.target_kind, identifier=log.target_id, return_to=work_current_url()) }}#logs">{{ log.target_kind|work_kind|title }}: {{ log.target_name }}</a> <span class="work-reference">{{ log.target_reference }}</span>
+  {% else %}<span>{{ log.target_kind|work_kind|title }}: {{ log.target_name }} (archived)</span> <span class="work-reference">{{ log.target_reference }}</span>{% endif %}
   <div class="small text-muted mt-1">By
     {% for user in users if user.id == log.created_by %}{{ user.full_name }} {% endfor %}(user #{{ log.created_by }}) / {{ log.kind }}
   </div>

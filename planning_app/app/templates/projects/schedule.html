@@ -1,0 +1,8 @@
+{% extends "projects/base.html" %}
+{% from "projects/_components.html" import navigation %}
+{% from "projects/_schedule.html" import scheduling_view %}
+{% block content %}
+{{ navigation() }}
+<p>Scheduling across all work you can access. Use the Timeline view on a project/activity/task list for filtered work, or open an item for its own schedule and child work.</p>
+{{ scheduling_view(schedule) }}
+{% endblock %}

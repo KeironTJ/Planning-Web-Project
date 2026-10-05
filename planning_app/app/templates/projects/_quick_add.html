@@ -1,0 +1,31 @@
+{% macro quick_add_dialog() %}
+<dialog class="work-quick-edit border rounded p-0" data-quick-add-dialog data-options-base="{{ url_for('projects.create_options', kind='projects') }}" data-api-base="{{ url_for('projects.api_collection', kind='projects') }}" aria-labelledby="quick-add-title">
+<div class="p-3 p-md-4">
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+    <h2 class="h5" id="quick-add-title">Add work</h2>
+    <button class="btn-close" type="button" data-create-close aria-label="Close creation"></button>
+  </div>
+  <p data-create-loading role="status">Loading defaults...</p>
+  <p data-create-success class="alert alert-success" role="status" hidden></p>
+  <p data-create-error class="alert alert-danger" role="alert" hidden></p>
+  <button class="btn btn-outline-secondary mb-3" type="button" data-create-retry hidden>Retry loading</button>
+  <form data-create-form hidden>
+    <div class="mb-3"><label class="form-label" for="create-name">Name</label><input class="form-control" id="create-name" name="name" required maxlength="200"></div>
+    <div class="mb-3" data-create-parent-field><label class="form-label" for="create-parent">Where does this work belong?</label><select class="form-select" id="create-parent" name="parent"></select></div>
+    <div class="mb-3"><label class="form-label" for="create-department">Department</label><input class="form-control" id="create-department" name="department" required maxlength="100"></div>
+    <div class="mb-3"><label class="form-label" for="create-owner">Owner</label><select class="form-select" id="create-owner" name="owner_id" required></select></div>
+    <div class="row mb-3">
+      <div class="col-6"><label class="form-label" for="create-priority">Priority</label><select class="form-select" id="create-priority" name="priority" required></select></div>
+      <div class="col-6"><label class="form-label" for="create-deadline">Deadline</label><input type="date" class="form-control" id="create-deadline" name="deadline"></div>
+    </div>
+    <p class="form-text">New work starts as planned with zero direct costs. Add descriptions, schedules, costs and task assignments through the full form or after creation.</p>
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-primary" type="submit" name="create_action" value="save">Create</button>
+      <button class="btn btn-outline-primary" type="submit" name="create_action" value="another">Create and add another</button>
+      <button class="btn btn-outline-secondary" type="button" data-create-close>Cancel</button>
+    </div>
+  </form>
+  <a class="btn btn-link px-0 mt-2" href="{{ url_for('projects.dashboard') }}" data-create-full>Full creation form</a>
+</div>
+</dialog>
+{% endmacro %}

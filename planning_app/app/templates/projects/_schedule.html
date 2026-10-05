@@ -1,0 +1,43 @@
+{% from "projects/_components.html" import status_badge %}
+{% from "projects/_quick_edit.html" import quick_edit_link %}
+{% macro scheduling_view(schedule) %}
+<p class="small text-muted">Bars use start and end dates. A single date is a milestone, not an assumed duration. Diamonds mark deadlines. Dates are calendar dates; this view does not move or reschedule work.</p>
+{% if schedule.rows %}
+<p class="small">Showing {{ schedule.start }} to {{ schedule.end }}. {% if schedule.today is not none %}The dashed line marks today.{% endif %}</p>
+<div class="work-schedule-scroll" data-scroll-key="scheduling-timeline" role="region" aria-label="Work scheduling timeline" tabindex="0">
+  <div class="work-schedule">
+    <div class="work-schedule-row work-schedule-axis">
+      <strong>Work / schedule</strong>
+      <div class="work-schedule-track">
+        {% for tick in schedule.ticks %}<span class="work-schedule-tick" style="left:{{ tick.left }}%">{{ tick.label }}</span>{% endfor %}
+      </div>
+    </div>
+    {% for row in schedule.rows %}
+    <div class="work-schedule-row">
+      <div class="p-2">
+        <a class="fw-semibold" href="{{ url_for('projects.detail', kind=row.kind, identifier=row.id, return_to=work_current_url()) }}">{{ row.reference }} - {{ row.name }}</a>
+        <div class="small">{{ row.kind|work_kind|title }} / {{ status_badge(row.status) }}</div>
+        <div class="small mt-1">Start: {{ row.start_date or 'Not set' }} / End: {{ row.end_date or 'Not set' }} / Due: {{ row.deadline or 'Not set' }}</div>
+        {{ quick_edit_link(row) }}
+      </div>
+      <div class="work-schedule-track" aria-label="Schedule for {{ row.reference }}: {{ row.schedule_start }} to {{ row.schedule_end }}{% if row.deadline %}; deadline {{ row.deadline }}{% endif %}">
+        {% for tick in schedule.ticks %}<span class="work-schedule-gridline" style="left:{{ tick.left }}%" aria-hidden="true"></span>{% endfor %}
+        {% if schedule.today is not none %}<span class="work-schedule-today" style="left:{{ schedule.today }}%" aria-hidden="true"></span>{% endif %}
+        {% if row.has_duration %}<span class="work-schedule-bar work-schedule-{{ row.status }}" style="left:{{ row.left }}%;width:{{ row.width }}%" aria-hidden="true"></span>
+        {% else %}<span class="work-schedule-milestone" style="left:{{ row.left }}%" aria-hidden="true"></span>{% endif %}
+        {% if row.deadline_left is not none %}<span class="work-schedule-deadline" style="left:{{ row.deadline_left }}%" aria-hidden="true"></span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+<h3 class="h6 mt-3">Unscheduled ({{ schedule.unscheduled|length }})</h3>
+<ul class="list-group">
+{% for row in schedule.unscheduled %}<li class="list-group-item d-flex flex-wrap justify-content-between gap-2">
+  <a href="{{ url_for('projects.detail', kind=row.kind, identifier=row.id, return_to=work_current_url()) }}">{{ row.reference }} - {{ row.name }}</a>
+  {{ quick_edit_link(row) }}
+</li>{% else %}<li class="list-group-item text-muted">No unscheduled work.</li>{% endfor %}
+</ul>
+{% if not schedule.rows and not schedule.unscheduled %}<p class="text-muted">No matching work items.</p>{% endif %}
+{% endmacro %}

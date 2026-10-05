@@ -12,6 +12,7 @@ from . import projects_bp as bp
 from .models import LogEntry, Priority, Share, Status
 from . import services as svc
 from .navigation import return_to, validate_return_to
+from .scheduling import schedule
 
 
 @bp.before_request
@@ -69,6 +70,11 @@ def users():
 @bp.app_template_filter("work_kind")
 def work_kind_label(kind):
     return svc.KIND_LABELS[kind]
+
+
+@bp.app_template_filter("work_reference")
+def reference_label(item):
+    return svc.work_reference(item)
 
 
 @bp.app_template_global("work_can_quick_edit")
@@ -184,7 +190,7 @@ def logs():
 def listing(kind):
     if kind not in svc.MODELS:
         raise NotFound()
-    views = {"list": "List", "hierarchy": "Hierarchy"}
+    views = {"list": "List", "hierarchy": "Hierarchy", "timeline": "Timeline"}
     if kind == "tasks":
         views["board"] = "Board"
     selected_view = request.args.get("view", "hierarchy")
@@ -208,6 +214,15 @@ def listing(kind):
             for view, label in views.items()
         },
         items=[svc.serialize(item) for item in pagination.items],
+        schedule=(
+            schedule(
+                [
+                    row
+                    for item in pagination.items
+                    for row in [item, *svc.descendants(item)]
+                ] if kind != "tasks" else pagination.items
+            ) if selected_view == "timeline" else None
+        ),
         hierarchy=(
             svc.work_hierarchy(
                 pagination.items,
@@ -247,6 +262,7 @@ def detail(kind, identifier):
         hierarchy=svc.work_hierarchy([item], current_user, include_ancestors=False),
         ancestors=ancestors,
         children=[svc.serialize(row) for row in children],
+        schedule=schedule([item, *children]),
         logs=[svc.serialize_log(log) for log in svc.timeline(item, current_user)][:100],
         progress=svc.progress([row for row in children if svc.kind_of(row) == "tasks"]),
         rollup=svc.financials([item] + children),
@@ -282,7 +298,25 @@ def form_data(kind):
     data = {field: request.form.get(field, "") for field in fields}
     if kind == "tasks":
         data["assigned_user_ids"] = request.form.getlist("assigned_user_ids")
+    if kind != "projects" and "parent" in request.form:
+        data.update(parse_parent(kind, request.form["parent"]))
     return data
+
+
+def parse_parent(kind, value):
+    result = {"project_id": None}
+    if kind == "tasks":
+        result["activity_id"] = None
+    if not value:
+        return result
+    parent_kind, separator, identifier = value.partition(":")
+    allowed = {"projects": "project_id"}
+    if kind == "tasks":
+        allowed["activities"] = "activity_id"
+    if not separator or parent_kind not in allowed:
+        raise BadRequest("Choose a valid parent work item.")
+    result[allowed[parent_kind]] = svc.integer(identifier, "parent")
+    return result
 
 
 @bp.route("/<kind>/new", methods=["GET", "POST"])
@@ -302,6 +336,13 @@ def edit(kind, identifier=None):
             db.session.rollback()
             flash(error.description, "danger")
             return render_form(kind, item, request.form), error.code
+        flash(f"{svc.KIND_LABELS[kind].title()} saved.", "success")
+        if identifier is None and request.form.get("save_action") == "another":
+            return redirect(url_for(
+                "projects.edit", kind=kind, return_to=return_to(),
+                project_id=getattr(item, "project_id", None),
+                activity_id=getattr(item, "activity_id", None),
+            ))
         return redirect(
             return_to() or url_for("projects.detail", kind=kind, identifier=item.id)
         )
@@ -328,11 +369,27 @@ def render_form(kind, item, submitted=None):
     if submitted is not None:
         data.update(submitted)
         data["assigned_user_ids"] = submitted.getlist("assigned_user_ids")
+    elif not item:
+        if data.get("project_id") and data.get("activity_id"):
+            raise BadRequest("Choose a project OR an activity, not both.")
+        for field, parent_kind in (("project_id", "projects"), ("activity_id", "activities")):
+            if data.get(field):
+                parent_item = svc.get_item(
+                    parent_kind, svc.integer(data[field], field), current_user, edit=True
+                )
+                data["department"] = parent_item.department
+    selected_parent = data.get("parent")
+    if selected_parent is None:
+        selected_parent = (
+            f"activities:{data['activity_id']}" if data.get("activity_id")
+            else f"projects:{data['project_id']}" if data.get("project_id") else ""
+        )
     return render_template(
         "projects/form.html",
         title=f"{'Edit' if item else 'New'} {svc.KIND_LABELS[kind]}",
         kind=kind,
         item=data,
+        selected_parent=selected_parent,
         projects=[
             row
             for row in visible["projects"]
@@ -344,6 +401,58 @@ def render_form(kind, item, submitted=None):
             if svc.can_access(row, current_user, True)
         ],
         **options(),
+    )
+
+
+@bp.get("/timeline")
+@login_required
+def scheduling_timeline():
+    visible = svc.visible_items(current_user)
+    return render_template(
+        "projects/schedule.html", title="Work scheduling timeline",
+        schedule=schedule(sum(visible.values(), [])), **options(),
+    )
+
+
+@bp.get("/api/<kind>/create-options")
+def create_options(kind):
+    if kind not in svc.MODELS:
+        raise NotFound()
+    visible = svc.visible_items(current_user)
+    defaults = {
+        "owner_id": current_user.id, "department": current_user.department or "",
+        "priority": "normal", "parent": "",
+    }
+    if kind != "projects":
+        for field, parent_kind in (("activity_id", "activities"), ("project_id", "projects")):
+            if request.args.get(field):
+                if parent_kind == "activities" and kind != "tasks":
+                    raise BadRequest("Only tasks can belong to activities.")
+                if defaults["parent"]:
+                    raise BadRequest("Choose a project OR an activity, not both.")
+                parent_item = svc.get_item(
+                    parent_kind, svc.integer(request.args[field], field),
+                    current_user, edit=True,
+                )
+                defaults.update(
+                    parent=f"{parent_kind}:{parent_item.id}",
+                    department=parent_item.department,
+                )
+    return jsonify(
+        defaults=defaults,
+        parents=[
+            {"value": f"{parent_kind}:{row.id}",
+             "label": f"{svc.work_reference(row)} - {row.name}",
+             "department": row.department}
+            for parent_kind in (
+                ["projects", "activities"] if kind == "tasks"
+                else ["projects"] if kind == "activities" else []
+            )
+            for row in visible[parent_kind]
+            if svc.can_access(row, current_user, edit=True) and row.status not in svc.TERMINAL
+        ],
+        users=[{"id": user.id, "name": user.full_name} for user in users()],
+        priorities=[priority.value for priority in Priority],
     )
 
 

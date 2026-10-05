@@ -20,13 +20,13 @@ group the matching page of tasks beneath their activity/project, without
 bringing in unrelated sibling tasks. Ancestors included solely for location
 are labelled **Parent context**; their own costs are excluded from displayed
 totals. Counts describe the displayed tree, not hidden results on other pages.
-The **List / Hierarchy** switcher selects one view at a time on project and
+The **List / Hierarchy / Timeline** switcher selects one view at a time on project and
 activity lists; task lists also offer **Board**. Hierarchy remains the default
 for first visits. List shows a flat table of the selected entities, while Board
 groups the current page's tasks by status, with explicit page-local counts.
 Switching views keeps filters, page and page size. Filtering keeps the selected
 view and page size, and returns to the first page. Pagination applies to every
-view. Links use `view=list|hierarchy|board`, so bookmarked/shared views work
+view. Links use `view=list|hierarchy|timeline|board`, so bookmarked/shared views work
 without JavaScript; board is only valid for tasks. Invalid views return an
 explicit validation error.
 
@@ -97,6 +97,66 @@ containment and Escape/Cancel dismissal; dismissal is disabled during saves to
 avoid unconfirmed writes. **Edit all fields** opens the existing form. Without
 JavaScript/native dialog support, Quick edit is a normal link to that form.
 Viewer-only users see no quick-edit links and cannot access edit options or save.
+
+## Faster creation
+
+Dashboard/list creation links and contextual **Add activity / Add task** links
+open one shared quick-add dialog. Essential fields are name, department, owner,
+priority, deadline and one parent selector. Contextual links preselect the parent
+and inherit its department; new work starts planned with zero direct costs.
+**Create and add another** retains these settings and clears just the name.
+Closing after creation refreshes the workspace to reconcile all displayed work.
+
+`GET /projects/api/<kind>/create-options` supplies current defaults, active owners
+and editable, non-terminal parents. The existing collection POST performs all
+validation and automatic auditing. Errors preserve the entered draft; uncertain
+network/timeout responses advise checking the list before retrying to avoid
+duplicates. Controls prevent double submission and dismissal during saves.
+`static/js/modules/projects/quick_add.js` uses the shared CSRF-aware fetch helper.
+Without JavaScript/native dialogs, creation links still open the full form.
+
+Full forms put essentials first and group description, start/end dates and costs
+under **More details** (expanded on edits and failed submissions). Tasks have one
+grouped project/activity parent selector and searchable assignee checkboxes using
+the reusable `static/js/components/people_picker.js`. Filtering never deselects
+people; assignment still requires inherited access and never grants it.
+**Save and add another** on new full forms retains the parent and return location.
+Legacy API and form `project_id` / `activity_id` inputs remain supported.
+
+## Hierarchical work references
+
+References use the existing record IDs, padded to at least two digits:
+
+- Project `01`; its activity `01.03`; that activity's task `01.03.07`.
+- A direct project task uses `01.00.07` (`00` means no activity).
+- Standalone activity `A03`, its task `A03.07`, and standalone task `T07`.
+
+These are location references, not sibling sequence numbers. Gaps are normal;
+deletion, filtering and pagination never renumber work. Moving an activity/task
+changes its reference to match the current hierarchy. The existing move workflow
+still requires moving child items first before changing their parent's location;
+references follow each move and reattachment.
+Database IDs, URLs and permissions do not change. References appear across work
+lists, hierarchy/board cards, detail screens, parent selectors, reports, logs and
+archives. APIs expose `reference`; automatic audit snapshots capture it.
+
+## Scheduling timeline
+
+**Timeline** is available on all three lists, as a collapsed section on detail
+pages, and at `/projects/timeline` for all visible live work. Project/activity
+list timelines include the selected page's descendants; task timelines contain
+only the matching page's tasks. The whole-workspace view groups parents with
+children. No inaccessible or archived work is included.
+
+Bars span inclusive start/end calendar dates. A single date is a milestone
+rather than an invented duration; diamonds mark deadlines. The dashed today
+marker appears only within the displayed range. Exact dates accompany every row,
+and work without any dates is listed separately under **Unscheduled**.
+The range automatically fits the displayed dates with at most five tick labels;
+there are no zoom/range controls, dependencies or drag-to-reschedule actions yet.
+Quick edit changes deadlines and refreshes the view; full editing sets start/end
+dates. Rendering works without JavaScript, and horizontal scroll is remembered
+by the existing workspace-state component.
 
 ## Completing and closing work
 

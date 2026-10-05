@@ -2,12 +2,14 @@
 {% from "projects/_components.html" import navigation, table, timeline, progress_bar, completion_summary, status_badge with context %}
 {% from "projects/_status.html" import status_controls with context %}
 {% from "projects/_hierarchy.html" import hierarchy_view %}
+{% from "projects/_schedule.html" import scheduling_view %}
 {% block content %}
 {{ navigation() }}
+<p class="small text-muted">Work reference: <strong class="work-reference">{{ item.reference }}</strong>. References reflect the current hierarchy.</p>
 <nav aria-label="Work location">
   <ol class="breadcrumb">
     {% for ancestor in ancestors %}
-    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', kind=ancestor.kind, identifier=ancestor.id, return_to=work_return_to()) }}">{{ ancestor.name }}</a></li>
+    <li class="breadcrumb-item"><span class="work-reference">{{ ancestor.reference }}</span> <a href="{{ url_for('projects.detail', kind=ancestor.kind, identifier=ancestor.id, return_to=work_return_to()) }}">{{ ancestor.name }}</a></li>
     {% else %}
     <li class="breadcrumb-item">{{ 'Project' if item.kind == 'projects' else 'Standalone ' ~ (item.kind|work_kind) }}</li>
     {% endfor %}
@@ -42,15 +44,19 @@
 <p>Including child costs: budget {{ rollup.budget }} / actuals {{ rollup.actuals }} / remaining {{ rollup.variance }}.</p>
 <h2 class="h5">Work hierarchy</h2>
 {% if can_edit %}
-{% if item.kind == 'projects' %}<a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('projects.edit', kind='activities', project_id=item.id, return_to=work_current_url()) }}">Add activity</a>{% endif %}
-<a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('projects.edit', kind='tasks', project_id=item.id if item.kind == 'projects' else '', activity_id=item.id if item.kind == 'activities' else '', return_to=work_current_url()) }}">Add task</a>
+{% if item.kind == 'projects' %}<a class="btn btn-sm btn-outline-primary mb-2" data-quick-add data-kind="activities" href="{{ url_for('projects.edit', kind='activities', project_id=item.id, return_to=work_current_url()) }}">Add activity</a>{% endif %}
+<a class="btn btn-sm btn-outline-primary mb-2" data-quick-add data-kind="tasks" href="{{ url_for('projects.edit', kind='tasks', project_id=item.id if item.kind == 'projects' else '', activity_id=item.id if item.kind == 'activities' else '', return_to=work_current_url()) }}">Add task</a>
 {% endif %}
 <p class="small text-muted">Activities and direct project tasks are separate branches. Expand an activity to inspect its tasks.</p>
 {{ hierarchy_view(hierarchy, users, open_roots=true, grouped=false) }}
 {% endif %}
+<details class="my-4" data-state-key="schedule">
+  <summary class="h5">Scheduling timeline</summary>
+  {{ scheduling_view(schedule) }}
+</details>
 <h2 class="h5 mt-4">Visibility and sharing</h2>
 {% if root.id != item.id or root.kind != item.kind %}
-<p>Inherited from <a href="{{ url_for('projects.detail', kind=root.kind, identifier=root.id) }}">{{ root.name }}</a>. Manage sharing there.</p>
+<p>Inherited from <span class="work-reference">{{ root.reference }}</span> <a href="{{ url_for('projects.detail', kind=root.kind, identifier=root.id) }}">{{ root.name }}</a>. Manage sharing there.</p>
 {% elif can_manage %}
 <p>Private to owner, creator and administrators unless shared. Editors may manage work, but cannot share, transfer ownership or delete entities.</p>
 <form class="row g-2 mb-3" method="post" action="{{ url_for('projects.share', kind=item.kind, identifier=item.id) }}">

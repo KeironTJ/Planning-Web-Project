@@ -152,6 +152,20 @@ def iso_timestamp(value):
     return value.astimezone(timezone.utc).isoformat()
 
 
+def work_reference(item):
+    """Location path uses record IDs, never filtered-list positions."""
+    number = f"{item.id:02}"
+    if isinstance(item, Project):
+        return number
+    if isinstance(item, Activity):
+        return f"{item.project_id:02}.{number}" if item.project_id else f"A{number}"
+    if item.activity:
+        return f"{work_reference(item.activity)}.{number}"
+    if item.project_id:
+        return f"{item.project_id:02}.00.{number}"
+    return f"T{number}"
+
+
 def financials(items):
     budget = sum((item.budget for item in items), Decimal("0.00"))
     actuals = sum((item.actuals for item in items), Decimal("0.00"))
@@ -167,6 +181,7 @@ def serialize(item):
     result = {
         "id": item.id,
         "kind": kind_of(item),
+        "reference": work_reference(item),
         "name": item.name,
         "description": item.description,
         "owner_id": item.owner_id,
@@ -788,6 +803,7 @@ def serialize_log(log):
         "deleted_at": iso_timestamp(log.deleted_at),
         "summary": summary,
         "target_name": item.name,
+        "target_reference": work_reference(item),
         "target_kind": kind_of(item),
         "target_id": item.id,
         "target_deleted": item.deleted_at is not None,

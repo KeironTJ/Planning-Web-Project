@@ -75,7 +75,7 @@ export function initWorkQuickEdit(root) {
             if (currentController.signal.aborted || !dialog.open) return;
             item = data.item;
             const label = { projects: 'project', activities: 'activity', tasks: 'task' }[item.kind];
-            dialog.querySelector('#quick-edit-title').textContent = `Quick edit ${label}: ${item.name}`;
+            dialog.querySelector('#quick-edit-title').textContent = `Quick edit ${label}: ${item.reference} - ${item.name}`;
             assigneeFields.hidden = item.kind !== 'tasks';
             assigneeFields.disabled = item.kind !== 'tasks';
             form.elements.deadline.value = item.deadline || '';

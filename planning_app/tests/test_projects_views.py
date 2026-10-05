@@ -43,7 +43,8 @@ def test_hierarchy_default_and_available_views(signed_client, kind):
     assert response.status_code == 200
     parsed = ViewParser(response.get_data(as_text=True))
     assert set(parsed.views) == (
-        {"list", "hierarchy", "board"} if kind == "tasks" else {"list", "hierarchy"}
+        {"list", "hierarchy", "board", "timeline"} if kind == "tasks"
+        else {"list", "hierarchy", "timeline"}
     )
     assert parsed.views["hierarchy"]["aria-current"] == "page"
     assert "Hierarchy view" in parsed.sections
@@ -60,6 +61,9 @@ def test_hierarchy_default_and_available_views(signed_client, kind):
         ("tasks", "list"),
         ("tasks", "board"),
         ("tasks", "hierarchy"),
+        ("projects", "timeline"),
+        ("activities", "timeline"),
+        ("tasks", "timeline"),
     ],
 )
 def test_one_view_preserves_filters_pagination_and_return(signed_client, kind, view):
@@ -79,7 +83,7 @@ def test_one_view_preserves_filters_pagination_and_return(signed_client, kind, v
     html = response.get_data(as_text=True)
     parsed = ViewParser(html)
     assert [label for label in parsed.sections if label in {
-        "List view", "Hierarchy view", "Board view"
+        "List view", "Hierarchy view", "Board view", "Timeline view"
     }] == [f"{view.title()} view"]
     assert parsed.views[view]["aria-current"] == "page"
     assert sum("aria-current" in link for link in parsed.views.values()) == 1
@@ -130,7 +134,7 @@ def test_invalid_views_are_explicit_errors(signed_client, kind, view):
     assert b"Choose a valid work view" in response.data
 
 
-@pytest.mark.parametrize("view", ["list", "hierarchy", "board"])
+@pytest.mark.parametrize("view", ["list", "hierarchy", "board", "timeline"])
 def test_all_views_exclude_private_work_and_handle_empty_results(
     signed_client, client, viewer_user, view
 ):

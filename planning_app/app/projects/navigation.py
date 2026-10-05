@@ -17,6 +17,7 @@ RETURN_ENDPOINTS = {
     "projects.reports",
     "projects.archive",
     "projects.history",
+    "projects.scheduling_timeline",
 }
 
 

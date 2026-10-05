@@ -2,9 +2,10 @@
 {% from "projects/_components.html" import navigation, table, status_badge, workflow_legend, view_switcher %}
 {% from "projects/_hierarchy.html" import hierarchy_view %}
 {% from "projects/_quick_edit.html" import quick_edit_link %}
+{% from "projects/_schedule.html" import scheduling_view %}
 {% block content %}
 {{ navigation() }}
-<a class="btn btn-primary mb-3" href="{{ url_for('projects.edit', kind=kind, return_to=work_current_url()) }}">New {{ kind|work_kind }}</a>
+<a class="btn btn-primary mb-3" data-quick-add data-kind="{{ kind }}" href="{{ url_for('projects.edit', kind=kind, return_to=work_current_url()) }}">New {{ kind|work_kind }}</a>
 <form class="row g-2 mb-4" method="get" data-work-filters>
   <input type="hidden" name="view" value="{{ selected_view }}">
   {% if request.args.get('per_page') %}<input type="hidden" name="per_page" value="{{ request.args.get('per_page') }}">{% endif %}
@@ -44,6 +45,11 @@
   <h2 class="h5">{{ kind|title }} list (current page)</h2>
   {{ table(items, users) }}
 </section>
+{% elif selected_view == 'timeline' %}
+<section aria-label="Timeline view">
+<h2 class="h5">Schedule (current page{% if kind != 'tasks' %} and child work{% endif %})</h2>
+{{ scheduling_view(schedule) }}
+</section>
 {% elif selected_view == 'board' %}
 <section aria-label="Board view">
 <h2 class="h5">Task board (current page)</h2>
@@ -54,6 +60,7 @@
 {% for item in items if item.status == status %}
 <div class="card mb-2"><div class="card-body p-2">
   <a href="{{ url_for('projects.detail', kind='tasks', identifier=item.id, return_to=work_current_url()) }}">{{ item.name }}</a>
+  <span class="work-reference">{{ item.reference }}</span>
   <div class="small">{{ item.priority|title }} / {{ item.deadline or 'No deadline' }}</div>
   <div class="mt-2">{{ quick_edit_link(item) }}</div>
 </div></div>

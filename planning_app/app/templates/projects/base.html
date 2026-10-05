@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% from "projects/_quick_edit.html" import quick_edit_dialog %}
+{% from "projects/_quick_add.html" import quick_add_dialog %}
 {% block body %}
 {{ super() }}
 {{ quick_edit_dialog() }}
+{{ quick_add_dialog() }}
 {% endblock %}
 {% block extra_css %}
 {{ super() }}

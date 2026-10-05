@@ -14,7 +14,7 @@
 <h2 class="h5">{{ kind|title }} progress and finances</h2>
 {% for item in report[kind] %}
 <div class="card mb-3"><div class="card-body">
-  <h3 class="h6"><a href="{{ url_for('projects.detail', kind=kind, identifier=item.id) }}">{{ item.name }}</a>{% if not item.project_id and kind == 'activities' %} (standalone){% endif %}</h3>
+  <h3 class="h6"><span class="work-reference">{{ item.reference }}</span> <a href="{{ url_for('projects.detail', kind=kind, identifier=item.id) }}">{{ item.name }}</a>{% if not item.project_id and kind == 'activities' %} (standalone){% endif %}</h3>
   {{ progress_bar(item.progress) }}
   {{ completion_summary(item.completion, ['activities', 'tasks'] if kind == 'projects' else ['tasks']) }}
   <p>Direct budget {{ item.budget }} / actuals {{ item.actuals }} / remaining {{ item.variance }}</p>
