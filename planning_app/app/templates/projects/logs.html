@@ -14,6 +14,11 @@
     {% for kind in ['projects', 'activities', 'tasks'] %}<option value="{{ kind }}" {% if request.args.get('target_kind') == kind %}selected{% endif %}>{{ kind|title }}</option>{% endfor %}</select>
   </div>
   <div class="col-md-3"><label for="target_id" class="form-label">Item ID (optional)</label><input type="number" min="1" max="2147483647" class="form-control" name="target_id" id="target_id" value="{{ request.args.get('target_id', '') }}"></div>
+  <div class="col-md-6"><label for="target_search" class="form-label">Search work name or reference</label>
+    <input type="search" class="form-control" name="target_search" id="target_search" list="log-work-targets" maxlength="200" placeholder="Name or reference, e.g. 01.03.07" value="{{ request.args.get('target_search', '') }}" aria-describedby="target-search-help">
+    <datalist id="log-work-targets">{% for item in targets %}<option value="{{ item.reference }}" label="{{ item.kind|work_kind|title }}: {{ item.name }}"></option>{% endfor %}</datalist>
+    <div id="target-search-help" class="form-text">Suggestions include up to 100 visible items. You can search all accessible work by name or full reference.</div>
+  </div>
   <div class="col-md-3"><label for="author_id" class="form-label">Author</label>
     <select class="form-select" name="author_id" id="author_id"><option value="">All authors</option>{% for user in users %}<option value="{{ user.id }}" {% if request.args.get('author_id') == user.id|string %}selected{% endif %}>{{ user.full_name }}</option>{% endfor %}</select>
   </div>

@@ -22,6 +22,14 @@ def test_workflow_statuses_and_navigation(signed_client):
         assert "Logs &amp; updates" in nav
         assert 'aria-current="page"' in nav
         assert "#logs" in html
+    for kind in ("projects", "activities", "tasks"):
+        html = signed_client.get(f"/projects/{kind}").get_data(as_text=True)
+        assert f"<h1>{kind.title()}</h1>" in html
+        assert 'class="work-filter-panel card mb-4"' in html
+        assert "Quick filters" in html
+    assert "<h1>My dashboard</h1>" in signed_client.get("/projects/").get_data(
+        as_text=True
+    )
     active = patch(signed_client, task, status="active").get_json()
     assert (
         b"work-status-active" in signed_client.get(f"/projects/tasks/{task['id']}").data
@@ -29,6 +37,17 @@ def test_workflow_statuses_and_navigation(signed_client):
     patch(signed_client, active, status="blocked")
     assert b"work-status-blocked" in signed_client.get("/projects/tasks").data
     assert b"Workflow status guide" in signed_client.get("/projects/").data
+
+
+def test_detail_summary_and_delete_guidance(signed_client):
+    project = create(signed_client, "projects", name="Detail summary project")
+    create(signed_client, "activities", project_id=project["id"])
+    html = signed_client.get(f"/projects/projects/{project['id']}").data
+    assert b"work-detail-summary" in html
+    assert b"work-reference" in html
+    assert b"Delete item" in html
+    assert b"Move or delete its 1 child item(s) first." in html
+    assert b"Confirm archive" not in html
 
 
 def test_readable_logs_filters_and_pagination(signed_client, planner_user):
@@ -72,6 +91,28 @@ def test_readable_logs_filters_and_pagination(signed_client, planner_user):
     assert b"Recent logs &amp; updates" in signed_client.get("/projects/").data
 
 
+def test_logs_search_by_work_name_or_reference(signed_client):
+    project = create(signed_client, "projects", name="Searchable project")
+    task = create(signed_client, name="Searchable task", project_id=project["id"])
+    signed_client.post(
+        f"{BASE}/logs",
+        json={"task_id": task["id"], "body": "Searchable handover"},
+    )
+
+    by_name = signed_client.get(f"{BASE}/logs?target_search=Searchable%20task").get_json()
+    by_reference = signed_client.get(
+        f"{BASE}/logs?target_search={task['reference']}"
+    ).get_json()
+    assert by_name["total"] == by_reference["total"]
+    assert by_name["total"] > 0
+    assert all(entry["target_id"] == task["id"] for entry in by_reference["items"])
+    assert (
+        signed_client.get("/projects/logs?target_search=Searchable%20task").status_code
+        == 200
+    )
+    assert signed_client.get(f"{BASE}/logs?target_search={'x' * 201}").status_code == 400
+
+
 def test_logs_never_show_private_work(signed_client, client, viewer_user):
     project = create(signed_client, "projects", name="Confidential workflow")
     signed_client.post(
@@ -88,3 +129,9 @@ def test_logs_never_show_private_work(signed_client, client, viewer_user):
     assert b"Private comment" not in response.data
     assert b"No updates yet" in response.data
     assert client.get(f"{BASE}/logs?log_kind=comment").get_json()["total"] == 0
+    assert (
+        client.get(
+            f"{BASE}/logs?target_search=Confidential%20workflow"
+        ).get_json()["total"]
+        == 0
+    )

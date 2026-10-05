@@ -4,19 +4,29 @@
 {% from "projects/_attention.html" import attention_panel %}
 {% block content %}
 {{ navigation() }}
-<p class="text-muted">Your own work and work shared with you or your department. Upcoming means the next 14 days.</p>
-<div class="d-flex flex-wrap gap-2 mb-3">
+<header class="work-page-heading work-dashboard-heading">
+  <div>
+    <p class="small text-uppercase text-muted fw-semibold mb-1">Work tracking</p>
+    <h1>My dashboard</h1>
+    <p class="text-muted mb-0">Your work and work shared with you or your department.</p>
+  </div>
+</header>
+<section class="work-dashboard-actions" aria-label="Create and find work">
+<div class="work-dashboard-actions-label">Create new</div>
+<div class="d-flex flex-wrap gap-2 mt-2">
 {% for kind in ['projects', 'activities', 'tasks'] %}
-<a class="btn btn-primary" data-quick-add data-kind="{{ kind }}" href="{{ url_for('projects.edit', kind=kind, return_to=work_current_url()) }}">New {{ kind|work_kind }}</a>
+<a class="btn btn-sm btn-primary" data-quick-add data-kind="{{ kind }}" href="{{ url_for('projects.edit', kind=kind, return_to=work_current_url()) }}">New {{ kind|work_kind }}</a>
 {% endfor %}
 </div>
-<nav class="d-flex flex-wrap gap-2 mb-4" aria-label="My work shortcuts">
+<div class="work-dashboard-actions-label mt-3">Jump to</div>
+<nav class="d-flex flex-wrap gap-2" aria-label="My work shortcuts">
 {% for kind in ['projects', 'activities', 'tasks'] %}
-<a class="btn btn-outline-primary" href="{{ url_for('projects.listing', kind=kind, quick='mine', view='list') }}">My {{ kind }}</a>
+<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('projects.listing', kind=kind, quick='mine', view='list') }}">My {{ kind }}</a>
 {% endfor %}
-<a class="btn btn-outline-primary" href="{{ url_for('projects.listing', kind='tasks', quick='assigned', view='list') }}">Assigned to me</a>
-<a class="btn btn-outline-secondary" href="{{ url_for('projects.scheduling_timeline') }}">Scheduling timeline</a>
+<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('projects.listing', kind='tasks', quick='assigned', view='list') }}">Assigned to me</a>
+<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('projects.scheduling_timeline') }}">Scheduling timeline</a>
 </nav>
+</section>
 <h2 class="h4">Needs attention</h2>
 <p class="small text-muted">All visible projects, activities and tasks. Closed work is excluded; an item may appear in more than one section. Viewers can open work but only editors see actions.</p>
 <div class="row g-3 mb-4">

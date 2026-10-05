@@ -243,7 +243,8 @@ optimistic version checks and automatic auditing as the edit form/API.
 - **Reopen** completed work or **Restart** cancelled work to make it outstanding.
 - Closing a project/activity requires **every live descendant** (including empty
   activities and direct project tasks) to be completed or cancelled. The server
-  returns an explicit conflict with outstanding activity/task counts otherwise.
+  returns an explicit conflict with outstanding activity/task counts through the
+  API; the detail-page action returns to the item and shows the same warning.
   It does not automatically complete children.
 - Reopen closed ancestors before reopening children or adding outstanding child
   work underneath them. Closed records and their history remain visible.
@@ -265,15 +266,29 @@ labels distinguish direct project tasks from activity tasks and standalone work.
 The navigation highlights the current section. Standalone tasks remain accessible
 through the Tasks context filter rather than a duplicate navigation tab.
 
+Detail pages lead with the work reference, status and key facts, with secondary
+metadata, hierarchy, progress and sharing available in disclosures. The delete
+disclosure explains archive/child restrictions before offering a confirmation
+action. A child-work warning explains why a project or activity cannot yet be
+closed. The **Keyboard shortcuts** guide is available from project navigation:
+`/` focuses list search, `g` then `d/p/a/t` navigates, `n` uses a single
+contextual Add action, and `?` opens the guide. Shortcuts avoid text-entry fields
+and open dialogs; without JavaScript the shortcut button stays hidden.
+
 **Logs & updates** is a dedicated, paginated timeline at `/projects/logs`.
-Filter by entry type, work type/item ID or author. Each entry names and links its
+Filter by entry type, work type/item ID, author, or a work name/reference search.
+Name search matches accessible projects, activities and tasks; reference search
+uses the same complete hierarchical references as the work lists. Suggestions
+show up to 100 visible items, while typed searches cover all accessible work.
+Each entry names and links its
 source, separates comments from automatic updates, and gives audit events a
 readable summary (including before/after statuses). Full audit snapshots remain
 available inside the entry's disclosure. The dashboard highlights recent entries,
 and every work card links to its detail-page comments/timeline.
 The same log filters are supported by `GET /projects/api/logs`:
 `log_kind=comment|audit`, `target_kind=projects|activities|tasks`, `target_id`
-(requires work type), and `author_id`. Item-specific filters match the direct log
+(requires work type), `target_search` (up to 200 characters), and `author_id`.
+Item-specific filters match the direct log
 target, while a project/activity detail timeline includes descendant work.
 All these surfaces enforce inherited access and exclude deleted live entries.
 

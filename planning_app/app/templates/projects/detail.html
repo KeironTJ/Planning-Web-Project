@@ -1,11 +1,11 @@
 {% extends "projects/base.html" %}
-{% from "projects/_components.html" import navigation, table, timeline, progress_bar, completion_summary, status_badge with context %}
+{% from "projects/_components.html" import navigation, timeline, progress_bar, completion_summary, status_badge with context %}
 {% from "projects/_status.html" import status_controls with context %}
 {% from "projects/_hierarchy.html" import hierarchy_view %}
 {% from "projects/_schedule.html" import scheduling_view %}
+{% from "projects/_quick_edit.html" import quick_edit_link %}
 {% block content %}
 {{ navigation() }}
-<p class="small text-muted">Work reference: <strong class="work-reference">{{ item.reference }}</strong>. References reflect the current hierarchy.</p>
 <nav aria-label="Work location">
   <ol class="breadcrumb">
     {% for ancestor in ancestors %}
@@ -16,45 +16,75 @@
     <li class="breadcrumb-item active" aria-current="page">{{ item.name }}</li>
   </ol>
 </nav>
-<div class="d-flex gap-2 mb-3">
+<header class="card work-detail-summary mb-3">
+  <div class="card-body">
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+      <span class="work-kind work-kind-{{ item.kind }}">{{ item.kind|work_kind|title }}</span>
+      <span class="work-reference">{{ item.reference }}</span>
+      {{ status_badge(item.status) }}
+    </div>
+    <h1 class="h3 mb-3">{{ item.name }}</h1>
+    <dl class="row mb-0 work-detail-facts">
+      <div class="col-6 col-lg-3"><dt>Owner</dt><dd>{% for user in users if user.id == item.owner_id %}{{ user.full_name }}{% else %}User #{{ item.owner_id }}{% endfor %}</dd></div>
+      <div class="col-6 col-lg-3"><dt>Department</dt><dd>{{ item.department }}</dd></div>
+      <div class="col-6 col-lg-3"><dt>Priority</dt><dd>{{ item.priority|title }}</dd></div>
+      <div class="col-6 col-lg-3"><dt>Deadline</dt><dd>{{ item.deadline|work_date or 'Not set' }}</dd></div>
+      <div class="col-6 col-lg-3"><dt>Schedule</dt><dd>{{ item.start_date|work_date or 'Not set' }}{% if item.end_date %} – {{ item.end_date|work_date }}{% endif %}</dd></div>
+      <div class="col-6 col-lg-3"><dt>Direct budget / actuals</dt><dd>{{ item.budget }} / {{ item.actuals }}</dd></div>
+      <div class="col-6 col-lg-3"><dt>Remaining</dt><dd>{{ item.variance }}</dd></div>
+      {% if item.kind == 'tasks' %}<div class="col-12"><dt>Assigned users</dt><dd>{% for user in users if user.id in item.assigned_user_ids %}{{ user.full_name }}{% if not loop.last %}, {% endif %}{% else %}Unassigned{% endfor %}</dd></div>{% endif %}
+    </dl>
+    {% if item.description %}<details class="mt-3" data-state-key="description"><summary>Description</summary><p class="text-break mt-2 mb-0" style="white-space: pre-wrap">{{ item.description }}</p></details>{% endif %}
+  </div>
+</header>
+<div class="d-flex flex-wrap gap-2 align-items-start mb-3">
 {% if work_return_to() %}<a class="btn btn-outline-secondary" href="{{ work_return_to() }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back to previous view</a>{% endif %}
 <a class="btn btn-outline-primary" href="#logs"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Logs &amp; comments</a>
 {% if can_edit %}<a class="btn btn-primary" href="{{ url_for('projects.edit', kind=item.kind, identifier=item.id, return_to=work_return_to() or work_current_url()) }}">Edit</a>{% endif %}
 {% if can_manage %}
 <a class="btn btn-outline-secondary" href="{{ url_for('projects.history', kind=item.kind, identifier=item.id) }}">Retained history</a>
-<form method="post" action="{{ url_for('projects.delete', kind=item.kind, identifier=item.id) }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ item.version }}">
-  <button class="btn btn-outline-danger">Delete item (history retained)</button>
-</form>
+<details class="work-delete"><summary class="btn btn-outline-danger">Delete item</summary>
+  <div class="border border-danger rounded p-3 mt-2 bg-body">
+    <p class="small mb-2">This archives the item and retains its audit history. {% if children %}Move or delete its {{ children|length }} child item(s) first.{% else %}This cannot be undone from this screen.{% endif %}</p>
+    {% if not children %}<form method="post" action="{{ url_for('projects.delete', kind=item.kind, identifier=item.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ item.version }}">
+      <button class="btn btn-danger">Confirm archive</button>
+    </form>{% endif %}
+  </div>
+</details>
 {% endif %}
 </div>
-<p class="text-break" style="white-space: pre-wrap">{{ item.description }}</p>
-{{ table([item], users, show_quick_edit=false) }}
 <section aria-label="Change work status">
-  <h2 class="h5">Status: {{ status_badge(item.status) }}</h2>
+  <h2 class="h5">Workflow</h2>
+  {% if item.kind != 'tasks' and (completion.activities.outstanding or completion.tasks.outstanding) %}
+  <p class="alert alert-info py-2"><strong>Before closing this {{ item.kind|work_kind }}:</strong> {{ completion.activities.outstanding }} activities and {{ completion.tasks.outstanding }} tasks remain outstanding. Complete or cancel child work first.</p>
+  {% endif %}
   {{ status_controls(item, status_actions) }}
-  <p class="small text-muted">Start planned work before completing it; resume blocked work before completing it. Complete marks work done. Cancel / close stops work without counting it as completed. Closed items remain visible and can be reopened.</p>
+  <details class="small text-muted"><summary>How workflow actions work</summary><p class="mt-2 mb-0">Start planned work before completing it; resume blocked work before completing it. Complete marks work done. Cancel / close stops work without counting it as completed. Closed items remain visible and can be reopened.</p></details>
 </section>
-<p>Start: {{ item.start_date|work_date or '-' }} / End: {{ item.end_date|work_date or '-' }} / Remaining budget: {{ item.variance }}</p>
-<p class="small text-muted">Created {{ item.created_at|utcfmt('uk-datetime') }} by user #{{ item.created_by }}. Updated {{ item.updated_at|utcfmt('uk-datetime') }}. Version {{ item.version }}.</p>
-{% if item.kind == 'tasks' %}<p>Assigned: {% for user in users if user.id in item.assigned_user_ids %}{{ user.full_name }}{% if not loop.last %}, {% endif %}{% else %}Unassigned{% endfor %}</p>{% endif %}
+<details class="small text-muted my-3" data-state-key="record-metadata"><summary>Record details</summary><p class="mt-2">Created {{ item.created_at|utcfmt('uk-datetime') }} by user #{{ item.created_by }}. Updated {{ item.updated_at|utcfmt('uk-datetime') }}. Version {{ item.version }}.</p></details>
 {% if item.kind != 'tasks' %}
-<h2 class="h5">Progress</h2>{{ progress_bar(progress) }}
+<details class="my-3" data-state-key="progress">
+<summary class="h5">Progress and completion</summary>
+{{ progress_bar(progress) }}
 {{ completion_summary(completion, ['activities', 'tasks'] if item.kind == 'projects' else ['tasks']) }}
 <p>Including child costs: budget {{ rollup.budget }} / actuals {{ rollup.actuals }} / remaining {{ rollup.variance }}.</p>
 <h2 class="h5">Work hierarchy</h2>
+{{ quick_edit_link(item) }}
 {% if can_edit %}
 {% if item.kind == 'projects' %}<a class="btn btn-sm btn-outline-primary mb-2" data-quick-add data-kind="activities" href="{{ url_for('projects.edit', kind='activities', project_id=item.id, return_to=work_current_url()) }}">Add activity</a>{% endif %}
 <a class="btn btn-sm btn-outline-primary mb-2" data-quick-add data-kind="tasks" href="{{ url_for('projects.edit', kind='tasks', project_id=item.id if item.kind == 'projects' else '', activity_id=item.id if item.kind == 'activities' else '', return_to=work_current_url()) }}">Add task</a>
 {% endif %}
 <p class="small text-muted">Activities and direct project tasks are separate branches. Expand an activity to inspect its tasks.</p>
 {{ hierarchy_view(hierarchy, users, open_roots=true, grouped=false) }}
+</details>
 {% endif %}
 <details class="my-4" data-state-key="schedule">
   <summary class="h5">Scheduling timeline</summary>
   {{ scheduling_view(schedule) }}
 </details>
-<h2 class="h5 mt-4">Visibility and sharing</h2>
+<details class="my-4" data-state-key="sharing">
+<summary class="h5">Visibility and sharing</summary>
 {% if root.id != item.id or root.kind != item.kind %}
 <p>Inherited from <span class="work-reference">{{ root.reference }}</span> <a href="{{ url_for('projects.detail', kind=root.kind, identifier=root.id) }}">{{ root.name }}</a>. Manage sharing there.</p>
 {% elif can_manage %}
@@ -72,6 +102,7 @@
   <form method="post" action="{{ url_for('projects.unshare', kind=item.kind, identifier=item.id, share_id=share.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="{{ work_current_url() }}"><button class="btn btn-sm btn-outline-danger">Revoke</button></form>
 </li>{% else %}<li class="list-group-item">No shares.</li>{% endfor %}</ul>
 {% else %}<p>This item is shared with you. Only the owner or creator may change visibility.</p>{% endif %}
+</details>
 <div class="d-flex flex-wrap justify-content-between align-items-center mt-4 mb-3" id="logs">
   <h2 class="h5 mb-0">Logs &amp; updates</h2>
   <a href="{{ url_for('projects.logs', target_kind=item.kind, target_id=item.id) }}">View this item's logs</a>

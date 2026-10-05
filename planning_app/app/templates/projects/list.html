@@ -5,25 +5,47 @@
 {% from "projects/_schedule.html" import scheduling_view %}
 {% block content %}
 {{ navigation() }}
-<a class="btn btn-primary mb-3" data-quick-add data-kind="{{ kind }}" href="{{ url_for('projects.edit', kind=kind, return_to=work_current_url()) }}">New {{ kind|work_kind }}</a>
-<form class="row g-2 mb-3" method="get" data-work-filters>
+<header class="work-page-heading">
+  <div>
+    <p class="small text-uppercase text-muted fw-semibold mb-1">Work tracking</p>
+    <h1>{{ kind|title }}</h1>
+    <p class="text-muted mb-0">Find and manage {{ kind }} in your workspace.</p>
+  </div>
+  <a class="btn btn-primary" data-quick-add data-kind="{{ kind }}" href="{{ url_for('projects.edit', kind=kind, return_to=work_current_url()) }}">
+    <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>New {{ kind|work_kind }}
+  </a>
+</header>
+<form class="work-filter-panel card mb-4" method="get" data-work-filters>
+<div class="card-body">
   <input type="hidden" name="view" value="{{ selected_view }}">
   <input type="hidden" name="quick" value="{{ request.args.get('quick', '') }}">
   {% if request.args.get('per_page') %}<input type="hidden" name="per_page" value="{{ request.args.get('per_page') }}">{% endif %}
   {% for field in ['project_id', 'activity_id'] if request.args.get(field) %}<input type="hidden" name="{{ field }}" value="{{ request.args.get(field) }}">{% endfor %}
-  <div class="col-md-10">
-    <label class="form-label" for="work-search">Search work</label>
-    <input class="form-control" type="search" id="work-search" name="q" maxlength="200" value="{{ request.args.get('q', '') }}" placeholder="Name, description or full reference (e.g. 01.03.07)" aria-describedby="work-search-help">
-    <p class="form-text mb-0" id="work-search-help">Search names and descriptions, or enter a complete work reference. Search and filters apply to {{ kind }}; parent/child context may still be shown.</p>
+  <div class="row align-items-end g-2">
+    <div class="col-md">
+      <label class="form-label fw-semibold" for="work-search">Search {{ kind }}</label>
+      <input class="form-control" type="search" id="work-search" name="q" maxlength="200" value="{{ request.args.get('q', '') }}" placeholder="Name, description or reference (e.g. 01.03.07)">
+    </div>
+    <div class="col-md-auto d-flex gap-2">
+      <button class="btn btn-primary"><i class="bi bi-search me-1" aria-hidden="true"></i>Search</button>
+      <a class="btn btn-outline-secondary" data-work-reset href="{{ url_for('projects.listing', kind=kind, view=selected_view) }}">Reset</a>
+    </div>
   </div>
-  <div class="col-md-2 align-self-center"><button class="btn btn-primary">Filter</button> <a data-work-reset href="{{ url_for('projects.listing', kind=kind, view=selected_view) }}">Reset</a></div>
-  <div class="col-12">
+  <div class="work-quick-filter-row">
+    <span class="small fw-semibold text-muted">Quick filters</span>
+    <nav class="d-flex flex-wrap gap-2" aria-label="Quick work filters">
+    {% for value, link in quick_links.items() %}
+    <a class="btn btn-sm {{ 'btn-primary' if request.args.get('quick') == value else 'btn-outline-secondary' }}" data-work-quick-filter="{{ value }}" {% if request.args.get('quick') == value %}aria-current="true"{% endif %} href="{{ link.url }}">{{ link.label }}{% if request.args.get('quick') == value %} <span aria-hidden="true">&times;</span><span class="visually-hidden"> (remove filter)</span>{% endif %}</a>
+    {% endfor %}
+    </nav>
+  </div>
+  <div class="work-filter-footer">
   {% set active_filters = namespace(count=0) %}
   {% for field in ['status', 'priority', 'department', 'owner_id', 'deadline', 'scope', 'project_id', 'activity_id'] %}
     {% if request.args.get(field) %}{% set active_filters.count = active_filters.count + 1 %}{% endif %}
   {% endfor %}
   <details data-work-more-filters {% if active_filters.count %}open{% endif %}>
-    <summary>More filters{% if active_filters.count %} ({{ active_filters.count }} active){% endif %}</summary>
+    <summary><i class="bi bi-sliders me-1" aria-hidden="true"></i>More filters{% if active_filters.count %} ({{ active_filters.count }} active){% endif %}</summary>
     <div class="row g-2 mt-1">
   {% for field, choices in [('status', statuses), ('priority', priorities), ('department', departments)] %}
   <div class="col-md-2"><label class="form-label" for="{{ field }}">{{ field|title }}</label>
@@ -46,40 +68,31 @@
     {% for field in ['project_id', 'activity_id'] if request.args.get(field) %}<p class="small mb-1">Limited to {{ 'project' if field == 'project_id' else 'activity' }} #{{ request.args.get(field) }}. Reset clears this context.</p>{% endfor %}
   </details>
   </div>
+</div>
 </form>
-<nav class="d-flex flex-wrap gap-2 mb-2" aria-label="Quick work filters">
-{% for value, link in quick_links.items() %}
-<a class="btn btn-sm {{ 'btn-primary' if request.args.get('quick') == value else 'btn-outline-primary' }}" data-work-quick-filter="{{ value }}" {% if request.args.get('quick') == value %}aria-current="true"{% endif %} href="{{ link.url }}">{{ link.label }}{% if request.args.get('quick') == value %} <span aria-hidden="true">&times;</span><span class="visually-hidden"> (remove filter)</span>{% endif %}</a>
-{% endfor %}
-</nav>
-<p class="small text-muted mb-3">Quick filters narrow your current search and filters. Select the active filter again to remove it, or Reset to clear everything.</p>
-<p role="status" class="small"><strong>{{ pagination.total }}</strong> matching {{ kind }}{% if request.args.get('q', '')|trim %} for <strong>{{ request.args.get('q') }}</strong>{% endif %}.</p>
+<div class="work-results-toolbar">
+  <p role="status" class="small text-muted mb-0"><strong class="text-body">{{ pagination.total }}</strong> matching {{ kind }}{% if request.args.get('q', '')|trim %} for <strong class="text-body">{{ request.args.get('q') }}</strong>{% endif %}</p>
 {{ view_switcher(view_links, selected_view) }}
+</div>
 {% if selected_view == 'hierarchy' %}
 <section aria-label="Hierarchy view">
-<h2 class="h5">Work hierarchy</h2>
-{{ workflow_legend() }}
-<p class="small text-muted">
-  Expand a project to see its activities and direct tasks; expand an activity to see its tasks.
-  Filters and pagination select {{ kind }}. {% if kind != 'tasks' %}Their live descendants are included, even when a child's status or owner differs.{% endif %}
-  Parent context provides location only; counts and totals describe the work shown here.
-</p>
+<details class="work-status-guide mb-3">
+  <summary class="small fw-semibold">Workflow statuses</summary>
+  <div class="pt-2">{{ workflow_legend() }}</div>
+</details>
 {{ hierarchy_view(hierarchy, users) }}
 </section>
 {% elif selected_view == 'list' %}
 <section aria-label="List view">
-  <h2 class="h5">{{ kind|title }} list (current page)</h2>
   {{ table(items, users) }}
 </section>
 {% elif selected_view == 'timeline' %}
 <section aria-label="Timeline view">
-<h2 class="h5">Schedule (current page{% if kind != 'tasks' %} and child work{% endif %})</h2>
 {{ scheduling_view(schedule) }}
 </section>
 {% elif selected_view == 'board' %}
 <section aria-label="Board view">
-<h2 class="h5">Task board (current page)</h2>
-<p class="small text-muted">Columns show only the tasks on this filtered page, not totals across all pages. Open a task to view its details or change its status.</p>
+<p class="small text-muted">Columns show only the tasks on this filtered page.</p>
 <div class="work-board" data-scroll-key="task-board">
 {% for status in statuses %}
 <section class="work-board-lane"><h3 class="h6">{{ status_badge(status) }} <span class="small">{{ items|selectattr('status', 'equalto', status)|list|length }}</span></h3>

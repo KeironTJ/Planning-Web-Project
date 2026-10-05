@@ -180,12 +180,18 @@ def reports():
 @login_required
 def logs():
     pagination = paginate(svc.visible_logs(current_user, request.args))
+    visible = svc.visible_items(current_user)
+    targets = sorted(
+        [svc.serialize(item) for rows in visible.values() for item in rows],
+        key=lambda item: (item["name"].casefold(), item["kind"], item["id"]),
+    )[:100]
     return render_template(
         "projects/logs.html",
         title="Logs & updates",
         logs=[svc.serialize_log(log) for log in pagination.items],
         pagination=pagination,
         page_links=page_links(pagination),
+        targets=targets,
         **options(),
     )
 
@@ -494,15 +500,26 @@ def delete(kind, identifier):
 @login_required
 def change_status(kind, identifier):
     item = svc.get_item(kind, identifier, current_user, edit=True)
-    svc.save_item(
-        kind,
-        {
-            "version": request.form.get("version"),
-            "status": request.form.get("status"),
-        },
-        current_user,
-        item,
-    )
+    try:
+        svc.save_item(
+            kind,
+            {
+                "version": request.form.get("version"),
+                "status": request.form.get("status"),
+            },
+            current_user,
+            item,
+        )
+    except HTTPException as error:
+        db.session.rollback()
+        if error.code != 409 or not error.description.startswith(
+            "Complete or cancel child work"
+        ):
+            raise
+        flash(error.description, "warning")
+        return redirect(
+            return_to() or url_for("projects.detail", kind=kind, identifier=identifier)
+        )
     db.session.commit()
     flash(f"Status changed to {item.status.value}.", "success")
     return redirect(

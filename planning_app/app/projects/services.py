@@ -901,6 +901,27 @@ def visible_logs(user, filters):
         if log_kind not in ("comment", "audit"):
             raise BadRequest("Invalid log type.")
         query = query.filter(LogEntry.kind == log_kind)
+    target_search = text(filters.get("target_search", ""), "work search", 200)
+    if target_search:
+        matches = []
+        for target_kind, cls, field in (
+            ("projects", Project, "project_id"),
+            ("activities", Activity, "activity_id"),
+            ("tasks", Task, "task_id"),
+        ):
+            matches.append(
+                getattr(LogEntry, field).in_(
+                    visible_query(target_kind, user)
+                    .filter(
+                        or_(
+                            cls.name.icontains(target_search, autoescape=True),
+                            reference_match(target_kind, target_search),
+                        )
+                    )
+                    .with_entities(cls.id)
+                )
+            )
+        query = query.filter(or_(*matches))
     kind = filters.get("target_kind")
     if kind:
         if kind not in MODELS:

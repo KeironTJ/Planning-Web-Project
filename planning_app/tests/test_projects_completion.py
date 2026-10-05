@@ -66,7 +66,8 @@ def test_parent_close_requires_every_descendant_and_activity(signed_client):
     activity = latest(signed_client, activity)
     before_logs = LogEntry.query.count()
     response = status(signed_client, project, "completed")
-    assert response.status_code == 409
+    assert response.status_code == 302
+    response = signed_client.get(response.location)
     assert b"1 activities and 2 tasks remain outstanding" in response.data
     assert LogEntry.query.count() == before_logs
     assert latest(signed_client, project)["status"] == "active"
@@ -74,10 +75,16 @@ def test_parent_close_requires_every_descendant_and_activity(signed_client):
     assert patch(signed_client, project, status="cancelled").status_code == 409
     finish(signed_client, nested)
     assert status(signed_client, direct, "cancelled").status_code == 302
-    assert status(signed_client, project, "completed").status_code == 409
+    response = status(signed_client, project, "completed")
+    assert response.status_code == 302
+    assert b"1 activities and 0 tasks remain outstanding" in signed_client.get(
+        response.location
+    ).data
     assert status(signed_client, activity, "completed").status_code == 302
     assert status(signed_client, project, "completed").status_code == 302
     assert latest(signed_client, project)["status"] == "completed"
+    detail = signed_client.get(f"/projects/projects/{project['id']}").data
+    assert b"remain outstanding" not in detail
 
 
 def test_reopen_and_new_work_require_open_ancestors(signed_client):
@@ -187,7 +194,9 @@ def test_html_edit_cannot_bypass_close_validation(signed_client, planner_user):
 def test_cancelled_children_allow_parent_close_and_zero_task_progress(signed_client):
     activity = create(signed_client, "activities")
     task = create(signed_client, activity_id=activity["id"])
-    assert status(signed_client, activity, "cancelled").status_code == 409
+    blocked = status(signed_client, activity, "cancelled")
+    assert blocked.status_code == 302
+    assert b"1 tasks remain outstanding" in signed_client.get(blocked.location).data
     assert status(signed_client, task, "cancelled").status_code == 302
     finish(signed_client, activity)
     report = signed_client.get(f"{BASE}/reports").get_json()

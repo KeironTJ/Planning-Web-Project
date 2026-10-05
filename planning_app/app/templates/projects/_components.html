@@ -2,12 +2,15 @@
 {% macro navigation() %}
 <nav class="work-nav nav nav-pills gap-2 mb-4" aria-label="Project tracking">
   <a class="nav-link {% if request.endpoint == 'projects.dashboard' %}active{% endif %}" {% if request.endpoint == 'projects.dashboard' %}aria-current="page"{% endif %} href="{{ url_for('projects.dashboard') }}">My dashboard</a>
+  <a class="visually-hidden" data-work-destination="dashboard" href="{{ url_for('projects.dashboard') }}">Dashboard</a>
   {% for kind in ['projects', 'activities', 'tasks'] %}
   <a class="nav-link {% if request.view_args.get('kind') == kind %}active{% endif %}" {% if request.view_args.get('kind') == kind %}aria-current="page"{% endif %} href="{{ url_for('projects.listing', kind=kind) }}">{{ kind|title }}</a>
+  <a class="visually-hidden" data-work-destination="{{ kind }}" href="{{ url_for('projects.listing', kind=kind) }}">{{ kind|title }}</a>
   {% endfor %}
   {% for endpoint, label in [('scheduling_timeline', 'Timeline'), ('logs', 'Logs & updates'), ('reports', 'Reports'), ('archive', 'Archive')] %}
   <a class="nav-link {% if request.endpoint == 'projects.' ~ endpoint %}active{% endif %}" {% if request.endpoint == 'projects.' ~ endpoint %}aria-current="page"{% endif %} href="{{ url_for('projects.' ~ endpoint) }}">{{ label }}</a>
   {% endfor %}
+  <button class="btn btn-sm btn-outline-secondary ms-auto" type="button" data-shortcuts-open hidden>Keyboard shortcuts</button>
 </nav>
 {% endmacro %}
 

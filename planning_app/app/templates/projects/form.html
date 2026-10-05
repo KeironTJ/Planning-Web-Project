@@ -2,7 +2,15 @@
 {% from "projects/_components.html" import navigation %}
 {% block content %}
 {{ navigation() }}
-<form method="post" class="row g-3" data-work-form>
+<header class="work-page-heading">
+  <div>
+    <p class="small text-uppercase text-muted fw-semibold mb-1">{{ kind|title }}</p>
+    <h1>{{ title }}</h1>
+  </div>
+</header>
+<form method="post" class="work-form card" data-work-form>
+<div class="card-body">
+<div class="row g-3">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if work_return_to() %}<input type="hidden" name="return_to" value="{{ work_return_to() }}">{% endif %}
   {% if item.id %}<input type="hidden" name="version" value="{{ item.version }}">{% endif %}
@@ -55,5 +63,7 @@
     {% if not item.id %}<button class="btn btn-outline-primary" name="save_action" value="another">Save and add another</button>{% endif %}
     <a class="btn btn-outline-secondary" href="{{ work_return_to() or url_for('projects.listing', kind=kind) }}">Cancel</a>
   </div>
+</div>
+</div>
 </form>
 {% endblock %}

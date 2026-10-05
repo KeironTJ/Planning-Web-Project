@@ -5,6 +5,24 @@
 {{ super() }}
 {{ quick_edit_dialog() }}
 {{ quick_add_dialog() }}
+<dialog class="work-shortcuts border rounded p-0" data-work-shortcuts aria-labelledby="work-shortcuts-title">
+  <div class="p-3 p-md-4">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+      <h2 class="h5" id="work-shortcuts-title">Keyboard shortcuts</h2>
+      <button class="btn-close" type="button" data-shortcuts-close aria-label="Close keyboard shortcuts"></button>
+    </div>
+    <dl class="row mb-0">
+      <dt class="col-4"><kbd>/</kbd></dt><dd class="col-8">Focus work search</dd>
+      <dt class="col-4"><kbd>g</kbd>, then <kbd>d</kbd></dt><dd class="col-8">Go to dashboard</dd>
+      <dt class="col-4"><kbd>g</kbd>, then <kbd>p</kbd></dt><dd class="col-8">Go to projects</dd>
+      <dt class="col-4"><kbd>g</kbd>, then <kbd>a</kbd></dt><dd class="col-8">Go to activities</dd>
+      <dt class="col-4"><kbd>g</kbd>, then <kbd>t</kbd></dt><dd class="col-8">Go to tasks</dd>
+      <dt class="col-4"><kbd>n</kbd></dt><dd class="col-8">Create work when this screen has one contextual Add action</dd>
+      <dt class="col-4"><kbd>?</kbd> / <kbd>Esc</kbd></dt><dd class="col-8">Show / close this guide</dd>
+    </dl>
+    <p class="small text-muted mt-3 mb-0">Shortcuts are disabled while typing in a field or while a dialog is open.</p>
+  </div>
+</dialog>
 {% endblock %}
 {% block extra_css %}
 {{ super() }}
