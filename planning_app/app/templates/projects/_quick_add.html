@@ -11,6 +11,7 @@
   <button class="btn btn-outline-secondary mb-3" type="button" data-create-retry hidden>Retry loading</button>
   <form data-create-form hidden>
     <div class="mb-3"><label class="form-label" for="create-name">Name</label><input class="form-control" id="create-name" name="name" required maxlength="200"></div>
+    <div class="mb-3"><label class="form-label" for="create-description">Description</label><textarea class="form-control" id="create-description" name="description" rows="3" maxlength="10000"></textarea></div>
     <div class="mb-3" data-create-parent-field><label class="form-label" for="create-parent">Where does this work belong?</label><select class="form-select" id="create-parent" name="parent"></select></div>
     <div class="mb-3"><label class="form-label" for="create-department">Department</label><input class="form-control" id="create-department" name="department" required maxlength="100"></div>
     <div class="mb-3"><label class="form-label" for="create-owner">Owner</label><select class="form-select" id="create-owner" name="owner_id" required></select></div>
@@ -18,7 +19,7 @@
       <div class="col-6"><label class="form-label" for="create-priority">Priority</label><select class="form-select" id="create-priority" name="priority" required></select></div>
       <div class="col-6"><label class="form-label" for="create-deadline">Deadline (dd/mm/yyyy)</label><input type="text" data-uk-date placeholder="dd/mm/yyyy" maxlength="10" class="form-control" id="create-deadline" name="deadline"></div>
     </div>
-    <p class="form-text">New work starts as planned with zero direct costs. Add descriptions, schedules, costs and task assignments through the full form or after creation.</p>
+    <p class="form-text">New work starts as planned with zero direct costs. Add schedules, costs and task assignments through the full form or after creation.</p>
     <div class="d-flex flex-wrap gap-2">
       <button class="btn btn-primary" type="submit" name="create_action" value="save">Create</button>
       <button class="btn btn-outline-primary" type="submit" name="create_action" value="another">Create and add another</button>

@@ -16,6 +16,10 @@
     <button type="button" class="btn btn-outline-secondary mb-3" data-quick-edit-reload hidden>Reload latest values (discards edits)</button>
     <form data-quick-edit-form hidden>
       <div class="mb-3">
+        <label for="quick-edit-description" class="form-label">Description</label>
+        <textarea class="form-control" id="quick-edit-description" name="description" rows="3" maxlength="10000"></textarea>
+      </div>
+      <div class="mb-3">
         <label for="quick-edit-deadline" class="form-label">Deadline (dd/mm/yyyy)</label>
         <input class="form-control" type="text" data-uk-date placeholder="dd/mm/yyyy" maxlength="10" id="quick-edit-deadline" name="deadline">
         <div class="form-text">Leave blank to remove the deadline.</div>

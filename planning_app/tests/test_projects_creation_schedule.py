@@ -72,13 +72,50 @@ def test_creation_options_defaults_and_forms(signed_client, planner_user, kind):
     assert data["defaults"]["priority"] == "normal"
     assert data["defaults"]["parent"] == ""
     html = signed_client.get(f"/projects/{kind}/new").get_data(as_text=True)
-    assert "More details: description, schedule and costs" in html
+    form = html.split('<form method="post" class="work-form card"')[1].split("</form>")[0]
+    assert "<details" not in form
+    for field in ("description", "start_date", "end_date", "budget", "actuals"):
+        assert f'name="{field}"' in form
+    assert "Schedule and costs" in form
     assert "Save and add another" in html
+    assert 'id="create-description" name="description" rows="3" maxlength="10000"' in html
     assert "Hold Ctrl" not in html
     if kind == "tasks":
         assert 'name="parent"' in html
         assert 'name="activity_id"' not in html
         assert "data-people-picker" in html
+
+
+@pytest.mark.parametrize("kind", ["projects", "activities", "tasks"])
+def test_creation_description_persists_and_invalid_draft_is_retained(
+    signed_client, planner_user, kind
+):
+    description = "Handover\n<check next shift>"
+    item = create(signed_client, kind, description=description)
+    assert item["description"] == description
+    response = signed_client.post(
+        f"/projects/{kind}/new",
+        data={
+            "name": "", "description": description, "department": "Planning",
+            "owner_id": planner_user.id, "priority": "normal",
+            "start_date": "01/10/2026", "end_date": "03/10/2026",
+            "budget": "12", "actuals": "4",
+        },
+    )
+    assert response.status_code == 400
+    form = response.get_data(as_text=True).split(
+        '<form method="post" class="work-form card"'
+    )[1].split("</form>")[0]
+    assert "<details" not in form
+    assert "Handover\n&lt;check next shift&gt;" in form
+    assert 'value="01/10/2026"' in form and 'value="03/10/2026"' in form
+    assert signed_client.post(
+        f"{BASE}/{kind}",
+        json={
+            "name": "Too long", "description": "x" * 10001,
+            "department": "Planning", "owner_id": planner_user.id,
+        },
+    ).status_code == 400
 
 
 def test_parent_defaults_access_and_closed_parent_options(

@@ -105,6 +105,104 @@ def test_new_item_returns_to_parent(signed_client, planner_user):
     assert Task.query.one().project_id == project["id"]
 
 
+@pytest.mark.parametrize("kind", ["projects", "activities", "tasks"])
+def test_quick_creation_handoff_previews_without_saving(signed_client, planner_user, kind):
+    project = create(signed_client, "projects")
+    origin = "/projects/tasks?view=hierarchy"
+    before = LogEntry.query.count()
+    values = {
+        "form_action": "preview", "return_to": origin,
+        "name": "Unsaved draft", "description": "Draft <handover>\nNext steps",
+        "department": "Planning", "owner_id": planner_user.id,
+        "priority": "high", "deadline": "31/02/2026",
+        "parent": f"projects:{project['id']}" if kind != "projects" else "",
+        "id": "999", "status": "completed", "budget": "999",
+    }
+    response = signed_client.post(f"/projects/{kind}/new", data=values)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'value="Unsaved draft"' in html
+    assert "Draft &lt;handover&gt;\nNext steps" in html
+    assert 'value="31/02/2026"' in html
+    assert 'value="high" selected' in html
+    assert f'href="{escape(origin, quote=True)}">Cancel</a>' in html
+    assert 'name="version"' not in html
+    assert 'value="999"' not in html
+    if kind != "projects":
+        assert f'value="projects:{project["id"]}" selected' in html
+    assert LogEntry.query.count() == before
+    assert signed_client.get(f"{BASE}/{kind}").get_json()["total"] == (
+        1 if kind == "projects" else 0
+    )
+    values.update(deadline="07/10/2026", budget="0", actuals="0", status="planned")
+    values.pop("form_action")
+    response = signed_client.post(f"/projects/{kind}/new", data=values)
+    assert response.status_code == 302 and response.location == origin
+    items = signed_client.get(f"{BASE}/{kind}").get_json()["items"]
+    saved = next(item for item in items if item["name"] == "Unsaved draft")
+    assert saved["description"] == "Draft <handover>\nNext steps"
+    assert saved["deadline"] == "2026-10-07"
+
+
+def test_quick_edit_handoff_keeps_version_assignments_and_context(
+    signed_client, planner_user
+):
+    task = create(
+        signed_client, description="Stored description", budget="25",
+        start_date="2026-10-01", end_date="2026-10-03",
+    )
+    newer = signed_client.patch(
+        f"{BASE}/tasks/{task['id']}",
+        json={"version": task["version"], "priority": "high"},
+    ).get_json()
+    before = LogEntry.query.count()
+    origin = "/projects/tasks?view=list"
+    values = {
+        "form_action": "preview", "return_to": origin, "version": task["version"],
+        "description": "Unsaved edit", "deadline": "09/10/2026", "priority": "low",
+        "assigned_user_ids": [planner_user.id],
+    }
+    path = f"/projects/tasks/{task['id']}/edit"
+    response = signed_client.post(path, data=values)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Unsaved edit</textarea>" in html
+    assert 'value="09/10/2026"' in html
+    assert f'name="version" value="{task["version"]}"' in html
+    assert f'value="{planner_user.id}" checked' in html
+    assert f'name="name"' in html and f'value="{task["name"]}"' in html
+    assert 'value="25.00"' in html
+    assert 'value="01/10/2026"' in html and 'value="03/10/2026"' in html
+    assert LogEntry.query.count() == before
+    assert signed_client.get(f"{BASE}/tasks/{task['id']}").get_json() == newer
+    values.update(edit_data(task, planner_user, description="Unsaved edit", return_to=origin))
+    values.pop("form_action")
+    assert signed_client.post(path, data=values).status_code == 409
+    assert signed_client.get(f"{BASE}/tasks/{task['id']}").get_json() == newer
+
+
+def test_quick_edit_handoff_still_requires_edit_access(signed_client, client, viewer_user):
+    task = create(signed_client)
+    grant(signed_client, task, user_id=viewer_user.id, role="viewer")
+    sign_in(client, viewer_user)
+    assert client.post(
+        f"/projects/tasks/{task['id']}/edit",
+        data={"form_action": "preview", "description": "Not permitted"},
+    ).status_code == 403
+
+
+def test_full_form_handoff_requires_csrf(signed_client, app):
+    previous = app.config["WTF_CSRF_ENABLED"]
+    app.config["WTF_CSRF_ENABLED"] = True
+    try:
+        assert signed_client.post(
+            "/projects/tasks/new",
+            data={"form_action": "preview", "name": "Draft without CSRF"},
+        ).status_code == 400
+    finally:
+        app.config["WTF_CSRF_ENABLED"] = previous
+
+
 @pytest.mark.parametrize(
     "origin",
     [

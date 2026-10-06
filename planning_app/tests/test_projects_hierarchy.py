@@ -170,12 +170,37 @@ def test_hierarchy_child_buttons_belong_to_children(signed_client, work):
     )
 
 
+def test_hierarchy_open_actions_are_prominent_and_names_link_to_details(signed_client, work):
+    origin = "/projects/"
+    html = signed_client.get(origin).get_data(as_text=True)
+    bars = re.findall(
+        r'<div class="work-node-actions"[^>]*>\s*(<a[^>]*>.*?</a>)',
+        html, re.DOTALL,
+    )
+    assert len(bars) == len(work)
+    for item in work.values():
+        path = f"/projects/{item['kind']}/{item['id']}"
+        label = f"Open {svc.KIND_LABELS[item['kind']]}: {item['name']}"
+        opening = next(link for link in bars if f'aria-label="{label}"' in link)
+        assert 'class="btn btn-sm btn-primary"' in opening
+        assert "bi-arrow-right" in opening
+        url = urlsplit(re.search(r'href="([^"]+)"', opening).group(1))
+        assert url.path == path
+        assert parse_qs(url.query)["return_to"] == [origin]
+        if item["kind"] != "tasks":
+            assert re.search(
+                rf'<a class="fw-semibold text-break"[^>]*aria-label="{re.escape(label)}">',
+                html,
+            )
+
+
 def test_hierarchy_viewer_bars_offer_navigation_only(signed_client, client, viewer_user):
     task = create(signed_client, name="Viewer actions")
     grant(signed_client, task, user_id=viewer_user.id, role="viewer")
     sign_in(client, viewer_user)
     html = client.get("/projects/tasks?view=hierarchy").get_data(as_text=True)
     assert 'aria-label="Navigation for Viewer actions"' in html
+    assert 'aria-label="Open task: Viewer actions"' in html
     assert "Logs &amp; comments" in html
     assert "work-node-more" not in html
     assert 'action="/projects/tasks/' not in html

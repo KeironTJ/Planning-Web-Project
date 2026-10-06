@@ -1,4 +1,5 @@
 import { isoDate, ukDate } from '../../components/uk_date_input.js';
+import { openFullWorkForm } from './form_handoff.js';
 
 /**
  * One work editor shared by tables, hierarchy cards and task boards.
@@ -80,6 +81,7 @@ export function initWorkQuickEdit(root) {
             dialog.querySelector('#quick-edit-title').textContent = `Quick edit ${label}: ${item.reference} - ${item.name}`;
             assigneeFields.hidden = item.kind !== 'tasks';
             assigneeFields.disabled = item.kind !== 'tasks';
+            form.elements.description.value = item.description;
             form.elements.deadline.value = ukDate(item.deadline);
             form.elements.deadline.setCustomValidity('');
             form.elements.priority.replaceChildren(
@@ -181,6 +183,7 @@ export function initWorkQuickEdit(root) {
         try {
             const changes = {
                 version: item.version,
+                description: form.elements.description.value,
                 deadline,
                 priority: form.elements.priority.value,
             };
@@ -219,6 +222,26 @@ export function initWorkQuickEdit(root) {
         }
     });
     fullEdit.addEventListener('click', event => {
-        if (saving) event.preventDefault();
+        if (event.defaultPrevented || event.button !== 0 || event.ctrlKey
+            || event.metaKey || event.shiftKey || event.altKey) return;
+        if (saving) { event.preventDefault(); return; }
+        if (!item || form.hidden) return;
+        event.preventDefault();
+        const values = {
+            version: item.version,
+            description: form.elements.description.value,
+            deadline: form.elements.deadline.value,
+            priority: form.elements.priority.value,
+        };
+        if (item.kind === 'tasks') {
+            values.assigned_user_ids = [...list.querySelectorAll('input:checked')]
+                .map(input => input.value);
+            if (!form.elements.remove_unavailable.checked) {
+                const eligible = new Set([...list.querySelectorAll('input')]
+                    .map(input => Number(input.value)));
+                values.assigned_user_ids.push(...item.assigned_user_ids.filter(id => !eligible.has(id)));
+            }
+        }
+        openFullWorkForm(fullEdit.href, values);
     });
 }

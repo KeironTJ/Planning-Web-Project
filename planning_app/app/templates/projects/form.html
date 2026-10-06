@@ -17,6 +17,7 @@
   {% if item.id %}<input type="hidden" name="version" value="{{ item.version }}">{% endif %}
   <div class="col-md-8"><label class="form-label" for="name">Name</label><input class="form-control" id="name" name="name" required maxlength="200" value="{{ item.name or '' }}"></div>
   <div class="col-md-4"><label class="form-label" for="department">Department</label><input class="form-control" id="department" name="department" required maxlength="100" value="{{ item.department }}" list="departments"><datalist id="departments">{% for department in departments %}<option value="{{ department }}">{% endfor %}</datalist></div>
+  <div class="col-12"><label class="form-label" for="description">Description</label><textarea class="form-control" rows="3" id="description" name="description" maxlength="10000">{{ item.description or '' }}</textarea></div>
   {% if kind != 'projects' %}
   <div class="col-12"><label class="form-label" for="parent">Where does this {{ kind|work_kind }} belong?</label>
     <select class="form-select" id="parent" name="parent">
@@ -33,16 +34,11 @@
   <div class="col-md-4"><label class="form-label" for="{{ field }}">{{ field|title }}</label><select class="form-select" id="{{ field }}" name="{{ field }}">{% for value in choices %}<option value="{{ value }}" {% if item[field] == value %}selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></div>
   {% endif %}
   {% endfor %}
-  <div class="col-md-4"><label class="form-label" for="deadline">Deadline (dd/mm/yyyy)</label><input class="form-control" type="text" data-uk-date placeholder="dd/mm/yyyy" maxlength="10" id="deadline" name="deadline" value="{{ request.form.get('deadline', '') if request.method == 'POST' else item.deadline|work_date }}"></div>
-  <div class="col-12"><details {% if item.id or request.method == 'POST' %}open{% endif %}>
-    <summary class="mb-3">More details: description, schedule and costs</summary>
-    <div class="row g-3">
-      <div class="col-12"><label class="form-label" for="description">Description</label><textarea class="form-control" rows="3" id="description" name="description" maxlength="10000">{{ item.description or '' }}</textarea></div>
-      {% for field in ['start_date', 'end_date'] %}<div class="col-md-6"><label class="form-label" for="{{ field }}">{{ field|replace('_', ' ')|title }} (dd/mm/yyyy)</label><input class="form-control" type="text" data-uk-date placeholder="dd/mm/yyyy" maxlength="10" id="{{ field }}" name="{{ field }}" value="{{ request.form.get(field, '') if request.method == 'POST' else item[field]|work_date }}"></div>{% endfor %}
-      {% for field in ['budget', 'actuals'] %}<div class="col-md-6"><label class="form-label" for="{{ field }}">{{ field|title }}</label><input class="form-control" type="number" min="0" max="999999999999.99" step="0.01" id="{{ field }}" name="{{ field }}" value="{{ item[field] }}" required></div>{% endfor %}
-    </div>
-    <p class="form-text">Costs are direct costs for this item only, not duplicated child costs.</p>
-  </details></div>
+  <div class="col-md-4"><label class="form-label" for="deadline">Deadline (dd/mm/yyyy)</label><input class="form-control" type="text" data-uk-date placeholder="dd/mm/yyyy" maxlength="10" id="deadline" name="deadline" value="{{ request.form['deadline'] if 'deadline' in request.form else item.deadline|work_date }}"></div>
+  <div class="col-12"><h2 class="h6 mb-0">Schedule and costs</h2></div>
+  {% for field in ['start_date', 'end_date'] %}<div class="col-md-6"><label class="form-label" for="{{ field }}">{{ field|replace('_', ' ')|title }} (dd/mm/yyyy)</label><input class="form-control" type="text" data-uk-date placeholder="dd/mm/yyyy" maxlength="10" id="{{ field }}" name="{{ field }}" value="{{ request.form[field] if field in request.form else item[field]|work_date }}"></div>{% endfor %}
+  {% for field in ['budget', 'actuals'] %}<div class="col-md-6"><label class="form-label" for="{{ field }}">{{ field|title }}</label><input class="form-control" type="number" min="0" max="999999999999.99" step="0.01" id="{{ field }}" name="{{ field }}" value="{{ item[field] }}" required></div>{% endfor %}
+  <p class="form-text col-12">Costs are direct costs for this item only, not duplicated child costs.</p>
   {% if kind == 'tasks' %}
   <fieldset class="col-12" data-people-picker>
     <legend class="h6">Assigned users</legend>

@@ -13,10 +13,10 @@
 {% if compact %}
 {% set primary_status = 'completed' if item.status == 'active' else 'planned' if item.status == 'cancelled' else 'active' %}
 <div class="work-node-actions" aria-label="{{ 'Status actions' if actions else 'Navigation' }} for {{ item.name }}">
+  <a class="btn btn-sm btn-primary" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}" aria-label="Open {{ item.kind|work_kind }}: {{ item.name }}">Open {{ item.kind|work_kind }} <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
   {% for action in actions if action.status == primary_status %}{{ status_form(item, action) }}{% endfor %}
   {% if actions %}{{ quick_edit_link(item) }}{% endif %}
   <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}#logs"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Logs &amp; comments</a>
-  {% if item.kind != 'tasks' %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}">Open {{ item.kind|work_kind }} details</a>{% endif %}
   {% set secondary = actions|rejectattr('status', 'equalto', primary_status)|list %}
   {% if secondary %}
   <details class="work-node-more">

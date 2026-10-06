@@ -5,6 +5,7 @@ from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 from werkzeug.exceptions import HTTPException, BadRequest, Conflict, NotFound
+from werkzeug.datastructures import MultiDict
 
 from app.auth.models import User
 from app.extensions import db
@@ -359,6 +360,19 @@ def edit(kind, identifier=None):
         svc.get_item(kind, identifier, current_user, edit=True) if identifier else None
     )
     if request.method == "POST":
+        if request.form.get("form_action") == "preview":
+            fields = {
+                "name", "description", "department", "owner_id", "priority",
+                "deadline", "parent", "version", "assigned_user_ids",
+            }
+            draft = MultiDict(
+                (key, value)
+                for key, value in request.form.items(multi=True)
+                if key in fields
+            )
+            if item:
+                draft.setdefault("version", str(item.version))
+            return render_form(kind, item, draft)
         try:
             item = svc.save_item(kind, form_data(kind), current_user, item)
             db.session.commit()

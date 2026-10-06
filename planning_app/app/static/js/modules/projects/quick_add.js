@@ -1,5 +1,6 @@
 /** Shared contextual creator for projects, activities and tasks. */
 import { isoDate } from '../../components/uk_date_input.js';
+import { openFullWorkForm } from './form_handoff.js';
 
 export function initWorkQuickAdd(root) {
     const dialog = root.querySelector('[data-quick-add-dialog]');
@@ -127,7 +128,14 @@ export function initWorkQuickAdd(root) {
         if (created) window.location.reload();
         else trigger?.focus({ preventScroll: true });
     });
-    fullForm.addEventListener('click', event => { if (busy) event.preventDefault(); });
+    fullForm.addEventListener('click', event => {
+        if (event.defaultPrevented || event.button !== 0 || event.ctrlKey
+            || event.metaKey || event.shiftKey || event.altKey) return;
+        if (busy) { event.preventDefault(); return; }
+        if (form.hidden) return;
+        event.preventDefault();
+        openFullWorkForm(fullForm.href, Object.fromEntries(new FormData(form)));
+    });
     form.addEventListener('submit', async event => {
         event.preventDefault();
         if (busy) return;
@@ -137,6 +145,7 @@ export function initWorkQuickAdd(root) {
         const another = event.submitter?.value === 'another';
         const values = {
             name: form.elements.name.value,
+            description: form.elements.description.value,
             department: form.elements.department.value,
             owner_id: Number(form.elements.owner_id.value),
             priority: form.elements.priority.value,
@@ -164,6 +173,7 @@ export function initWorkQuickAdd(root) {
                 success.textContent = `Created ${data.reference} - ${data.name}. You can add another ${kinds[kind]}.`;
                 success.hidden = false;
                 form.elements.name.value = '';
+                form.elements.description.value = '';
             } else {
                 completed = true;
                 window.location.reload();

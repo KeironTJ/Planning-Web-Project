@@ -7,7 +7,7 @@
   <details class="border rounded bg-body work-node work-node-{{ item.kind }}" data-state-key="{{ item.kind }}:{{ item.id }}" {% if open_root or node.context_only %}open{% endif %}>
     <summary class="p-3">
       <span class="work-kind work-kind-{{ item.kind }} me-2"><i class="bi bi-{{ 'folder' if item.kind == 'projects' else 'diagram-3' }}" aria-hidden="true"></i>{{ item.kind|work_kind|title }}</span>
-      <strong class="text-break">{{ item.name }}</strong>
+      <a class="fw-semibold text-break" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}" aria-label="Open {{ item.kind|work_kind }}: {{ item.name }}">{{ item.name }}</a>
       <span class="work-reference">{{ item.reference }}</span>
       {{ status_badge(item.status) }}
       <span class="small text-muted ms-2">{{ 'Project workflow' if item.kind == 'projects' else 'Project activity' if item.project_id else 'Standalone activity' }}</span>

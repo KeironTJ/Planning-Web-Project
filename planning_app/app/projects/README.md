@@ -41,8 +41,11 @@ title rather than a repeated generic heading. Deleted or inaccessible work is ne
 Expansion uses native HTML disclosures and works with keyboard navigation and
 without JavaScript.
 
-Hierarchy items use one action bar: the primary workflow action (Start/resume,
-Complete, Reopen or Restart), Quick edit, Logs & comments and parent-item details.
+Hierarchy items use one action bar, led by a solid **Open project/activity/task**
+button with a right arrow, then the primary workflow action (Start/resume,
+Complete, Reopen or Restart), Quick edit and Logs & comments. Project/activity
+names are also links, so opening details does not require expanding the branch;
+the disclosure marker and surrounding summary still expand/collapse children.
 Secondary workflow actions such as Mark blocked and Cancel / close are grouped
 under **More**, using a native disclosure that works without JavaScript.
 Child creation is separate: **Add activity / Add task** sits beside the child
@@ -174,7 +177,7 @@ Ordinary GET forms and links work without JavaScript.
 
 **Quick edit** is available to editors on project, activity and task rows and
 hierarchy cards, and on task board cards, including dashboard/report tables and
-detail summaries. One shared dialog edits deadline and priority for every work
+detail summaries. One shared dialog edits description, deadline and priority for every work
 type without navigating to the full form. Tasks additionally offer assigned
 users; projects and activities do not support task assignments.
 In hierarchy/detail status action rows, Quick edit follows the first workflow
@@ -188,7 +191,7 @@ of removal before saving. Assignment never grants access.
 
 Opening the editor fetches current values and eligible users from
 `GET /projects/api/<kind>/<id>/edit-options`. Saving uses the existing work PATCH
-endpoint with only deadline, priority and version (plus assignees for tasks); unrelated fields
+endpoint with only description, deadline, priority and version (plus assignees for tasks); unrelated fields
 are unchanged. A successful save refreshes the current workspace so all copies,
 filters, counts and overdue totals are reconciled. Validation/network failures
 keep entered values in the dialog. Requests time out after 30 seconds; an
@@ -203,13 +206,22 @@ avoid unconfirmed writes. **Edit all fields** opens the existing form. Without
 JavaScript/native dialog support, Quick edit is a normal link to that form.
 Viewer-only users see no quick-edit links and cannot access edit options or save.
 
+Switching to **Edit all fields** or **Full creation form** carries the unsaved
+quick-form inputs into a server-rendered preview, without saving or creating
+work. The draft uses a CSRF-protected POST, not URL parameters or browser storage.
+Parent and return context are retained; quick-edit versions stay unchanged so
+stale drafts cannot overwrite newer work. Modified/new-tab link clicks retain
+ordinary link behavior and open stored/default values rather than the draft.
+
 ## Faster creation
 
 Dashboard/list creation links and contextual **Add activity / Add task** links
-open one shared quick-add dialog. Essential fields are name, department, owner,
+open one shared quick-add dialog. Essential fields are name, description, department, owner,
 priority, deadline and one parent selector. Contextual links preselect the parent
 and inherit its department; new work starts planned with zero direct costs.
-**Create and add another** retains these settings and clears just the name.
+Descriptions are always-visible, three-row text fields in quick add and quick
+edit, with the same 10,000-character limit as the full form.
+**Create and add another** retains these settings and clears the name and description.
 Closing after creation refreshes the workspace to reconcile all displayed work.
 
 `GET /projects/api/<kind>/create-options` supplies current defaults, active owners
@@ -220,8 +232,8 @@ duplicates. Controls prevent double submission and dismissal during saves.
 `static/js/modules/projects/quick_add.js` uses the shared CSRF-aware fetch helper.
 Without JavaScript/native dialogs, creation links still open the full form.
 
-Full forms put essentials first and group description, start/end dates and costs
-under **More details** (expanded on edits and failed submissions). Tasks have one
+Full forms show description, start/end dates and costs without collapsed sections,
+on creation as well as edits. Schedule and costs have their own visible heading. Tasks have one
 grouped project/activity parent selector and searchable assignee checkboxes using
 the reusable `static/js/components/people_picker.js`. Filtering never deselects
 people; assignment still requires inherited access and never grants it.

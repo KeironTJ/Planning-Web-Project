@@ -25,6 +25,28 @@ def test_quick_edit_in_every_task_view(signed_client, view):
     assert html.count("data-quick-edit-dialog") == 1
     assert "data-assignee-search" in html
     assert "remove_unavailable" in html
+    assert 'id="quick-edit-description" name="description" rows="3" maxlength="10000"' in html
+
+
+@pytest.mark.parametrize("kind", ["projects", "activities", "tasks"])
+def test_quick_description_load_update_clear_and_validate(signed_client, kind):
+    item = create(signed_client, kind, description="Original description")
+    options = signed_client.get(
+        f"{BASE}/{kind}/{item['id']}/edit-options"
+    ).get_json()
+    assert options["item"]["description"] == "Original description"
+    updated = patch(
+        signed_client, item, description="Revised handover\nNext steps",
+        deadline=None, priority="high",
+    ).get_json()
+    assert updated["description"] == "Revised handover\nNext steps"
+    for field in ("name", "owner_id", "budget", "actuals", "status", "department"):
+        assert updated[field] == item[field]
+    assert patch(signed_client, item, description="Stale draft").status_code == 409
+    assert patch(signed_client, updated, description="x" * 10001).status_code == 400
+    assert signed_client.get(f"{BASE}/{kind}/{item['id']}").get_json() == updated
+    cleared = patch(signed_client, updated, description="").get_json()
+    assert cleared["description"] == ""
 
 
 def test_options_return_current_values_and_only_eligible_users(
