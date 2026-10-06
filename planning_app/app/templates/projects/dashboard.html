@@ -1,7 +1,8 @@
 {% extends "projects/base.html" %}
-{% from "projects/_components.html" import navigation, progress_bar, completion_summary, workflow_legend %}
+{% from "projects/_components.html" import navigation, timeline %}
 {% from "projects/_hierarchy.html" import hierarchy_view %}
 {% from "projects/_attention.html" import attention_panel %}
+{% block page_header %}{% endblock %}
 {% block content %}
 {{ navigation() }}
 <header class="work-page-heading work-dashboard-heading">
@@ -10,57 +11,68 @@
     <h1>My dashboard</h1>
     <p class="text-muted mb-0">Your work and work shared with you or your department.</p>
   </div>
-</header>
-<section class="work-dashboard-actions" aria-label="Create and find work">
-<div class="work-dashboard-actions-label">Create new</div>
-<div class="d-flex flex-wrap gap-2 mt-2">
+  <div class="d-flex flex-wrap gap-2" aria-label="Create work">
 {% for kind in ['projects', 'activities', 'tasks'] %}
 <a class="btn btn-sm btn-primary" data-quick-add data-kind="{{ kind }}" href="{{ url_for('projects.edit', kind=kind, return_to=work_current_url()) }}">New {{ kind|work_kind }}</a>
 {% endfor %}
-</div>
-<div class="work-dashboard-actions-label mt-3">Jump to</div>
-<nav class="d-flex flex-wrap gap-2" aria-label="My work shortcuts">
+  </div>
+</header>
+<section class="mb-4" aria-labelledby="dashboard-progress-title">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <h2 class="h5 mb-0" id="dashboard-progress-title">Progress overview</h2>
+    <a class="small" href="{{ url_for('projects.listing', kind='tasks', quick='assigned', view='list') }}">Tasks assigned to me</a>
+  </div>
+  <div class="row g-2">
 {% for kind in ['projects', 'activities', 'tasks'] %}
-<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('projects.listing', kind=kind, quick='mine', view='list') }}">My {{ kind }}</a>
+{% set counts = report.completion[kind] %}
+    <div class="col-12 col-md-4">
+      <div class="work-dashboard-progress h-100">
+        <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
+          <a class="fw-semibold" href="{{ url_for('projects.listing', kind=kind, view='hierarchy') }}">{{ kind|title }}</a>
+          <span class="small text-muted">{{ counts.total + counts.cancelled }} total</span>
+        </div>
+        <p class="mb-2"><strong>{{ counts.percent }}%</strong> complete <span class="small text-muted">({{ counts.completed }} / {{ counts.total }})</span></p>
+        <div class="progress mb-2" role="progressbar" aria-label="{{ kind|title }} completed" aria-valuenow="{{ counts.percent }}" aria-valuemin="0" aria-valuemax="100">
+          <div class="progress-bar" style="width: {{ counts.percent }}%"></div>
+        </div>
+        <div class="d-flex flex-wrap justify-content-between gap-2 small">
+          <span>{{ counts.outstanding }} outstanding{% if counts.cancelled %} / {{ counts.cancelled }} cancelled{% endif %}</span>
+          <a href="{{ url_for('projects.listing', kind=kind, quick='mine', view='list') }}">Owned by me</a>
+        </div>
+      </div>
+    </div>
 {% endfor %}
-<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('projects.listing', kind='tasks', quick='assigned', view='list') }}">Assigned to me</a>
-<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('projects.scheduling_timeline') }}">Scheduling timeline</a>
-</nav>
+  </div>
+  <p class="small text-muted mt-2 mb-0">All work you can access. Completion is based on item counts, excluding cancelled work.</p>
 </section>
-<h2 class="h4">Needs attention</h2>
-<p class="small text-muted">All visible projects, activities and tasks. Closed work is excluded; an item may appear in more than one section. Viewers can open work but only editors see actions.</p>
+<section class="mb-4" aria-labelledby="dashboard-attention-title">
+<h2 class="h5" id="dashboard-attention-title">Needs attention</h2>
+{% if attention.overdue.total or attention.blocked.total or attention.upcoming.total %}
+<p class="small text-muted mb-2">Open work only. Items can be both blocked and overdue. Up to five previews per group, earliest deadline first.</p>
 <div class="row g-3 mb-4">
 {% for group, label in [('overdue', 'Overdue'), ('blocked', 'Blocked'), ('upcoming', 'Due soon')] %}
+{% if attention[group].total %}
 <div class="col-12 col-xl-4">{{ attention_panel(group, label, attention[group]) }}</div>
+{% endif %}
 {% endfor %}
 </div>
-<details class="mb-4" data-state-key="dashboard-progress">
-<summary class="h5">Progress overview</summary>
-{{ progress_bar(report.progress) }}
-{{ completion_summary(report.completion) }}
-{{ workflow_legend() }}
-</details>
+{% endif %}
+<div class="d-flex flex-wrap gap-3 small text-muted" aria-label="Clear attention groups">
+{% for group, label in [('overdue', 'Overdue'), ('blocked', 'Blocked'), ('upcoming', 'Due soon')] %}
+{% if not attention[group].total %}<span><i class="bi bi-check-circle text-success" aria-hidden="true"></i> No {{ label|lower }} work.</span>{% endif %}
+{% endfor %}
+</div>
+</section>
+<section class="mb-4" aria-labelledby="dashboard-hierarchy-title">
+  <h2 class="h5" id="dashboard-hierarchy-title">All visible work at a glance</h2>
+  <p class="small text-muted">Projects and standalone work are shown below. Expand a project or activity to see its children and actions.</p>
+  {{ hierarchy_view(hierarchy, users) }}
+</section>
 <section class="card mb-4"><div class="card-body">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h2 class="h5 mb-0">Recent logs &amp; updates</h2>
     <a href="{{ url_for('projects.logs') }}">View all logs</a>
   </div>
-  <ul class="list-group list-group-flush">
-  {% for log in report.timeline[:5] %}
-    <li class="list-group-item px-0">
-      <span class="badge {{ 'text-bg-info' if log.kind == 'comment' else 'text-bg-secondary' }}">{{ 'Comment' if log.kind == 'comment' else 'Update' }}</span>
-      <strong class="ms-1">{{ log.summary }}</strong> &mdash;
-      <a href="{{ url_for('projects.detail', kind=log.target_kind, identifier=log.target_id, return_to=work_current_url()) }}#logs">{{ log.target_name }}</a>
-      <span class="work-reference">{{ log.target_reference }}</span>
-      {% if log.kind == 'comment' %}<p class="small mb-0 mt-1">{{ log.body|truncate(140) }}</p>{% endif %}
-      <div class="small text-muted">{{ log.created_at|utcfmt('uk-datetime') }}</div>
-    </li>
-  {% else %}<li class="list-group-item text-muted">No updates yet.</li>{% endfor %}
-  </ul>
+  {{ timeline(report.timeline[:5], users) }}
 </div></section>
-<details class="mb-4" data-state-key="dashboard-hierarchy">
-  <summary class="h5">All visible work at a glance</summary>
-  <p class="small text-muted">Expand projects and activities to see where tasks sit. Standalone activities and tasks have their own sections.</p>
-  {{ hierarchy_view(hierarchy, users) }}
-</details>
 {% endblock %}

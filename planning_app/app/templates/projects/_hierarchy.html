@@ -25,20 +25,19 @@
       </span>
     </summary>
     <div class="px-3 pb-3">
-      <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
-        <a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}">Open {{ item.kind|work_kind }} details</a>
-        <a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}#logs"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Logs &amp; comments</a>
-        <span class="small text-muted">Shown work budget {{ node.rollup.budget }} / actuals {{ node.rollup.actuals }} / remaining {{ node.rollup.variance }}</span>
-      </div>
       {{ metadata(item, users) }}
-      {{ status_controls(item, node.status_actions) }}
+      <p class="small text-muted mt-2 mb-0">Shown work budget {{ node.rollup.budget }} / actuals {{ node.rollup.actuals }} / remaining {{ node.rollup.variance }}</p>
+      {{ status_controls(item, node.status_actions, compact=true) }}
+      <div class="work-child-toolbar">
+        <span class="small fw-semibold">{{ 'Activities & direct tasks' if item.kind == 'projects' else 'Tasks' }}</span>
       {% if node.status_actions %}
       <div class="d-flex flex-wrap gap-2">
-        {% if item.kind == 'projects' %}<a class="btn btn-sm btn-outline-primary" data-quick-add href="{{ url_for('projects.edit', kind='activities', project_id=item.id, return_to=work_current_url()) }}" data-kind="activities">Add activity</a>{% endif %}
-        <a class="btn btn-sm btn-outline-primary" data-quick-add data-kind="tasks" href="{{ url_for('projects.edit', kind='tasks', project_id=item.id if item.kind == 'projects' else '', activity_id=item.id if item.kind == 'activities' else '', return_to=work_current_url()) }}">Add task</a>
+        {% if item.kind == 'projects' %}<a class="btn btn-sm btn-outline-primary" data-quick-add href="{{ url_for('projects.edit', kind='activities', project_id=item.id, return_to=work_current_url()) }}" data-kind="activities"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add activity</a>{% endif %}
+        <a class="btn btn-sm btn-outline-primary" data-quick-add data-kind="tasks" href="{{ url_for('projects.edit', kind='tasks', project_id=item.id if item.kind == 'projects' else '', activity_id=item.id if item.kind == 'activities' else '', return_to=work_current_url()) }}"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add task</a>
       </div>
       {% endif %}
-      <ul class="list-unstyled work-branch mt-3 mb-0">
+      </div>
+      <ul class="list-unstyled work-branch mt-2 mb-0">
         {% for child in node.children %}
         {{ node_view(child, users) }}
         {% else %}
@@ -59,8 +58,7 @@
       <span class="small text-muted">{{ 'Activity task' if item.activity_id else 'Direct project task' if item.project_id else 'Standalone task' }}</span>
     </div>
     {{ metadata(item, users) }}
-    <a class="small d-inline-block mt-2" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}#logs"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Logs &amp; comments</a>
-    {{ status_controls(item, node.status_actions) }}
+    {{ status_controls(item, node.status_actions, compact=true) }}
   </div>
   {% endif %}
 </li>

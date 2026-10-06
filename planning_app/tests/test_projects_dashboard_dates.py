@@ -142,8 +142,10 @@ def test_attention_counts_all_kinds_preview_order_and_closed_exclusion(signed_cl
     assert "Overdue (9)" in html and "Blocked (3)" in html and "Due soon (6)" in html
     assert html.index("Needs attention") < html.index("Recent logs")
     assert html.count('data-attention-item=') == 13
-    assert 'data-state-key="dashboard-progress"' in html
-    assert 'data-state-key="dashboard-hierarchy"' in html
+    assert '<section class="mb-4" aria-labelledby="dashboard-progress-title">' in html
+    assert '<section class="mb-4" aria-labelledby="dashboard-hierarchy-title">' in html
+    assert 'data-state-key="dashboard-progress"' not in html
+    assert 'data-state-key="dashboard-hierarchy"' not in html
 
 
 class LinkParser(HTMLParser):
@@ -163,11 +165,12 @@ def test_dashboard_links_match_counts_and_status_actions_return(signed_client):
     links = LinkParser(html).links
     for group in ("overdue", "blocked", "upcoming"):
         for kind in svc.MODELS:
-            assert any(
+            matching = any(
                 urlsplit(link).path == f"/projects/{kind}"
                 and parse_qs(urlsplit(link).query) == {"quick": [group], "view": ["list"]}
                 for link in links
             )
+            assert matching == (group == "overdue" and kind == "tasks")
     response = signed_client.post(
         f"/projects/tasks/{task['id']}/status",
         data={"version": task["version"], "status": "active", "return_to": "/projects/"},
@@ -203,7 +206,43 @@ def test_archived_work_disappears_from_attention(signed_client):
     task = create(signed_client, deadline=(date.today() - timedelta(days=1)).isoformat())
     assert b"Overdue (1)" in signed_client.get("/projects/").data
     assert signed_client.delete(f"{BASE}/tasks/{task['id']}", json={"version": task["version"]}).status_code == 200
-    assert b"Overdue (0)" in signed_client.get("/projects/").data
+    assert b"No overdue work." in signed_client.get("/projects/").data
+
+
+def test_dashboard_visible_order_compact_progress_and_unique_shortcuts(signed_client):
+    project = create(signed_client, "projects", name="Visible dashboard project")
+    create(signed_client, "activities", project_id=project["id"])
+    completed = create(signed_client, name="Finished dashboard task")
+    active = patch(signed_client, completed, status="active").get_json()
+    patch(signed_client, active, status="completed")
+    cancelled = create(signed_client, name="Cancelled dashboard task")
+    patch(signed_client, cancelled, status="cancelled")
+    create(signed_client, name="Open dashboard task")
+    html = signed_client.get("/projects/").get_data(as_text=True)
+    assert (
+        html.index("Progress overview") < html.index("Needs attention")
+        < html.index("All visible work at a glance") < html.index("Recent logs")
+    )
+    assert html.count('class="work-dashboard-progress h-100"') == 3
+    assert 'aria-label="Tasks completed" aria-valuenow="50.0"' in html
+    assert "3 total" in html
+    assert "1 outstanding / 1 cancelled" in html
+    assert "Visible dashboard project" in html
+    assert "data-attention-item" not in html
+    assert "lists\"" not in html.split('id="dashboard-attention-title"')[1].split(
+        'id="dashboard-hierarchy-title"'
+    )[0]
+    assert "Create and find work" not in html
+    assert "My work shortcuts" not in html
+    assert "Workflow status guide" not in html
+    links = LinkParser(html).links
+    assert links.count("/projects/timeline") == 1
+    for kind in svc.MODELS:
+        assert sum(
+            urlsplit(link).path == f"/projects/{kind}"
+            and parse_qs(urlsplit(link).query) == {"quick": ["mine"], "view": ["list"]}
+            for link in links
+        ) == 1
 
 
 def test_home_work_dates_are_uk(signed_client):

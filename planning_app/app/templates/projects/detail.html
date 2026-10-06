@@ -4,26 +4,28 @@
 {% from "projects/_hierarchy.html" import hierarchy_view %}
 {% from "projects/_schedule.html" import scheduling_view %}
 {% from "projects/_quick_edit.html" import quick_edit_link %}
+{% block page_header %}{% endblock %}
 {% block content %}
 {{ navigation() }}
-<nav aria-label="Work location">
-  <ol class="breadcrumb">
-    {% for ancestor in ancestors %}
-    <li class="breadcrumb-item"><span class="work-reference">{{ ancestor.reference }}</span> <a href="{{ url_for('projects.detail', kind=ancestor.kind, identifier=ancestor.id, return_to=work_return_to()) }}">{{ ancestor.name }}</a></li>
-    {% else %}
-    <li class="breadcrumb-item">{{ 'Project' if item.kind == 'projects' else 'Standalone ' ~ (item.kind|work_kind) }}</li>
-    {% endfor %}
-    <li class="breadcrumb-item active" aria-current="page">{{ item.name }}</li>
-  </ol>
-</nav>
-<header class="card work-detail-summary mb-3">
+<header class="card work-detail-summary work-detail-{{ item.kind }} mb-3">
   <div class="card-body">
-    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-      <span class="work-kind work-kind-{{ item.kind }}">{{ item.kind|work_kind|title }}</span>
-      <span class="work-reference">{{ item.reference }}</span>
-      {{ status_badge(item.status) }}
-    </div>
-    <h1 class="h3 mb-3">{{ item.name }}</h1>
+    <nav aria-label="Work location">
+      <ol class="work-location">
+        {% for ancestor in ancestors %}
+        <li>
+          <a class="work-location-link" href="{{ url_for('projects.detail', kind=ancestor.kind, identifier=ancestor.id, return_to=work_return_to()) }}">
+            <span class="work-kind work-kind-{{ ancestor.kind }}">{{ ancestor.kind|work_kind|title }} <span class="work-reference">{{ ancestor.reference }}</span></span>
+            <span class="work-location-name">{{ ancestor.name }}</span>
+          </a>
+        </li>
+        {% endfor %}
+        <li class="work-location-current" aria-current="page">
+          <span class="work-kind work-kind-{{ item.kind }}">{% if not ancestors and item.kind != 'projects' %}Standalone {{ item.kind|work_kind }}{% else %}{{ item.kind|work_kind|title }}{% endif %} <span class="work-reference">{{ item.reference }}</span></span>
+          <h1 class="h3 work-location-name mb-0">{{ item.name }}</h1>
+        </li>
+      </ol>
+    </nav>
+    <div class="mb-3">{{ status_badge(item.status) }}</div>
     <dl class="row mb-0 work-detail-facts">
       <div class="col-6 col-lg-3"><dt>Owner</dt><dd>{% for user in users if user.id == item.owner_id %}{{ user.full_name }}{% else %}User #{{ item.owner_id }}{% endfor %}</dd></div>
       <div class="col-6 col-lg-3"><dt>Department</dt><dd>{{ item.department }}</dd></div>

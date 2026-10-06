@@ -143,7 +143,10 @@ def test_count_completion_is_independent_of_costs(signed_client):
         f"/projects/projects/{project['id']}",
     ):
         response = signed_client.get(path)
-        assert b"Progress is based on item counts, not money" in response.data
+        if path == "/projects/":
+            assert b"Completion is based on item counts, excluding cancelled work." in response.data
+        else:
+            assert b"Progress is based on item counts, not money" in response.data
         assert b"1 outstanding / 1 cancelled" in response.data
     assert b"1 tasks outstanding" in signed_client.get("/projects/projects").data
     finish(signed_client, second)

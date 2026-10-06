@@ -4,9 +4,8 @@
 <section class="card h-100 {{ 'border-danger' if group == 'overdue' }}" aria-label="{{ label }}">
   <div class="card-body">
     <h2 class="h5 {{ 'text-danger' if group == 'overdue' }}">{{ label }} ({{ summary.total }})</h2>
-    <p class="small text-muted">Showing up to five items, earliest deadline first.</p>
     <div class="d-flex flex-wrap gap-2 mb-3" aria-label="{{ label }} lists">
-    {% for kind, count in summary.counts.items() %}
+    {% for kind, count in summary.counts.items() if count %}
       <a class="btn btn-sm btn-outline-primary" href="{{ url_for('projects.listing', kind=kind, quick=group, view='list') }}">{{ kind|title }} ({{ count }})</a>
     {% endfor %}
     </div>

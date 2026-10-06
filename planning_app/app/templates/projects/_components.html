@@ -1,16 +1,13 @@
 {% from "projects/_quick_edit.html" import quick_edit_link %}
 {% macro navigation() %}
 <nav class="work-nav nav nav-pills gap-2 mb-4" aria-label="Project tracking">
-  <a class="nav-link {% if request.endpoint == 'projects.dashboard' %}active{% endif %}" {% if request.endpoint == 'projects.dashboard' %}aria-current="page"{% endif %} href="{{ url_for('projects.dashboard') }}">My dashboard</a>
-  <a class="visually-hidden" data-work-destination="dashboard" href="{{ url_for('projects.dashboard') }}">Dashboard</a>
+  <a class="nav-link {% if request.endpoint == 'projects.dashboard' %}active{% endif %}" data-work-destination="dashboard" {% if request.endpoint == 'projects.dashboard' %}aria-current="page"{% endif %} href="{{ url_for('projects.dashboard') }}">My dashboard</a>
   {% for kind in ['projects', 'activities', 'tasks'] %}
-  <a class="nav-link {% if request.view_args.get('kind') == kind %}active{% endif %}" {% if request.view_args.get('kind') == kind %}aria-current="page"{% endif %} href="{{ url_for('projects.listing', kind=kind) }}">{{ kind|title }}</a>
-  <a class="visually-hidden" data-work-destination="{{ kind }}" href="{{ url_for('projects.listing', kind=kind) }}">{{ kind|title }}</a>
+  <a class="nav-link {% if request.view_args.get('kind') == kind %}active{% endif %}" data-work-destination="{{ kind }}" {% if request.view_args.get('kind') == kind %}aria-current="page"{% endif %} href="{{ url_for('projects.listing', kind=kind) }}">{{ kind|title }}</a>
   {% endfor %}
   {% for endpoint, label in [('scheduling_timeline', 'Timeline'), ('logs', 'Logs & updates'), ('reports', 'Reports'), ('archive', 'Archive')] %}
   <a class="nav-link {% if request.endpoint == 'projects.' ~ endpoint %}active{% endif %}" {% if request.endpoint == 'projects.' ~ endpoint %}aria-current="page"{% endif %} href="{{ url_for('projects.' ~ endpoint) }}">{{ label }}</a>
   {% endfor %}
-  <button class="btn btn-sm btn-outline-secondary ms-auto" type="button" data-shortcuts-open hidden>Keyboard shortcuts</button>
 </nav>
 {% endmacro %}
 
@@ -87,26 +84,39 @@
 {% endmacro %}
 
 {% macro timeline(logs, users, can_edit=false, can_manage=false) %}
-<ol class="list-group">
+<ol class="list-group work-log-list">
 {% for log in logs %}
 <li class="list-group-item work-log-entry {{ log.kind }}">
-  <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
-    <span class="badge {{ 'text-bg-info' if log.kind == 'comment' else 'text-bg-secondary' }}">{{ 'Comment' if log.kind == 'comment' else 'Automatic update' }}</span>
-    <span class="small text-muted">{{ log.created_at|utcfmt('uk-datetime') }}</span>
+  <div class="work-log-heading">
+    <div class="work-log-summary">
+      <span class="badge {{ 'text-bg-info' if log.kind == 'comment' else 'text-bg-secondary' }}">{{ 'Comment' if log.kind == 'comment' else 'Automatic update' }}</span>
+      {% if log.kind == 'audit' %}<strong>{{ log.summary }}</strong>{% endif %}
+    </div>
+    <div class="work-log-meta">
+      <span>By {% for user in users if user.id == log.created_by %}{{ user.full_name }}{% else %}User #{{ log.created_by }}{% endfor %}</span>
+      <span>{{ log.created_at|utcfmt('uk-datetime') }}</span>
+    </div>
   </div>
-  <div class="fw-semibold mb-1">{{ log.summary }}</div>
+  {% if log.kind == 'comment' %}
+    {% if log.body|length > 240 %}
+    <details class="work-log-comment" data-state-key="log-body:{{ log.id }}">
+      <summary><span class="work-log-preview">{{ log.body|truncate(240) }}</span><span class="work-log-read-more">Read full comment</span></summary>
+      <p class="work-log-body">{{ log.body }}</p>
+    </details>
+    {% else %}<p class="work-log-body">{{ log.body }}</p>{% endif %}
+  {% endif %}
+  <div class="work-log-context">
+    <span class="work-log-target">
   {% if not log.target_deleted %}
   <a href="{{ url_for('projects.detail', kind=log.target_kind, identifier=log.target_id, return_to=work_current_url()) }}#logs">{{ log.target_kind|work_kind|title }}: {{ log.target_name }}</a> <span class="work-reference">{{ log.target_reference }}</span>
   {% else %}<span>{{ log.target_kind|work_kind|title }}: {{ log.target_name }} (archived)</span> <span class="work-reference">{{ log.target_reference }}</span>{% endif %}
-  <div class="small text-muted mt-1">By
-    {% for user in users if user.id == log.created_by %}{{ user.full_name }} {% endfor %}(user #{{ log.created_by }}) / {{ log.kind }}
+    </span>
+    {% if log.kind == 'audit' %}
+    <details class="work-log-audit" data-state-key="audit:{{ log.id }}"><summary>Audit details<span class="visually-hidden">: full before / after record</span></summary><pre>{{ log.body }}</pre></details>
+    {% endif %}
   </div>
-  {% if log.kind == 'audit' %}
-  <details class="mt-2" data-state-key="audit:{{ log.id }}"><summary>Audit update: full before / after record</summary><pre class="small text-wrap">{{ log.body }}</pre></details>
-  {% else %}
-  <p class="text-break work-log-body mt-2">{{ log.body }}</p>
-  {% if can_edit and (log.created_by == current_user.id or can_manage) %}
-  <details data-state-key="comment:{{ log.id }}"><summary>Edit comment</summary>
+  {% if log.kind == 'comment' and can_edit and (log.created_by == current_user.id or can_manage) %}
+  <details class="work-log-actions" data-state-key="comment:{{ log.id }}"><summary>Edit comment / delete</summary>
     <form method="post" action="{{ url_for('projects.change_log', identifier=log.id, action='edit') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="version" value="{{ log.version }}">
@@ -114,14 +124,13 @@
       <textarea class="form-control my-2" name="body" required maxlength="10000" aria-label="Comment">{{ log.body }}</textarea>
       <button class="btn btn-sm btn-primary">Save comment</button>
     </form>
-  </details>
   <form method="post" class="mt-2" action="{{ url_for('projects.change_log', identifier=log.id, action='delete') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="version" value="{{ log.version }}">
     <input type="hidden" name="return_to" value="{{ work_current_url().split('#')[0] }}#logs">
     <button class="btn btn-sm btn-outline-danger">Delete comment</button>
   </form>
-  {% endif %}
+  </details>
   {% endif %}
 </li>
 {% else %}<li class="list-group-item text-muted">No updates yet.</li>{% endfor %}

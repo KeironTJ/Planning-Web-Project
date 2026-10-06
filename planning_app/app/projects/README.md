@@ -31,10 +31,23 @@ without JavaScript; board is only valid for tasks. Invalid views return an
 explicit validation error.
 
 Project/activity detail pages show the same nested structure with the current
-item expanded. Location breadcrumbs on activity/task details link back through
-the actual parent chain. Deleted or inaccessible work is never included.
+item expanded. A single location header links through the actual parent chain,
+labelling each project/activity with its type, reference and name. The current
+item is highlighted with its type, reference and the page's only main title;
+standalone activities/tasks are explicitly labelled. The section navigation
+highlights the current work type and exposes one link per destination, also used
+by keyboard shortcuts. Dashboard, list and form pages likewise have one main
+title rather than a repeated generic heading. Deleted or inaccessible work is never included.
 Expansion uses native HTML disclosures and works with keyboard navigation and
 without JavaScript.
+
+Hierarchy items use one action bar: the primary workflow action (Start/resume,
+Complete, Reopen or Restart), Quick edit, Logs & comments and parent-item details.
+Secondary workflow actions such as Mark blocked and Cancel / close are grouped
+under **More**, using a native disclosure that works without JavaScript.
+Child creation is separate: **Add activity / Add task** sits beside the child
+section, with the correct parent retained. Viewers see navigation only.
+Status actions retain their existing permissions, validation and return context.
 
 ### Remembering your workspace
 
@@ -67,9 +80,13 @@ contents or permissions are stored in browser preferences.
 
 ## Actionable dashboard
 
-The work dashboard leads with **Needs attention**: Overdue, Blocked, and Due soon
-across visible projects, activities and tasks. Terminal work is excluded.
-Each section shows the full count and links to each work type's matching quick
+The work dashboard leads with an always-visible **Progress overview**: one compact
+card per work type shows counts, completion and outstanding work, with links to
+the full hierarchy and owned work. A separate link opens assigned tasks.
+Creation buttons sit beside the heading rather than in a repeated shortcut panel.
+**Needs attention** follows: Overdue, Blocked, and Due soon across visible
+projects, activities and tasks. Terminal work is excluded.
+Nonempty sections show the full count and links to each nonempty work type's matching quick
 filter, plus at most five compact previews sorted by deadline, name, kind and ID.
 An item may appear in multiple sections (for example blocked and overdue).
 Missing deadlines sort last in Blocked.
@@ -78,9 +95,22 @@ Previews include reference, work type, status, priority, deadline, logs/comments
 and the existing status/quick-edit controls for editors. Viewers see no mutation
 controls. Status actions preserve dashboard origin and retain all permissions,
 CSRF, version checks and descendant-completion rules; Quick edit refreshes it.
-Shortcuts open owned work, assigned tasks and the scheduling timeline.
-Progress and the full hierarchy are collapsed disclosures, with expansion
-remembered by the existing workspace component. Recent updates remain visible.
+Empty attention groups use a compact "No … work" row rather than cards with
+zero-count links. The work hierarchy is always visible below attention, ahead of
+recent updates. Individual project/activity branches remain expandable, with
+their expansion remembered by the existing workspace component. The top
+navigation provides the scheduling timeline; it is not duplicated in shortcuts.
+
+## Compact logs
+
+Detail timelines, the logs screen and dashboard previews share a compact entry
+layout: automatic-update summaries lead, with author/time metadata and a linked
+work name/reference. Full before/after audit records stay collapsed under
+**Audit details**. Comments up to 240 characters are shown in full; longer
+comments have a preview and a native **Read full comment** disclosure, retaining
+the complete text without JavaScript. Author names are shown without redundant
+user IDs (unknown authors retain their ID). Permitted comment edit/delete forms
+are grouped in one disclosure; permissions, CSRF and return navigation are unchanged.
 
 ## UK dates and times
 
@@ -270,10 +300,10 @@ Detail pages lead with the work reference, status and key facts, with secondary
 metadata, hierarchy, progress and sharing available in disclosures. The delete
 disclosure explains archive/child restrictions before offering a confirmation
 action. A child-work warning explains why a project or activity cannot yet be
-closed. The **Keyboard shortcuts** guide is available from project navigation:
+closed. The **Keyboard shortcuts** guide opens with `?`, without a navigation button:
 `/` focuses list search, `g` then `d/p/a/t` navigates, `n` uses a single
 contextual Add action, and `?` opens the guide. Shortcuts avoid text-entry fields
-and open dialogs; without JavaScript the shortcut button stays hidden.
+and open dialogs; keyboard shortcuts require JavaScript.
 
 **Logs & updates** is a dedicated, paginated timeline at `/projects/logs`.
 Filter by entry type, work type/item ID, author, or a work name/reference search.

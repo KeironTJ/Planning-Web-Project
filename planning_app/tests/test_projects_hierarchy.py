@@ -1,6 +1,9 @@
 """Expandable work views preserve hierarchy, filters and access boundaries."""
 
 from html.parser import HTMLParser
+from html import escape
+import re
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -106,6 +109,77 @@ def test_dashboard_places_every_variant_once(signed_client, work):
     )
     assert parsed.paths[key(work["standalone_task"])] == (key(work["standalone_task"]),)
     assert not any(parsed.context.values())
+
+
+@pytest.mark.parametrize(
+    "status, primary, secondary",
+    [
+        ("planned", "Start", ["Cancel / close"]),
+        ("active", "Complete", ["Mark blocked", "Cancel / close"]),
+        ("blocked", "Start / resume", ["Cancel / close"]),
+        ("completed", "Reopen", []),
+        ("cancelled", "Restart", []),
+    ],
+)
+def test_hierarchy_action_bar_prioritizes_workflow(signed_client, status, primary, secondary):
+    item = create(signed_client, name="Action placement task")
+    if status in ("blocked", "completed"):
+        item = patch(signed_client, item, status="active").get_json()
+    if status != "planned":
+        item = patch(signed_client, item, status=status).get_json()
+    origin = "/projects/tasks?view=hierarchy"
+    html = signed_client.get(origin).get_data(as_text=True)
+    bar = html.split('class="work-node-actions"')[1].split("</li>")[0]
+    main, _, more = bar.partition('<details class="work-node-more">')
+    assert f">{primary}</button>" in main
+    assert "data-quick-edit " in main
+    assert "Logs &amp; comments" in main
+    assert ("More workflow actions" in more) == bool(secondary)
+    for label in secondary:
+        assert f">{label}</button>" not in main
+        assert f">{label}</button>" in more
+    assert bar.count(f'action="/projects/tasks/{item["id"]}/status"') == 1 + len(secondary)
+    assert bar.count('name="csrf_token"') == 1 + len(secondary)
+    assert bar.count(f'name="version" value="{item["version"]}"') == 1 + len(secondary)
+    assert bar.count(f'name="return_to" value="{escape(origin, quote=True)}"') == 1 + len(secondary)
+
+
+def test_hierarchy_child_buttons_belong_to_children(signed_client, work):
+    html = signed_client.get("/projects/").get_data(as_text=True)
+    toolbars = re.findall(
+        r'<div class="work-child-toolbar">(.*?)</div>\s*</div>',
+        html, re.DOTALL,
+    )
+    assert toolbars
+    for toolbar in toolbars:
+        assert "data-quick-edit" not in toolbar
+        for href in re.findall(r'href="([^"]+)"', toolbar):
+            url = urlsplit(href.replace("&amp;", "&"))
+            query = parse_qs(url.query)
+            assert query["return_to"] == ["/projects/"]
+            if url.path == "/projects/activities/new":
+                assert "project_id" in query and "activity_id" not in query
+            else:
+                assert url.path == "/projects/tasks/new"
+                assert ("project_id" in query) != ("activity_id" in query)
+    assert all(
+        "data-quick-add" not in bar
+        for bar in re.findall(
+            r'<div class="work-node-actions".*?</div>', html, re.DOTALL
+        )
+    )
+
+
+def test_hierarchy_viewer_bars_offer_navigation_only(signed_client, client, viewer_user):
+    task = create(signed_client, name="Viewer actions")
+    grant(signed_client, task, user_id=viewer_user.id, role="viewer")
+    sign_in(client, viewer_user)
+    html = client.get("/projects/tasks?view=hierarchy").get_data(as_text=True)
+    assert 'aria-label="Navigation for Viewer actions"' in html
+    assert "Logs &amp; comments" in html
+    assert "work-node-more" not in html
+    assert 'action="/projects/tasks/' not in html
+    assert "data-quick-edit " not in html
 
 
 def test_project_list_and_details_share_nested_structure(signed_client, work):

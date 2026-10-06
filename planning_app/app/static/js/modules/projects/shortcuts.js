@@ -1,8 +1,7 @@
 /** Small navigation shortcuts that never intercept input or dialog keys. */
 export function initWorkShortcuts(root) {
     const dialog = root.querySelector('[data-work-shortcuts]');
-    const openButton = root.querySelector('[data-shortcuts-open]');
-    if (!dialog || !openButton || typeof dialog.showModal !== 'function') return;
+    if (!dialog || typeof dialog.showModal !== 'function') return;
 
     const closeButton = dialog.querySelector('[data-shortcuts-close]');
     const destinations = {
@@ -15,18 +14,14 @@ export function initWorkShortcuts(root) {
     let prefixTimer;
     let returnFocus;
 
-    openButton.hidden = false;
     function showHelp() {
-        returnFocus = document.activeElement === document.body
-            ? openButton
-            : document.activeElement;
+        returnFocus = document.activeElement;
         dialog.showModal();
         closeButton.focus();
     }
     function closeHelp() {
         dialog.close();
     }
-    openButton.addEventListener('click', showHelp);
     closeButton.addEventListener('click', closeHelp);
     dialog.addEventListener('close', () => returnFocus?.focus({ preventScroll: true }));
     dialog.addEventListener('cancel', event => { event.preventDefault(); closeHelp(); });

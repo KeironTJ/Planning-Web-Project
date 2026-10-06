@@ -1,17 +1,40 @@
 {% from "projects/_quick_edit.html" import quick_edit_link %}
-{% macro status_controls(item, actions) %}
+{% macro status_form(item, action) %}
+<form method="post" action="{{ url_for('projects.change_status', kind=item.kind, identifier=item.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="version" value="{{ item.version }}">
+  <input type="hidden" name="status" value="{{ action.status }}">
+  <input type="hidden" name="return_to" value="{{ work_current_url() }}">
+  <button class="btn btn-sm {{ 'btn-success' if action.status == 'completed' else 'btn-outline-danger' if action.status == 'cancelled' else 'btn-outline-primary' }}">{{ action.label }}</button>
+</form>
+{% endmacro %}
+
+{% macro status_controls(item, actions, compact=false) %}
+{% if compact %}
+{% set primary_status = 'completed' if item.status == 'active' else 'planned' if item.status == 'cancelled' else 'active' %}
+<div class="work-node-actions" aria-label="{{ 'Status actions' if actions else 'Navigation' }} for {{ item.name }}">
+  {% for action in actions if action.status == primary_status %}{{ status_form(item, action) }}{% endfor %}
+  {% if actions %}{{ quick_edit_link(item) }}{% endif %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}#logs"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Logs &amp; comments</a>
+  {% if item.kind != 'tasks' %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}">Open {{ item.kind|work_kind }} details</a>{% endif %}
+  {% set secondary = actions|rejectattr('status', 'equalto', primary_status)|list %}
+  {% if secondary %}
+  <details class="work-node-more">
+    <summary class="btn btn-sm btn-outline-secondary">More<span class="visually-hidden"> workflow actions for {{ item.name }}</span></summary>
+    <div class="work-node-secondary" aria-label="More workflow actions for {{ item.name }}">
+      {% for action in secondary %}{{ status_form(item, action) }}{% endfor %}
+    </div>
+  </details>
+  {% endif %}
+</div>
+{% else %}
 {% if actions %}
 <div class="d-flex flex-wrap gap-2 my-3" aria-label="Status actions for {{ item.name }}">
   {% for action in actions %}
-  <form method="post" action="{{ url_for('projects.change_status', kind=item.kind, identifier=item.id) }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="version" value="{{ item.version }}">
-    <input type="hidden" name="status" value="{{ action.status }}">
-    <input type="hidden" name="return_to" value="{{ work_current_url() }}">
-    <button class="btn btn-sm {{ 'btn-success' if action.status == 'completed' else 'btn-outline-danger' if action.status == 'cancelled' else 'btn-outline-primary' }}">{{ action.label }}</button>
-  </form>
+  {{ status_form(item, action) }}
   {% if loop.first %}{{ quick_edit_link(item) }}{% endif %}
   {% endfor %}
 </div>
+{% endif %}
 {% endif %}
 {% endmacro %}
