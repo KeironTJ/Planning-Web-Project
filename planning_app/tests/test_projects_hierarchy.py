@@ -35,6 +35,27 @@ class WorkTreeParser(HTMLParser):
             self.stack.pop()
 
 
+class OrderControlsParser(HTMLParser):
+    def __init__(self, html):
+        super().__init__()
+        self.stack = []
+        self.controls = {}
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "li":
+            self.stack.append({"key": attrs.get("data-work-key"), "moves": set()})
+        elif tag == "button" and self.stack and attrs.get("data-order-move"):
+            self.stack[-1]["moves"].add(attrs["data-order-move"])
+
+    def handle_endtag(self, tag):
+        if tag == "li":
+            node = self.stack.pop()
+            if node["key"]:
+                self.controls[node["key"]] = node["moves"]
+
+
 def key(item):
     return f"{item['kind']}:{item['id']}"
 
@@ -141,6 +162,115 @@ def test_subtasks_are_one_level_and_render_under_their_parent(signed_client):
     assert detail.status_code == 200
     assert b"Subtasks" in detail.data
     assert b"Subtask" in detail.data
+
+
+def test_mixed_project_children_sort_by_due_date(signed_client):
+    project = create(signed_client, "projects", name="Ordered project")
+    late = create(
+        signed_client, "activities", name="Late activity",
+        project_id=project["id"], deadline="2030-02-01",
+    )
+    early = create(
+        signed_client, name="Early task",
+        project_id=project["id"], deadline="2030-01-01",
+    )
+    undated = create(
+        signed_client, "activities", name="Undated activity",
+        project_id=project["id"],
+    )
+
+    parsed = tree(signed_client, "/projects/?sort=deadline")
+    direct_children = [
+        item_key
+        for item_key, path in parsed.paths.items()
+        if len(path) == 2 and path[0] == key(project)
+    ]
+    assert direct_children == [key(early), key(late), key(undated)]
+
+
+def test_manual_order_is_saved_across_mixed_project_children(signed_client):
+    project = create(signed_client, "projects", name="Manual order project")
+    activity = create(
+        signed_client, "activities", name="Activity", project_id=project["id"]
+    )
+    task = create(signed_client, name="Task", project_id=project["id"])
+    incomplete = signed_client.post(
+        f"{BASE}/order",
+        json={
+            "parent_kind": "projects",
+            "parent_id": project["id"],
+            "root_kind": None,
+            "items": [{"kind": "tasks", "id": task["id"]}],
+        },
+    )
+    assert incomplete.status_code == 400
+    response = signed_client.post(
+        f"{BASE}/order",
+        json={
+            "parent_kind": "projects",
+            "parent_id": project["id"],
+            "root_kind": None,
+            "items": [
+                {"kind": "tasks", "id": task["id"]},
+                {"kind": "activities", "id": activity["id"]},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+
+    parsed = tree(signed_client, "/projects/")
+    direct_children = [
+        item_key
+        for item_key, path in parsed.paths.items()
+        if len(path) == 2 and path[0] == key(project)
+    ]
+    assert direct_children == [key(task), key(activity)]
+
+    appended = create(signed_client, "activities", project_id=project["id"])
+    parsed = tree(signed_client, "/projects/")
+    direct_children = [
+        item_key
+        for item_key, path in parsed.paths.items()
+        if len(path) == 2 and path[0] == key(project)
+    ]
+    assert direct_children == [key(task), key(activity), key(appended)]
+
+
+@pytest.mark.parametrize("kind", ["projects", "activities", "tasks"])
+def test_manual_order_is_available_for_each_root_work_type(signed_client, kind):
+    first = create(signed_client, kind, name="First")
+    second = create(signed_client, kind, name="Second")
+    response = signed_client.post(
+        f"{BASE}/order",
+        json={
+            "parent_kind": None,
+            "parent_id": None,
+            "root_kind": kind,
+            "items": [
+                {"kind": kind, "id": second["id"]},
+                {"kind": kind, "id": first["id"]},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert [item["id"] for item in response.get_json()["items"]] == [
+        second["id"],
+        first["id"],
+    ]
+
+
+def test_move_controls_are_hidden_at_sibling_boundaries(signed_client):
+    projects = [
+        create(signed_client, "projects", name=f"Ordered root {index}")
+        for index in range(3)
+    ]
+    response = signed_client.get("/projects/")
+    assert response.status_code == 200
+    controls = OrderControlsParser(response.get_data(as_text=True)).controls
+
+    assert controls[key(projects[0])] == {"down"}
+    assert controls[key(projects[1])] == {"up", "down"}
+    assert controls[key(projects[2])] == {"up"}
 
 
 def test_subtask_visibility_inherits_from_parent_task(
@@ -351,13 +481,18 @@ def test_project_filters_include_children_and_paginate_only_projects(
 ):
     active = patch(signed_client, work["nested"], status="active").get_json()
     patch(signed_client, active, status="completed")
-    parsed = tree(signed_client, "/projects/projects?status=planned&per_page=1&page=2")
+    parsed = tree(
+        signed_client,
+        "/projects/projects?status=planned&per_page=1&page=2&sort=deadline",
+    )
     assert set(parsed.paths) == {
         key(work[name])
         for name in ("project", "activity", "empty_activity", "direct", "nested")
     }
     assert key(work["empty_project"]) not in parsed.paths
-    response = signed_client.get("/projects/projects?status=planned&per_page=1&page=2")
+    response = signed_client.get(
+        "/projects/projects?status=planned&per_page=1&page=2&sort=deadline"
+    )
     assert b"Page 2 of 2 / 2 items" in response.data
     assert b"Completed" in response.data
 

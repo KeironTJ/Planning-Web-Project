@@ -62,6 +62,7 @@ class WorkFields:
     )
     deleted_at = db.Column(db.DateTime(timezone=True))
     version = db.Column(db.Integer, nullable=False, default=1)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
 
     @declared_attr
     def __mapper_args__(cls):

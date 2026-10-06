@@ -78,7 +78,7 @@
 <a class="btn btn-sm btn-outline-primary mb-2" data-quick-add data-kind="tasks" href="{{ url_for('projects.edit', kind='tasks', project_id=item.id if item.kind == 'projects' else '', activity_id=item.id if item.kind == 'activities' else '', return_to=work_current_url()) }}">Add task</a>
 {% endif %}
 <p class="small text-muted">Activities and direct project tasks are separate branches. Expand an activity to inspect its tasks.</p>
-{{ hierarchy_view(hierarchy, users, open_roots=true, grouped=false) }}
+{{ hierarchy_view(hierarchy, users, open_roots=true, grouped=false, sort_mode=sort_mode, reorderable=true) }}
 </details>
 {% endif %}
 {% if item.kind == 'tasks' and not item.parent_task_id %}
@@ -89,7 +89,7 @@
     <a class="btn btn-sm btn-outline-primary" data-quick-add data-kind="tasks" href="{{ url_for('projects.edit', kind='tasks', parent_task_id=item.id, return_to=work_current_url()) }}"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add subtask</a>
     {% endif %}
   </div>
-  {{ hierarchy_view(hierarchy[0].children if hierarchy else [], users, open_roots=true, grouped=false) }}
+  {{ hierarchy_view(hierarchy[0].children if hierarchy else [], users, open_roots=true, grouped=false, sort_mode=sort_mode, reorderable=true, root_parent_kind='tasks', root_parent_id=item.id) }}
 </section>
 {% endif %}
 <details class="my-4" data-state-key="schedule">

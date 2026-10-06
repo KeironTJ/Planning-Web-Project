@@ -26,10 +26,10 @@
 {% endblock %}
 {% block extra_css %}
 {{ super() }}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/projects.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/projects.css', v='work-order-2') }}">
 {% endblock %}
 {% block body_attrs %}{{ super() }} data-workspace="projects" data-work-user="{{ current_user.id }}"{% endblock %}
 {% block scripts %}
 {{ super() }}
-<script type="module" src="{{ url_for('static', filename='js/modules/projects.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/modules/projects.js', v='work-order-2') }}"></script>
 {% endblock %}

@@ -185,6 +185,23 @@ def financials(items):
     }
 
 
+def order_mode(value):
+    if value not in (None, "", "custom", "deadline"):
+        raise BadRequest("Choose a valid sort order.")
+    return value or "custom"
+
+
+def work_order_key(item, mode="custom"):
+    if mode == "deadline":
+        return (
+            item.deadline is None,
+            item.deadline or date.max,
+            item.name.casefold(),
+            item.id,
+        )
+    return (item.sort_order, item.name.casefold(), item.id)
+
+
 def serialize(item):
     result = {
         "id": item.id,
@@ -200,6 +217,7 @@ def serialize(item):
         "actuals": str(item.actuals),
         "variance": str(item.variance),
         "over_budget": item.actuals > item.budget,
+        "sort_order": item.sort_order,
         "created_by": item.created_by,
         "version": item.version,
     }
@@ -400,8 +418,22 @@ def save_item(kind, data, user, item=None):
         for value in (item.project_id, item.activity_id, item.parent_task_id)
     ) > 1:
         raise BadRequest("Choose only one parent work item.")
+    if creating:
+        item.sort_order = max(
+            (sibling.sort_order for sibling in siblings_for_item(item, user)),
+            default=-1,
+        ) + 1
     if not creating and old_parent is not parent(item) and descendants(item):
         raise Conflict("Move child items first before changing hierarchy.")
+    if not creating and old_parent is not parent(item):
+        item.sort_order = max(
+            (
+                sibling.sort_order
+                for sibling in siblings_for_item(item, user)
+                if sibling.id != item.id
+            ),
+            default=-1,
+        ) + 1
     status_changed = creating or before["status"] != item.status.value
     if status_changed and item.status in TERMINAL:
         outstanding = [row for row in descendants(item) if row.status not in TERMINAL]
@@ -482,15 +514,27 @@ def delete_item(item, data, user):
     audit(item, user, "delete", before, serialize(item))
 
 
-def visible_items(user):
+def visible_items(user, sort_mode="custom"):
+    sort_mode = order_mode(sort_mode)
     return {
-        kind: visible_query(kind, user).order_by(cls.id.desc()).all()
+        kind: visible_query(kind, user)
+        .order_by(
+            *(
+                (cls.deadline.is_(None), cls.deadline, db.func.lower(cls.name), cls.id)
+                if sort_mode == "deadline"
+                else (cls.sort_order, db.func.lower(cls.name), cls.id)
+            )
+        )
+        .all()
         for kind, cls in MODELS.items()
     }
 
 
-def work_hierarchy(items, user, include_children=True, include_ancestors=True):
+def work_hierarchy(
+    items, user, include_children=True, include_ancestors=True, sort_mode="custom"
+):
     """Build one visibility-safe forest, preserving work and subtask parents."""
+    sort_mode = order_mode(sort_mode)
     selected = {(kind_of(item), item.id) for item in items}
     rows = {}
     for kind, cls in MODELS.items():
@@ -631,10 +675,8 @@ def work_hierarchy(items, user, include_children=True, include_ancestors=True):
             for item in work
         )
         node["children"].sort(
-            key=lambda child: (
-                child["item"]["kind"] != "activities",
-                child["item"]["name"].casefold(),
-                child["item"]["id"],
+            key=lambda child: work_order_key(
+                rows[(child["item"]["kind"], child["item"]["id"])], sort_mode
             )
         )
         return work
@@ -644,8 +686,9 @@ def work_hierarchy(items, user, include_children=True, include_ancestors=True):
     forest.sort(
         key=lambda node: (
             ("projects", "activities", "tasks").index(node["item"]["kind"]),
-            node["item"]["name"].casefold(),
-            node["item"]["id"],
+            *work_order_key(
+                rows[(node["item"]["kind"], node["item"]["id"])], sort_mode
+            ),
         )
     )
     return forest
@@ -710,6 +753,152 @@ def visible_query(kind, user):
             ),
         ),
     )
+
+
+def siblings_for_item(item, user):
+    if isinstance(item, Project):
+        return visible_query("projects", user).all()
+    if isinstance(item, Activity):
+        query = visible_query("activities", user)
+        query = (
+            query.filter(Activity.project_id == item.project_id)
+            if item.project_id
+            else query.filter(Activity.project_id.is_(None))
+        )
+        return query.all()
+    if item.parent_task_id:
+        return visible_query("tasks", user).filter(
+            Task.parent_task_id == item.parent_task_id
+        ).all()
+    if item.activity_id:
+        return visible_query("tasks", user).filter(
+            Task.activity_id == item.activity_id
+        ).all()
+    if item.project_id:
+        activities = visible_query("activities", user).filter(
+            Activity.project_id == item.project_id
+        ).all()
+        tasks = visible_query("tasks", user).filter(
+            Task.project_id == item.project_id,
+            Task.parent_task_id.is_(None),
+        ).all()
+        return activities + tasks
+    return visible_query("tasks", user).filter(
+        Task.project_id.is_(None),
+        Task.activity_id.is_(None),
+        Task.parent_task_id.is_(None),
+    ).all()
+
+
+def work_siblings(user, parent_kind=None, parent_id=None, root_kind=None):
+    if parent_kind is None:
+        if (
+            parent_id is not None
+            or not isinstance(root_kind, str)
+            or root_kind not in MODELS
+        ):
+            raise BadRequest("Choose a valid work ordering group.")
+        return root_sibling_query(root_kind, user).all()
+
+    if (
+        root_kind is not None
+        or not isinstance(parent_kind, str)
+        or parent_kind not in MODELS
+    ):
+        raise BadRequest("Choose a valid work ordering group.")
+    parent_item = get_item(parent_kind, integer(parent_id, "parent_id"), user, edit=True)
+    if isinstance(parent_item, Project):
+        return (
+            visible_query("activities", user)
+            .filter(Activity.project_id == parent_item.id)
+            .all()
+            + visible_query("tasks", user)
+            .filter(
+                Task.project_id == parent_item.id,
+                Task.parent_task_id.is_(None),
+            )
+            .all()
+        )
+    if isinstance(parent_item, Activity):
+        return visible_query("tasks", user).filter(
+            Task.activity_id == parent_item.id
+        ).all()
+    return visible_query("tasks", user).filter(
+        Task.parent_task_id == parent_item.id
+    ).all()
+
+
+def root_sibling_query(kind, user=None):
+    cls = MODELS[kind]
+    query = (
+        visible_query(kind, user)
+        if user is not None
+        else cls.query.filter(cls.deleted_at.is_(None))
+    )
+    if kind == "activities":
+        query = query.filter(Activity.project_id.is_(None))
+    elif kind == "tasks":
+        query = query.filter(
+            Task.project_id.is_(None),
+            Task.activity_id.is_(None),
+            Task.parent_task_id.is_(None),
+        )
+    return query
+
+
+def can_reorder_root(kind, user):
+    visible = root_sibling_query(kind, user).all()
+    all_ids = {
+        identifier
+        for (identifier,) in root_sibling_query(kind).with_entities(MODELS[kind].id)
+    }
+    return (
+        all_ids == {item.id for item in visible}
+        and all(can_access(item, user, edit=True) for item in visible)
+    )
+
+
+def reorder_work(data, user):
+    allowed = {"parent_kind", "parent_id", "root_kind", "items"}
+    if not isinstance(data, dict) or set(data) - allowed:
+        raise BadRequest("Provide a valid work ordering request.")
+    items = data.get("items")
+    if not isinstance(items, list) or len(items) > 500:
+        raise BadRequest("Order must contain at most 500 work items.")
+    submitted = []
+    for value in items:
+        if not isinstance(value, dict) or set(value) != {"kind", "id"}:
+            raise BadRequest("Each ordered item needs a kind and id.")
+        kind = value["kind"]
+        if not isinstance(kind, str) or kind not in MODELS:
+            raise BadRequest("Choose a valid work item.")
+        submitted.append((kind, integer(value["id"], "id")))
+    if len(submitted) != len(set(submitted)):
+        raise BadRequest("An item may only appear once in an order.")
+    siblings = work_siblings(
+        user,
+        parent_kind=data.get("parent_kind"),
+        parent_id=data.get("parent_id"),
+        root_kind=data.get("root_kind"),
+    )
+    if data.get("parent_kind") is None and not can_reorder_root(
+        data.get("root_kind"), user
+    ):
+        raise Forbidden("Editor access to every root item in this group is required.")
+    by_key = {(kind_of(item), item.id): item for item in siblings}
+    if set(submitted) != set(by_key):
+        raise BadRequest("The order must include every visible sibling exactly once.")
+    if any(not can_access(item, user, edit=True) for item in siblings):
+        raise Forbidden("Editor access is required for every item in this group.")
+    for index, key in enumerate(submitted):
+        item = by_key[key]
+        if item.sort_order == index:
+            continue
+        before = serialize(item)
+        item.sort_order = index
+        item.updated_at = utcnow()
+        audit(item, user, "reorder", before, serialize(item))
+    return [by_key[key] for key in submitted]
 
 
 def reference_match(kind, value):
@@ -887,7 +1076,13 @@ def filtered_query(kind, user, filters):
             if deadline == "overdue"
             else query.filter(cls.deadline.between(today, today + timedelta(days=14)))
         )
-    return query.order_by(cls.id.desc())
+    mode = order_mode(filters.get("sort"))
+    ordering = (
+        (cls.deadline.is_(None), cls.deadline, db.func.lower(cls.name), cls.id)
+        if mode == "deadline"
+        else (cls.sort_order, db.func.lower(cls.name), cls.id)
+    )
+    return query.order_by(*ordering)
 
 
 def due_overview(user, limit=5):
@@ -954,6 +1149,7 @@ def serialize_log(log):
             "create": "Work created",
             "update": "Work updated",
             "delete": "Work archived",
+            "reorder": "Work reordered",
             "share": "Sharing updated",
             "unshare": "Sharing revoked",
             "log.create": "Comment added",

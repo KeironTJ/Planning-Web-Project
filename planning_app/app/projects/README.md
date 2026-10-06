@@ -347,10 +347,11 @@ Set-Location planning_app
 ```
 
 Use your deployment interpreter instead of the example local virtual environment
-where appropriate. The subtask schema revision is `4b8d1a2f6c90`. No dependency
-changes or database reseeding are required. Apply the migration before starting
-the updated application. Downgrading removes subtask relationships; it is not an
-archive operation.
+where appropriate. The latest work-tracking schema revision is
+`6f2c9a1d4e80`. It adds persistent sibling ordering for custom work sequences.
+No dependency changes or database reseeding are required. Apply the migration
+before starting the updated application. Downgrading removes subtask relationships
+and custom ordering; it is not an archive operation.
 Production deployment still requires the existing application's HTTPS, secure
 session cookies, secrets, database backups and operational monitoring.
 

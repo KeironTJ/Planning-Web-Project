@@ -1,11 +1,18 @@
 {% from "projects/_status.html" import status_controls with context %}
 {% from "projects/_components.html" import status_badge %}
-{% macro node_view(node, users, open_root=false) %}
+{% macro node_view(node, users, open_root=false, sort_mode='custom', reorderable=false, allow_reorder=false, can_move_up=false, can_move_down=false) %}
 {% set item = node.item %}
-<li class="mb-2" data-work-key="{{ item.kind }}:{{ item.id }}" data-context-only="{{ 'true' if node.context_only else 'false' }}">
+<li class="mb-2" data-work-key="{{ item.kind }}:{{ item.id }}" data-context-only="{{ 'true' if node.context_only else 'false' }}" {% if reorderable %}data-order-item{% endif %}>
   {% if item.kind != 'tasks' %}
   <details class="border rounded bg-body work-node work-node-{{ item.kind }}" data-state-key="{{ item.kind }}:{{ item.id }}" {% if open_root or node.context_only %}open{% endif %}>
     <summary class="p-3">
+      {% if reorderable %}
+      <span class="work-sort-controls" aria-label="Reorder {{ item.name }}">
+        {% if can_move_up %}<button type="button" class="btn btn-sm btn-outline-secondary" data-order-move="up" aria-label="Move {{ item.name }} up"><i class="bi bi-arrow-up" aria-hidden="true"></i></button>{% endif %}
+        {% if can_move_down %}<button type="button" class="btn btn-sm btn-outline-secondary" data-order-move="down" aria-label="Move {{ item.name }} down"><i class="bi bi-arrow-down" aria-hidden="true"></i></button>{% endif %}
+        <button type="button" class="btn btn-sm btn-outline-secondary work-sort-handle" data-order-handle aria-label="Drag to reorder {{ item.name }}" title="Drag to reorder"><i class="bi bi-grip-vertical" aria-hidden="true"></i></button>
+      </span>
+      {% endif %}
       <span class="work-kind work-kind-{{ item.kind }} me-2"><i class="bi bi-{{ 'folder' if item.kind == 'projects' else 'diagram-3' }}" aria-hidden="true"></i>{{ item.kind|work_kind|title }}</span>
       <a class="fw-semibold text-break" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}" aria-label="Open {{ item.kind|work_kind }}: {{ item.name }}">{{ item.name }}</a>
       <span class="work-reference">{{ item.reference }}</span>
@@ -37,9 +44,11 @@
       </div>
       {% endif %}
       </div>
-      <ul class="list-unstyled work-branch mt-2 mb-0">
+      {% set can_reorder_children = namespace(value=allow_reorder and node.children|length > 1 and node.children|length <= 500) %}
+      {% for child in node.children %}{% if not child.status_actions %}{% set can_reorder_children.value = false %}{% endif %}{% endfor %}
+      <ul class="list-unstyled work-branch mt-2 mb-0" {% if can_reorder_children.value %}data-order-list data-parent-kind="{{ item.kind }}" data-parent-id="{{ item.id }}"{% endif %}>
         {% for child in node.children %}
-        {{ node_view(child, users) }}
+        {{ node_view(child, users, sort_mode=sort_mode, reorderable=can_reorder_children.value, allow_reorder=allow_reorder, can_move_up=can_reorder_children.value and not loop.first, can_move_down=can_reorder_children.value and not loop.last) }}
         {% else %}
         <li class="text-muted small">{{ 'No activities or direct tasks.' if item.kind == 'projects' else 'No tasks.' }}</li>
         {% endfor %}
@@ -49,6 +58,13 @@
   {% else %}
   <div class="border rounded bg-body p-3 work-node work-node-tasks">
     <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      {% if reorderable %}
+      <span class="work-sort-controls" aria-label="Reorder {{ item.name }}">
+        {% if can_move_up %}<button type="button" class="btn btn-sm btn-outline-secondary" data-order-move="up" aria-label="Move {{ item.name }} up"><i class="bi bi-arrow-up" aria-hidden="true"></i></button>{% endif %}
+        {% if can_move_down %}<button type="button" class="btn btn-sm btn-outline-secondary" data-order-move="down" aria-label="Move {{ item.name }} down"><i class="bi bi-arrow-down" aria-hidden="true"></i></button>{% endif %}
+        <button type="button" class="btn btn-sm btn-outline-secondary work-sort-handle" data-order-handle aria-label="Drag to reorder {{ item.name }}" title="Drag to reorder"><i class="bi bi-grip-vertical" aria-hidden="true"></i></button>
+      </span>
+      {% endif %}
       <span class="work-kind work-kind-tasks"><i class="bi bi-check2-square" aria-hidden="true"></i>Task</span>
       <span class="work-reference">{{ item.reference }}</span>
       <a class="fw-semibold text-break" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}">{{ item.name }}</a>
@@ -60,8 +76,10 @@
     {{ metadata(item, users) }}
     {{ status_controls(item, node.status_actions, compact=true, add_subtask=true) }}
     {% if node.children %}
-    <ul class="list-unstyled work-branch mt-2 mb-0">
-      {% for child in node.children %}{{ node_view(child, users) }}{% endfor %}
+    {% set can_reorder_children = namespace(value=allow_reorder and node.children|length > 1 and node.children|length <= 500) %}
+    {% for child in node.children %}{% if not child.status_actions %}{% set can_reorder_children.value = false %}{% endif %}{% endfor %}
+    <ul class="list-unstyled work-branch mt-2 mb-0" {% if can_reorder_children.value %}data-order-list data-parent-kind="tasks" data-parent-id="{{ item.id }}"{% endif %}>
+      {% for child in node.children %}{{ node_view(child, users, sort_mode=sort_mode, reorderable=can_reorder_children.value, allow_reorder=allow_reorder, can_move_up=can_reorder_children.value and not loop.first, can_move_down=can_reorder_children.value and not loop.last) }}{% endfor %}
     </ul>
     {% endif %}
   </div>
@@ -79,23 +97,41 @@
 </div>
 {% endmacro %}
 
-{% macro hierarchy_view(nodes, users, open_roots=false, grouped=true) %}
+{% macro hierarchy_view(nodes, users, open_roots=false, grouped=true, sort_mode='custom', reorderable=false, root_parent_kind='', root_parent_id='', show_sort=true, root_orderable={}) %}
 <div aria-label="Work hierarchy">
+  {% set can_reorder_mode = reorderable and sort_mode == 'custom' %}
+  {% if show_sort %}
+  <form method="get" class="d-flex flex-wrap align-items-end gap-2 mb-3" aria-label="Work item sorting">
+    {% for key, value in request.args.items() if key != 'sort' %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+    <div><label class="form-label small mb-1" for="work-sort">Sort sibling work</label>
+      <select class="form-select form-select-sm" id="work-sort" name="sort">
+        <option value="custom" {% if sort_mode == 'custom' %}selected{% endif %}>Custom order</option>
+        <option value="deadline" {% if sort_mode == 'deadline' %}selected{% endif %}>Due date (earliest first)</option>
+      </select>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary">Apply</button>
+    {% if sort_mode == 'custom' %}<span class="small text-muted">Drag items to change their order.</span>{% endif %}
+  </form>
+  {% endif %}
   {% if grouped %}
   {% for kind, label in [('projects', 'Projects'), ('activities', 'Standalone activities'), ('tasks', 'Standalone tasks')] %}
   {% set roots = nodes|selectattr('item.kind', 'equalto', kind)|list %}
   {% if roots %}
   <section class="mb-4" aria-label="{{ label }}">
     <h3 class="h6 text-muted">{{ label }} ({{ roots|length }})</h3>
-    <ul class="list-unstyled mb-0">
-    {% for node in roots %}{{ node_view(node, users, open_roots) }}{% endfor %}
+    {% set can_reorder_roots = namespace(value=can_reorder_mode and root_orderable.get(kind, false) and roots|length > 1 and roots|length <= 500) %}
+    {% for node in roots %}{% if not node.status_actions %}{% set can_reorder_roots.value = false %}{% endif %}{% endfor %}
+    <ul class="list-unstyled mb-0" {% if can_reorder_roots.value %}data-order-list data-root-kind="{{ kind }}"{% endif %}>
+    {% for node in roots %}{{ node_view(node, users, open_roots, sort_mode, can_reorder_roots.value, can_reorder_mode, can_reorder_roots.value and not loop.first, can_reorder_roots.value and not loop.last) }}{% endfor %}
     </ul>
   </section>
   {% endif %}
   {% endfor %}
   {% else %}
-  <ul class="list-unstyled mb-0">
-    {% for node in nodes %}{{ node_view(node, users, open_roots) }}{% endfor %}
+  {% set can_reorder_roots = namespace(value=can_reorder_mode and root_parent_kind and nodes|length > 1 and nodes|length <= 500) %}
+  {% for node in nodes %}{% if not node.status_actions %}{% set can_reorder_roots.value = false %}{% endif %}{% endfor %}
+  <ul class="list-unstyled mb-0" {% if can_reorder_roots.value %}data-order-list data-parent-kind="{{ root_parent_kind }}" data-parent-id="{{ root_parent_id }}"{% endif %}>
+    {% for node in nodes %}{{ node_view(node, users, open_roots, sort_mode, can_reorder_roots.value, can_reorder_mode, can_reorder_roots.value and not loop.first, can_reorder_roots.value and not loop.last) }}{% endfor %}
   </ul>
   {% endif %}
   {% if not nodes %}<p class="text-muted">No matching work items.</p>{% endif %}

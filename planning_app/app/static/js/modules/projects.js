@@ -4,6 +4,7 @@ import { initWorkQuickAdd } from './projects/quick_add.js';
 import { initPeoplePickers } from '../components/people_picker.js';
 import { initUKDateInputs } from '../components/uk_date_input.js';
 import { initWorkShortcuts } from './projects/shortcuts.js';
+import { initWorkOrdering } from './projects/ordering.js?v=work-order-2';
 
 const workspace = document.querySelector('[data-workspace="projects"]');
 if (workspace) {
@@ -13,4 +14,5 @@ if (workspace) {
     initPeoplePickers(workspace);
     initUKDateInputs(workspace);
     initWorkShortcuts(workspace);
+    initWorkOrdering(workspace);
 }

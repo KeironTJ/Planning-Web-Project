@@ -27,6 +27,13 @@
       <label class="form-label fw-semibold" for="work-search">Search {{ kind }}</label>
       <input class="form-control" type="search" id="work-search" name="q" maxlength="200" value="{{ request.args.get('q', '') }}" placeholder="Name, description or reference (e.g. 01.03.07)">
     </div>
+    <div class="col-md-3">
+      <label class="form-label" for="sort">Sort order</label>
+      <select class="form-select" id="sort" name="sort">
+        <option value="custom" {% if sort_mode == 'custom' %}selected{% endif %}>Custom order</option>
+        <option value="deadline" {% if sort_mode == 'deadline' %}selected{% endif %}>Due date (earliest first)</option>
+      </select>
+    </div>
     <div class="col-md-auto d-flex gap-2">
       <button class="btn btn-primary"><i class="bi bi-search me-1" aria-hidden="true"></i>Search</button>
       <a class="btn btn-outline-secondary" data-work-reset href="{{ url_for('projects.listing', kind=kind, view=selected_view) }}">Reset</a>
@@ -81,7 +88,7 @@
   <summary class="small fw-semibold">Workflow statuses</summary>
   <div class="pt-2">{{ workflow_legend() }}</div>
 </details>
-{{ hierarchy_view(hierarchy, users) }}
+{{ hierarchy_view(hierarchy, users, sort_mode=sort_mode, show_sort=false) }}
 </section>
 {% elif selected_view == 'list' %}
 <section aria-label="List view">

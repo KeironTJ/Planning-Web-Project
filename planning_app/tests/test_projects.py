@@ -520,6 +520,9 @@ def test_migration_round_trip_matches_models(db):
     subtasks_migration = importlib.import_module(
         "migrations.versions.4b8d1a2f6c90_add_task_subtasks"
     )
+    ordering_migration = importlib.import_module(
+        "migrations.versions.6f2c9a1d4e80_add_manual_work_ordering"
+    )
     connection = db.session.connection()
     tables = (
         "project_logs",
@@ -535,12 +538,15 @@ def test_migration_round_trip_matches_models(db):
     with Operations.context(context):
         migration.upgrade()
         subtasks_migration.upgrade()
+        ordering_migration.upgrade()
         differences = compare_metadata(context, db.metadata)
         assert differences == []
+        ordering_migration.downgrade()
         subtasks_migration.downgrade()
         migration.downgrade()
         migration.upgrade()
         subtasks_migration.upgrade()
+        ordering_migration.upgrade()
     assert db.session.query(Project).count() == 0
 
 

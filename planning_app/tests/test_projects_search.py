@@ -34,6 +34,20 @@ def test_search_name_description_case_whitespace_and_literal_wildcards(signed_cl
     assert results(signed_client, kind, q="9" * 200)["total"] == 0
 
 
+@pytest.mark.parametrize("kind", ["projects", "activities", "tasks"])
+def test_work_lists_sort_by_earliest_deadline_then_name(signed_client, kind):
+    later = create(signed_client, kind, name="Later due", deadline="2030-02-01")
+    undated = create(signed_client, kind, name="No due date")
+    earlier = create(signed_client, kind, name="Earlier due", deadline="2030-01-01")
+
+    items = results(signed_client, kind, sort="deadline")["items"]
+    assert [item["id"] for item in items[:3]] == [
+        earlier["id"],
+        later["id"],
+        undated["id"],
+    ]
+
+
 def test_full_reference_search_covers_all_locations_and_move(signed_client):
     project = create(signed_client, "projects")
     activity = create(signed_client, "activities", project_id=project["id"])
@@ -119,7 +133,7 @@ def test_search_and_quick_filters_never_expose_private_or_deleted_work(
 
 @pytest.mark.parametrize("kind", ["projects", "activities", "tasks"])
 def test_invalid_search_and_quick_filters_are_explicit_errors(signed_client, kind):
-    for filters in [{"q": "x" * 201}, {"quick": "unknown"}]:
+    for filters in [{"q": "x" * 201}, {"quick": "unknown"}, {"sort": "unknown"}]:
         for prefix in ["/projects", BASE]:
             response = signed_client.get(f"{prefix}/{kind}", query_string=filters)
             assert response.status_code == 400

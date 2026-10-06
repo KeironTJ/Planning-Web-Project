@@ -151,7 +151,8 @@ def json_page(pagination, serializer):
 @bp.get("/")
 @login_required
 def dashboard():
-    visible = svc.visible_items(current_user)
+    sort_mode = svc.order_mode(request.args.get("sort"))
+    visible = svc.visible_items(current_user, sort_mode)
     return render_template(
         "projects/dashboard.html",
         title="My work dashboard",
@@ -161,7 +162,13 @@ def dashboard():
             sum(visible.values(), []),
             current_user,
             include_children=False,
+            sort_mode=sort_mode,
         ),
+        root_orderable={
+            kind: svc.can_reorder_root(kind, current_user)
+            for kind in svc.MODELS
+        },
+        sort_mode=sort_mode,
         **options(),
     )
 
@@ -206,6 +213,7 @@ def listing(kind):
     if kind == "tasks":
         views["board"] = "Board"
     selected_view = request.args.get("view", "hierarchy")
+    sort_mode = svc.order_mode(request.args.get("sort"))
     if selected_view not in views:
         raise BadRequest("Choose a valid work view: " + ", ".join(views) + ".")
     view_args = request.args.to_dict()
@@ -257,11 +265,13 @@ def listing(kind):
                 pagination.items,
                 current_user,
                 include_children=kind != "tasks",
+                sort_mode=sort_mode,
             )
             if selected_view == "hierarchy"
             else []
         ),
         pagination=pagination,
+        sort_mode=sort_mode,
         page_links=page_links(pagination),
         **options(),
     )
@@ -270,6 +280,7 @@ def listing(kind):
 @bp.get("/<kind>/<int:identifier>")
 @login_required
 def detail(kind, identifier):
+    sort_mode = svc.order_mode(request.args.get("sort"))
     item = svc.get_item(kind, identifier, current_user)
     children = svc.descendants(item)
     top = svc.root(item)
@@ -288,7 +299,9 @@ def detail(kind, identifier):
         "projects/detail.html",
         title=item.name,
         item=svc.serialize(item),
-        hierarchy=svc.work_hierarchy([item], current_user, include_ancestors=False),
+        hierarchy=svc.work_hierarchy(
+            [item], current_user, include_ancestors=False, sort_mode=sort_mode
+        ),
         ancestors=ancestors,
         children=[svc.serialize(row) for row in children],
         schedule=schedule([item, *children]),
@@ -299,6 +312,7 @@ def detail(kind, identifier):
         status_actions=svc.status_actions(item, current_user),
         can_edit=svc.can_access(item, current_user, edit=True),
         can_manage=svc.can_manage(item, current_user),
+        sort_mode=sort_mode,
         root=svc.serialize(top),
         shares=shares,
         **options(),
@@ -781,6 +795,13 @@ def api_item(kind, identifier):
         svc.delete_item(item, payload(), current_user)
         db.session.commit()
     return jsonify(svc.serialize(item))
+
+
+@bp.post("/api/order")
+def api_work_order():
+    items = svc.reorder_work(payload(), current_user)
+    db.session.commit()
+    return jsonify(items=[svc.serialize(item) for item in items])
 
 
 @bp.get("/api/<kind>/<int:identifier>/summary")

@@ -36,6 +36,11 @@
 .work-node-more > summary { display: list-item; list-style-position: inside; }
 .work-node-secondary { display: flex; flex-wrap: wrap; gap: .5rem; padding: .65rem; margin-top: .5rem; border: 1px solid var(--bs-border-color); border-radius: var(--bs-border-radius); background: var(--bs-tertiary-bg); }
 .work-child-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem; padding-top: .75rem; margin-top: .85rem; border-top: 1px solid var(--bs-border-color); }
+.work-sort-controls { display: inline-flex; align-items: center; gap: .2rem; }
+.work-sort-controls .btn { padding: .15rem .35rem; }
+.work-sort-handle { cursor: grab; touch-action: none; }
+.work-sort-handle:active { cursor: grabbing; }
+.work-order-dragging { opacity: .5; }
 .work-kind { display: inline-flex; align-items: center; gap: .35rem; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 .work-kind-projects { color: var(--bs-primary-text-emphasis); }
 .work-kind-activities { color: var(--bs-info-text-emphasis); }

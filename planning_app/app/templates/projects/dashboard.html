@@ -66,7 +66,7 @@
 <section class="mb-4" aria-labelledby="dashboard-hierarchy-title">
   <h2 class="h5" id="dashboard-hierarchy-title">All visible work at a glance</h2>
   <p class="small text-muted">Projects and standalone work are shown below. Expand a project or activity to see its children and actions.</p>
-  {{ hierarchy_view(hierarchy, users) }}
+  {{ hierarchy_view(hierarchy, users, sort_mode=sort_mode, reorderable=true, root_orderable=root_orderable) }}
 </section>
 <section class="card mb-4"><div class="card-body">
   <div class="d-flex justify-content-between align-items-center mb-3">
