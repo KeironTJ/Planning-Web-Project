@@ -111,6 +111,71 @@ def test_dashboard_places_every_variant_once(signed_client, work):
     assert not any(parsed.context.values())
 
 
+def test_subtasks_are_one_level_and_render_under_their_parent(signed_client):
+    parent_task = create(signed_client, name="Parent task")
+    assert (
+        patch(
+            signed_client, parent_task, parent_task_id=parent_task["id"]
+        ).status_code
+        == 400
+    )
+    subtask = create(
+        signed_client, name="Subtask", parent_task_id=parent_task["id"]
+    )
+    assert subtask["parent_task_id"] == parent_task["id"]
+    assert subtask["effective_project_id"] is None
+
+    nested = signed_client.post(
+        f"{BASE}/tasks",
+        json={
+            "name": "Too deep",
+            "department": "Planning",
+            "parent_task_id": subtask["id"],
+        },
+    )
+    assert nested.status_code == 400
+
+    parsed = tree(signed_client, "/projects/tasks?view=hierarchy")
+    assert parsed.paths[key(subtask)] == (key(parent_task), key(subtask))
+    detail = signed_client.get(f"/projects/tasks/{parent_task['id']}")
+    assert detail.status_code == 200
+    assert b"Subtasks" in detail.data
+    assert b"Subtask" in detail.data
+
+
+def test_subtask_visibility_inherits_from_parent_task(
+    client, signed_client, viewer_user
+):
+    parent_task = create(signed_client, name="Shared parent task")
+    subtask = create(
+        signed_client, name="Inherited child task", parent_task_id=parent_task["id"]
+    )
+    grant(signed_client, parent_task, user_id=viewer_user.id, role="viewer")
+    sign_in(client, viewer_user)
+
+    assert client.get(f"{BASE}/tasks/{subtask['id']}").status_code == 200
+    assert client.patch(
+        f"{BASE}/tasks/{subtask['id']}",
+        json={"version": subtask["version"], "name": "Not allowed"},
+    ).status_code == 403
+
+
+def test_parent_task_cannot_close_while_subtask_is_open(signed_client):
+    parent_task = create(signed_client, name="Workflow parent")
+    subtask = create(
+        signed_client, name="Workflow subtask", parent_task_id=parent_task["id"]
+    )
+    active_parent = patch(signed_client, parent_task, status="active").get_json()
+    assert patch(signed_client, active_parent, status="completed").status_code == 409
+
+    active_subtask = patch(signed_client, subtask, status="active").get_json()
+    assert patch(signed_client, active_subtask, status="completed").status_code == 200
+    active_parent = signed_client.get(
+        f"{BASE}/tasks/{parent_task['id']}"
+    ).get_json()
+    assert patch(signed_client, active_parent, status="completed").status_code == 200
+
+
 @pytest.mark.parametrize(
     "status, primary, secondary",
     [

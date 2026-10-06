@@ -58,7 +58,12 @@
       <span class="small text-muted">{{ 'Activity task' if item.activity_id else 'Direct project task' if item.project_id else 'Standalone task' }}</span>
     </div>
     {{ metadata(item, users) }}
-    {{ status_controls(item, node.status_actions, compact=true) }}
+    {{ status_controls(item, node.status_actions, compact=true, add_subtask=true) }}
+    {% if node.children %}
+    <ul class="list-unstyled work-branch mt-2 mb-0">
+      {% for child in node.children %}{{ node_view(child, users) }}{% endfor %}
+    </ul>
+    {% endif %}
   </div>
   {% endif %}
 </li>

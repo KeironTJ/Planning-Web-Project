@@ -323,7 +323,7 @@ def form_data(kind):
     if kind != "projects":
         fields.append("project_id")
     if kind == "tasks":
-        fields.append("activity_id")
+        fields.extend(["activity_id", "parent_task_id"])
     data = {field: request.form.get(field, "") for field in fields}
     for field in ("start_date", "end_date", "deadline"):
         data[field] = form_date(data[field], field)
@@ -338,12 +338,14 @@ def parse_parent(kind, value):
     result = {"project_id": None}
     if kind == "tasks":
         result["activity_id"] = None
+        result["parent_task_id"] = None
     if not value:
         return result
     parent_kind, separator, identifier = value.partition(":")
     allowed = {"projects": "project_id"}
     if kind == "tasks":
         allowed["activities"] = "activity_id"
+        allowed["tasks"] = "parent_task_id"
     if not separator or parent_kind not in allowed:
         raise BadRequest("Choose a valid parent work item.")
     result[allowed[parent_kind]] = svc.integer(identifier, "parent")
@@ -386,6 +388,7 @@ def edit(kind, identifier=None):
                 "projects.edit", kind=kind, return_to=return_to(),
                 project_id=getattr(item, "project_id", None),
                 activity_id=getattr(item, "activity_id", None),
+                parent_task_id=getattr(item, "parent_task_id", None),
             ))
         return redirect(
             return_to() or url_for("projects.detail", kind=kind, identifier=item.id)
@@ -408,24 +411,38 @@ def render_form(kind, item, submitted=None):
             "assigned_user_ids": [],
             "project_id": request.args.get("project_id", ""),
             "activity_id": request.args.get("activity_id", ""),
+            "parent_task_id": request.args.get("parent_task_id", ""),
         }
     )
     if submitted is not None:
         data.update(submitted)
         data["assigned_user_ids"] = submitted.getlist("assigned_user_ids")
     elif not item:
-        if data.get("project_id") and data.get("activity_id"):
-            raise BadRequest("Choose a project OR an activity, not both.")
-        for field, parent_kind in (("project_id", "projects"), ("activity_id", "activities")):
+        if sum(
+            bool(data.get(field))
+            for field in ("project_id", "activity_id", "parent_task_id")
+        ) > 1:
+            raise BadRequest("Choose only one parent work item.")
+        for field, parent_kind in (
+            ("project_id", "projects"),
+            ("activity_id", "activities"),
+            ("parent_task_id", "tasks"),
+        ):
             if data.get(field):
                 parent_item = svc.get_item(
                     parent_kind, svc.integer(data[field], field), current_user, edit=True
                 )
+                if parent_kind == "tasks" and (
+                    parent_item.parent_task_id is not None
+                    or parent_item.status in svc.TERMINAL
+                ):
+                    raise BadRequest("Choose an open, top-level task as the parent.")
                 data["department"] = parent_item.department
     selected_parent = data.get("parent")
     if selected_parent is None:
         selected_parent = (
             f"activities:{data['activity_id']}" if data.get("activity_id")
+            else f"tasks:{data['parent_task_id']}" if data.get("parent_task_id")
             else f"projects:{data['project_id']}" if data.get("project_id") else ""
         )
     return render_template(
@@ -439,6 +456,14 @@ def render_form(kind, item, submitted=None):
             for row in visible["projects"]
             if svc.can_access(row, current_user, True)
         ],
+        parent_tasks=[
+            row
+            for row in visible["tasks"]
+            if row.parent_task_id is None
+            and row.status not in svc.TERMINAL
+            and (item is None or row.id != item.id)
+            and svc.can_access(row, current_user, True)
+        ] if item is not None or selected_parent.startswith("tasks:") else [],
         activities=[
             row
             for row in visible["activities"]
@@ -468,16 +493,27 @@ def create_options(kind):
         "priority": "normal", "parent": "",
     }
     if kind != "projects":
-        for field, parent_kind in (("activity_id", "activities"), ("project_id", "projects")):
+        for field, parent_kind in (
+            ("activity_id", "activities"),
+            ("project_id", "projects"),
+            ("parent_task_id", "tasks"),
+        ):
             if request.args.get(field):
                 if parent_kind == "activities" and kind != "tasks":
                     raise BadRequest("Only tasks can belong to activities.")
+                if parent_kind == "tasks" and kind != "tasks":
+                    raise BadRequest("Only tasks can belong to tasks.")
                 if defaults["parent"]:
                     raise BadRequest("Choose a project OR an activity, not both.")
                 parent_item = svc.get_item(
                     parent_kind, svc.integer(request.args[field], field),
                     current_user, edit=True,
                 )
+                if parent_kind == "tasks" and (
+                    parent_item.parent_task_id is not None
+                    or parent_item.status in svc.TERMINAL
+                ):
+                    raise BadRequest("Choose an open, top-level task as the parent.")
                 defaults.update(
                     parent=f"{parent_kind}:{parent_item.id}",
                     department=parent_item.department,
@@ -489,11 +525,13 @@ def create_options(kind):
              "label": f"{svc.work_reference(row)} - {row.name}",
              "department": row.department}
             for parent_kind in (
-                ["projects", "activities"] if kind == "tasks"
+                ["projects", "activities", "tasks"] if kind == "tasks"
                 else ["projects"] if kind == "activities" else []
             )
             for row in visible[parent_kind]
-            if svc.can_access(row, current_user, edit=True) and row.status not in svc.TERMINAL
+            if svc.can_access(row, current_user, edit=True)
+            and row.status not in svc.TERMINAL
+            and (parent_kind != "tasks" or row.parent_task_id is None)
         ],
         users=[{"id": user.id, "name": user.full_name} for user in users()],
         priorities=[priority.value for priority in Priority],

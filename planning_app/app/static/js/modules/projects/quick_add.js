@@ -39,8 +39,12 @@ export function initWorkQuickAdd(root) {
         const url = new URL(trigger.href);
         url.searchParams.delete('project_id');
         url.searchParams.delete('activity_id');
+        url.searchParams.delete('parent_task_id');
         const [parentKind, id] = form.elements.parent.value.split(':');
-        if (id) url.searchParams.set(parentKind === 'projects' ? 'project_id' : 'activity_id', id);
+        if (id) {
+            const field = { projects: 'project_id', activities: 'activity_id', tasks: 'parent_task_id' }[parentKind];
+            url.searchParams.set(field, id);
+        }
         fullForm.href = url.href;
     }
     async function load() {
@@ -55,7 +59,7 @@ export function initWorkQuickAdd(root) {
         errorBox.hidden = true;
         const origin = new URL(trigger.href);
         const url = new URL(endpoint(dialog.dataset.optionsBase), origin);
-        for (const key of ['project_id', 'activity_id']) {
+        for (const key of ['project_id', 'activity_id', 'parent_task_id']) {
             if (origin.searchParams.get(key)) url.searchParams.set(key, origin.searchParams.get(key));
         }
         try {
@@ -105,7 +109,9 @@ export function initWorkQuickAdd(root) {
         created = false;
         success.hidden = true;
         fullForm.href = link.href;
-        dialog.querySelector('#quick-add-title').textContent = `Add ${kinds[kind]}`;
+        const parentTask = new URL(link.href).searchParams.has('parent_task_id');
+        dialog.querySelector('#quick-add-title').textContent =
+            `Add ${parentTask ? 'subtask' : kinds[kind]}`;
         dialog.showModal();
         load();
     });
@@ -152,7 +158,10 @@ export function initWorkQuickAdd(root) {
             deadline,
         };
         const [parentKind, id] = form.elements.parent.value.split(':');
-        if (id) values[parentKind === 'projects' ? 'project_id' : 'activity_id'] = Number(id);
+        if (id) {
+            const field = { projects: 'project_id', activities: 'activity_id', tasks: 'parent_task_id' }[parentKind];
+            values[field] = Number(id);
+        }
         busy = true;
         errorBox.hidden = true;
         success.hidden = true;

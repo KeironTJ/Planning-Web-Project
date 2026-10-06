@@ -81,6 +81,17 @@
 {{ hierarchy_view(hierarchy, users, open_roots=true, grouped=false) }}
 </details>
 {% endif %}
+{% if item.kind == 'tasks' and not item.parent_task_id %}
+<section class="my-3" aria-label="Subtasks">
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+    <h2 class="h5 mb-0">Subtasks</h2>
+    {% if can_edit and item.status not in ['completed', 'cancelled'] %}
+    <a class="btn btn-sm btn-outline-primary" data-quick-add data-kind="tasks" href="{{ url_for('projects.edit', kind='tasks', parent_task_id=item.id, return_to=work_current_url()) }}"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add subtask</a>
+    {% endif %}
+  </div>
+  {{ hierarchy_view(hierarchy[0].children if hierarchy else [], users, open_roots=true, grouped=false) }}
+</section>
+{% endif %}
 <details class="my-4" data-state-key="schedule">
   <summary class="h5">Scheduling timeline</summary>
   {{ scheduling_view(schedule) }}

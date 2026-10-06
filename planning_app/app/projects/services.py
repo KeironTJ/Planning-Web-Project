@@ -60,7 +60,7 @@ def kind_of(item):
 
 def parent(item):
     if isinstance(item, Task):
-        return item.activity or item.project
+        return item.parent_task or item.activity or item.project
     if isinstance(item, Activity):
         return item.project
     return None
@@ -219,6 +219,7 @@ def serialize(item):
         )
     result["project_id"] = getattr(item, "project_id", None)
     result["activity_id"] = getattr(item, "activity_id", None)
+    result["parent_task_id"] = getattr(item, "parent_task_id", None)
     result["effective_project_id"] = (
         root(item).id if isinstance(root(item), Project) else None
     )
@@ -275,7 +276,7 @@ def save_item(kind, data, user, item=None):
     if kind != "projects":
         fields.add("project_id")
     if kind == "tasks":
-        fields.update({"activity_id", "assigned_user_ids"})
+        fields.update({"activity_id", "parent_task_id", "assigned_user_ids"})
     if set(data) - fields:
         raise BadRequest("Unknown fields: " + ", ".join(sorted(set(data) - fields)))
     creating = item is None
@@ -365,6 +366,7 @@ def save_item(kind, data, user, item=None):
     for field, parent_kind in (
         ("project_id", "projects"),
         ("activity_id", "activities"),
+        ("parent_task_id", "tasks"),
     ):
         if field not in fields or field not in data:
             continue
@@ -379,10 +381,25 @@ def save_item(kind, data, user, item=None):
                 if identifier
                 else None
             )
+            if (
+                field == "parent_task_id"
+                and selected is not None
+                and selected.id == item.id
+            ):
+                raise BadRequest("A task cannot be its own parent.")
+            if (
+                field == "parent_task_id"
+                and selected is not None
+                and selected.parent_task_id is not None
+            ):
+                raise BadRequest("Subtasks can only be one level deep.")
             setattr(item, field.removesuffix("_id"), selected)
             setattr(item, field, identifier)
-    if isinstance(item, Task) and item.project_id and item.activity_id:
-        raise BadRequest("Choose a project OR an activity, not both.")
+    if isinstance(item, Task) and sum(
+        value is not None
+        for value in (item.project_id, item.activity_id, item.parent_task_id)
+    ) > 1:
+        raise BadRequest("Choose only one parent work item.")
     if not creating and old_parent is not parent(item) and descendants(item):
         raise Conflict("Move child items first before changing hierarchy.")
     status_changed = creating or before["status"] != item.status.value
@@ -393,14 +410,14 @@ def save_item(kind, data, user, item=None):
             raise Conflict(
                 "Complete or cancel child work before closing this item: "
                 f"{counts['activities']['outstanding']} activities and "
-                f"{counts['tasks']['outstanding']} tasks remain outstanding."
+                f"{counts['tasks']['outstanding']} tasks and subtasks remain outstanding."
             )
     if item.status not in TERMINAL:
         ancestor = parent(item)
         while ancestor is not None:
             if ancestor.status in TERMINAL:
                 raise Conflict(
-                    "Reopen the parent project/activity before opening child work."
+                    "Reopen the parent work item before opening child work."
                 )
             ancestor = parent(ancestor)
     if isinstance(item, Task) and "assigned_user_ids" in data:
@@ -432,12 +449,24 @@ def descendants(item, include_deleted=False):
 
     if isinstance(item, Project):
         activities = children(Activity, project_id=item.id)
-        tasks = children(Task, project_id=item.id)
+        tasks = children(Task, project_id=item.id, parent_task_id=None)
         for activity in activities:
-            tasks.extend(children(Task, activity_id=activity.id))
-        return activities + tasks
+            tasks.extend(children(Task, activity_id=activity.id, parent_task_id=None))
+        subtasks = [
+            subtask
+            for task in tasks
+            for subtask in children(Task, parent_task_id=task.id)
+        ]
+        return activities + tasks + subtasks
     if isinstance(item, Activity):
-        return children(Task, activity_id=item.id)
+        tasks = children(Task, activity_id=item.id, parent_task_id=None)
+        return tasks + [
+            subtask
+            for task in tasks
+            for subtask in children(Task, parent_task_id=task.id)
+        ]
+    if isinstance(item, Task):
+        return children(Task, parent_task_id=item.id)
     return []
 
 
@@ -461,7 +490,7 @@ def visible_items(user):
 
 
 def work_hierarchy(items, user, include_children=True, include_ancestors=True):
-    """Build one visibility-safe forest, preserving direct and activity task parents."""
+    """Build one visibility-safe forest, preserving work and subtask parents."""
     selected = {(kind_of(item), item.id) for item in items}
     rows = {}
     for kind, cls in MODELS.items():
@@ -499,8 +528,32 @@ def work_hierarchy(items, user, include_children=True, include_ancestors=True):
                     .all()
                 }
             )
+        task_ids = [identifier for kind, identifier in rows if kind == "tasks"]
+        if task_ids:
+            rows.update(
+                {
+                    ("tasks", row.id): row
+                    for row in visible_query("tasks", user)
+                    .filter(Task.parent_task_id.in_(task_ids))
+                    .all()
+                }
+            )
     content_keys = set(rows)
     if include_ancestors:
+        parent_task_ids = {
+            row.parent_task_id
+            for row in rows.values()
+            if isinstance(row, Task) and row.parent_task_id
+        }
+        if parent_task_ids:
+            rows.update(
+                {
+                    ("tasks", row.id): row
+                    for row in visible_query("tasks", user)
+                    .filter(Task.id.in_(parent_task_ids))
+                    .all()
+                }
+            )
         activity_ids = {
             row.activity_id
             for row in rows.values()
@@ -544,6 +597,8 @@ def work_hierarchy(items, user, include_children=True, include_ancestors=True):
         parent_key = None
         if isinstance(row, Task) and row.activity_id:
             parent_key = ("activities", row.activity_id)
+        elif isinstance(row, Task) and row.parent_task_id:
+            parent_key = ("tasks", row.parent_task_id)
         elif isinstance(row, (Activity, Task)) and row.project_id:
             parent_key = ("projects", row.project_id)
         if parent_key in nodes:
@@ -624,6 +679,19 @@ def visible_query(kind, user):
             db.and_(Activity.project_id.is_(None), root_access(Activity, user)),
         ),
     )
+    root_tasks = db.select(Task.id).where(
+        Task.deleted_at.is_(None),
+        Task.parent_task_id.is_(None),
+        or_(
+            Task.project_id.in_(projects),
+            Task.activity_id.in_(activities),
+            db.and_(
+                Task.project_id.is_(None),
+                Task.activity_id.is_(None),
+                root_access(Task, user),
+            ),
+        ),
+    )
     if kind == "projects":
         return Project.query.filter(Project.id.in_(projects))
     if kind == "activities":
@@ -633,9 +701,11 @@ def visible_query(kind, user):
         or_(
             Task.project_id.in_(projects),
             Task.activity_id.in_(activities),
+            Task.parent_task_id.in_(root_tasks),
             db.and_(
                 Task.project_id.is_(None),
                 Task.activity_id.is_(None),
+                Task.parent_task_id.is_(None),
                 root_access(Task, user),
             ),
         ),
@@ -736,6 +806,18 @@ def filtered_query(kind, user, filters):
                     Task.activity_id.in_(
                         db.select(Activity.id).where(Activity.project_id.is_not(None))
                     ),
+                    Task.parent_task_id.in_(
+                        db.select(Task.id).where(
+                            or_(
+                                Task.project_id.is_not(None),
+                                Task.activity_id.in_(
+                                    db.select(Activity.id).where(
+                                        Activity.project_id.is_not(None)
+                                    )
+                                ),
+                            )
+                        )
+                    ),
                 )
             )
     elif scope == "activity":
@@ -751,7 +833,16 @@ def filtered_query(kind, user, filters):
             identifier = integer(filters[field], field)
             if field == "activity_id":
                 query = (
-                    query.filter(Task.activity_id == identifier)
+                    query.filter(
+                        or_(
+                            Task.activity_id == identifier,
+                            Task.parent_task_id.in_(
+                                db.select(Task.id).where(
+                                    Task.activity_id == identifier
+                                )
+                            ),
+                        )
+                    )
                     if kind == "tasks"
                     else query.filter(db.false())
                 )
@@ -766,6 +857,18 @@ def filtered_query(kind, user, filters):
                         Task.activity_id.in_(
                             db.select(Activity.id).where(
                                 Activity.project_id == identifier
+                            )
+                        ),
+                        Task.parent_task_id.in_(
+                            db.select(Task.id).where(
+                                or_(
+                                    Task.project_id == identifier,
+                                    Task.activity_id.in_(
+                                        db.select(Activity.id).where(
+                                            Activity.project_id == identifier
+                                        )
+                                    ),
+                                )
                             )
                         ),
                     )

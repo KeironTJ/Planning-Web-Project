@@ -24,6 +24,7 @@
       <option value="">Standalone {{ kind|work_kind }}</option>
       <optgroup label="Projects">{% for project in projects %}<option value="projects:{{ project.id }}" {% if selected_parent == 'projects:' ~ project.id %}selected{% endif %}>{{ project|work_reference }} - {{ project.name }}</option>{% endfor %}</optgroup>
       {% if kind == 'tasks' %}<optgroup label="Activities">{% for activity in activities %}<option value="activities:{{ activity.id }}" {% if selected_parent == 'activities:' ~ activity.id %}selected{% endif %}>{{ activity|work_reference }} - {{ activity.name }}</option>{% endfor %}</optgroup>{% endif %}
+      {% if kind == 'tasks' %}<optgroup label="Parent tasks">{% for parent_task in parent_tasks %}<option value="tasks:{{ parent_task.id }}" {% if selected_parent == 'tasks:' ~ parent_task.id %}selected{% endif %}>{{ parent_task|work_reference }} - {{ parent_task.name }}</option>{% endfor %}</optgroup>{% endif %}
     </select>
     <p class="form-text mb-0">Child work inherits access from its root. Choosing a parent does not change sharing.</p>
   </div>

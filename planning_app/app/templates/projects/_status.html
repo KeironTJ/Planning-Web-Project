@@ -9,7 +9,7 @@
 </form>
 {% endmacro %}
 
-{% macro status_controls(item, actions, compact=false) %}
+{% macro status_controls(item, actions, compact=false, add_subtask=false) %}
 {% if compact %}
 {% set primary_status = 'completed' if item.status == 'active' else 'planned' if item.status == 'cancelled' else 'active' %}
 <div class="work-node-actions" aria-label="{{ 'Status actions' if actions else 'Navigation' }} for {{ item.name }}">
@@ -25,6 +25,9 @@
       {% for action in secondary %}{{ status_form(item, action) }}{% endfor %}
     </div>
   </details>
+  {% endif %}
+  {% if add_subtask and actions and not item.parent_task_id %}
+  <a class="btn btn-sm btn-outline-primary" data-quick-add data-kind="tasks" href="{{ url_for('projects.edit', kind='tasks', parent_task_id=item.id, return_to=work_current_url()) }}"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add subtask</a>
   {% endif %}
 </div>
 {% else %}

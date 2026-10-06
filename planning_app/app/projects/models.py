@@ -100,14 +100,28 @@ class Task(WorkFields, db.Model):
         db.CheckConstraint(
             "activity_id IS NULL OR project_id IS NULL", name="task_one_parent"
         ),
+        db.CheckConstraint(
+            "parent_task_id IS NULL OR "
+            "(project_id IS NULL AND activity_id IS NULL)",
+            name="task_subtask_one_parent",
+        ),
     )
     # An activity's project is derived rather than stored twice.
     project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), index=True)
     activity_id = db.Column(
         db.Integer, db.ForeignKey("project_activities.id"), index=True
     )
+    parent_task_id = db.Column(
+        db.Integer, db.ForeignKey("project_tasks.id"), index=True
+    )
     project = db.relationship("Project", foreign_keys=[project_id])
     activity = db.relationship("Activity", foreign_keys=[activity_id])
+    parent_task = db.relationship(
+        "Task", remote_side="Task.id", foreign_keys=[parent_task_id]
+    )
+    subtasks = db.relationship(
+        "Task", foreign_keys=[parent_task_id], back_populates="parent_task"
+    )
     assigned_users = db.relationship(
         "User", secondary="project_task_assignees", lazy="selectin"
     )

@@ -347,9 +347,10 @@ Set-Location planning_app
 ```
 
 Use your deployment interpreter instead of the example local virtual environment
-where appropriate. The new revision is `e2a9417c630b`. No dependency changes or
-database reseeding are required. Apply the migration before starting the updated
-application. Downgrading removes the module's data; it is not an archive operation.
+where appropriate. The subtask schema revision is `4b8d1a2f6c90`. No dependency
+changes or database reseeding are required. Apply the migration before starting
+the updated application. Downgrading removes subtask relationships; it is not an
+archive operation.
 Production deployment still requires the existing application's HTTPS, secure
 session cookies, secrets, database backups and operational monitoring.
 
