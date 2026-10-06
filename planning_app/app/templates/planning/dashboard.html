@@ -59,6 +59,7 @@
       </a>
     </div>
 
+    {% if current_user.has_permission('override_capacity') %}
     <div class="col-12 col-md-6 col-lg-4">
       <a href="{{ url_for('capacity.labour_plan_list') }}" class="text-decoration-none">
         <div class="card h-100 border-0 shadow-sm card-hover">
@@ -74,6 +75,8 @@
         </div>
       </a>
     </div>
+
+    {% endif %}
 
     <div class="col-12 col-md-6 col-lg-4">
       <a href="{{ url_for('workorder_plan.groups_list') }}" class="text-decoration-none">

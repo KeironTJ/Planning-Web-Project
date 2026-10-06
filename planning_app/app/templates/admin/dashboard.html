@@ -43,6 +43,23 @@
     </div>
 </div>
 
+<section class="card border-0 shadow-sm mb-4" aria-labelledby="admin-tools-heading">
+    <div class="card-body">
+        <h2 class="h5" id="admin-tools-heading">System &amp; Data Tools</h2>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{{ url_for('admin.system_settings') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-gear me-1"></i>Settings
+            </a>
+            <a href="{{ url_for('admin.sync_schedules') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-calendar-event me-1"></i>Sync Schedules
+            </a>
+            <a href="{{ url_for('admin.data_main_material') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-database me-1"></i>Main Material Data
+            </a>
+        </div>
+    </div>
+</section>
+
 <div class="row g-3">
     <!-- Recent imports -->
     <div class="col-lg-6">

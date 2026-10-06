@@ -102,6 +102,18 @@ def viewer_user(db_session):
     return user
 
 
+@pytest.fixture
+def purchasing_user(db_session):
+    """Create a purchasing manager without import-management access."""
+    purchasing_role = Role.query.filter_by(name="purchasing_team").one()
+    user = User(username="purchasing_test", email="purchasing@test.com", is_active=True)
+    user.set_password("Purchasing!Pass1234")
+    user.roles.append(purchasing_role)
+    db_session.add(user)
+    db_session.commit()
+    return user
+
+
 def login(client, email: str, password: str):
     """Helper: POST to login endpoint and return the response."""
     return client.post("/auth/login", data={

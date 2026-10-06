@@ -38,11 +38,11 @@
         <div class="card h-100 border-0 shadow-sm card-hover">
           <div class="card-body d-flex align-items-start gap-3 p-4">
             <div class="rounded-3 p-2 bg-danger bg-opacity-10 flex-shrink-0">
-              <i class="bi bi-exclamation-triangle fs-4 text-danger"></i>
+              <i class="bi bi-layers fs-4 text-danger"></i>
             </div>
             <div>
-              <h6 class="fw-semibold mb-1">Shortages</h6>
-              <p class="text-muted small mb-0">Jobs with unmet material requirements</p>
+              <h6 class="fw-semibold mb-1">Fabric/Hide Availability</h6>
+              <p class="text-muted small mb-0">Stock summary and weekly fabric and hide availability</p>
             </div>
           </div>
         </div>
@@ -57,8 +57,24 @@
               <i class="bi bi-list-ul fs-4 text-danger"></i>
             </div>
             <div>
-              <h6 class="fw-semibold mb-1">Shortage Detail</h6>
-              <p class="text-muted small mb-0">Line-by-line material shortage breakdown</p>
+              <h6 class="fw-semibold mb-1">Fabric/Hide Shortages</h6>
+              <p class="text-muted small mb-0">Line-by-line fabric and hide shortage breakdown</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.component_shortage') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-danger bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-layers fs-4 text-danger"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Component Shortages</h6>
+              <p class="text-muted small mb-0">Component availability and unmet production requirements</p>
             </div>
           </div>
         </div>
@@ -75,6 +91,22 @@
             <div>
               <h6 class="fw-semibold mb-1">MRP Pegging</h6>
               <p class="text-muted small mb-0">Material requirements planning and demand tracing</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.release_impact') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-success bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-cash-stack fs-4 text-success"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Cash Release Impact</h6>
+              <p class="text-muted small mb-0">Prioritise material purchases by the orders they unlock</p>
             </div>
           </div>
         </div>
@@ -137,7 +169,7 @@
               <i class="bi bi-list-columns fs-4 text-secondary"></i>
             </div>
             <div>
-              <h6 class="fw-semibold mb-1">Main Material Reqs</h6>
+              <h6 class="fw-semibold mb-1">Material Reqs</h6>
               <p class="text-muted small mb-0">Full material requirements list for production</p>
             </div>
           </div>
@@ -145,7 +177,7 @@
       </a>
     </div>
 
-    {% if current_user.has_permission('manage_imports') %}
+    {% if current_user.has_permission('manage_imports') or current_user.has_permission('manage_purchasing') %}
     <div class="col-12 col-md-6 col-lg-4">
       <a href="{{ url_for('materials.exempt_materials') }}" class="text-decoration-none">
         <div class="card h-100 border-0 shadow-sm card-hover">
@@ -156,6 +188,21 @@
             <div>
               <h6 class="fw-semibold mb-1">MRP Exemptions</h6>
               <p class="text-muted small mb-0">Materials excluded from MRP shortage calculations</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('materials.class_labels') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-secondary bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-tags fs-4 text-secondary"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Class Labels</h6>
+              <p class="text-muted small mb-0">Manage display names for material classes</p>
             </div>
           </div>
         </div>

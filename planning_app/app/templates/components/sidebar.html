@@ -49,6 +49,7 @@
                                 <i class="bi bi-exclamation-triangle me-2"></i>Overdue Report
                             </a>
                         </li>
+                        {% if current_user.has_permission('view_sales') %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'sales.customer_report' %}active{% endif %}"
                                href="{{ url_for('sales.customer_report') }}">
@@ -61,6 +62,7 @@
                                 <i class="bi bi-box-seam me-2"></i>Model Report
                             </a>
                         </li>
+                        {% endif %}
                         {% if active_departments %}
                         {% set dept_filter_active = request.endpoint == 'orders.order_book' and request.args.get('dept_id') %}
                         <li class="nav-item mt-1">
@@ -93,7 +95,7 @@
             {% endif %}
 
             {% if current_user.has_permission('view_capacity') %}
-            {% set planning_active = request.endpoint in ('capacity.dashboard', 'capacity.labour_plan_list', 'capacity.labour_plan_save') or (request.endpoint and request.endpoint.startswith('workorder_plan.')) %}
+            {% set planning_active = request.endpoint in ('planning.dashboard', 'capacity.dashboard', 'capacity.labour_plan_list', 'capacity.labour_plan_save') or (request.endpoint and request.endpoint.startswith('workorder_plan.')) %}
             <li class="sidebar-section">
                 <div class="sidebar-section-heading">
                     <a href="{{ url_for('planning.dashboard') }}">
@@ -146,7 +148,7 @@
 
             {% if current_user.has_permission('view_materials') %}
             {% set purchasing_data_endpoints = ('materials.stock_list', 'materials.po_list', 'materials.main_requirements', 'materials.exempt_materials', 'materials.class_labels') %}
-            {% set purchasing_endpoints = ('purchasing.overview', 'materials.index', 'materials.shortage', 'materials.component_shortage', 'materials.mrp', 'materials.release_impact', 'purchasing.supplier_delivery') + purchasing_data_endpoints %}
+            {% set purchasing_endpoints = ('purchasing.dashboard', 'purchasing.overview', 'materials.index', 'materials.shortage', 'materials.component_shortage', 'materials.mrp', 'materials.release_impact', 'purchasing.supplier_delivery') + purchasing_data_endpoints %}
             {% set purchasing_active = request.endpoint in purchasing_endpoints %}
             {% set purchasing_data_active = request.endpoint in purchasing_data_endpoints %}
             <li class="sidebar-section">
@@ -234,7 +236,7 @@
                                             <i class="bi bi-list-columns me-2"></i>Material Reqs
                                         </a>
                                     </li>
-                                    {% if current_user.has_permission('manage_imports') %}
+                                    {% if current_user.has_permission('manage_imports') or current_user.has_permission('manage_purchasing') %}
                                     <li class="nav-item">
                                         <a class="nav-link {% if request.endpoint == 'materials.exempt_materials' %}active{% endif %}"
                                            href="{{ url_for('materials.exempt_materials') }}">
