@@ -17,6 +17,8 @@
 .work-dashboard-heading { margin-bottom: 1rem; }
 .work-dashboard-progress { padding: 1rem; border: 1px solid var(--bs-border-color); border-radius: var(--bs-border-radius); background: var(--bs-tertiary-bg); }
 .work-dashboard-progress .progress { height: .4rem; }
+.work-attention-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: 1rem; }
+.work-attention-grid > .card { min-width: 0; overflow-wrap: anywhere; }
 .work-status { display: inline-flex; align-items: center; gap: .4rem; padding: .35rem .65rem; border: 1px solid; border-radius: 2rem; font-size: .8rem; font-weight: 700; white-space: nowrap; }
 .work-status-planned { color: var(--bs-secondary-text-emphasis); background: var(--bs-secondary-bg-subtle); border-color: var(--bs-secondary-border-subtle); }
 .work-status-active { color: var(--bs-primary-text-emphasis); background: var(--bs-primary-bg-subtle); border-color: var(--bs-primary-border-subtle); }

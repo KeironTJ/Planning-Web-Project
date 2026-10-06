@@ -49,10 +49,10 @@
 <h2 class="h5" id="dashboard-attention-title">Needs attention</h2>
 {% if attention.overdue.total or attention.blocked.total or attention.upcoming.total %}
 <p class="small text-muted mb-2">Open work only. Items can be both blocked and overdue. Up to five previews per group, earliest deadline first.</p>
-<div class="row g-3 mb-4">
+<div class="work-attention-grid mb-4">
 {% for group, label in [('overdue', 'Overdue'), ('blocked', 'Blocked'), ('upcoming', 'Due soon')] %}
 {% if attention[group].total %}
-<div class="col-12 col-xl-4">{{ attention_panel(group, label, attention[group]) }}</div>
+{{ attention_panel(group, label, attention[group]) }}
 {% endif %}
 {% endfor %}
 </div>

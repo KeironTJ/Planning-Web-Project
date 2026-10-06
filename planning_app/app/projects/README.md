@@ -96,7 +96,9 @@ and the existing status/quick-edit controls for editors. Viewers see no mutation
 controls. Status actions preserve dashboard origin and retain all permissions,
 CSRF, version checks and descendant-completion rules; Quick edit refreshes it.
 Empty attention groups use a compact "No … work" row rather than cards with
-zero-count links. The work hierarchy is always visible below attention, ahead of
+zero-count links. Nonempty attention panels share the available width and wrap
+when there is not enough room for readable cards, rather than reserving a fixed
+third of the row for each group. The work hierarchy is always visible below attention, ahead of
 recent updates. Individual project/activity branches remain expandable, with
 their expansion remembered by the existing workspace component. The top
 navigation provides the scheduling timeline; it is not duplicated in shortcuts.

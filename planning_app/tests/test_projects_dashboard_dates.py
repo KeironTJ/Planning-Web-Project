@@ -202,6 +202,27 @@ def test_empty_attention_is_explicit(signed_client):
         assert f"No {label} work." in html
 
 
+@pytest.mark.parametrize("groups", [1, 2, 3])
+def test_attention_grid_only_contains_nonempty_panels(signed_client, groups):
+    overdue = create(
+        signed_client, deadline=(date.today() - timedelta(days=1)).isoformat()
+    )
+    if groups >= 2:
+        active = patch(signed_client, overdue, status="active").get_json()
+        patch(signed_client, active, status="blocked")
+    if groups == 3:
+        create(signed_client, deadline=date.today().isoformat())
+    response = signed_client.get("/projects/")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    section = html.split('aria-labelledby="dashboard-attention-title">')[1].split(
+        'aria-label="Clear attention groups"'
+    )[0]
+    assert 'class="work-attention-grid mb-4"' in section
+    assert section.count('class="card h-100') == groups
+    assert "col-xl-4" not in section
+
+
 def test_archived_work_disappears_from_attention(signed_client):
     task = create(signed_client, deadline=(date.today() - timedelta(days=1)).isoformat())
     assert b"Overdue (1)" in signed_client.get("/projects/").data
