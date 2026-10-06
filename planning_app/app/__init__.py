@@ -302,7 +302,10 @@ def _register_template_globals(app: Flask) -> None:
                 pass
 
         return {
-            "app_name": app.config.get("APP_NAME", "Factory Dashboards"),
+            "app_name": app.config.get("APP_NAME", "Tetrad: Operations Platform"),
+            "app_tagline": app.config.get(
+                "APP_TAGLINE", "Connecting every step from order to delivery."
+            ),
             "current_year": __import__("datetime").datetime.utcnow().year,
             "active_departments": active_departments,
             "active_site": active_site,

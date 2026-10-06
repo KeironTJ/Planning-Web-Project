@@ -23,7 +23,10 @@ class BaseConfig:
 
     # --- Core ---
     SECRET_KEY: str = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
-    APP_NAME: str = os.environ.get("APP_NAME", "Factory Dashboards")
+    APP_NAME: str = os.environ.get("APP_NAME", "Tetrad: Operations Platform")
+    APP_TAGLINE: str = os.environ.get(
+        "APP_TAGLINE", "Connecting every step from order to delivery."
+    )
 
     # --- Database ---
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False

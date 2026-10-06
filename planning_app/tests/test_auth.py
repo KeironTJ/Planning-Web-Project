@@ -67,6 +67,23 @@ class TestLoginAttemptTracking:
 
 
 class TestLogin:
+    def test_product_branding_is_consistent(self, app, client, planner_user, monkeypatch):
+        monkeypatch.setitem(app.config, "APP_NAME", "Tetrad: Operations Platform")
+        monkeypatch.setitem(
+            app.config, "APP_TAGLINE", "Connecting every step from order to delivery."
+        )
+
+        sign_in = client.get("/auth/login")
+        assert b"Tetrad: Operations Platform" in sign_in.data
+        assert b"Connecting every step from order to delivery." in sign_in.data
+        assert b"Tetrad: Operations Platform" in sign_in.data.split(b"<title>", 1)[1]
+
+        login(client, "planner@test.com", "Planner!Pass1234")
+        home = client.get("/")
+        assert b"Tetrad: Operations Platform" in home.data
+        assert b"Connecting every step from order to delivery." in home.data
+        assert b"Home \xe2\x80\x94 Tetrad: Operations Platform" in home.data
+
     def test_login_success(self, client, planner_user):
         response = login(client, "planner@test.com", "Planner!Pass1234")
         assert response.status_code == 200

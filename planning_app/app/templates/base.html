@@ -1,7 +1,7 @@
 {% extends 'layout.html' %}
 
 {% block head_layout %}
-    <meta name="description" content="{{ app_name }} — {{ company_name }} Internal Planning Tool">
+    <meta name="description" content="{{ app_name }} — {{ app_tagline }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
 {% endblock %}
@@ -42,4 +42,3 @@
         </div>
     </div>
 {% endblock %}
-
