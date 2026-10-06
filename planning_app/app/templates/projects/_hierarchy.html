@@ -78,9 +78,12 @@
     {% if node.children %}
     {% set can_reorder_children = namespace(value=allow_reorder and node.children|length > 1 and node.children|length <= 500) %}
     {% for child in node.children %}{% if not child.status_actions %}{% set can_reorder_children.value = false %}{% endif %}{% endfor %}
-    <ul class="list-unstyled work-branch mt-2 mb-0" {% if can_reorder_children.value %}data-order-list data-parent-kind="tasks" data-parent-id="{{ item.id }}"{% endif %}>
-      {% for child in node.children %}{{ node_view(child, users, sort_mode=sort_mode, reorderable=can_reorder_children.value, allow_reorder=allow_reorder, can_move_up=can_reorder_children.value and not loop.first, can_move_down=can_reorder_children.value and not loop.last) }}{% endfor %}
-    </ul>
+    <details class="work-subtasks mt-2" data-state-key="task-subtasks:{{ item.id }}" open>
+      <summary class="small fw-semibold">Subtasks ({{ node.children|length }})</summary>
+      <ul class="list-unstyled work-branch mt-2 mb-0" {% if can_reorder_children.value %}data-order-list data-parent-kind="tasks" data-parent-id="{{ item.id }}"{% endif %}>
+        {% for child in node.children %}{{ node_view(child, users, sort_mode=sort_mode, reorderable=can_reorder_children.value, allow_reorder=allow_reorder, can_move_up=can_reorder_children.value and not loop.first, can_move_down=can_reorder_children.value and not loop.last) }}{% endfor %}
+      </ul>
+    </details>
     {% endif %}
   </div>
   {% endif %}

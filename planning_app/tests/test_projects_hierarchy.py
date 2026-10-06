@@ -158,6 +158,14 @@ def test_subtasks_are_one_level_and_render_under_their_parent(signed_client):
 
     parsed = tree(signed_client, "/projects/tasks?view=hierarchy")
     assert parsed.paths[key(subtask)] == (key(parent_task), key(subtask))
+    hierarchy_html = signed_client.get(
+        "/projects/tasks?view=hierarchy"
+    ).get_data(as_text=True)
+    assert (
+        f'data-state-key="task-subtasks:{parent_task["id"]}" open>'
+        in hierarchy_html
+    )
+    assert f"Subtasks (1)" in hierarchy_html
     detail = signed_client.get(f"/projects/tasks/{parent_task['id']}")
     assert detail.status_code == 200
     assert b"Subtasks" in detail.data
