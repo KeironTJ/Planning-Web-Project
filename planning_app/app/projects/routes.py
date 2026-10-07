@@ -179,7 +179,7 @@ def reports():
     return render_template(
         "projects/reports.html",
         title="Work reports",
-        report=svc.report(current_user),
+        report=svc.report(current_user, include_context=True),
         **options(),
     )
 
@@ -221,6 +221,16 @@ def listing(kind):
     view_args.pop("kind", None)
     view_args.pop("return_to", None)
     pagination = paginate(svc.filtered_query(kind, current_user, request.args))
+    hierarchy = (
+        svc.work_hierarchy(
+            pagination.items,
+            current_user,
+            include_children=kind != "tasks",
+            sort_mode=sort_mode,
+        )
+        if selected_view in {"hierarchy", "list"}
+        else []
+    )
     quick_filters = dict(svc.QUICK_FILTERS)
     if kind == "tasks":
         quick_filters["assigned"] = "Assigned to me"
@@ -250,7 +260,10 @@ def listing(kind):
             }
             for view, label in views.items()
         },
-        items=[svc.serialize(item) for item in pagination.items],
+        items=(
+            svc.work_list(hierarchy) if selected_view == "list"
+            else [svc.serialize(item) for item in pagination.items]
+        ),
         schedule=(
             schedule(
                 [
@@ -260,16 +273,7 @@ def listing(kind):
                 ] if kind != "tasks" else pagination.items
             ) if selected_view == "timeline" else None
         ),
-        hierarchy=(
-            svc.work_hierarchy(
-                pagination.items,
-                current_user,
-                include_children=kind != "tasks",
-                sort_mode=sort_mode,
-            )
-            if selected_view == "hierarchy"
-            else []
-        ),
+        hierarchy=hierarchy,
         pagination=pagination,
         sort_mode=sort_mode,
         page_links=page_links(pagination),
@@ -284,12 +288,20 @@ def detail(kind, identifier):
     item = svc.get_item(kind, identifier, current_user)
     children = svc.descendants(item)
     top = svc.root(item)
-    ancestors = []
-    cursor = svc.parent(item)
-    while cursor is not None:
-        ancestors.append(svc.serialize(cursor))
-        cursor = svc.parent(cursor)
-    ancestors.reverse()
+    ancestors = svc.work_ancestors(item, current_user)
+    selected_view = request.args.get("view", "hierarchy")
+    views = (
+        {"list": "List", "hierarchy": "Hierarchy"}
+        if kind != "tasks" else {"hierarchy": "Hierarchy"}
+    )
+    if selected_view not in views:
+        raise BadRequest("Choose a valid work view: " + ", ".join(views) + ".")
+    view_args = request.args.to_dict()
+    for field in ("view", "kind", "identifier"):
+        view_args.pop(field, None)
+    hierarchy = svc.work_hierarchy(
+        [item], current_user, include_ancestors=False, sort_mode=sort_mode
+    )
     shares = (
         Share.query.filter_by(**svc.target(top)).all()
         if svc.can_manage(top, current_user)
@@ -299,9 +311,19 @@ def detail(kind, identifier):
         "projects/detail.html",
         title=item.name,
         item=svc.serialize(item),
-        hierarchy=svc.work_hierarchy(
-            [item], current_user, include_ancestors=False, sort_mode=sort_mode
-        ),
+        hierarchy=hierarchy,
+        list_items=svc.work_list(hierarchy, ancestors),
+        selected_view=selected_view,
+        view_links={
+            view: {
+                "label": label,
+                "url": url_for(
+                    "projects.detail", kind=kind, identifier=identifier,
+                    view=view, **view_args,
+                ),
+            }
+            for view, label in views.items()
+        },
         ancestors=ancestors,
         children=[svc.serialize(row) for row in children],
         schedule=schedule([item, *children]),

@@ -55,18 +55,31 @@
 {% macro table(items, users, show_quick_edit=true) %}
 <div class="table-responsive">
 <table class="table table-striped align-middle">
-  <thead><tr><th>Name</th><th>Context</th><th>Status / priority</th><th>Department / owner</th><th>Deadline</th><th>Budget / actuals</th></tr></thead>
+  <thead><tr><th scope="col">Work item</th><th scope="col">Context / parent work</th><th scope="col">Status / priority</th><th scope="col">Department / owner</th><th scope="col">Deadline</th><th scope="col">Budget / actuals</th></tr></thead>
   <tbody>
   {% for item in items %}
-  <tr>
-    <td><span class="work-reference">{{ item.reference }}</span> <a href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_return_to() or work_current_url()) }}">{{ item.name }}</a>{% if show_quick_edit %}<div class="mt-2">{{ quick_edit_link(item) }}</div>{% endif %}</td>
-    <td>{{ item.kind|work_kind|title }}<br>
-      {% if item.activity_id %}<a href="{{ url_for('projects.detail', kind='activities', identifier=item.activity_id, return_to=work_return_to() or work_current_url()) }}">Activity #{{ item.activity_id }}</a>
-      {% elif item.project_id %}<a href="{{ url_for('projects.detail', kind='projects', identifier=item.project_id, return_to=work_return_to() or work_current_url()) }}">Project #{{ item.project_id }}</a>
-      {% elif item.kind != 'projects' %}Standalone{% else %}Project{% endif %}
+  <tr data-work-row="{{ item.kind }}:{{ item.id }}" data-work-depth="{{ item.depth|default(0) }}">
+    <td><div class="work-list-name" style="--work-depth: {{ item.depth|default(0) }}">
+      <span class="work-kind work-kind-{{ item.kind }}">{{ 'Subtask' if item.parent_task_id else item.kind|work_kind|title }}</span>
+      <span class="work-reference">{{ item.reference }}</span>
+      <a class="fw-semibold text-break" href="{{ url_for('projects.detail', kind=item.kind, identifier=item.id, return_to=work_current_url()) }}">{{ item.name }}</a>
+      {% if show_quick_edit %}<div class="mt-2">{{ quick_edit_link(item) }}</div>{% endif %}
+    </div></td>
+    <td>
+      {% if item.ancestors %}
+      <ol class="work-list-context" aria-label="Parent work">
+        {% for ancestor in item.ancestors %}
+        <li><span class="small text-muted">{{ ancestor.kind|work_kind|title }}</span>
+          <a href="{{ url_for('projects.detail', kind=ancestor.kind, identifier=ancestor.id, return_to=work_current_url()) }}">{{ ancestor.name }}</a>
+          <span class="work-reference">{{ ancestor.reference }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% elif item.kind == 'projects' %}Project
+      {% else %}Standalone {{ item.kind|work_kind }}{% endif %}
     </td>
     <td>{{ status_badge(item.status) }}<div class="small mt-1">{{ item.priority|title }} priority</div></td>
-    <td>{{ item.department }}<br>{% for user in users if user.id == item.owner_id %}{{ user.full_name }} {% endfor %}(user #{{ item.owner_id }})</td>
+    <td>{{ item.department }}<br>{% for user in users if user.id == item.owner_id %}{{ user.full_name }}{% else %}User #{{ item.owner_id }}{% endfor %}</td>
     <td>{{ item.deadline|work_date or '-' }}</td>
     <td>{{ item.budget }} / {{ item.actuals }}{% if item.over_budget %}<span class="badge text-bg-danger">Over budget</span>{% endif %}</td>
   </tr>

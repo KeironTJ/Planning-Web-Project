@@ -92,6 +92,7 @@
 </section>
 {% elif selected_view == 'list' %}
 <section aria-label="List view">
+  {% if kind != 'tasks' %}<p class="small text-muted">Each matching {{ kind|work_kind }} is followed by all its visible activities, tasks and subtasks. Filters and pagination select {{ kind }}; child work keeps its own status.</p>{% else %}<p class="small text-muted">Matching tasks and subtasks show their full parent context, even when the parents are outside this filtered page.</p>{% endif %}
   {{ table(items, users) }}
 </section>
 {% elif selected_view == 'timeline' %}

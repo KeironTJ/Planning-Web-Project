@@ -22,7 +22,14 @@ are labelled **Parent context**; their own costs are excluded from displayed
 totals. Counts describe the displayed tree, not hidden results on other pages.
 The **List / Hierarchy / Timeline** switcher selects one view at a time on project and
 activity lists; task lists also offer **Board**. Hierarchy remains the default
-for first visits. List shows a flat table of the selected entities, while Board
+for first visits. Project/activity **List** shows each selected entity followed
+by all its visible activities, tasks and subtasks in branch order, with indentation
+and explicit work-type labels. Filters and pagination still select the top-level
+entities, not their descendants; child work retains its own status. Task lists
+show only matching tasks/subtasks, with linked project, activity and parent-task
+names and references even when parents are outside the filtered page. A subtask
+is labelled **Subtask**, never standalone just because its direct project/activity
+fields are empty. The reports table uses the same named context. Board
 groups the current page's tasks by status, with explicit page-local counts.
 Switching views keeps filters, page and page size. Filtering keeps the selected
 view and page size, and returns to the first page. Pagination applies to every
@@ -30,8 +37,12 @@ view. Links use `view=list|hierarchy|timeline|board`, so bookmarked/shared views
 without JavaScript; board is only valid for tasks. Invalid views return an
 explicit validation error.
 
-Project/activity detail pages show the same nested structure with the current
-item expanded. A single location header links through the actual parent chain,
+Project/activity detail pages have an always-visible **Work breakdown** with
+**List / Hierarchy** controls outside the collapsed progress section. Hierarchy
+shows the same nested structure with the current item expanded; List shows the
+full breakdown including the current item and all visible descendants.
+Switching keeps the sort order and return navigation and works without JavaScript.
+A single location header links through the actual parent chain,
 labelling each project/activity with its type, reference and name. The current
 item is highlighted with its type, reference and the page's only main title;
 standalone activities/tasks are explicitly labelled. The section navigation

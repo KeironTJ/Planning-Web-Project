@@ -247,6 +247,36 @@ def serialize(item):
     return result
 
 
+def work_ancestors(item, user):
+    ancestors = []
+    cursor = parent(item)
+    while cursor is not None:
+        if cursor.deleted_at is None and can_access(cursor, user):
+            ancestors.append(serialize(cursor))
+        cursor = parent(cursor)
+    ancestors.reverse()
+    return ancestors
+
+
+def work_list(hierarchy, ancestors=None):
+    """Flatten visible content in branch order, retaining named parent context."""
+    result = []
+
+    def visit(nodes, context):
+        for node in nodes:
+            item = node["item"]
+            if not node["context_only"]:
+                result.append({
+                    **item,
+                    "ancestors": context,
+                    "depth": len(context),
+                })
+            visit(node["children"], [*context, item])
+
+    visit(hierarchy, ancestors or [])
+    return result
+
+
 def audit(item, user, action, before=None, after=None):
     details = json.dumps({"before": before, "after": after}, sort_keys=True)
     db.session.add(
@@ -1316,18 +1346,21 @@ def dashboard_attention(visible, user):
     }
 
 
-def report(user):
+def report(user, include_context=False):
     visible = visible_items(user)
     all_items = sum(visible.values(), [])
     tasks = visible["tasks"]
     today = date.today()
 
     def due(upcoming):
-        items = [
-            serialize(item)
-            for item in all_items
-            if deadline_bucket(item, today) == ("upcoming" if upcoming else "overdue")
-        ]
+        items = []
+        for item in all_items:
+            if deadline_bucket(item, today) != ("upcoming" if upcoming else "overdue"):
+                continue
+            result = serialize(item)
+            if include_context:
+                result["ancestors"] = work_ancestors(item, user)
+            items.append(result)
         return sorted(items, key=lambda item: (item["deadline"], item["id"]))
 
     summaries = {}
