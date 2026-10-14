@@ -87,17 +87,14 @@
 {% if so_breakdown.has_data %}
 {% set _tc   = so_breakdown.total_count %}
 {% set _ok   = so_breakdown.totals.get('ok',        {}).get('count', 0) %}
-{% set _lr   = so_breakdown.totals.get('low_risk',  {}).get('count', 0) %}
 {% set _mr   = so_breakdown.totals.get('med_risk',  {}).get('count', 0) %}
 {% set _lp   = so_breakdown.totals.get('late_po',   {}).get('count', 0) %}
 {% set _hr   = so_breakdown.totals.get('high_risk', {}).get('count', 0) %}
 {% set _vok  = so_breakdown.totals.get('ok',        {}).get('value', 0) %}
-{% set _vlr  = so_breakdown.totals.get('low_risk',  {}).get('value', 0) %}
 {% set _vmr  = so_breakdown.totals.get('med_risk',  {}).get('value', 0) %}
 {% set _vlp  = so_breakdown.totals.get('late_po',   {}).get('value', 0) %}
 {% set _vhr  = so_breakdown.totals.get('high_risk', {}).get('value', 0) %}
 {% set _pok  = (_ok / _tc * 100) | round(1) if _tc else 0 %}
-{% set _plr  = (_lr / _tc * 100) | round(1) if _tc else 0 %}
 {% set _pmr  = (_mr / _tc * 100) | round(1) if _tc else 0 %}
 {% set _plp  = (_lp / _tc * 100) | round(1) if _tc else 0 %}
 {% set _phr  = (_hr / _tc * 100) | round(1) if _tc else 0 %}
@@ -111,8 +108,7 @@
            data-bs-content="
             <dl class='mb-0' style='font-size:.82rem;'>
               <dt><span class='text-success'>&#9632;</span> Mat. OK</dt><dd class='mb-2'>Stock on hand fully covers all material requirements.</dd>
-              <dt><span class='text-info'>&#9632;</span> Soft Risk</dt><dd class='mb-2'>Gap exists but job not yet released — time to resolve.</dd>
-              <dt><span class='text-warning'>&#9632;</span> PO Reliant</dt><dd class='mb-2'>Gap covered by PO, job released — relying on delivery.</dd>
+              <dt><span class='text-warning'>&#9632;</span> PO Reliant</dt><dd class='mb-2'>Stock gap covered by an open PO or call-off, regardless of job release status — relying on delivery.</dd>
               <dt><span class='text-orange'>&#9632;</span> Late PO</dt><dd class='mb-2'>PO exists but overdue or insufficient — supplier needs chasing.</dd>
               <dt><span class='text-danger'>&#9632;</span> Shortage</dt><dd class='mb-0'>Uncovered shortage, no PO — immediate action required.</dd>
             </dl>">
@@ -126,7 +122,6 @@
         <div class="row g-2 mb-2">
             {% for label, pct, count, val, color in [
                 ('Mat. OK',    _pok, _ok, _vok, '#198754'),
-                ('Soft Risk',  _plr, _lr, _vlr, '#0dcaf0'),
                 ('PO Reliant', _pmr, _mr, _vmr, '#ffc107'),
                 ('Late PO',    _plp, _lp, _vlp, '#fd7e14'),
                 ('Shortage',   _phr, _hr, _vhr, '#dc3545'),
@@ -142,7 +137,6 @@
         </div>
         <div class="progress" style="height:6px;border-radius:3px;">
             <div class="progress-bar" style="width:{{ _pok }}%;background:#198754;"></div>
-            <div class="progress-bar" style="width:{{ _plr }}%;background:#0dcaf0;"></div>
             <div class="progress-bar" style="width:{{ _pmr }}%;background:#ffc107;"></div>
             <div class="progress-bar" style="width:{{ _plp }}%;background:#fd7e14;"></div>
             <div class="progress-bar" style="width:{{ _phr }}%;background:#dc3545;"></div>
@@ -319,4 +313,3 @@ window.PURCHASING_OVERVIEW_DATA = {
 {% endif %}
 <script src="{{ url_for('static', filename='js/modules/purchasing.js') }}" defer></script>
 {% endblock %}
-

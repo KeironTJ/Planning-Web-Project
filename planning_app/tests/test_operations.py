@@ -136,7 +136,7 @@ def availability_jobs(app, monkeypatch):
     material_map = {str(index + 1): status for index, status in enumerate(statuses)}
     component_map = {str(index + 1): "ok" for index in range(len(statuses))}
     component_map["1"] = "high_risk"
-    component_map["6"] = "no_data"
+    component_map[str(statuses.index("no_data") + 1)] = "no_data"
     monkeypatch.setattr("app.operations.services.get_so_material_status", lambda orders: material_map.copy())
     monkeypatch.setattr("app.operations.services.get_so_component_status", lambda orders: component_map.copy())
     with app.app_context():
@@ -153,6 +153,7 @@ def availability_jobs(app, monkeypatch):
             WorksOrder(job_num="NO-ORDER", order_num=None, **common),
         ])
         db.session.commit()
+    return material_map
 
 
 @pytest.mark.parametrize("field", ["fabric_status", "component_status"])
@@ -165,7 +166,7 @@ def test_wip_exact_availability_filters_match_pivot_and_export(app, availability
         expected = {
             job.job_num for job in WorksOrder.query.all()
             if expected_map.get(str(job.order_num), "no_data") in (
-                ("ok", "no_data") if field == "fabric_status" and status == "ok" else (status,)
+                ("ok", "no_data") if status == "ok" or (field == "component_status" and status == "no_data") else (status,)
             )
         }
         assert {job.job_num for job in result["jobs"].items} == expected
@@ -176,7 +177,7 @@ def test_wip_exact_availability_filters_match_pivot_and_export(app, availability
         assert {row["Job Number"] for row in exported} == expected
         if status == "no_data":
             column = "Order Fabric Status" if field == "fabric_status" else "Order Comp. Status"
-            assert all(row[column] == ("OK" if field == "fabric_status" else "No Data") for row in exported)
+            assert all(row[column] == ("OK" if field == "fabric_status" else "Mat. OK") for row in exported)
 
 
 def test_wip_combines_availability_with_scope_and_legacy_filters(app, availability_jobs):
@@ -201,7 +202,7 @@ def test_wip_combines_availability_with_scope_and_legacy_filters(app, availabili
 
 def test_wip_empty_availability_intersection_has_no_jobs_or_chart(app, availability_jobs):
     with app.app_context():
-        args = MultiDict([("fabric_status", "ok"), ("component_status", "ok")])
+        args = MultiDict([("fabric_status", "med_risk"), ("component_status", "high_risk")])
         result = get_wip_overview(args)
         assert result["jobs"].total == 0
         assert result["wip_ops"] == []
@@ -244,7 +245,7 @@ def test_wip_availability_controls_and_links_preserve_selection(client, admin_us
     assert '<option value="ok" selected>Available (Mat. OK)</option>' in html
     assert '<option value="high_risk" selected>Shortage</option>' in html
     assert "Both selections must match" in html
-    assert "No Data is not confirmed availability" in html
+    assert "Components with no outstanding requirements are Mat. OK" in html
     class LinkParser(HTMLParser):
         def __init__(self):
             super().__init__()
@@ -405,21 +406,25 @@ def test_wip_sequence_choices_are_grouped_by_week(app):
         assert result["plan_sequence_options"] == ["01", "02"]
 
 
-def test_wip_consumed_fabric_is_available_without_changing_components(app, availability_jobs, monkeypatch):
+def test_wip_both_available_includes_absent_component_requirements(app, availability_jobs, monkeypatch):
+    consumed_order = next(order for order, status in availability_jobs.items() if status == "no_data")
     monkeypatch.setattr(
         "app.operations.services.get_so_component_status",
-        lambda orders: {"6": "ok", "99": "no_data"},
+        lambda orders: {consumed_order: "ok", "99": "no_data"},
     )
     with app.app_context():
         args = MultiDict([("fabric_status", "ok"), ("component_status", "ok")])
         result = get_wip_overview(args)
-        assert [job.job_num for job in result["jobs"].items] == ["STATUS-6"]
-        assert sum(row["jobs"] for row in result["op_totals"].values()) == 1
+        expected = {"STATUS-1", f"STATUS-{consumed_order}", "MISSING", "NO-ORDER"}
+        assert {job.job_num for job in result["jobs"].items} == expected
+        assert sum(row["jobs"] for row in result["op_totals"].values()) == len(expected)
         exported = list(csv.DictReader(io.StringIO(get_wip_export(args).get_data().decode("utf-8-sig"))))
-        assert len(exported) == 1
-        assert exported[0]["Order Fabric Status"] == "OK"
-        assert exported[0]["Job Fabric Status"] == "OK"
-        assert exported[0]["Order Comp. Status"] == "OK"
+        assert {row["Job Number"] for row in exported} == expected
+        for row in exported:
+            assert row["Order Fabric Status"] == "OK"
+            assert row["Job Fabric Status"] == "OK"
+            assert row["Order Comp. Status"] == "Mat. OK"
+            assert row["Job Comp. Status"] == "Mat. OK"
 
 
 def test_wip_consumed_fabric_badges_and_filter_wording(client, admin_user, availability_jobs):
@@ -429,6 +434,7 @@ def test_wip_consumed_fabric_badges_and_filter_wording(client, admin_user, avail
     html = response.get_data(as_text=True)
     assert "Fabric already consumed; no outstanding fabric requirements" in html
     assert '<option value="no_data" selected>Already consumed (Mat. OK)</option>' in html
-    assert '<option value="no_data" selected>No Data</option>' in html
+    assert '<option value="ok" selected>Available (Mat. OK)</option>' in html
+    assert "No Data" not in html
     assert "Fabric Available includes already consumed fabric" in html
-    assert "Both available includes consumed fabric and requires components OK" in html
+    assert "Both available includes consumed fabric and components with no outstanding requirements" in html

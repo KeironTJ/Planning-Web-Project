@@ -131,10 +131,10 @@ def order_book():
         _job_comp = get_job_component_status(_all_jobs) if _all_jobs and order_status == "open" else {}
         for o in orders:
             o["mat_status"]  = _so_mat.get(o["so_number"], "no_data")
-            o["comp_status"] = _so_comp.get(o["so_number"], "no_data")
+            o["comp_status"] = _so_comp.get(o["so_number"], "ok")
             for line in o.get("lines", []):
                 line["mat_status"]  = _job_mat.get(line["job_num"], "no_data") if line["job_num"] else "no_data"
-                line["comp_status"] = _job_comp.get(line["job_num"], "no_data") if line["job_num"] else "no_data"
+                line["comp_status"] = _job_comp.get(line["job_num"], "ok") if line["job_num"] else "ok"
     except Exception:
         for o in orders:
             o["mat_status"]  = "no_data"
@@ -213,5 +213,4 @@ def overdue_report():
         today=date.today(),
         **data,
     )
-
 

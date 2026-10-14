@@ -125,15 +125,13 @@
 {% set _hr = status_counts_all.get('high_risk', 0) %}
 {% set _lp = status_counts_all.get('late_po', 0) %}
 {% set _mr = status_counts_all.get('med_risk', 0) %}
-{% set _lr = status_counts_all.get('low_risk', 0) %}
-{% set _total = _hr + _lp + _mr + _lr %}
+{% set _total = _hr + _lp + _mr %}
 {% set _base = url_for('materials.component_shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search) %}
 <div class="row g-3 mb-4">
     {% for st_key, label, sublabel, count, color in [
         ('high_risk', 'Shortage',    'No PO coverage',         _hr,    '#dc3545'),
         ('late_po',   'Late PO',     'PO insufficient / late', _lp,    '#fd7e14'),
-        ('med_risk',  'PO Reliant',  'Released, PO covering',  _mr,    '#ffc107'),
-        ('low_risk',  'Soft Risk',   'Unreleased, PO covering',_lr,    '#0dcaf0'),
+        ('med_risk',  'PO Reliant',  'PO / call-off covering', _mr,    '#ffc107'),
         ('',          'All',         'All at-risk lines',       _total, '#6c757d'),
     ] %}
     {% set is_active = (status_filter == st_key) if st_key else (not status_filter) %}
@@ -361,4 +359,3 @@ window.SHORTAGE_DATA = {
 <script src="{{ url_for('static', filename='js/components/table.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/modules/materials.js') }}" defer></script>
 {% endblock %}
-

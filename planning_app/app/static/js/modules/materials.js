@@ -28,13 +28,10 @@ document.addEventListener('DOMContentLoaded', function () {
         var tmCtx = document.getElementById('topMaterialsChart');
         if (tmCtx && S.topMaterials.length) {
             tmCtx.style.height = Math.max(120, S.topMaterials.length * 24) + 'px';
-            // Same 4 tiers/colours as the KPI filter cards above, so "Soft Risk" (low_risk)
-            // shows as its own segment instead of being merged into a generic "PO-reliant" bucket.
             var TIERS = [
                 { key: 'high_risk', label: 'Shortage',   color: '#dc3545' },
                 { key: 'late_po',   label: 'Late PO',    color: '#fd7e14' },
                 { key: 'med_risk',  label: 'PO Reliant',color: '#ffc107' },
-                { key: 'low_risk',  label: 'Soft Risk',  color: '#0dcaf0' },
             ];
             new Chart(tmCtx, {
                 type: 'bar',
@@ -131,9 +128,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var SD      = MI.soBreakdown;
     var SHORTAGE_URL = MI.urlShortage;
-    var STATUSES = ['ok', 'low_risk', 'med_risk', 'late_po', 'high_risk'];
-    var LABELS   = { ok: 'Mat. OK', low_risk: 'Soft Risk', med_risk: 'PO Reliant', late_po: 'Late PO', high_risk: 'Shortage' };
-    var COLORS   = { ok: '#198754', low_risk: '#0dcaf0', med_risk: '#ffc107', late_po: '#fd7e14', high_risk: '#dc3545' };
+    var STATUSES = ['ok', 'med_risk', 'late_po', 'high_risk'];
+    var LABELS   = { ok: 'Mat. OK', med_risk: 'PO Reliant', late_po: 'Late PO', high_risk: 'Shortage' };
+    var COLORS   = { ok: '#198754', med_risk: '#ffc107', late_po: '#fd7e14', high_risk: '#dc3545' };
 
     var raw = SD.weeks;
     var overdueWeek = raw.filter(function (w) { return w.is_overdue; });

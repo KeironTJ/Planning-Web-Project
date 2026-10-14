@@ -49,13 +49,17 @@ def _row_status(
     released: Optional[bool],
     po_exists: bool,
 ) -> str:
-    """Single source of truth for the 5-tier material coverage status."""
+    """Classify coverage into four tiers, independent of job release status.
+
+    released is retained for caller compatibility; PO/call-off reliance depends
+    only on coverage, not whether the job has been released.
+    """
     if net_required == Decimal(0):
         return "ok"
     if shortage > Decimal(0):
         return "late_po" if po_exists else "high_risk"
     if stock_on_hand < net_required:
-        return "med_risk" if released else "low_risk"
+        return "med_risk"
     return "ok"
 
 

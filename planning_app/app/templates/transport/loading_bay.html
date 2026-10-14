@@ -491,8 +491,6 @@
                             <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Late PO — PO overdue or too late"><i class="bi bi-clock-history me-1"></i>Late PO</span>
                             {% elif o.mat_status == 'med_risk' %}
                             <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="PO Reliant — gap covered by open PO"><i class="bi bi-receipt me-1"></i>PO Reliant</span>
-                            {% elif o.mat_status == 'low_risk' %}
-                            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Soft Risk — gap exists but job not yet released"><i class="bi bi-info-circle me-1"></i>Soft Risk</span>
                             {% elif o.mat_status == 'ok' %}
                             <span class="badge text-bg-success" style="font-size:.65rem;" title="Mat. OK"><i class="bi bi-check2 me-1"></i>Mat. OK</span>
                             {% endif %}
@@ -509,8 +507,6 @@
                             <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Component late PO"><i class="bi bi-clock-history me-1"></i>C.Late PO</span>
                             {% elif o.comp_status == 'med_risk' %}
                             <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="Component PO reliant"><i class="bi bi-receipt me-1"></i>C.PO Rel</span>
-                            {% elif o.comp_status == 'low_risk' %}
-                            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Component soft risk"><i class="bi bi-info-circle me-1"></i>C.Soft</span>
                             {% endif %}
                             </a>
                             {% endif %}
@@ -606,8 +602,6 @@
                             <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Late PO"><i class="bi bi-clock-history me-1"></i>Late PO</span>
                             {% elif rel.mat_status == 'med_risk' %}
                             <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="PO Reliant"><i class="bi bi-receipt me-1"></i>PO Reliant</span>
-                            {% elif rel.mat_status == 'low_risk' %}
-                            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Soft Risk"><i class="bi bi-info-circle me-1"></i>Soft Risk</span>
                             {% elif rel.mat_status == 'ok' %}
                             <span class="badge text-bg-success" style="font-size:.65rem;" title="Mat. OK"><i class="bi bi-check2 me-1"></i>Mat. OK</span>
                             {% endif %}
@@ -624,8 +618,6 @@
                             <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Component late PO"><i class="bi bi-clock-history me-1"></i>C.Late PO</span>
                             {% elif rel.comp_status == 'med_risk' %}
                             <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="Component PO reliant"><i class="bi bi-receipt me-1"></i>C.PO Rel</span>
-                            {% elif rel.comp_status == 'low_risk' %}
-                            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Component soft risk"><i class="bi bi-info-circle me-1"></i>C.Soft</span>
                             {% endif %}
                             </a>
                             {% endif %}

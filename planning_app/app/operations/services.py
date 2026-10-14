@@ -17,7 +17,7 @@ from app.extensions import db
 from app.sales.orders.models import Department as DeptModel
 from app.admin.models import SystemSetting, SETTING_DAILY_OUTPUT_TARGET, SETTING_DAILY_OUTPUT_TARGET_DAYS
 from app.purchasing.materials.services.status import get_so_material_status, get_so_component_status, get_job_material_status, get_job_component_status
-from app.purchasing.materials.services.types import MAT_STATUS_META
+from app.purchasing.materials.services.types import MAT_STATUS_META, normalize_component_status, normalize_mat_status
 
 
 def _wip_job_ordering():
@@ -31,18 +31,20 @@ def _wip_job_ordering():
 
 
 def _wip_status_filters(args, mat_status_map, comp_status_map):
-    """Combine WIP statuses; absent fabric demand means fabric already consumed."""
+    """Combine WIP statuses; absence of active requirements counts as available."""
     filters = ()
     for parameter, status_map in (
         ("fabric_status", mat_status_map),
         ("component_status", comp_status_map),
     ):
-        status = args.get(parameter, "").strip()
+        status = normalize_mat_status(args.get(parameter, "").strip())
+        if parameter == "component_status":
+            status = normalize_component_status(status)
         if not status:
             continue
         if status not in MAT_STATUS_META:
             abort(400, description=f"Invalid WIP {parameter}: {status}")
-        if parameter == "fabric_status" and status == "ok":
+        if status == "ok":
             risk_orders = {
                 int(so) for so, value in status_map.items()
                 if so.isdigit() and value not in ("ok", "no_data")
@@ -520,8 +522,8 @@ def get_wip_overview(args):
         per_page=per_page,
         shortages_only=shortages_only,
         shortage_group=shortage_group,
-        fabric_status=args.get('fabric_status', '').strip(),
-        component_status=args.get('component_status', '').strip(),
+        fabric_status=normalize_mat_status(args.get('fabric_status', '').strip()),
+        component_status=normalize_component_status(args.get('component_status', '').strip()),
         comp_shortages=comp_shortages,
         either_shortages=either_shortages,
         mtl_flag_shortages=mtl_flag_shortages,
@@ -687,9 +689,9 @@ def get_wip_export(args):
         so_key     = str(job.order_num) if job.order_num else ''
         job_key    = str(job.job_num)   if job.job_num   else ''
         mat_st     = mat_status_map.get(so_key,  'no_data')
-        comp_st    = comp_status_map.get(so_key, 'no_data')
+        comp_st    = normalize_component_status(comp_status_map.get(so_key, 'ok'))
         job_mat_st  = job_mat_map.get(job_key,  'no_data')
-        job_comp_st = job_comp_map.get(job_key, 'no_data')
+        job_comp_st = normalize_component_status(job_comp_map.get(job_key, 'ok'))
         def _label(st):
             return 'No Data' if st == 'no_data' else ('OK' if st == 'ok' else _mat_label_map.get(st, ''))
         writer.writerow([
@@ -709,8 +711,8 @@ def get_wip_export(args):
             'Yes' if is_partial else '',
             _label('ok' if job_mat_st == 'no_data' else job_mat_st),
             _label('ok' if mat_st == 'no_data' else mat_st),
-            _label(job_comp_st),
-            _label(comp_st),
+            'Mat. OK' if job_comp_st == 'ok' else _label(job_comp_st),
+            'Mat. OK' if comp_st == 'ok' else _label(comp_st),
             job_notes_map.get(job.job_num or '', ''),
         ])
 

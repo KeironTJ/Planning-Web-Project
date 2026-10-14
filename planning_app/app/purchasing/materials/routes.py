@@ -28,13 +28,13 @@ from .services.release_decisions import (
 )
 from .services.release_impact import get_release_impact, sort_release_impact_results
 from .services.stock import get_po_list, get_stock_list, get_stock_overview, get_stock_summary
-from .services.types import MAT_STATUS_META, WO_STATUS_META, wo_status
+from .services.types import MAT_STATUS_META, WO_STATUS_META, normalize_mat_status, wo_status
 from app.extensions import db
 from app.sales.orders.models import Department
 from app.core.decorators import permission_required
 
 
-_AT_RISK_STATUSES = {"high_risk", "late_po", "med_risk", "low_risk"}
+_AT_RISK_STATUSES = {"high_risk", "late_po", "med_risk"}
 
 
 def _class_options(rows: list, class_labels: dict[str, str] | None = None) -> list[dict]:
@@ -104,7 +104,7 @@ def shortage():
     source       = request.args.get("source", "all")
     dept_filter  = request.args.get("dept", "")
     search       = request.args.get("q", "")
-    status_filter = request.args.get("status", "")  # "" = all at-risk
+    status_filter = normalize_mat_status(request.args.get("status", ""))  # "" = all at-risk
     cls_filter   = request.args.get("cls", "")       # "" = all material classes
     wo_status_filter = request.args.get("wo_status", "")  # "" = all work-order statuses
     due_before_str = request.args.get("due_before", "")
@@ -196,7 +196,7 @@ def component_shortage():
     """Component availability shortage report (sourced from PlanningMatReqComp)."""
     dept_filter   = request.args.get("dept", "")
     search        = request.args.get("q", "")
-    status_filter = request.args.get("status", "")
+    status_filter = normalize_mat_status(request.args.get("status", ""))
     cls_filter    = request.args.get("cls", "")
     wo_status_filter = request.args.get("wo_status", "")  # "" = all work-order statuses
     due_before_str = request.args.get("due_before", "")

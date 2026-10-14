@@ -21,14 +21,17 @@ __all__ = [
 ]
 
 
-def _compute_status_map(report: dict, key_attr: str, keys: set[str]) -> dict[str, str]:
+def _compute_status_map(
+    report: dict, key_attr: str, keys: set[str], *, empty_status: str = "no_data",
+) -> dict[str, str]:
     """
     Walk netted rows and return the worst-case status per key.
 
     key_attr — ShortageRow attribute to group by ("so_number" or "works_order")
     keys     — set of values to include in the result
+    empty_status — status when no active requirements exist for a key
     """
-    result: dict[str, str] = {k: "no_data" for k in keys}
+    result: dict[str, str] = {k: empty_status for k in keys}
     for row in report["rows"]:
         key = getattr(row, key_attr)
         if not key or key not in keys:
@@ -52,7 +55,7 @@ def get_so_material_status(
     materials are correctly allocated in due-date order.
 
     Returns {so_number: status} with tier codes:
-        ok / low_risk / med_risk / late_po / high_risk / no_data
+        ok / med_risk / late_po / high_risk / no_data
     """
     if not so_numbers:
         return {}
@@ -76,21 +79,23 @@ def get_so_component_status(so_numbers: list[str]) -> dict[str, str]:
     """
     Compute component availability status per SO number (component group).
 
-    Returns {so_number: status} with the same tier codes.
+    Returns {so_number: status}. No active component requirements means "ok";
+    PO reliance, late POs and shortages still take precedence.
     """
     if not so_numbers:
         return {}
     report = _cached_group_report("component")
-    return _compute_status_map(report, "so_number", set(so_numbers))
+    return _compute_status_map(report, "so_number", set(so_numbers), empty_status="ok")
 
 
 def get_job_component_status(job_nums: list[str]) -> dict[str, str]:
     """
     Compute component availability status per job number (component group).
 
-    Returns {job_num: status} with the same tier codes.
+    Returns {job_num: status}. No active component requirements means "ok";
+    PO reliance, late POs and shortages still take precedence.
     """
     if not job_nums:
         return {}
     report = _cached_group_report("component")
-    return _compute_status_map(report, "works_order", set(job_nums))
+    return _compute_status_map(report, "works_order", set(job_nums), empty_status="ok")

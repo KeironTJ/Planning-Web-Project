@@ -14,14 +14,11 @@ from app.purchasing.materials.services.status import (
     get_so_component_status,
     get_so_material_status,
 )
-from app.purchasing.materials.services.types import MAT_STATUS_META
+from app.purchasing.materials.services.types import MAT_STATUS_META, _MAT_STATUS_PRIORITY
 
 
 _DOMESTIC_COUNTRIES = {
     "united kingdom", "uk", "gb", "great britain", "northern ireland",
-}
-_MATERIAL_STATUS_PRIORITY = {
-    "no_data": -1, "ok": 0, "low_risk": 1, "med_risk": 2, "high_risk": 3,
 }
 _VALID_STATUSES = {"", "ready", "ready_hold", "partial", "partial_hold"}
 _VALID_SORTS = {"ship_by_date", "customer", "value", "so_number"}
@@ -311,21 +308,22 @@ def _populate_material_statuses(orders: list[dict]) -> None:
     job_component = get_job_component_status(job_numbers) if job_numbers else {}
     for order in orders:
         order["mat_status"] = so_material.get(str(order["order_num"]), "no_data")
-        order["comp_status"] = so_component.get(str(order["order_num"]), "no_data")
+        order["comp_status"] = so_component.get(str(order["order_num"]), "ok")
         for release in order["releases"]:
             if release["status"] == "finished":
-                release["mat_status"] = release["comp_status"] = "no_data"
+                release["mat_status"] = "no_data"
+                release["comp_status"] = "ok"
                 continue
             job_statuses = [job_material.get(job["job_num"], "no_data") for job in release["jobs"] if job["job_num"]]
-            component_statuses = [job_component.get(job["job_num"], "no_data") for job in release["jobs"] if job["job_num"]]
+            component_statuses = [job_component.get(job["job_num"], "ok") for job in release["jobs"] if job["job_num"]]
             release["mat_status"] = max(
                 job_statuses,
-                key=lambda value: _MATERIAL_STATUS_PRIORITY.get(value, -1),
+                key=lambda value: _MAT_STATUS_PRIORITY.get(value, -1),
             ) if job_statuses else "no_data"
             release["comp_status"] = max(
                 component_statuses,
-                key=lambda value: _MATERIAL_STATUS_PRIORITY.get(value, -1),
-            ) if component_statuses else "no_data"
+                key=lambda value: _MAT_STATUS_PRIORITY.get(value, -1),
+            ) if component_statuses else "ok"
 
 
 def _filtered_summary(orders: list[dict]) -> dict:

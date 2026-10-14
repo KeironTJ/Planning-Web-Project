@@ -13,17 +13,14 @@
 {% if so_breakdown.has_data %}
 {% set _tc = so_breakdown.total_count %}
 {% set _ok = so_breakdown.totals.get('ok', {}).get('count', 0) %}
-{% set _lr = so_breakdown.totals.get('low_risk', {}).get('count', 0) %}
 {% set _mr = so_breakdown.totals.get('med_risk', {}).get('count', 0) %}
 {% set _lp = so_breakdown.totals.get('late_po', {}).get('count', 0) %}
 {% set _hr = so_breakdown.totals.get('high_risk', {}).get('count', 0) %}
 {% set _val_ok = so_breakdown.totals.get('ok', {}).get('value', 0) %}
-{% set _val_lr = so_breakdown.totals.get('low_risk', {}).get('value', 0) %}
 {% set _val_mr = so_breakdown.totals.get('med_risk', {}).get('value', 0) %}
 {% set _val_lp = so_breakdown.totals.get('late_po', {}).get('value', 0) %}
 {% set _val_hr = so_breakdown.totals.get('high_risk', {}).get('value', 0) %}
 {% set _pct_ok = (_ok / _tc * 100) | round(1) if _tc else 0 %}
-{% set _pct_lr = (_lr / _tc * 100) | round(1) if _tc else 0 %}
 {% set _pct_mr = (_mr / _tc * 100) | round(1) if _tc else 0 %}
 {% set _pct_lp = (_lp / _tc * 100) | round(1) if _tc else 0 %}
 {% set _pct_hr = (_hr / _tc * 100) | round(1) if _tc else 0 %}
@@ -36,10 +33,8 @@
         <dl class='mb-0' style='font-size:.82rem;'>
           <dt><span class='text-success'>&#9632;</span> Mat. OK</dt>
           <dd class='mb-2'>Stock on hand fully covers all material requirements.</dd>
-          <dt><span class='text-info'>&#9632;</span> Soft Risk</dt>
-          <dd class='mb-2'>Material gap exists but the job has not yet been released to production — time remains to resolve before the floor needs it.</dd>
           <dt><span class='text-warning'>&#9632;</span> PO Reliant</dt>
-          <dd class='mb-2'>Gap is covered by an open Purchase Order, and the job is released — production is dependent on that PO arriving on time.</dd>
+          <dd class='mb-2'>Stock gap is covered by an open PO or call-off, regardless of job release status — dependent on delivery arriving on time.</dd>
           <dt><span class='text-orange'>&#9632;</span> Late PO</dt>
           <dd class='mb-2'>Shortage exists and a PO is open, but it is overdue or will not arrive within the required lead time — supplier needs chasing.</dd>
           <dt><span class='text-danger'>&#9632;</span> Shortage</dt>
@@ -51,7 +46,6 @@
 <div class="row g-3 mb-4">
     {% for label, pct, count, val, color in [
         ('Mat. OK',    _pct_ok, _ok, _val_ok, '#198754'),
-        ('Soft Risk',  _pct_lr, _lr, _val_lr, '#0dcaf0'),
         ('PO Reliant', _pct_mr, _mr, _val_mr, '#ffc107'),
         ('Late PO',    _pct_lp, _lp, _val_lp, '#fd7e14'),
         ('Shortage',   _pct_hr, _hr, _val_hr, '#dc3545'),
@@ -68,7 +62,6 @@
 </div>
 <div class="progress mb-4" style="height:8px;border-radius:4px;">
     <div class="progress-bar" style="width:{{ _pct_ok }}%;background:#198754;" title="Mat. OK"></div>
-    <div class="progress-bar" style="width:{{ _pct_lr }}%;background:#0dcaf0;" title="Soft Risk"></div>
     <div class="progress-bar" style="width:{{ _pct_mr }}%;background:#ffc107;" title="PO Reliant"></div>
     <div class="progress-bar" style="width:{{ _pct_lp }}%;background:#fd7e14;" title="Late PO"></div>
     <div class="progress-bar" style="width:{{ _pct_hr }}%;background:#dc3545;" title="Shortage"></div>
@@ -85,7 +78,7 @@
 
 <!-- Combined SO breakdown chart -->
 {% if so_breakdown.has_data %}
-{% set status_meta = [('ok','Mat. OK','#198754'), ('low_risk','Soft Risk','#0dcaf0'), ('med_risk','PO Reliant','#ffc107'), ('late_po','Late PO','#fd7e14'), ('high_risk','Shortage','#dc3545')] %}
+{% set status_meta = [('ok','Mat. OK','#198754'), ('med_risk','PO Reliant','#ffc107'), ('late_po','Late PO','#fd7e14'), ('high_risk','Shortage','#dc3545')] %}
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-header bg-transparent">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -124,4 +117,3 @@ window.MATERIALS_INDEX_DATA = {
 {% endif %}
 <script src="{{ url_for('static', filename='js/modules/materials.js') }}" defer></script>
 {% endblock %}
-

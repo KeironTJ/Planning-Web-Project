@@ -88,8 +88,7 @@
         ('high_risk', 'Shortage',   '#dc3545'),
         ('late_po',   'Late PO',    '#fd7e14'),
         ('med_risk',  'PO Reliant', '#ffc107'),
-        ('low_risk',  'Soft Risk',  '#0dcaf0'),
-        ('ok',        'Comp. OK' if material_group == 'component' else 'Mat. OK', '#198754'),
+        ('ok',        'Mat. OK', '#198754'),
     ] %}
     {% set count = data.materials | selectattr('mat_status', 'equalto', st_key) | list | length %}
     {% if count %}
@@ -119,11 +118,9 @@
         <span class="ms-auto d-flex gap-2 align-items-center">
             {% if so_number and mat.selected_so_status %}
             {% set selected_label, selected_colour = mat_status_meta.get(mat.selected_so_status, ('—', 'secondary')) %}
-            {% if material_group == 'component' and mat.selected_so_status == 'ok' %}{% set selected_label = 'Comp. OK' %}{% endif %}
             <span class="badge text-bg-{{ selected_colour }}">SO {{ so_number }}: {{ selected_label }}</span>
             {% endif %}
             {% set mat_label, mat_colour = mat_status_meta.get(mat.mat_status, ('—', 'secondary')) %}
-            {% if material_group == 'component' and mat.mat_status == 'ok' %}{% set mat_label = 'Comp. OK' %}{% endif %}
             {% if mat.mat_status == 'late_po' %}
             <span class="badge text-bg-orange">Global: {{ mat_label }}</span>
             {% else %}
@@ -206,7 +203,6 @@
                         <td>
                             {% if ev.row_type == 'requirement' and ev.mat_status %}
                             {% set st_label, st_colour = mat_status_meta.get(ev.mat_status, ('—', 'secondary')) %}
-                            {% if material_group == 'component' and ev.mat_status == 'ok' %}{% set st_label = 'Comp. OK' %}{% endif %}
                             <span class="badge text-bg-{{ st_colour }}">{{ st_label }}</span>
                             {% endif %}
                         </td>

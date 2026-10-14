@@ -244,7 +244,7 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
     Returns:
         {
             "weeks":       [{"iso_key", "week_label", "week_start",
-                             "ok", "low_risk", "med_risk", "high_risk",  <- each {"count","value"}
+                             "ok", "med_risk", "late_po", "high_risk",  <- each {"count","value"}
                              "total_count", "total_value"}, ...],
             "totals":      {"ok": {"count", "value"}, ...},
             "total_value": Decimal,
@@ -256,7 +256,7 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
 
     today   = date.today()
     cutoff  = today + timedelta(weeks=weeks_ahead)
-    STATUSES = ("ok", "low_risk", "med_risk", "late_po", "high_risk")
+    STATUSES = ("ok", "med_risk", "late_po", "high_risk")
 
     release_subq = (
         db.session.query(

@@ -15,6 +15,34 @@ class TestLoadingBayReport:
         with app.app_context():
             yield
 
+    @pytest.mark.parametrize("statuses, expected", [
+        (["no_data", "ok"], "ok"),
+        (["ok", "med_risk"], "med_risk"),
+        (["med_risk", "late_po"], "late_po"),
+        (["late_po", "high_risk"], "high_risk"),
+    ])
+    def test_release_rollups_use_shared_material_priority(self, monkeypatch, statuses, expected):
+        from app.transport.services import _populate_material_statuses
+
+        job_map = dict(zip(["JOB-1", "JOB-2"], statuses))
+        for function in ("get_job_material_status", "get_job_component_status"):
+            monkeypatch.setattr(f"app.transport.services.{function}", lambda jobs: job_map)
+        for function in ("get_so_material_status", "get_so_component_status"):
+            monkeypatch.setattr(f"app.transport.services.{function}", lambda orders: {"1001": expected})
+        orders = [{
+            "order_num": 1001,
+            "releases": [
+                {"status": "in_progress", "jobs": [{"job_num": "JOB-1"}, {"job_num": "JOB-2"}]},
+                {"status": "finished", "jobs": [{"job_num": "JOB-1"}]},
+            ],
+        }]
+        _populate_material_statuses(orders)
+        assert orders[0]["mat_status"] == orders[0]["comp_status"] == expected
+        pending, finished = orders[0]["releases"]
+        assert pending["mat_status"] == pending["comp_status"] == expected
+        assert finished["mat_status"] == "no_data"
+        assert finished["comp_status"] == "ok"
+
     def test_shipping_dates_use_current_ship_by_not_need_by_or_original(self, db):
         from app.transport.services import get_loading_bay_report
 

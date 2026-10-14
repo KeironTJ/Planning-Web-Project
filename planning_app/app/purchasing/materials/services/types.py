@@ -28,7 +28,7 @@ class ShortageRow:
     job_released: Optional[bool] = None
     job_firm: Optional[bool] = None
     po_exists: bool = False
-    status: str = "no_data"  # 5-tier coverage status — set during netting
+    status: str = "no_data"  # 4-tier coverage status — set during netting
 
 
 @dataclass
@@ -44,7 +44,7 @@ class MrpEvent:
     is_short: bool = False
     job_released: Optional[bool] = None
     job_firm: Optional[bool] = None
-    mat_status: Optional[str] = None     # 5-tier coverage status for requirement rows
+    mat_status: Optional[str] = None     # 4-tier coverage status for requirement rows
     effective_date: Optional[date] = None  # PO: arrival + lead days; Req: due − lead days
     so_number: Optional[str] = None
 
@@ -78,7 +78,6 @@ class MrpMaterial:
 _MAT_STATUS_PRIORITY: dict[str, int] = {
     "no_data":   -1,
     "ok":         0,
-    "low_risk":   1,
     "med_risk":   2,
     "late_po":    3,
     "high_risk":  4,
@@ -87,7 +86,6 @@ _MAT_STATUS_PRIORITY: dict[str, int] = {
 #: Display metadata: status -> (label, Bootstrap colour)
 MAT_STATUS_META: dict[str, tuple[str, str]] = {
     "ok":        ("Mat. OK",      "success"),
-    "low_risk":  ("Soft Risk",    "info"),
     "med_risk":  ("PO Reliant",   "warning"),
     "late_po":   ("Late PO",      "orange"),
     "high_risk": ("Shortage",     "danger"),
@@ -104,6 +102,16 @@ WO_STATUS_META: dict[str, tuple[str, str]] = {
 }
 
 
+def normalize_mat_status(status: str) -> str:
+    """Keep bookmarked filters for the retired tier targeting PO Reliant."""
+    return "med_risk" if status == "low_risk" else status
+
+
+def normalize_component_status(status: str) -> str:
+    """Treat absence of component requirements as OK, including legacy filters."""
+    return "ok" if status == "no_data" else normalize_mat_status(status)
+
+
 def wo_status(job_released: Optional[bool], job_firm: Optional[bool]) -> str:
     """Derive the 3-state work-order status used for filtering and display."""
     if job_released:
@@ -118,6 +126,8 @@ __all__ = [
     "MrpMaterial",
     "MAT_STATUS_META",
     "WO_STATUS_META",
+    "normalize_mat_status",
+    "normalize_component_status",
     "wo_status",
     "_MAT_STATUS_PRIORITY",
 ]

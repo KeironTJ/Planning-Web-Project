@@ -188,9 +188,9 @@ Operations WIP Overview
                         {%- set so_key = job.order_num | string if job.order_num else '' %}
                         {%- set job_key = job.job_num | string if job.job_num else '' %}
                         {%- set mat_st = mat_status_map.get(so_key, 'no_data') %}
-                        {%- set comp_st = comp_status_map.get(so_key, 'no_data') %}
+                        {%- set comp_st = comp_status_map.get(so_key, 'ok') %}
                         {%- set job_mat_st = job_mat_map.get(job_key, 'no_data') %}
-                        {%- set job_comp_st = job_comp_map.get(job_key, 'no_data') %}
+                        {%- set job_comp_st = job_comp_map.get(job_key, 'ok') %}
                         {%- set is_partial = job.order_num and job.order_num in partial_order_nums and not job.job_complete %}
                         {%- set _any_high = mat_st == 'high_risk' or comp_st == 'high_risk' or job_mat_st == 'high_risk' or job_comp_st == 'high_risk' %}
                         {%- set _any_med  = mat_st in ('med_risk', 'late_po') or comp_st in ('med_risk', 'late_po') or job_mat_st in ('med_risk', 'late_po') or job_comp_st in ('med_risk', 'late_po') %}
@@ -268,13 +268,13 @@ Operations WIP Overview
                             {%- set job_comp_label, job_comp_colour = mat_status_meta.get(job_comp_st, ('—', 'secondary')) %}
                             <td class="text-center">
                                 {%- if job_comp_st == 'no_data' %}
-                                <span class="badge text-bg-secondary" style="font-size:.7rem;" title="Availability not confirmed">No Data</span>
+                                <span class="badge text-bg-success" style="font-size:.7rem;" title="No outstanding component requirements">Mat. OK</span>
                                 {%- elif job_comp_st == 'ok' %}
                                 <a href="{{ url_for('materials.mrp', so=so_key, q=job.job_num, material_group='component') }}"
                                    class="badge text-bg-success text-decoration-none"
                                    style="font-size:.7rem;--bs-bg-opacity:1;"
                                    title="Job {{ job.job_num }}: all components covered"
-                                   target="_blank">Comp. OK</a>
+                                   target="_blank">Mat. OK</a>
                                 {%- else %}
                                 <a href="{{ url_for('materials.mrp', so=so_key, q=job.job_num, material_group='component') }}"
                                    class="badge text-bg-{{ job_comp_colour }} text-decoration-none"
@@ -287,13 +287,13 @@ Operations WIP Overview
                             {%- set comp_label, comp_colour = mat_status_meta.get(comp_st, ('—', 'secondary')) %}
                             <td class="text-center">
                                 {%- if comp_st == 'no_data' %}
-                                <span class="badge text-bg-secondary" style="font-size:.7rem;" title="Availability not confirmed">No Data</span>
+                                <span class="badge text-bg-success" style="font-size:.7rem;" title="No outstanding component requirements">Mat. OK</span>
                                 {%- elif comp_st == 'ok' %}
                                 <a href="{{ url_for('materials.mrp', so=so_key, material_group='component') }}"
                                    class="badge text-bg-success text-decoration-none"
                                    style="font-size:.7rem;--bs-bg-opacity:1;"
                                    title="Order {{ so_key }}: all components covered"
-                                   target="_blank">Comp. OK</a>
+                                   target="_blank">Mat. OK</a>
                                 {%- else %}
                                 <a href="{{ url_for('materials.mrp', so=so_key, material_group='component') }}"
                                    class="badge text-bg-{{ comp_colour }} text-decoration-none"

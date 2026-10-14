@@ -22,10 +22,9 @@ def get_shortage_insights(rows: list, class_labels: dict[str, str] | None = None
     Returns:
         {
             "top_materials":      [{"code", "description", "high_risk", "late_po",
-                                    "med_risk", "low_risk", "at_risk_qty",
+                                    "med_risk", "at_risk_qty",
                                     "worst_status", "earliest_due"}, ...],  # top 10, one
-                                   value per status tier so the chart can show all four
-                                   tiers (including "Soft Risk") as separate stacked segments.
+                                   value per at-risk tier as separate stacked segments.
             "by_class":           [{"class_id", "label", "shortage_qty", "line_count"}, ...],
             "total_shortage_qty": Decimal,
             "unique_materials":   int,
@@ -45,11 +44,8 @@ def get_shortage_insights(rows: list, class_labels: dict[str, str] | None = None
         status_counts[r.status] = status_counts.get(r.status, 0) + 1
 
     # ---- Top 10 materials by total at-risk quantity, broken down per status tier ----
-    # "at_risk_qty" = net requirement not covered by owned stock. Split per-tier (rather
-    # than collapsing med_risk/low_risk into a single "PO-reliant" bucket) so the chart
-    # can show all four at-risk tiers — including "Soft Risk" (low_risk) — distinctly,
-    # matching the KPI filter cards above it.
-    _TIERS = ("high_risk", "late_po", "med_risk", "low_risk")
+    # "at_risk_qty" = net requirement not covered by owned stock.
+    _TIERS = ("high_risk", "late_po", "med_risk")
     mat_totals: dict[str, dict] = {}
     for r in at_risk_rows:
         mc = r.material_code
@@ -60,7 +56,6 @@ def get_shortage_insights(rows: list, class_labels: dict[str, str] | None = None
                 "high_risk":    Decimal(0),
                 "late_po":      Decimal(0),
                 "med_risk":     Decimal(0),
-                "low_risk":     Decimal(0),
                 "worst_status": r.status,
                 "earliest_due": r.due_date,
             }
@@ -74,7 +69,7 @@ def get_shortage_insights(rows: list, class_labels: dict[str, str] | None = None
             m["earliest_due"] = r.due_date
 
     for m in mat_totals.values():
-        m["at_risk_qty"] = m["high_risk"] + m["late_po"] + m["med_risk"] + m["low_risk"]
+        m["at_risk_qty"] = m["high_risk"] + m["late_po"] + m["med_risk"]
 
     top_materials = sorted(mat_totals.values(), key=lambda x: x["at_risk_qty"], reverse=True)[:10]
 

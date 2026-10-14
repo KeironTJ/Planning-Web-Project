@@ -258,8 +258,6 @@
             <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Late PO"><i class="bi bi-clock-history me-1"></i>Late PO</span>
             {% elif o.mat_status == 'med_risk' %}
             <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="PO Reliant"><i class="bi bi-receipt me-1"></i>PO Reliant</span>
-            {% elif o.mat_status == 'low_risk' %}
-            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Soft Risk"><i class="bi bi-info-circle me-1"></i>Soft Risk</span>
             {% endif %}
             </a>
             {% endif %}
@@ -273,8 +271,6 @@
             <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Component late PO"><i class="bi bi-clock-history me-1"></i>C.Late PO</span>
             {% elif o.comp_status == 'med_risk' %}
             <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="Component PO reliant"><i class="bi bi-receipt me-1"></i>C.PO Rel</span>
-            {% elif o.comp_status == 'low_risk' %}
-            <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Component soft risk"><i class="bi bi-info-circle me-1"></i>C.Soft</span>
             {% endif %}
             </a>
             {% endif %}
@@ -362,8 +358,6 @@
               <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Late PO"><i class="bi bi-clock-history me-1"></i>Late PO</span>
               {% elif line.mat_status == 'med_risk' %}
               <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="PO Reliant"><i class="bi bi-receipt me-1"></i>PO Rel</span>
-              {% elif line.mat_status == 'low_risk' %}
-              <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Soft Risk"><i class="bi bi-info-circle me-1"></i>Soft</span>
               {% endif %}
               </a>
               {% endif %}
@@ -378,8 +372,6 @@
               <span class="badge" style="font-size:.65rem;background:#fd7e14;color:#fff;" title="Component late PO"><i class="bi bi-clock-history me-1"></i>C.Late</span>
               {% elif line.comp_status == 'med_risk' %}
               <span class="badge text-bg-warning text-dark" style="font-size:.65rem;" title="Component PO reliant"><i class="bi bi-receipt me-1"></i>C.PO</span>
-              {% elif line.comp_status == 'low_risk' %}
-              <span class="badge text-bg-info text-dark" style="font-size:.65rem;" title="Component soft risk"><i class="bi bi-info-circle me-1"></i>C.Soft</span>
               {% endif %}
               </a>
               {% endif %}

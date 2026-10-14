@@ -1,7 +1,7 @@
 """
 Tests for materials service layer -- netting, status classification, PO lead-time.
 
-Priority: _row_status() is the single source of truth for the 5-tier material
+Priority: _row_status() is the single source of truth for the 4-tier material
 status; every badge, KPI card, and summary in the app derives from it.
 """
 
@@ -135,7 +135,7 @@ def run_pegging(**kwargs):
 # ---------------------------------------------------------------------------
 
 class TestRowStatus:
-    """All 6 code paths through the 5-tier status decision function."""
+    """Coverage classification is independent of work-order release status."""
 
     def test_zero_net_is_ok(self):
         assert _row_status(D(0), D(0), D(100), False, False) == "ok"
@@ -149,13 +149,13 @@ class TestRowStatus:
     def test_stock_overcoverage_is_ok(self):
         assert _row_status(D(30), D(0), D(100), True, False) == "ok"
 
-    def test_gap_covered_by_po_unreleased_is_low_risk(self):
-        # Stock < net_required; shortage == 0 (PO fills gap); job not released
-        assert _row_status(D(100), D(0), D(20), False, True) == "low_risk"
+    @pytest.mark.parametrize("released", [False, True, None])
+    def test_gap_covered_by_po_is_po_reliant(self, released):
+        assert _row_status(D(100), D(0), D(20), released, True) == "med_risk"
 
-    def test_gap_covered_by_po_released_is_med_risk(self):
-        # Same gap; job IS in production -- higher urgency
-        assert _row_status(D(100), D(0), D(20), True, True) == "med_risk"
+    @pytest.mark.parametrize("released", [False, True, None])
+    def test_gap_covered_by_call_off_is_po_reliant(self, released):
+        assert _row_status(D(100), D(0), D(20), released, False) == "med_risk"
 
     def test_genuine_shortage_with_po_is_late_po(self):
         assert _row_status(D(100), D(10), D(0), False, True) == "late_po"
@@ -169,11 +169,6 @@ class TestRowStatus:
 
     def test_shortage_no_po_released_is_high_risk(self):
         assert _row_status(D(100), D(10), D(0), True, False) == "high_risk"
-
-    def test_released_none_treated_as_not_released(self):
-        # released=None -> not released -> low_risk, not med_risk
-        assert _row_status(D(100), D(0), D(20), None, True) == "low_risk"
-
 
 # ---------------------------------------------------------------------------
 # Integration tests: netting with zero lead days (dates kept simple)
@@ -227,13 +222,13 @@ class TestNettingIntegration:
         rows = [r for r in run_report()["rows"] if r.material_code == "FAB002"]
         assert rows[0].status == "high_risk" and rows[0].shortage == D(50)
 
-    def test_po_covers_gap_unreleased_is_low_risk(self, db):
+    def test_po_covers_gap_unreleased_is_po_reliant(self, db):
         due = TODAY + timedelta(days=30)
         make_req("FAB003", qty_for_order=100, job_released=False, due_date=due)
         make_stock("FAB003", qty_on_hand=20)
         make_po("FAB003", outstanding_qty=80, due_date=due)
         rows = [r for r in run_report()["rows"] if r.material_code == "FAB003"]
-        assert rows[0].status == "low_risk"
+        assert rows[0].status == "med_risk"
 
     def test_po_covers_gap_released_is_med_risk(self, db):
         due = TODAY + timedelta(days=30)
@@ -261,7 +256,7 @@ class TestNettingIntegration:
         make_po("FAB006", outstanding_qty=50, due_date=late)
         by_so = {r.so_number: r for r in run_report()["rows"] if r.material_code == "FAB006"}
         assert by_so["2001"].status == "ok"
-        assert by_so["2002"].status == "low_risk"
+        assert by_so["2002"].status == "med_risk"
 
     def test_second_req_has_nothing_left(self, db):
         """First req uses all stock; second has no PO -> high_risk."""
@@ -424,7 +419,7 @@ class TestPoLeadTime:
         make_stock("FAB010", qty_on_hand=0)
         make_po("FAB010", outstanding_qty=100, due_date=po_due)
         rows = [r for r in run_report()["rows"] if r.material_code == "FAB010"]
-        assert rows[0].status == "low_risk"
+        assert rows[0].status == "med_risk"
 
     def test_overdue_po_clamped_to_today_covers_future_req(self, db, zero_lead_days):
         req_due = TODAY + timedelta(days=30)
@@ -433,7 +428,7 @@ class TestPoLeadTime:
         make_stock("FAB011", qty_on_hand=0)
         make_po("FAB011", outstanding_qty=100, due_date=yesterday)
         rows = [r for r in run_report()["rows"] if r.material_code == "FAB011"]
-        assert rows[0].status in ("low_risk", "med_risk")
+        assert rows[0].status == "med_risk"
 
     def test_exhausted_po_gives_high_risk_not_late_po(self, db, zero_lead_days):
         """PO fully consumed by earlier req; remaining req has no PO -> high_risk."""
@@ -444,7 +439,7 @@ class TestPoLeadTime:
         make_stock("FAB012", qty_on_hand=0)
         make_po("FAB012", outstanding_qty=100, due_date=early)
         by_so = {r.so_number: r for r in run_report()["rows"] if r.material_code == "FAB012"}
-        assert by_so["4001"].status in ("low_risk", "med_risk")
+        assert by_so["4001"].status == "med_risk"
         assert by_so["4002"].status == "high_risk"
 
 
@@ -487,6 +482,252 @@ class TestSoMaterialStatus:
     def test_empty_list_returns_empty(self, db):
         from app.purchasing.materials.services.status import get_so_material_status
         assert get_so_material_status([]) == {}
+
+
+@pytest.fixture
+def po_reliant_orders(db, zero_lead_days):
+    from app.operations.models import WorksOrder
+    from app.sales.orders.models import SalesOrder
+
+    due = TODAY + timedelta(days=30)
+    for number, released, value in [(1001, False, 500), (1002, True, 700)]:
+        job = f"PO-JOB-{number}"
+        for group in ("fabric", "component"):
+            make_req(
+                f"PO-{group}", qty_for_order=50, due_date=due,
+                material_group=group, job_released=released,
+                works_order=job, so_number=str(number),
+            )
+        _db.session.add(SalesOrder(
+            order_num=number, order_line=1, rel_num=1, open_order=True,
+            assembly_seq=0, job_num=job, selling_qty=1, shipped_qty=0,
+            required_qty=1, qty_completed=0, release_price_gbp=value,
+            req_date=due, need_by_date=due, wip_bin="BAY-01",
+        ))
+        _db.session.add(WorksOrder(
+            job_num=job, assembly_seq=0, order_num=number, order_line=1,
+            order_rel_num=1, job_released=released, job_complete=False,
+            req_due_date=due, required_qty=1, qty_completed=0, next_op="UPHOL", model="MODEL",
+        ))
+    for index, group in enumerate(("fabric", "component"), 1):
+        make_stock(f"PO-{group}", qty_on_hand=20)
+        make_po(f"PO-{group}", outstanding_qty=80, po_num=index)
+    _db.session.commit()
+
+
+class TestConsolidatedPoReliance:
+    @pytest.mark.parametrize("group", ["fabric", "component"])
+    @pytest.mark.parametrize("released", [False, True, None])
+    def test_report_rollups_and_pegging_share_po_reliance(self, app, db, group, released):
+        from app.purchasing.materials.services.netting import get_shortage_report
+        from app.purchasing.materials.services.status import (
+            get_job_component_status, get_job_material_status,
+            get_so_component_status, get_so_material_status,
+        )
+
+        make_req(
+            "PO-COVER", qty_for_order=50, material_group=group,
+            job_released=released, works_order="PO-JOB", so_number="1001",
+        )
+        make_stock("PO-COVER", qty_on_hand=20)
+        make_po("PO-COVER", outstanding_qty=30)
+        _db.session.commit()
+        with app.test_request_context():
+            row = get_shortage_report(material_group=group, shortages_only=False)["rows"][0]
+            so_lookup = get_so_material_status if group == "fabric" else get_so_component_status
+            job_lookup = get_job_material_status if group == "fabric" else get_job_component_status
+            assert row.status == "med_risk"
+            assert row.shortage == D(0)
+            assert row.job_released is released
+            assert so_lookup(["1001"]) == {"1001": "med_risk"}
+            assert job_lookup(["PO-JOB"]) == {"PO-JOB": "med_risk"}
+            material = run_pegging(so_number="1001", material_group=group)["materials"][0]
+            assert material.mat_status == material.selected_so_status == "med_risk"
+            assert [e.mat_status for e in material.events if e.row_type == "requirement"] == ["med_risk"]
+
+    def test_counts_values_and_chart_quantities_are_combined(self, app, po_reliant_orders):
+        from app.purchasing.materials.services.dashboard import get_weekly_so_breakdown
+        from app.purchasing.materials.services.insights import get_shortage_insights
+        from app.purchasing.materials.routes import _status_counts
+        from app.purchasing.materials.services.types import MAT_STATUS_META, _MAT_STATUS_PRIORITY
+
+        with app.test_request_context():
+            rows = run_report()["rows"]
+            insights = get_shortage_insights(rows)
+            breakdown = get_weekly_so_breakdown()
+
+        assert _status_counts(rows) == {"med_risk": 2}
+        assert insights["status_counts"] == {"med_risk": 2}
+        top = insights["top_materials"][0]
+        assert top["med_risk"] == top["at_risk_qty"] == D(80)
+        assert "low_risk" not in top
+        assert insights["total_shortage_qty"] == D(0)
+        assert breakdown["totals"]["med_risk"] == {"count": 2, "value": D(1200)}
+        assert breakdown["total_count"] == 2
+        assert breakdown["total_value"] == D(1200)
+        assert set(breakdown["totals"]) == {"ok", "med_risk", "late_po", "high_risk"}
+        for week in breakdown["weeks"]:
+            assert "low_risk" not in week
+            assert week["med_risk"]["count"] == week["total_count"]
+            assert week["med_risk"]["value"] == week["total_value"]
+        assert "low_risk" not in MAT_STATUS_META
+        assert "low_risk" not in _MAT_STATUS_PRIORITY
+        assert MAT_STATUS_META["med_risk"] == ("PO Reliant", "warning")
+
+    @pytest.mark.parametrize("endpoint, query", [
+        ("materials.index", {}),
+        ("purchasing.overview", {}),
+        ("materials.shortage", {"status": "med_risk"}),
+        ("materials.component_shortage", {"status": "med_risk"}),
+        ("materials.shortage", {"status": "low_risk"}),
+        ("materials.component_shortage", {"status": "low_risk"}),
+        ("materials.mrp", {"so": "1001"}),
+        ("orders.order_book", {}),
+        ("transport.loading_bay", {}),
+        ("operations.wip_overview", {"fabric_status": "med_risk"}),
+        ("operations.wip_overview", {"component_status": "med_risk"}),
+        ("operations.wip_overview", {"fabric_status": "low_risk", "component_status": "low_risk"}),
+    ])
+    def test_pages_show_po_reliance_without_soft_risk(
+        self, app, client, admin_user, po_reliant_orders, endpoint, query,
+    ):
+        from flask import url_for
+
+        client.post("/auth/login", data={
+            "login": admin_user.email, "password": "Admin!Pass1234",
+        })
+        with app.test_request_context():
+            url = url_for(endpoint, **query)
+        response = client.get(url)
+        assert response.status_code == 200
+        html = response.data.decode()
+        assert "PO Reliant" in html
+        assert "Soft Risk" not in html
+        assert "C.Soft" not in html
+        assert "low_risk" not in html
+        if endpoint in ("materials.shortage", "materials.component_shortage"):
+            assert 'name="status" value="med_risk"' in html
+            assert "PO-JOB-1001" in html and "PO-JOB-1002" in html
+        if endpoint == "operations.wip_overview":
+            assert "PO-JOB-1002" in html
+            assert "PO-JOB-1001" not in html
+
+    @pytest.mark.parametrize("status", ["med_risk", "low_risk"])
+    def test_wip_export_shows_po_reliance_and_preserves_released_job_scope(
+        self, client, admin_user, po_reliant_orders, status,
+    ):
+        import csv
+        import io
+
+        client.post("/auth/login", data={
+            "login": admin_user.email, "password": "Admin!Pass1234",
+        })
+        response = client.get(
+            f"/operations/wip/export?fabric_status={status}&component_status={status}"
+        )
+        assert response.status_code == 200
+        rows = list(csv.DictReader(io.StringIO(response.data.decode("utf-8-sig"))))
+        assert {r["Job Number"] for r in rows} == {"PO-JOB-1002"}
+        for row in rows:
+            for field in (
+                "Job Fabric Status", "Order Fabric Status",
+                "Job Comp. Status", "Order Comp. Status",
+            ):
+                assert row[field] == "PO Reliant"
+
+
+class TestComponentAvailabilityWithoutRequirements:
+    @pytest.mark.parametrize("group", ["fabric", "component"])
+    def test_missing_requirements_are_ok_only_for_components(self, app, group):
+        from app.purchasing.materials.services.status import (
+            get_job_component_status, get_job_material_status,
+            get_so_component_status, get_so_material_status,
+        )
+
+        so_lookup = get_so_component_status if group == "component" else get_so_material_status
+        job_lookup = get_job_component_status if group == "component" else get_job_material_status
+        expected = "ok" if group == "component" else "no_data"
+        with app.test_request_context():
+            assert so_lookup(["1001"]) == {"1001": expected}
+            assert job_lookup(["EMPTY-JOB"]) == {"EMPTY-JOB": expected}
+            assert so_lookup([]) == job_lookup([]) == {}
+
+    @pytest.mark.parametrize("status, po_qty", [
+        ("ok", 50), ("med_risk", 100), ("late_po", 30), ("high_risk", 0),
+    ])
+    def test_component_risks_still_override_empty_default(self, app, status, po_qty):
+        from app.purchasing.materials.services.status import get_so_component_status, get_job_component_status
+
+        make_req("COMP-RISK", qty_for_order=100, material_group="component")
+        make_stock("COMP-RISK", qty_on_hand=100 if status == "ok" else 0)
+        if po_qty:
+            make_po("COMP-RISK", outstanding_qty=po_qty)
+        _db.session.commit()
+        with app.test_request_context():
+            assert get_so_component_status(["1001", "EMPTY"]) == {"1001": status, "EMPTY": "ok"}
+            assert get_job_component_status(["WO001", "EMPTY"]) == {"WO001": status, "EMPTY": "ok"}
+
+    @pytest.mark.parametrize("exclusion", ["closed", "issued", "exempt", "out_of_scope"])
+    def test_no_active_component_requirements_are_ok(self, app, exclusion):
+        from app.admin.models import SystemSetting, SETTING_COMPONENT_CLASS_IDS
+        from app.purchasing.materials.services.status import get_so_component_status, get_job_component_status
+
+        req = make_req("COMP-INACTIVE", material_group="component", class_id="P101")
+        if exclusion == "closed":
+            req.job_closed = True
+        elif exclusion == "issued":
+            req.issued_complete = True
+        elif exclusion == "exempt":
+            _db.session.add(MrpExemptMaterial(material_code="COMP-INACTIVE", reason="Test"))
+        else:
+            SystemSetting.set(SETTING_COMPONENT_CLASS_IDS, "P102")
+        _db.session.commit()
+        with app.test_request_context():
+            assert get_so_component_status(["1001"]) == {"1001": "ok"}
+            assert get_job_component_status(["WO001"]) == {"WO001": "ok"}
+
+    @pytest.mark.parametrize("endpoint", [
+        "operations.wip_overview", "orders.order_book", "transport.loading_bay",
+    ])
+    def test_site_consumers_treat_no_component_demand_as_ok(
+        self, app, client, admin_user, po_reliant_orders, endpoint,
+    ):
+        from flask import template_rendered, url_for
+
+        MaterialRequirementMain.query.filter_by(material_group="component").delete()
+        _db.session.commit()
+        contexts = []
+
+        def capture(sender, template, context, **extra):
+            contexts.append(context)
+
+        client.post("/auth/login", data={
+            "login": admin_user.email, "password": "Admin!Pass1234",
+        })
+        with app.test_request_context():
+            url = url_for(endpoint, component_status="ok") if endpoint == "operations.wip_overview" else url_for(endpoint)
+        with template_rendered.connected_to(capture, app):
+            response = client.get(url)
+        assert response.status_code == 200
+        context = contexts[-1]
+        if endpoint == "operations.wip_overview":
+            assert [job.job_num for job in context["jobs"].items] == ["PO-JOB-1002"]
+            assert set(context["comp_status_map"].values()) == {"ok"}
+            assert context["job_comp_map"] == {"PO-JOB-1002": "ok"}
+            html = response.get_data(as_text=True)
+            assert "Mat. OK" in html
+            assert "No Data" not in html
+            assert '<option value="ok" selected>Available (Mat. OK)</option>' in html
+            export = client.get("/operations/wip/export?component_status=ok").get_data(as_text=True)
+            assert "Mat. OK,Mat. OK" in export
+            assert "PO Reliant" in export
+        else:
+            assert len(context["orders"]) == 2
+            for order in context["orders"]:
+                assert order["comp_status"] == "ok"
+                children = order["lines"] if endpoint == "orders.order_book" else order["releases"]
+                assert children
+                assert all(child["comp_status"] == "ok" for child in children)
 
 
 # ---------------------------------------------------------------------------
@@ -1249,4 +1490,3 @@ class TestReleaseDecisions:
         removed = update_committed_selection(rendered_keys)
         assert removed == 0
         assert get_active_committed_keys() == {"410/1/1", "411/1/1"}
-
