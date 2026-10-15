@@ -26,12 +26,17 @@ const CHART_PALETTE = [
  * @param {Array}   unitsData   - dataset array for units mode
  * @param {string}  [axis]      - Chart.js parsed axis key: 'y' (default) or 'x' for horizontal bars
  * @param {boolean} [isDoughnut] - true for doughnut/pie (tooltip uses ctx.label not ctx.parsed[axis])
+ * @param {{buttonId: string, totalValue: number, unitsButtonId?: string, totalUnits?: number}} [percentage] - optional value and units share modes
  */
-function wireValueUnitsToggle(chart, valueBtnId, unitsBtnId, valueData, unitsData, axis, isDoughnut) {
+function wireValueUnitsToggle(chart, valueBtnId, unitsBtnId, valueData, unitsData, axis, isDoughnut, percentage) {
     const valBtn = document.getElementById(valueBtnId);
     const uniBtn = document.getElementById(unitsBtnId);
     if (!valBtn || !uniBtn) return;
     const a = axis || 'y';
+    const percentBtn = percentage ? document.getElementById(percentage.buttonId) : null;
+    const unitsPercentBtn = percentage && percentage.unitsButtonId
+        ? document.getElementById(percentage.unitsButtonId) : null;
+    const originalTickCallback = percentage ? chart.options.scales[a].ticks.callback : null;
 
     function makeTooltip(useUnits) {
         if (isDoughnut) {
@@ -44,17 +49,36 @@ function wireValueUnitsToggle(chart, valueBtnId, unitsBtnId, valueData, unitsDat
             : { label: ctx => '\u00a3' + ctx.parsed[a].toLocaleString() };
     }
 
-    function activate(useUnits) {
-        chart.data.datasets[0].data  = useUnits ? unitsData : valueData;
-        chart.data.datasets[0].label = useUnits ? 'Units' : 'Value (\u00a3)';
-        chart.options.plugins.tooltip = { callbacks: makeTooltip(useUnits) };
+    function activate(useUnits, usePercent = false) {
+        const data = useUnits ? unitsData : valueData;
+        const total = usePercent ? (useUnits ? percentage.totalUnits : percentage.totalValue) : null;
+        chart.data.datasets[0].data = usePercent
+            ? data.map(value => total === 0 ? 0 : value / total * 100)
+            : data;
+        chart.data.datasets[0].label = usePercent
+            ? (useUnits ? 'Units (%)' : 'Value (%)')
+            : useUnits ? 'Units' : 'Value (\u00a3)';
+        chart.options.plugins.tooltip = {
+            callbacks: usePercent
+                ? { label: ctx => ctx.parsed[a].toFixed(1) + (useUnits ? '% of open units' : '% of open order value') }
+                : makeTooltip(useUnits),
+        };
+        if (percentage) {
+            chart.options.scales[a].ticks.callback = usePercent
+                ? value => Number(value).toLocaleString() + '%'
+                : originalTickCallback;
+        }
         chart.update();
-        valBtn.classList.toggle('active', !useUnits);
-        uniBtn.classList.toggle('active', useUnits);
+        valBtn.classList.toggle('active', !useUnits && !usePercent);
+        uniBtn.classList.toggle('active', useUnits && !usePercent);
+        if (percentBtn) percentBtn.classList.toggle('active', usePercent && !useUnits);
+        if (unitsPercentBtn) unitsPercentBtn.classList.toggle('active', usePercent && useUnits);
     }
 
     valBtn.addEventListener('click', () => activate(false));
     uniBtn.addEventListener('click', () => activate(true));
+    if (percentBtn) percentBtn.addEventListener('click', () => activate(false, true));
+    if (unitsPercentBtn) unitsPercentBtn.addEventListener('click', () => activate(true, true));
 }
 
 window.CHART_PALETTE        = CHART_PALETTE;

@@ -177,39 +177,51 @@
   <hr class="flex-grow-1 my-0 opacity-25">
 </div>
 
-{# By Customer + Customer Group #}
+{# Customer Group #}
 <div class="row g-3 mb-3">
-  <div class="col-lg-8">
+  <div class="col-12">
     <div class="card border-0 shadow-sm h-100">
-      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start">
+      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start flex-wrap gap-2">
         <div>
-          <h6 class="mb-0 fw-semibold"><i class="bi bi-people me-2 text-info"></i>Top 15 Customers</h6>
-          <p class="text-muted small mb-0">Open orders by customer account</p>
+          <h6 class="mb-0 fw-semibold"><i class="bi bi-building me-2 text-info"></i>Customer Group</h6>
+          <p class="text-muted small mb-0">Open orders by account group — percentages are shares of all open orders</p>
         </div>
         <div class="btn-group btn-group-sm">
-          <button class="btn btn-outline-secondary active" id="btnCustomerValue">Value</button>
-          <button class="btn btn-outline-secondary" id="btnCustomerUnits">Units</button>
+          <button class="btn btn-outline-secondary active" id="btnCustGrpValue">Value (£)</button>
+          <button class="btn btn-outline-secondary" id="btnCustGrpUnits">Units</button>
+          <button class="btn btn-outline-secondary" id="btnCustGrpPercent">Value (%)</button>
+          <button class="btn btn-outline-secondary" id="btnCustGrpUnitsPercent">Units (%)</button>
         </div>
       </div>
       <div class="card-body">
-        <canvas id="chartCustomerValue" style="height:{{ [value_by_customer|length * 26, 160]|max }}px;"></canvas>
+        <div class="position-relative" style="height:{{ [by_customer_group|length * 24 + 50, 180]|max }}px;">
+          <canvas id="chartCustomerGroup"></canvas>
+        </div>
       </div>
     </div>
   </div>
-  <div class="col-lg-4">
+</div>
+
+{# By Customer #}
+<div class="row g-3 mb-3">
+  <div class="col-12">
     <div class="card border-0 shadow-sm h-100">
-      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start">
+      <div class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-start flex-wrap gap-2">
         <div>
-          <h6 class="mb-0 fw-semibold"><i class="bi bi-building me-2 text-info"></i>Customer Group</h6>
-          <p class="text-muted small mb-0">Open orders by account group</p>
+          <h6 class="mb-0 fw-semibold"><i class="bi bi-people me-2 text-info"></i>Top 15 Customers</h6>
+          <p class="text-muted small mb-0">Open orders by customer account — percentages are shares of all open orders</p>
         </div>
         <div class="btn-group btn-group-sm">
-          <button class="btn btn-outline-secondary active" id="btnCustGrpValue">Value</button>
-          <button class="btn btn-outline-secondary" id="btnCustGrpUnits">Units</button>
+          <button class="btn btn-outline-secondary active" id="btnCustomerValue">Value (£)</button>
+          <button class="btn btn-outline-secondary" id="btnCustomerUnits">Units</button>
+          <button class="btn btn-outline-secondary" id="btnCustomerPercent">Value (%)</button>
+          <button class="btn btn-outline-secondary" id="btnCustomerUnitsPercent">Units (%)</button>
         </div>
       </div>
       <div class="card-body">
-        <canvas id="chartCustomerGroup" style="height:{{ [by_customer_group|length * 28, 160]|max }}px;"></canvas>
+        <div class="position-relative" style="height:{{ [value_by_customer|length * 24 + 50, 180]|max }}px;">
+          <canvas id="chartCustomerValue"></canvas>
+        </div>
       </div>
     </div>
   </div>
@@ -342,6 +354,7 @@
 {% block scripts %}
 <script>
 window.ORDERS_DASH_DATA = {
+  openTotals:     { value: {{ summary.total_value | tojson }}, units: {{ summary.total_units | tojson }} },
   dueByWeek:       {{ due_by_week | tojson }},
   intakeOverTime:  {{ intake_over_time | tojson }},
   valueByCustomer: {{ value_by_customer | tojson }},

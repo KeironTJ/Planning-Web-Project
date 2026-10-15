@@ -135,9 +135,20 @@ document.addEventListener('DOMContentLoaded', function () {
         const custChart = new Chart(custCanvas, {
             type: 'bar',
             data: { labels: custLabels, datasets: [{ label: 'Value (\u00a3)', data: custValues, backgroundColor: 'rgba(13,202,240,.65)', borderRadius: 4 }] },
-            options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '\u00a3' + ctx.parsed.x.toLocaleString() } } }, scales: { x: { beginAtZero: true } } },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '\u00a3' + ctx.parsed.x.toLocaleString() } } },
+                scales: {
+                    x: { beginAtZero: true },
+                    y: { ticks: { autoSkip: false } },
+                },
+            },
         });
-        toggle(custChart, 'btnCustomerValue', 'btnCustomerUnits', custValues, custUnits, 'x');
+        toggle(custChart, 'btnCustomerValue', 'btnCustomerUnits', custValues, custUnits, 'x', false,
+            { buttonId: 'btnCustomerPercent', totalValue: D.openTotals.value,
+                unitsButtonId: 'btnCustomerUnitsPercent', totalUnits: D.openTotals.units });
     }
 
     // ── Customer group horizontal bar ─────────────────────────────────────
@@ -149,9 +160,20 @@ document.addEventListener('DOMContentLoaded', function () {
         const cgChart = new Chart(cgCanvas, {
             type: 'bar',
             data: { labels: cgLabels, datasets: [{ label: 'Value (\u00a3)', data: cgValues, backgroundColor: PALETTE, borderRadius: 4 }] },
-            options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '\u00a3' + ctx.parsed.x.toLocaleString() } } }, scales: { x: { beginAtZero: true } } },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '\u00a3' + ctx.parsed.x.toLocaleString() } } },
+                scales: {
+                    x: { beginAtZero: true },
+                    y: { ticks: { autoSkip: false } },
+                },
+            },
         });
-        toggle(cgChart, 'btnCustGrpValue', 'btnCustGrpUnits', cgValues, cgUnits, 'x');
+        toggle(cgChart, 'btnCustGrpValue', 'btnCustGrpUnits', cgValues, cgUnits, 'x', false,
+            { buttonId: 'btnCustGrpPercent', totalValue: D.openTotals.value,
+                unitsButtonId: 'btnCustGrpUnitsPercent', totalUnits: D.openTotals.units });
     }
 
     // ── By country horizontal bar ─────────────────────────────────────────
