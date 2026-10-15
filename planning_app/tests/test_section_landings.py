@@ -44,6 +44,7 @@ SECTION_MODULES = {
         "capacity.dashboard", "capacity.labour_plan_list", "workorder_plan.sessions",
         "workorder_plan.groups_list", "workorder_plan.capacity_targets",
     },
+    "forecasting.dashboard": {"forecasting.model_classifications"},
     "purchasing.dashboard": {
         "purchasing.overview", "materials.index", "materials.shortage",
         "materials.component_shortage", "materials.mrp", "materials.release_impact",

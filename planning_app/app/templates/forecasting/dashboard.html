@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_header %}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="d-flex align-items-center mb-4 gap-3">
+    <div class="rounded-3 p-3 bg-primary bg-opacity-10">
+      <i class="bi bi-cpu fs-2 text-primary"></i>
+    </div>
+    <div>
+      <h4 class="mb-0 fw-semibold">AI Tools</h4>
+      <p class="text-muted mb-0 small">Sales and unit-demand forecasting, analysis, and model configuration</p>
+    </div>
+  </div>
+
+  <section class="card border-0 shadow-sm mb-4" aria-labelledby="ai-purpose">
+    <div class="card-body p-4">
+      <h2 id="ai-purpose" class="h5 fw-semibold">Purpose and goal</h2>
+      <p>
+        AI Tools brings historical Epicor data, analysis, and forecasting into one place.
+        The goal is to give sales and planning teams a forward view of expected revenue
+        and product demand, helping them prepare for seasonal peaks, changes in customer
+        activity, and upcoming production volume.
+      </p>
+      <p class="mb-0">
+        The toolset is being developed to support the whole process through the browser:
+        prepare data, explore patterns, compare models, produce forecasts, and review
+        their accuracy as actual results arrive. Forecasts will support business decisions
+        alongside the order book and planners' judgement.
+      </p>
+    </div>
+  </section>
+
+  <section class="mb-4" aria-labelledby="ai-goals">
+    <h2 id="ai-goals" class="h5 fw-semibold mb-3">What we want to understand</h2>
+    <div class="row g-3">
+      <div class="col-12 col-lg-4">
+        <div class="card h-100">
+          <div class="card-body">
+            <h3 class="h6 fw-semibold">Monthly net sales</h3>
+            <p class="small">
+              What revenue can we expect over the next three months, and which
+              customer groups are driving the change?
+            </p>
+            <p class="text-muted small mb-0">
+              Net invoiced sales in GBP, excluding VAT and accounting for credits
+              and returns. Includes revenue from all in-scope products.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-lg-4">
+        <div class="card h-100">
+          <div class="card-body">
+            <h3 class="h6 fw-semibold">Weekly unit demand</h3>
+            <p class="small">
+              How many units are likely to be due to ship over the next twelve
+              weeks, and where are the peaks in demand?
+            </p>
+            <p class="text-muted small mb-0">
+              Required ship-by dates provide a production-demand indicator.
+              Full units and cover-only work are reported separately; volume
+              is distinct from labour capacity.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-lg-4">
+        <div class="card h-100">
+          <div class="card-body">
+            <h3 class="h6 fw-semibold">Seasonality and lead time</h3>
+            <p class="small">
+              How does demand change throughout the year, and what does that
+              mean for the time customers wait for their orders?
+            </p>
+            <p class="text-muted small mb-0">
+              Seasonal analysis will inform forecasting. A later phase will
+              examine lead time from order receipt to actual shipment.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="text-muted small mt-3 mb-0">
+      Forecast results will cover customer groups and the company total, using
+      the existing planning groups by default, with Epicor groups as an alternative.
+    </p>
+  </section>
+
+  <section class="card mb-4" aria-labelledby="ai-workflow">
+    <div class="card-body p-4">
+      <h2 id="ai-workflow" class="h5 fw-semibold">From data to a useful forecast</h2>
+      <ol class="mb-0">
+        <li class="mb-2"><strong>Prepare:</strong> connect historical sources, classify products, and check data quality.</li>
+        <li class="mb-2"><strong>Explore:</strong> examine trends, seasonal patterns, customer activity, and product mix.</li>
+        <li class="mb-2"><strong>Experiment:</strong> configure features and models, tune parameters, and compare against simple baselines using historical forecasts.</li>
+        <li class="mb-2"><strong>Forecast:</strong> review expected sales and units, prediction intervals, and exportable results.</li>
+        <li><strong>Monitor:</strong> compare forecasts with actuals, track accuracy and bias, and decide when to retrain.</li>
+      </ol>
+    </div>
+  </section>
+
+  <h2 class="h5 fw-semibold mb-2">Available tools</h2>
+  <p class="text-muted small">
+    Model classification is the first step: define which products count as full units,
+    keep cover-only work separate, and review quantities against one-piece planning.
+    Historical imports, analysis, experiments, forecasts, and monitoring will follow.
+  </p>
+  <div class="row g-3">
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('forecasting.model_classifications') }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm card-hover">
+          <div class="card-body d-flex align-items-start gap-3 p-4">
+            <div class="rounded-3 p-2 bg-primary bg-opacity-10 flex-shrink-0">
+              <i class="bi bi-tags fs-4 text-primary"></i>
+            </div>
+            <div>
+              <h6 class="fw-semibold mb-1">Model Classification</h6>
+              <p class="text-muted small mb-0">Classify full units, cover-only work, and Scatters; review one-piece quantities</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}

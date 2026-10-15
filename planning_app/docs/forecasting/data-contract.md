@@ -56,16 +56,20 @@ Unit demand is the sum of eligible quantities due to ship in each week. The
 required ship-by date determines the week; required delivery date is retained
 as a separate field for analysis.
 
-The model inclusion rule excludes missing or blank models and Scatter models.
-The proposed matching rule trims whitespace and excludes any model containing
-`scatter`, case-insensitively, matching the current planning filter's substring
-behaviour. Exact-name matching remains an option to confirm when reviewing the
-model values. Excluded quantities will remain visible in the data-quality
-summary.
+Each exact model value will be classified in the browser as full unit,
+cover-only, Scatter, or excluded. Names are trimmed and case-sensitive.
+ACO and LCO are examples of cover-only work to classify, not automatic
+prefix rules. Missing/blank models are excluded; new nonblank model values
+remain unclassified until reviewed.
 
-Quantities will be expressed in a consistent unit of measure. Rows represent
-records, not units: a release for several units contributes its quantity rather
-than a count of one.
+The business uses one-piece planning: jobs are configured for one item.
+The initial counting basis is one eligible job/assembly record per item,
+with full units and cover-only work reported separately. Before constructing
+the historical target, the job/assembly grain will be checked for parent and
+subassembly duplication. Source quantities will identify exceptions to the
+one-piece convention rather than silently replacing the count measure.
+Release-level extracts may represent several items and will need quantity
+aggregation or a verified link to one-piece jobs.
 
 Cancellation and amendment handling will be recorded with the quantity mapping,
 including whether the source release quantity is already net of changes.
@@ -192,6 +196,13 @@ Relevant existing mappings include:
 | Existing BAQ field | Current use |
 | --- | --- |
 | `Calculated_Model` | Model |
+| `JobHead_JobNum`, `JobAsmbl_AssemblySeq` | Imported job/assembly identity |
+| `JobProd_OrderNum`, `JobProd_OrderLine`, `JobProd_OrderRelNum` | Order-release links |
+| `Customer_CustID` | Customer identifier |
+| `JobAsmbl_RequiredQty` | Required quantity used in the one-piece review |
+| `Calculated_SellingQty` | Selling quantity |
+| `JobHead_QtyCompleted` | Completed job quantity |
+| `Calculated_ShippedQty01` | Shipped quantity |
 | `JobHead_ProdPlnWk_c` | Production plan week |
 | `JobHead_ReqDueDate` | Job required due date |
 | `JobHead_StartDate` | Job start date |
@@ -360,3 +371,18 @@ with the affected datasets. The project overview will be updated when those
 changes affect the application's scope or behaviour. Both documents will
 describe the current design while saved dataset and experiment versions
 preserve the definitions used for earlier results.
+
+## Current implementation
+
+The model review screen is available under **AI Tools** at
+`/ai-tools/models`. It uses the current COOIS snapshot and saved
+classifications, not historical training data. It shows job/assembly record
+counts, known required quantities, missing quantities, and quantities other
+than one. Saved classifications survive operational refreshes.
+
+Viewing requires `view_planning`; editing requires both `view_planning` and
+`manage_planning`. Saves and removals are audited. The existing planning board
+and all revenue calculations remain unchanged.
+
+The Finance reporting source is still to be identified. Revenue mapping will
+follow a review of how Finance currently reports invoiced sales and credits.

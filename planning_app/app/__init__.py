@@ -143,6 +143,7 @@ def _register_blueprints(app: Flask) -> None:
     from .admin import models as _admin_models  # noqa: F401
     from .operations import models as _operations_models  # noqa: F401
     from .transport import models as _transport_models  # noqa: F401
+    from .forecasting import models as _forecast_models  # noqa: F401
     # SalesOrder model lives in sales.orders.models — already imported above
 
     from .auth import auth_bp
@@ -163,6 +164,7 @@ def _register_blueprints(app: Flask) -> None:
     from .planning.workorder_plan import workorder_plan_bp
     from .purchasing.materials import materials_bp
     from .projects import projects_bp
+    from .forecasting import forecasting_bp
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(admin_bp, url_prefix="/admin")
@@ -180,6 +182,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(orders_bp, url_prefix="/sales/orders")
     app.register_blueprint(capacity_bp, url_prefix="/planning/capacity")
     app.register_blueprint(workorder_plan_bp, url_prefix="/planning/workorder-plan")
+    app.register_blueprint(forecasting_bp, url_prefix="/ai-tools")
     app.register_blueprint(materials_bp, url_prefix="/purchasing/materials")
     app.register_blueprint(projects_bp, url_prefix="/projects")
 

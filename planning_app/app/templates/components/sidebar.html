@@ -146,6 +146,38 @@
             </li>
             {% endif %}
 
+            {% if current_user.has_permission('view_planning') %}
+            {% set ai_active = request.blueprint == 'forecasting' %}
+            <li class="sidebar-section">
+                <div class="sidebar-section-heading">
+                    <a href="{{ url_for('forecasting.dashboard') }}">
+                        <i class="bi bi-cpu me-1"></i>AI Tools
+                    </a>
+                    <button class="sidebar-section-toggle" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#aiToolsMenu" aria-expanded="{{ 'true' if ai_active else 'false' }}"
+                            aria-controls="aiToolsMenu" aria-label="Toggle AI Tools menu">
+                        <i class="bi bi-chevron-down transition-icon" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div class="collapse {% if ai_active %}show{% endif %}" id="aiToolsMenu">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'forecasting.dashboard' %}active{% endif %}"
+                               href="{{ url_for('forecasting.dashboard') }}">
+                                <i class="bi bi-speedometer2 me-2"></i>Overview
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint in ('forecasting.model_classifications', 'forecasting.model_classification_save', 'forecasting.model_classification_remove') %}active{% endif %}"
+                               href="{{ url_for('forecasting.model_classifications') }}">
+                                <i class="bi bi-tags me-2"></i>Model Classification
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </li>
+            {% endif %}
+
             {% if current_user.has_permission('view_materials') %}
             {% set purchasing_data_endpoints = ('materials.stock_list', 'materials.po_list', 'materials.main_requirements', 'materials.exempt_materials', 'materials.class_labels') %}
             {% set purchasing_endpoints = ('purchasing.dashboard', 'purchasing.overview', 'materials.index', 'materials.shortage', 'materials.component_shortage', 'materials.mrp', 'materials.release_impact', 'purchasing.supplier_delivery') + purchasing_data_endpoints %}

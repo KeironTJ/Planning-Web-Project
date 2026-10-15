@@ -36,8 +36,13 @@ The existing planning groups will be the default, with Epicor customer group
 codes available as an alternative.
 
 The revenue forecast will include all in-scope sales. The unit forecast will
-follow the planning rules for model inclusion, excluding blank models and
-Scatter models.
+use browser-maintained classifications for exact model values: full unit,
+cover-only, Scatter, or excluded. Blank models are excluded and new values
+remain unclassified until reviewed. Cover-only work, such as ACO and LCO,
+will be reported separately from full units.
+
+The business uses one-piece job planning. Unit preparation will start with
+eligible job/assembly counts and check source quantities for exceptions.
 
 Units due to ship provide a practical indicator of upcoming production demand.
 They measure volume rather than labour hours; product mix will help explain
@@ -93,6 +98,12 @@ The forecasting module will use the existing Flask application, authentication,
 permissions, Epicor connection, and customer-group configuration. This keeps
 forecasting alongside the sales and planning information it is intended to
 support.
+
+All AI and forecasting pages will sit in the dedicated **AI Tools** section,
+with its own home-page card, landing page, and sidebar menu. Data preparation,
+analysis, experiments, forecasts, and configuration will be accessed from there.
+The section overview explains the business goals, forecast measures, and
+data-to-forecast workflow, alongside links to the tools currently available.
 
 Data preparation, training, evaluation, and prediction will sit in separate
 services behind the browser interface. This allows the modelling logic to be
@@ -180,5 +191,31 @@ the definitions used for earlier results.
 
 ## Current progress
 
-The initial forecast scope and business definitions are documented. The next
-step is to map the historical Epicor BAQs and build the ingestion layer.
+The initial forecast scope and business definitions are documented. The first
+browser tool classifies exact COOIS models and reviews the one-piece counting
+basis. It is available from **AI Tools** as **Model Classification**.
+
+The next step is to review these model decisions, map the historical unit
+source, and establish the invoice/credit reporting source with Finance.
+
+### Running the model classification screen
+
+Apply the database migration before opening the new screen:
+
+```text
+flask --app wsgi db upgrade
+```
+
+Run this from the application directory using its configured Python environment
+and normal deployment settings. The screen is at
+`/ai-tools/models`, with the section overview at `/ai-tools/`. Users need
+`view_planning` to view it and
+`manage_planning` as well to save decisions.
+
+Classify each model from the current snapshot or add a model by name. Saved
+decisions remain available after COOIS refreshes. The screen shows current
+imported records and quantity exceptions; it does not yet generate forecasts
+or change existing capacity-board calculations.
+
+The section currently retains the existing planning
+permissions; moving navigation does not change who can view or edit decisions.

@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+  <p class="text-muted">
+    Classify exact COOIS model values for forecast preparation. Full units, cover-only work,
+    and Scatters are kept separate. These decisions do not exclude any revenue.
+  </p>
+  <div class="alert alert-info">
+    Counts below describe the current imported job/assembly snapshot, including completed jobs
+    where present, not a historical forecast. One-piece planning expects one item per record.
+    Required quantities are shown to help review exceptions.
+  </div>
+  {% if quantity_exceptions %}
+  <div class="alert alert-warning">
+    {{ quantity_exceptions }} record(s) have a missing required quantity or a quantity other than one.
+    Review these before using record counts as unit demand.
+  </div>
+  {% endif %}
+
+  <div class="row g-2 mb-4">
+    {% for category, label in categories.items() %}
+    <div class="col-6 col-lg">
+      <div class="card h-100">
+        <div class="card-body py-2">
+          <div class="text-muted small">{{ label }} records</div>
+          <div class="fs-4 fw-semibold">{{ counts[category] }}</div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    <div class="col-6 col-lg">
+      <div class="card h-100 border-warning">
+        <div class="card-body py-2">
+          <div class="text-muted small">Unclassified records</div>
+          <div class="fs-4 fw-semibold">{{ counts['unclassified'] }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if can_manage %}
+  <div class="card mb-4">
+    <div class="card-header">Add or update an exact model</div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('forecasting.model_classification_save') }}" class="row g-2 align-items-end">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-5">
+          <label for="new-model" class="form-label">Model name</label>
+          <input id="new-model" name="model" class="form-control" maxlength="255" required>
+        </div>
+        <div class="col-md-4">
+          <label for="new-category" class="form-label">Classification</label>
+          <select id="new-category" name="category" class="form-select" required>
+            <option value="">Choose a classification</option>
+            {% for category, label in categories.items() %}
+            <option value="{{ category }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <button type="submit" class="btn btn-primary">Save classification</button>
+        </div>
+      </form>
+      <div class="form-text mt-2">
+        Names match exactly after trimming surrounding whitespace; case is preserved.
+        You can add models not present in the current snapshot. New model values remain unclassified.
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <p class="text-muted small">Read-only access. Managing classifications requires the manage_planning permission.</p>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-header">Model review</div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th scope="col">Exact model</th>
+            <th scope="col">Records</th>
+            <th scope="col">Known required qty</th>
+            <th scope="col">Qty missing</th>
+            <th scope="col">Qty not one</th>
+            <th scope="col">Classification</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+          <tr>
+            <td class="fw-semibold text-break">{{ item.model if item.model else '(blank / missing)' }}</td>
+            <td>{{ item.record_count }}</td>
+            <td>{{ item.required_qty_total }}</td>
+            <td>{{ item.missing_qty_count }}</td>
+            <td>{{ item.non_single_qty_count }}</td>
+            <td>
+              {% if can_manage and item.model %}
+              <form method="post" action="{{ url_for('forecasting.model_classification_save') }}" class="d-flex gap-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="model" value="{{ item.model }}">
+                <select name="category" class="form-select form-select-sm" required aria-label="Classification for {{ item.model }}">
+                  <option value="" {% if item.category == 'unclassified' %}selected{% endif %}>Unclassified</option>
+                  {% for category, label in categories.items() %}
+                  <option value="{{ category }}" {% if item.category == category %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+              </form>
+              {% if item.category != 'unclassified' %}
+              <form method="post" action="{{ url_for('forecasting.model_classification_remove') }}" class="mt-1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="model" value="{{ item.model }}">
+                <button type="submit" class="btn btn-sm btn-link">Return to unclassified</button>
+              </form>
+              {% endif %}
+              {% else %}
+              {{ categories.get(item.category, 'Unclassified') }}
+              {% if not item.model %}<span class="text-muted small">(always excluded)</span>{% endif %}
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" class="text-center text-muted py-4">
+              No COOIS models or saved classifications yet. Import COOIS through the existing Epicor sync,
+              or add an exact model above.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -31,6 +31,8 @@ class SidebarParser(HTMLParser):
         ("transport.dashboard", "transportMenu"),
         ("admin.dashboard", "administrationMenu"),
         ("capacity.dashboard", "planningMenu"),
+        ("forecasting.dashboard", "aiToolsMenu"),
+        ("forecasting.model_classifications", "aiToolsMenu"),
         ("purchasing.overview", "purchasingMenu"),
         ("materials.stock_list", "purchasingMenu"),
     ],
@@ -55,7 +57,7 @@ def test_sidebar_opens_current_section(app, admin_user, endpoint, menu_id):
     assert parser.toggles[menu_id]["data-bs-target"] == f"#{menu_id}"
     assert path in parser.links
     for other_menu in ("salesMenu", "planningMenu", "purchasingMenu",
-                       "operationsMenu", "transportMenu", "administrationMenu"):
+                       "operationsMenu", "transportMenu", "administrationMenu", "aiToolsMenu"):
         if other_menu != menu_id:
             assert "show" not in parser.menus[other_menu]
             assert parser.toggles[other_menu]["aria-expanded"] == "false"
