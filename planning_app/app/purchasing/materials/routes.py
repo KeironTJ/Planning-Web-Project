@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 
-from flask import render_template, request, redirect, url_for, flash
+from flask import abort, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 
 from . import materials_bp
@@ -12,7 +12,7 @@ from .services.class_labels import (
     get_class_labels,
     set_class_label,
 )
-from .services.dashboard import get_weekly_availability_summary, get_weekly_so_breakdown
+from .services.dashboard import get_customer_coverage_summary, get_weekly_so_breakdown
 from .services.exempt import add_exemptions, get_exempt_materials, remove_exemptions
 from .services.insights import get_shortage_insights
 from .services.netting import get_shortage_report
@@ -83,15 +83,42 @@ def _status_counts(rows: list) -> dict:
 @login_required
 @permission_required("view_materials")
 def index():
+    material_group = request.args.get("material_group", "fabric").strip().lower()
+    status_filter = request.args.get("status", "")
+    week_filter = request.args.get("week", "")
+    customer_filter = request.args.get("customer", "")
+    if material_group not in {"fabric", "component", "all"}:
+        abort(400, description="Invalid material type.")
+    if status_filter and status_filter not in {"ok", *_AT_RISK_STATUSES}:
+        abort(400, description="Invalid material status.")
     summary      = get_stock_summary()
-    weekly       = get_weekly_availability_summary(weeks_ahead=12)
-    so_breakdown = get_weekly_so_breakdown(weeks_ahead=12)
+    so_breakdown = get_weekly_so_breakdown(weeks_ahead=12, material_group=material_group)
+    week_options = {week["iso_key"]: week["week_label"] for week in so_breakdown["weeks"]}
+    if week_filter and week_filter not in week_options:
+        abort(400, description="Invalid coverage week.")
+    orders = [
+        order for order in so_breakdown["orders"]
+        if (not status_filter or order["status"] == status_filter)
+        and (not week_filter or order["iso_key"] == week_filter)
+        and (not customer_filter or order["customer_code"] == customer_filter)
+    ]
     return render_template(
         "materials/index.html",
-        title="Fabric and Hide Availability",
+        title="Material Availability",
         summary=summary,
-        weekly=weekly,
         so_breakdown=so_breakdown,
+        orders=orders,
+        customer_summary=get_customer_coverage_summary(orders),
+        customer_filter=customer_filter,
+        customer_options=sorted({
+            (order["customer_code"], order["customer_name"])
+            for order in so_breakdown["orders"] if order["customer_code"]
+        }),
+        material_group=material_group,
+        status_filter=status_filter,
+        week_filter=week_filter,
+        week_options=week_options,
+        mat_status_meta=MAT_STATUS_META,
         timedelta=timedelta,
         today=date.today(),
     )

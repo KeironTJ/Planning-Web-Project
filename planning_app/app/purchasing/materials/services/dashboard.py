@@ -15,12 +15,14 @@ from sqlalchemy import func
 from app.extensions import db
 from ..models import PurchaseOrder
 from ._cache import _cached_unfiltered_report
-from .status import get_so_material_status
+from .status import get_so_component_status, get_so_material_status
+from .types import _MAT_STATUS_PRIORITY
 
 __all__ = [
     "get_purchasing_dashboard",
     "get_supplier_delivery",
     "get_weekly_so_breakdown",
+    "get_customer_coverage_summary",
     "get_weekly_availability_summary",
 ]
 
@@ -225,7 +227,7 @@ def get_supplier_delivery(weeks_ahead: int = 8) -> dict:
     }
 
 
-def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
+def get_weekly_so_breakdown(weeks_ahead: int = 12, *, material_group: str = "fabric") -> dict:
     """
     Aggregate open SOs by ISO week and material status, returning SO count and
     total order value per bucket.
@@ -240,6 +242,9 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
     SO#     = str(order_num) — matches MaterialRequirementMain.so_number exactly.
 
     no_data status is folded into "ok" (no MRP requirements = no shortage risk).
+    material_group selects fabrics, components, or the worst status across both.
+    Orders without active requirements retain the existing "ok" classification;
+    this is material coverage only, not a guarantee of production readiness.
 
     Returns:
         {
@@ -250,9 +255,14 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
             "total_value": Decimal,
             "total_count": int,
             "has_data":    bool,
+            "orders":      [{"so_number", "customer_code", "customer_name",
+                             "due_date", "value", "status", "iso_key"}, ...],
         }
     """
     from app.sales.orders.models import SalesOrder  # lazy — avoids circular at import time
+
+    if material_group not in {"fabric", "component", "all"}:
+        raise ValueError(f"Invalid material group: {material_group}")
 
     today   = date.today()
     cutoff  = today + timedelta(weeks=weeks_ahead)
@@ -263,6 +273,8 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
             SalesOrder.order_num,
             SalesOrder.req_date,
             SalesOrder.release_price_gbp,
+            func.min(SalesOrder.customer_id).label("customer_code"),
+            func.min(SalesOrder.customer_name).label("customer_name"),
         )
         .filter(
             SalesOrder.open_order == True,
@@ -292,6 +304,8 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
             release_subq.c.order_num,
             func.min(release_subq.c.req_date).label("due_date"),
             func.sum(release_subq.c.release_price_gbp).label("total_value"),
+            func.min(release_subq.c.customer_code).label("customer_code"),
+            func.min(release_subq.c.customer_name).label("customer_name"),
         )
         .group_by(release_subq.c.order_num)
         .all()
@@ -300,11 +314,23 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
     if not so_rows:
         return {
             "weeks": [], "totals": {s: {"count": 0, "value": Decimal(0)} for s in STATUSES},
-            "total_value": Decimal(0), "total_count": 0, "has_data": False,
+            "total_value": Decimal(0), "total_count": 0, "has_data": False, "orders": [],
         }
 
     so_numbers = [str(r.order_num) for r in so_rows]
-    status_map = get_so_material_status(so_numbers)
+    if material_group == "component":
+        status_map = get_so_component_status(so_numbers)
+    else:
+        status_map = get_so_material_status(so_numbers)
+        if material_group == "all":
+            component_status = get_so_component_status(so_numbers)
+            status_map = {
+                number: max(
+                    status_map[number], component_status[number],
+                    key=lambda status: _MAT_STATUS_PRIORITY[status],
+                )
+                for number in so_numbers
+            }
 
     iso_y_now, iso_w_now, _ = today.isocalendar()
     current_week_start = date.fromisocalendar(iso_y_now, iso_w_now, 1)
@@ -314,6 +340,7 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
         return {s: {"count": 0, "value": Decimal(0)} for s in STATUSES}
 
     buckets: dict[str, dict] = {}
+    orders: list[dict] = []
 
     for r in so_rows:
         d      = r.due_date
@@ -349,6 +376,15 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
 
         buckets[key][status]["count"] += 1
         buckets[key][status]["value"] += value
+        orders.append({
+            "so_number": str(r.order_num),
+            "customer_code": r.customer_code or "",
+            "customer_name": r.customer_name or "",
+            "due_date": d,
+            "value": value,
+            "status": status,
+            "iso_key": key,
+        })
 
     weeks = sorted(buckets.values(), key=lambda b: b["iso_key"])
     for b in weeks:
@@ -367,7 +403,37 @@ def get_weekly_so_breakdown(weeks_ahead: int = 12) -> dict:
         "total_value": sum(totals[s]["value"] for s in STATUSES),
         "total_count": sum(totals[s]["count"] for s in STATUSES),
         "has_data":    bool(weeks),
+        "orders":      sorted(orders, key=lambda order: (order["due_date"], int(order["so_number"]))),
     }
+
+
+def get_customer_coverage_summary(orders: list[dict]) -> list[dict]:
+    """Group the filtered coverage orders by account number, not customer name."""
+    customers: dict[str, dict] = {}
+    for order in orders:
+        code = order["customer_code"]
+        if code not in customers:
+            customers[code] = {
+                "customer_code": code,
+                "customer_name": order["customer_name"],
+                "total_count": 0,
+                "total_value": Decimal(0),
+                "statuses": {
+                    status: {"count": 0, "value": Decimal(0)}
+                    for status in ("ok", "med_risk", "late_po", "high_risk")
+                },
+            }
+        customer = customers[code]
+        if not customer["customer_name"] and order["customer_name"]:
+            customer["customer_name"] = order["customer_name"]
+        customer["total_count"] += 1
+        customer["total_value"] += order["value"]
+        bucket = customer["statuses"][order["status"]]
+        bucket["count"] += 1
+        bucket["value"] += order["value"]
+    return sorted(customers.values(), key=lambda customer: (
+        -customer["total_value"], customer["customer_code"],
+    ))
 
 
 def get_weekly_availability_summary(weeks_ahead: int = 12) -> list[dict]:

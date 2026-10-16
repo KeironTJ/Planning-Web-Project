@@ -55,7 +55,7 @@ def test_purchasing_dashboard_lists_modules(app, client, request, path, user_fix
     parser.feed(response.get_data(as_text=True))
     modules = {
         "purchasing.overview": "Overview",
-        "materials.index": "Fabric/Hide Availability",
+        "materials.index": "Material Availability",
         "materials.shortage": "Fabric/Hide Shortages",
         "materials.component_shortage": "Component Shortages",
         "materials.mrp": "MRP Pegging",

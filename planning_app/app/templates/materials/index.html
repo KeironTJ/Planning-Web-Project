@@ -9,6 +9,23 @@
 {% endblock %}
 
 {% block content %}
+<div class="d-flex align-items-center flex-wrap gap-3 mb-3">
+    <div class="btn-group btn-group-sm" role="group" aria-label="Material type filter">
+        {% for group_key, group_label in [('fabric', 'Fabrics'), ('component', 'Components'), ('all', 'All')] %}
+        <a href="{{ url_for('materials.index', material_group=group_key, status=status_filter or None, week=week_filter or None, customer=customer_filter or None) }}"
+           class="btn btn-outline-primary {{ 'active' if material_group == group_key }}"
+           aria-pressed="{{ 'true' if material_group == group_key else 'false' }}">{{ group_label }}</a>
+        {% endfor %}
+    </div>
+    <span class="text-muted small">
+        {% if material_group == 'all' %}Worst-case coverage across fabrics, hides and components.
+        {% elif material_group == 'component' %}Component coverage only.
+        {% else %}Fabric and hide coverage only.{% endif %}
+    </span>
+</div>
+<p class="text-muted small">Select a coverage card or weekly figure to see matching sales orders.
+    Mat. OK means no material blocker in the selected scope, not full production readiness.
+    Orders without active requirements are included as Mat. OK.</p>
 <!-- SO Coverage cards -->
 {% if so_breakdown.has_data %}
 {% set _tc = so_breakdown.total_count %}
@@ -44,14 +61,14 @@
     </a>
 </div>
 <div class="row g-3 mb-4">
-    {% for label, pct, count, val, color in [
-        ('Mat. OK',    _pct_ok, _ok, _val_ok, '#198754'),
-        ('PO Reliant', _pct_mr, _mr, _val_mr, '#ffc107'),
-        ('Late PO',    _pct_lp, _lp, _val_lp, '#fd7e14'),
-        ('Shortage',   _pct_hr, _hr, _val_hr, '#dc3545'),
+    {% for status, label, pct, count, val, color in [
+        ('ok', 'Mat. OK',    _pct_ok, _ok, _val_ok, '#198754'),
+        ('med_risk', 'PO Reliant', _pct_mr, _mr, _val_mr, '#ffc107'),
+        ('late_po', 'Late PO',    _pct_lp, _lp, _val_lp, '#fd7e14'),
+        ('high_risk', 'Shortage',   _pct_hr, _hr, _val_hr, '#dc3545'),
     ] %}
     <div class="col-6 col-md">
-        <a href="{{ url_for('materials.shortage') }}" class="text-decoration-none">
+        <a href="{{ url_for('materials.index', material_group=material_group, status=status, customer=customer_filter or None, _anchor='salesOrders') }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-top border-3' if count else '' }}" style="{{ 'border-color:' ~ color ~ ' !important;' if count else '' }}">
             <div class="fs-5 fw-bold" style="color:{{ color }};">£{{ '{:,.0f}'.format(val) }}</div>
             <div class="fw-semibold small">{{ label }}</div>
@@ -103,6 +120,100 @@
 <div id="soTableContainer" class="mb-4"></div>
 {% endif %}
 
+<div class="card border-0 shadow-sm mb-4" id="salesOrders">
+    <div class="card-header bg-transparent fw-semibold">Coverage Detail
+        <span class="text-muted small ms-2">{{ orders | length }} matching orders</span>
+    </div>
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('materials.index', _anchor='salesOrders') }}" class="d-flex flex-wrap align-items-end gap-2 mb-3">
+            <input type="hidden" name="material_group" value="{{ material_group }}">
+            <div>
+                <label for="coverageCustomer" class="form-label small">Customer number / name</label>
+                <select id="coverageCustomer" name="customer" class="form-select form-select-sm">
+                    <option value="">All customers</option>
+                    {% for code, name in customer_options %}
+                    <option value="{{ code }}" {{ 'selected' if customer_filter == code }}>{{ code }}{% if name %} — {{ name }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="coverageStatus" class="form-label small">Coverage</label>
+                <select id="coverageStatus" name="status" class="form-select form-select-sm">
+                    <option value="">All statuses</option>
+                    {% for key in ['ok', 'med_risk', 'late_po', 'high_risk'] %}
+                    <option value="{{ key }}" {{ 'selected' if status_filter == key }}>{{ mat_status_meta[key][0] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="coverageWeek" class="form-label small">Week</label>
+                <select id="coverageWeek" name="week" class="form-select form-select-sm">
+                    <option value="">All weeks</option>
+                    {% for key, label in week_options.items() %}
+                    <option value="{{ key }}" {{ 'selected' if week_filter == key }}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button class="btn btn-primary btn-sm" type="submit">Filter</button>
+            <a href="{{ url_for('materials.index', material_group=material_group, _anchor='salesOrders') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+        </form>
+        <h2 class="h6" id="coverageOrders">Sales Orders</h2>
+        <div class="table-responsive">
+            <table id="coverageOrdersTable" class="table table-sm table-hover align-middle">
+                <thead><tr><th>Sales Order</th><th>Customer Number</th><th>Customer Name</th><th>Requested Date</th><th>Coverage</th><th class="text-end">Value</th><th>Materials</th></tr></thead>
+                <tbody>
+                    {% for order in orders %}
+                    <tr>
+                        <td>{% if current_user.has_permission('view_orders') %}<a href="{{ url_for('orders.order_book', q=order.so_number) }}" title="Open in Order Book">{{ order.so_number }}</a>{% else %}{{ order.so_number }}{% endif %}</td>
+                        <td>{{ order.customer_code or 'Unassigned' }}</td>
+                        <td>{{ order.customer_name or 'Unknown customer' }}</td>
+                        <td>{{ order.due_date.strftime('%d %b %Y') }}</td>
+                        <td><span class="badge bg-{{ mat_status_meta[order.status][1] }}">{{ mat_status_meta[order.status][0] }}</span></td>
+                        <td class="text-end">£{{ '{:,.0f}'.format(order.value) }}</td>
+                        <td><a href="{{ url_for('materials.mrp', so=order.so_number, material_group=material_group) }}">View MRP</a></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-muted text-center py-4">No sales orders match these filters.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4" id="customerCoverage">
+    <div class="card-header bg-transparent fw-semibold">Customer Coverage Summary
+        <span class="text-muted small ms-2">Highest value first</span>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small">Counts and values reflect the customer, coverage and week filters above.
+            Select a customer number to see its matching orders above. Full order details remain in the Order Book.</p>
+        <div class="table-responsive">
+            <table id="customerCoverageTable" class="table table-sm table-hover align-middle">
+                <thead><tr><th>Customer Number</th><th>Customer Name</th><th class="text-end">Orders</th><th class="text-end" aria-sort="descending">Value <i class="bi bi-arrow-down" aria-hidden="true"></i></th>
+                    {% for key in ['ok', 'med_risk', 'late_po', 'high_risk'] %}
+                    <th class="text-end">{{ mat_status_meta[key][0] }}<div class="small fw-normal">Orders / Value</div></th>
+                    {% endfor %}
+                </tr></thead>
+                <tbody>
+                    {% for customer in customer_summary %}
+                    <tr>
+                        <td>{% if customer.customer_code %}<a href="{{ url_for('materials.index', material_group=material_group, customer=customer.customer_code, status=status_filter or None, week=week_filter or None, _anchor='coverageOrders') }}">{{ customer.customer_code }}</a>{% else %}Unassigned{% endif %}</td>
+                        <td>{{ customer.customer_name or 'Unknown customer' }}</td>
+                        <td class="text-end">{{ customer.total_count }}</td>
+                        <td class="text-end">£{{ '{:,.0f}'.format(customer.total_value) }}</td>
+                        {% for key in ['ok', 'med_risk', 'late_po', 'high_risk'] %}
+                        <td class="text-end">{{ customer.statuses[key].count }} / £{{ '{:,.0f}'.format(customer.statuses[key].value) }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-muted text-center py-4">No customers match these filters.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
 
 {% endblock %}
 
@@ -110,10 +221,13 @@
 {% if so_breakdown.has_data %}
 <script>
 window.MATERIALS_INDEX_DATA = {
-  soBreakdown: {{ so_breakdown | tojson }},
-  urlShortage: {{ url_for('materials.shortage') | tojson }},
+  soBreakdown: {{ {'weeks': so_breakdown.weeks, 'has_data': so_breakdown.has_data} | tojson }},
+  urlCoverage: {{ url_for('materials.index') | tojson }},
+  materialGroup: {{ material_group | tojson }},
+  customer: {{ customer_filter | tojson }},
 };
 </script>
 {% endif %}
+<script src="{{ url_for('static', filename='js/components/table.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/modules/materials.js') }}" defer></script>
 {% endblock %}

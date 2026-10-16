@@ -127,7 +127,9 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!MI || !MI.soBreakdown || !MI.soBreakdown.has_data) return;
 
     var SD      = MI.soBreakdown;
-    var SHORTAGE_URL = MI.urlShortage;
+    window.initPagination('coverageOrdersTable', 50);
+    window.initPagination('customerCoverageTable', 25);
+    var COVERAGE_URL = MI.urlCoverage;
     var STATUSES = ['ok', 'med_risk', 'late_po', 'high_risk'];
     var LABELS   = { ok: 'Mat. OK', med_risk: 'PO Reliant', late_po: 'Late PO', high_risk: 'Shortage' };
     var COLORS   = { ok: '#198754', med_risk: '#ffc107', late_po: '#fd7e14', high_risk: '#dc3545' };
@@ -137,9 +139,11 @@ document.addEventListener('DOMContentLoaded', function () {
     var chartRaw    = overdueWeek.concat(raw.filter(function (w) { return !w.is_overdue; }));
     var weekLabels  = chartRaw.map(function (w) { return w.week_label; });
 
-    function weekUrl(w) {
-        if (w.is_overdue) return SHORTAGE_URL + '?due_before=' + w.due_before + '&shortages_only=0';
-        return SHORTAGE_URL + '?due_from=' + w.due_from + '&due_before=' + w.due_before + '&shortages_only=0';
+    function weekUrl(w, status) {
+        var params = new URLSearchParams({ material_group: MI.materialGroup, week: w.iso_key });
+        if (status) params.set('status', status);
+        if (MI.customer) params.set('customer', MI.customer);
+        return COVERAGE_URL + '?' + params.toString() + '#salesOrders';
     }
     function fmt(v) { return '\u00a3' + parseFloat(v).toLocaleString('en-GB', { maximumFractionDigits: 0 }); }
     function bg(s, idx) { return (chartRaw[idx] && chartRaw[idx].is_overdue) ? COLORS[s] + 'bb' : COLORS[s]; }
@@ -177,7 +181,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 var val = isValue ? (parseFloat(w[s].value) > 0 ? fmt(w[s].value) : '\u2014')
                         : isPct  ? (w.total_count ? (w[s].count / w.total_count * 100).toFixed(1) + '%' : '\u2014')
                         : (w[s].count || '\u2014');
-                cells += '<td class="text-end fw-semibold" style="color:' + COLORS[s] + ';">' + val + '</td>';
+                cells += '<td class="text-end fw-semibold"><a style="color:' + COLORS[s] + ';" href="' + weekUrl(w, s) + '">' + val + '</a></td>';
             });
             var pctOk  = w.total_count ? Math.round(w.ok.count / w.total_count * 100) : null;
             var pctCol = pctOk >= 80 ? '#198754' : (pctOk >= 50 ? '#e6a800' : '#dc3545');
@@ -188,8 +192,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (p > 0) barSegs += '<div class="progress-bar" style="width:' + p + '%;background:' + COLORS[s] + ';"></div>';
             });
             var bar = barSegs ? '<div class="progress" style="height:8px;">' + barSegs + '</div>' : '';
-            rows += '<tr onclick="window.location=\'' + weekUrl(w) + '\'" style="cursor:pointer;" class="' + rowCls + ' ' + borderCls + '">'
-                  + '<td class="fw-semibold ' + labelCls + '">' + w.week_label + '</td>'
+            rows += '<tr class="' + rowCls + ' ' + borderCls + '">'
+                  + '<td class="fw-semibold ' + labelCls + '"><a href="' + weekUrl(w) + '">' + w.week_label + '</a></td>'
                   + '<td class="text-end">' + totalCell + '</td>' + cells
                   + '<td class="text-end fw-semibold">' + pctCell + '</td>'
                   + '<td>' + bar + '</td></tr>';
@@ -213,6 +217,11 @@ document.addEventListener('DOMContentLoaded', function () {
         data: { labels: weekLabels, datasets: valueDatasets },
         options: {
             responsive: true,
+            onClick: function (event, elements) {
+                if (!elements.length) return;
+                var element = elements[0];
+                window.location = weekUrl(chartRaw[element.index], STATUSES[element.datasetIndex]);
+            },
             plugins: {
                 legend: { position: 'top' },
                 tooltip: {
