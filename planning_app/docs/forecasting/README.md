@@ -35,11 +35,13 @@ Results will be available by customer group and for the company as a whole.
 The existing planning groups will be the default, with Epicor customer group
 codes available as an alternative.
 
-The revenue forecast will include all in-scope sales. The unit forecast will
-use browser-maintained classifications for exact model values: full unit,
-cover-only, Scatter, or excluded. Blank models are excluded and new values
-remain unclassified until reviewed. Cover-only work, such as ACO and LCO,
-will be reported separately from full units.
+The revenue forecast will include all in-scope sales. Exact model values can
+be assigned to browser-managed descriptive categories. Categories organise
+products but do not decide whether a product is included in a forecast. Each
+forecast configuration will independently map categories to its groups and
+inclusion rules. This allows revenue, full-unit demand, cover-only work such as
+ACO/LCO, Scatter products, and other groupings to be handled differently without
+changing the underlying model labels.
 
 The business uses one-piece job planning. Unit preparation will start with
 eligible job/assembly counts and check source quantities for exceptions.
@@ -192,8 +194,9 @@ the definitions used for earlier results.
 ## Current progress
 
 The initial forecast scope and business definitions are documented. The first
-browser tool classifies exact COOIS models and reviews the one-piece counting
-basis. It is available from **AI Tools** as **Model Classification**.
+browser tool manages descriptive categories for exact COOIS model names and
+reviews the one-piece counting basis. It is available from **AI Tools** as
+**Model Classification**.
 
 The next step is to review these model decisions, map the historical unit
 source, and establish the invoice/credit reporting source with Finance.
@@ -212,10 +215,32 @@ and normal deployment settings. The screen is at
 `view_planning` to view it and
 `manage_planning` as well to save decisions.
 
-Classify each model from the current snapshot or add a model by name. Saved
+Create categories to describe products, then assign each exact model name from
+the current snapshot. Change individual model dropdowns or select multiple rows
+and apply a category to them together. These changes remain pending until
+**Save all changes** is clicked, which applies them in one operation.
+Unclassified models can be left unassigned or returned to that state through
+the dropdown or selection action. Categories can be edited as business needs
+change; assigned models must be moved before a category is deleted. Saved
 decisions remain available after COOIS refreshes. The screen shows current
 imported records and quantity exceptions; it does not yet generate forecasts
 or change existing capacity-board calculations.
 
+Classify models according to the work they represent. Different work content
+may have different demand patterns, useful features, exceptions, and suitable
+forecasting approaches. The summary and category table show current COOIS
+snapshot record counts; saved assignment counts can also include names with no
+records in the current snapshot.
+
+Blank model names are grouped into one review row. Assigning a category to that
+row applies to the entire group of records without a model name; it does not
+identify whether those records are parts, replacements, fabrics, or another
+type of work.
+
+Category labels are organizational metadata; future forecast configurations
+will define how categories are grouped and included for each target.
+
 The section currently retains the existing planning
 permissions; moving navigation does not change who can view or edit decisions.
+The database migration creates editable category records and converts any
+existing fixed classifications to their corresponding starting categories.

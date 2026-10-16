@@ -56,11 +56,12 @@ Unit demand is the sum of eligible quantities due to ship in each week. The
 required ship-by date determines the week; required delivery date is retained
 as a separate field for analysis.
 
-Each exact model value will be classified in the browser as full unit,
-cover-only, Scatter, or excluded. Names are trimmed and case-sensitive.
-ACO and LCO are examples of cover-only work to classify, not automatic
-prefix rules. Missing/blank models are excluded; new nonblank model values
-remain unclassified until reviewed.
+Each exact model value can be assigned a user-managed descriptive category.
+Names are trimmed and case-sensitive. Categories do not have fixed forecast
+semantics: each forecast configuration will independently determine which
+categories it includes and how it groups them. This lets the same source
+classifications support different targets without embedding business rules in
+the model-name labels. Blank model names cannot be assigned a category.
 
 The business uses one-piece planning: jobs are configured for one item.
 The initial counting basis is one eligible job/assembly record per item,
@@ -376,9 +377,13 @@ preserve the definitions used for earlier results.
 
 The model review screen is available under **AI Tools** at
 `/ai-tools/models`. It uses the current COOIS snapshot and saved
-classifications, not historical training data. It shows job/assembly record
-counts, known required quantities, missing quantities, and quantities other
-than one. Saved classifications survive operational refreshes.
+categories, not historical training data. It shows job/assembly record counts,
+known required quantities, missing quantities, and quantities other than one.
+Categories can be created, renamed, and deleted when no models are assigned.
+Model/category assignments survive operational refreshes. They are descriptive
+metadata only and do not currently filter or aggregate forecast targets.
+The database migration converts the initial Full unit, Cover-only, Scatter, and
+Excluded labels into editable categories while preserving existing assignments.
 
 Viewing requires `view_planning`; editing requires both `view_planning` and
 `manage_planning`. Saves and removals are audited. The existing planning board

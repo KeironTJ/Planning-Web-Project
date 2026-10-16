@@ -1,137 +1,390 @@
 {% extends "base.html" %}
 {% block title %}{{ title }}{% endblock %}
 
+{% block page_header %}
+{% if title %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-2 pb-1 mb-2 border-bottom">
+  <h1 class="h3 mb-0">{% block page_title %}{{ title }}{% endblock %}</h1>
+  <div class="btn-toolbar gap-2">{% block page_actions %}{% endblock %}</div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_css %}
+{% if can_manage %}
+<style>
+  .ai-category-dialog {
+    width: min(48rem, calc(100% - 2rem));
+    max-height: calc(100% - 2rem);
+    overflow-y: auto;
+  }
+  .ai-category-dialog::backdrop {
+    background: rgb(0 0 0 / 45%);
+  }
+  .category-name-field {
+    flex: 0 1 11rem;
+  }
+  .category-description-field {
+    flex: 1 1 12rem;
+  }
+</style>
+{% endif %}
+{% endblock %}
+
 {% block content %}
-<div class="container-fluid py-3">
-  <p class="text-muted">
-    Classify exact COOIS model values for forecast preparation. Full units, cover-only work,
-    and Scatters are kept separate. These decisions do not exclude any revenue.
+<div class="container-fluid pt-0 pb-3">
+  <p class="text-muted small mb-2">
+    Define categories around the work content, then review model assignments. Change individual
+    dropdowns or select several models and apply a category; save all changes together.
   </p>
-  <div class="alert alert-info">
-    Counts below describe the current imported job/assembly snapshot, including completed jobs
-    where present, not a historical forecast. One-piece planning expects one item per record.
-    Required quantities are shown to help review exceptions.
-  </div>
-  {% if quantity_exceptions %}
-  <div class="alert alert-warning">
-    {{ quantity_exceptions }} record(s) have a missing required quantity or a quantity other than one.
-    Review these before using record counts as unit demand.
-  </div>
-  {% endif %}
-
-  <div class="row g-2 mb-4">
-    {% for category, label in categories.items() %}
-    <div class="col-6 col-lg">
-      <div class="card h-100">
-        <div class="card-body py-2">
-          <div class="text-muted small">{{ label }} records</div>
-          <div class="fs-4 fw-semibold">{{ counts[category] }}</div>
-        </div>
-      </div>
-    </div>
-    {% endfor %}
-    <div class="col-6 col-lg">
-      <div class="card h-100 border-warning">
-        <div class="card-body py-2">
-          <div class="text-muted small">Unclassified records</div>
-          <div class="fs-4 fw-semibold">{{ counts['unclassified'] }}</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   {% if can_manage %}
-  <div class="card mb-4">
-    <div class="card-header">Add or update an exact model</div>
-    <div class="card-body">
-      <form method="post" action="{{ url_for('forecasting.model_classification_save') }}" class="row g-2 align-items-end">
+  <dialog class="ai-category-dialog border rounded-3 p-0 shadow"
+          data-category-dialog aria-labelledby="category-dialog-title">
+    <div class="p-3 p-md-4">
+      <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+        <h2 class="h5 mb-0" id="category-dialog-title">Edit categories</h2>
+        <button class="btn-close" type="button" data-category-dialog-close
+                aria-label="Close category editor"></button>
+      </div>
+      <p class="text-muted small mb-3">
+        Group models by the work they represent. Different work content can have different demand
+        patterns, useful features, exceptions, or forecasting approaches. These labels organise
+        model review; forecast settings will determine how each category is used.
+      </p>
+      <div class="category-editor-list">
+        {% for category in categories %}
+        <div class="d-flex flex-wrap align-items-center gap-2 border-bottom py-2">
+          <form method="post" action="{{ url_for('forecasting.model_category_save') }}"
+                class="d-flex flex-grow-1 flex-wrap align-items-center gap-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="category_id" value="{{ category.id }}">
+            <label class="visually-hidden" for="category-name-{{ category.id }}">Category name</label>
+            <input id="category-name-{{ category.id }}" name="name" value="{{ category.name }}"
+                   class="form-control form-control-sm category-name-field" maxlength="80" required>
+            <label class="visually-hidden" for="category-description-{{ category.id }}">Description</label>
+            <input id="category-description-{{ category.id }}" name="description"
+                   value="{{ category.description or '' }}" class="form-control form-control-sm category-description-field"
+                   maxlength="255" placeholder="Optional description">
+            <button type="submit" class="btn btn-outline-primary btn-sm">Save</button>
+          </form>
+          <span class="badge text-bg-secondary">{{ model_counts[category.id] }} models</span>
+          <form method="post"
+                action="{{ url_for('forecasting.model_category_remove', category_id=category.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-danger btn-sm"
+                    {% if model_counts[category.id] %}disabled title="Move assigned models before deleting this category"{% endif %}>
+              Delete
+            </button>
+          </form>
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">No categories yet. Add one below.</p>
+        {% endfor %}
+      </div>
+      <form method="post" action="{{ url_for('forecasting.model_category_save') }}"
+            class="border rounded p-3 mt-3">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="col-md-5">
-          <label for="new-model" class="form-label">Model name</label>
-          <input id="new-model" name="model" class="form-control" maxlength="255" required>
-        </div>
-        <div class="col-md-4">
-          <label for="new-category" class="form-label">Classification</label>
-          <select id="new-category" name="category" class="form-select" required>
-            <option value="">Choose a classification</option>
-            {% for category, label in categories.items() %}
-            <option value="{{ category }}">{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="col-md-3">
-          <button type="submit" class="btn btn-primary">Save classification</button>
+        <div class="row g-2 align-items-end">
+          <div class="col-md-4">
+            <label for="new-category-name" class="form-label small mb-1">New category</label>
+            <input id="new-category-name" name="name" class="form-control form-control-sm"
+                   maxlength="80" required>
+          </div>
+          <div class="col-md-6">
+            <label for="new-category-description" class="form-label small mb-1">Description</label>
+            <input id="new-category-description" name="description"
+                   class="form-control form-control-sm" maxlength="255">
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-primary btn-sm w-100">Add</button>
+          </div>
         </div>
       </form>
-      <div class="form-text mt-2">
-        Names match exactly after trimming surrounding whitespace; case is preserved.
-        You can add models not present in the current snapshot. New model values remain unclassified.
+      <div class="d-flex justify-content-end mt-3">
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-category-dialog-close>
+          Done
+        </button>
       </div>
     </div>
-  </div>
-  {% else %}
-  <p class="text-muted small">Read-only access. Managing classifications requires the manage_planning permission.</p>
+  </dialog>
   {% endif %}
 
-  <div class="card">
-    <div class="card-header">Model review</div>
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
-        <thead>
-          <tr>
-            <th scope="col">Exact model</th>
-            <th scope="col">Records</th>
-            <th scope="col">Known required qty</th>
-            <th scope="col">Qty missing</th>
-            <th scope="col">Qty not one</th>
-            <th scope="col">Classification</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in items %}
-          <tr>
-            <td class="fw-semibold text-break">{{ item.model if item.model else '(blank / missing)' }}</td>
-            <td>{{ item.record_count }}</td>
-            <td>{{ item.required_qty_total }}</td>
-            <td>{{ item.missing_qty_count }}</td>
-            <td>{{ item.non_single_qty_count }}</td>
-            <td>
-              {% if can_manage and item.model %}
-              <form method="post" action="{{ url_for('forecasting.model_classification_save') }}" class="d-flex gap-2">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="model" value="{{ item.model }}">
-                <select name="category" class="form-select form-select-sm" required aria-label="Classification for {{ item.model }}">
-                  <option value="" {% if item.category == 'unclassified' %}selected{% endif %}>Unclassified</option>
-                  {% for category, label in categories.items() %}
-                  <option value="{{ category }}" {% if item.category == category %}selected{% endif %}>{{ label }}</option>
+  <section class="mb-4" aria-labelledby="model-summary-title">
+    <h2 id="model-summary-title" class="h5 fw-semibold mb-2">Summary</h2>
+
+    <div class="row g-2">
+      {% for category in categories %}
+      <div class="col-6 col-md-4 col-xl">
+        <div class="card border-0 shadow-sm text-center p-3 h-100">
+          <div class="fs-2 fw-bold">{{ counts[category.id] }}</div>
+          <div class="text-muted small">{{ category.name }} records</div>
+        </div>
+      </div>
+      {% endfor %}
+      <div class="col-6 col-md-4 col-xl">
+        <div class="card border-0 shadow-sm text-center p-3 h-100 border-top border-3 border-warning">
+          <div class="fs-2 fw-bold">{{ counts['unclassified'] }}</div>
+          <div class="text-muted small">Unclassified records</div>
+        </div>
+      </div>
+    </div>
+
+    {% if quantity_exceptions %}
+    <div class="alert alert-warning py-2 mb-3">
+      {{ quantity_exceptions }} record(s) have a missing required quantity or a quantity other than one.
+      Review these before using record counts as unit demand.
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="mb-4" aria-labelledby="category-definition-title">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+      <h2 id="category-definition-title" class="h5 fw-semibold mb-0">
+        <span class="text-muted me-1">1.</span> Define categories
+      </h2>
+      {% if can_manage %}
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-category-dialog-open>
+        Edit categories
+      </button>
+      {% endif %}
+    </div>
+    <div class="card border-0 shadow-sm">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th scope="col">Category</th>
+              <th scope="col">Description</th>
+              <th scope="col" class="text-end">Saved assignments</th>
+              <th scope="col" class="text-end">Current snapshot records</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for category in categories %}
+            <tr>
+              <th scope="row" class="fw-semibold">{{ category.name }}</th>
+              <td class="text-muted">{{ category.description or '-' }}</td>
+              <td class="text-end">{{ model_counts[category.id] }}</td>
+              <td class="text-end">{{ counts[category.id] }}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4" class="text-center text-muted py-3">
+                No categories defined yet.
+                {% if can_manage %}Use Edit categories to add the first category.{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer bg-transparent text-muted small">
+        Saved assignments can include model names or the blank-name group even when
+        they have no records in the current COOIS snapshot. Record totals count only
+        rows in the current snapshot.
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-4" aria-labelledby="model-review-title">
+    <h2 id="model-review-title" class="h5 fw-semibold mb-3">
+      <span class="text-muted me-1">2.</span> Model review
+    </h2>
+    {% if not can_manage %}
+    <p class="text-muted small">
+      Read-only access. Managing classifications requires the manage_planning permission.
+    </p>
+    {% endif %}
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">Imported model classifications</div>
+      {% if can_manage %}
+      <form id="classification-updates-form" method="post"
+            action="{{ url_for('forecasting.model_classifications_save_all') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if items %}
+        <div class="card-body border-bottom py-2">
+          <div class="d-flex flex-wrap align-items-end gap-2">
+            <div>
+              <label for="selected-model-category" class="form-label form-label-sm mb-1">
+                Set selected models to
+              </label>
+              <select id="selected-model-category" class="form-select form-select-sm">
+                <option value="" selected>Choose a category</option>
+                <option value="__unclassified__">Unclassified</option>
+                {% for category in categories %}
+                <option value="{{ category.id }}">{{ category.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <button id="apply-selected-category" type="button"
+                    class="btn btn-outline-primary btn-sm" disabled>
+              Apply to <span id="selected-model-count">0</span> selected
+            </button>
+            <span class="text-muted small">
+              Or change individual dropdowns. Save all changes when ready.
+            </span>
+            <button id="save-all-classifications" type="submit"
+                    class="btn btn-primary btn-sm ms-md-auto" disabled>
+              Save all changes (<span id="changed-model-count">0</span>)
+            </button>
+          </div>
+        </div>
+        {% endif %}
+      {% endif %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              {% if can_manage %}
+              <th scope="col" class="text-center" style="width: 2.5rem;">
+                <input id="select-all-models" class="form-check-input" type="checkbox"
+                       aria-label="Select all model names">
+              </th>
+              {% endif %}
+              <th scope="col">Exact model</th>
+              <th scope="col">Records</th>
+              <th scope="col">Known required qty</th>
+              <th scope="col">Qty missing</th>
+              <th scope="col">Qty not one</th>
+              <th scope="col">Classification</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+            <tr>
+              {% if can_manage %}
+              <td class="text-center">
+                <input class="form-check-input classification-row-select" type="checkbox"
+                       value="{{ item.model }}"
+                       aria-label="{{ 'Select the blank model-name group' if not item.model else 'Select ' ~ item.model }}">
+              </td>
+              {% endif %}
+              <td class="fw-semibold text-break">{{ item.model if item.model else '(blank / missing)' }}</td>
+              <td>{{ item.record_count }}</td>
+              <td>{{ item.required_qty_total }}</td>
+              <td>{{ item.missing_qty_count }}</td>
+              <td>{{ item.non_single_qty_count }}</td>
+              <td>
+                {% if can_manage %}
+                <input type="hidden" name="models" value="{{ item.model }}"
+                       form="classification-updates-form">
+                <select name="category_ids" class="form-select form-select-sm classification-category-select"
+                        form="classification-updates-form"
+                        data-original="{{ item.category_id if item.category_id is not none else '' }}"
+                        aria-label="{{ 'Category for all records with a blank model name' if not item.model else 'Category for ' ~ item.model }}">
+                  <option value="" {% if item.category_id is none %}selected{% endif %}>Unclassified</option>
+                  {% for category in categories %}
+                  <option value="{{ category.id }}" {% if item.category_id == category.id %}selected{% endif %}>
+                    {{ category.name }}
+                  </option>
                   {% endfor %}
                 </select>
-                <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
-              </form>
-              {% if item.category != 'unclassified' %}
-              <form method="post" action="{{ url_for('forecasting.model_classification_remove') }}" class="mt-1">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="model" value="{{ item.model }}">
-                <button type="submit" class="btn btn-sm btn-link">Return to unclassified</button>
-              </form>
-              {% endif %}
-              {% else %}
-              {{ categories.get(item.category, 'Unclassified') }}
-              {% if not item.model %}<span class="text-muted small">(always excluded)</span>{% endif %}
-              {% endif %}
-            </td>
-          </tr>
-          {% else %}
-          <tr>
-            <td colspan="6" class="text-center text-muted py-4">
-              No COOIS models or saved classifications yet. Import COOIS through the existing Epicor sync,
-              or add an exact model above.
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+                {% if not item.model %}
+                <div class="form-text">Applies to all records with a blank model name.</div>
+                {% endif %}
+                {% else %}
+                {{ item.category_name }}
+                {% if not item.model %}<span class="text-muted small">(blank model name)</span>{% endif %}
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="{{ 7 if can_manage else 6 }}" class="text-center text-muted py-4">
+                No COOIS models or saved classifications yet. Import COOIS through the existing Epicor sync.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if can_manage %}</form>{% endif %}
     </div>
-  </div>
+  </section>
 </div>
+{% if can_manage %}
+<script>
+  (() => {
+    const dialog = document.querySelector("[data-category-dialog]");
+    const openButton = document.querySelector("[data-category-dialog-open]");
+    const closeButtons = document.querySelectorAll("[data-category-dialog-close]");
+
+    openButton.addEventListener("click", () => dialog.showModal());
+    closeButtons.forEach((button) => {
+      button.addEventListener("click", () => dialog.close());
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+  })();
+</script>
+{% endif %}
+{% if can_manage and items %}
+<script>
+  (() => {
+    const selects = [...document.querySelectorAll(".classification-category-select")];
+    const button = document.getElementById("save-all-classifications");
+    const count = document.getElementById("changed-model-count");
+    const form = document.getElementById("classification-updates-form");
+    const rowCheckboxes = [...document.querySelectorAll(".classification-row-select")];
+    const selectAll = document.getElementById("select-all-models");
+    const selectedCategory = document.getElementById("selected-model-category");
+    const applySelected = document.getElementById("apply-selected-category");
+    const selectedCount = document.getElementById("selected-model-count");
+
+    function updateSaveControls() {
+      const changed = selects.filter(
+        (select) => select.value !== select.dataset.original
+      ).length;
+      count.textContent = changed;
+      button.disabled = changed === 0;
+    }
+
+    function updateSelectionControls() {
+      const selected = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+      selectedCount.textContent = selected;
+      applySelected.disabled = selected === 0 || selectedCategory.value === "";
+      selectAll.checked = rowCheckboxes.length > 0 && selected === rowCheckboxes.length;
+      selectAll.indeterminate = selected > 0 && selected < rowCheckboxes.length;
+    }
+
+    selects.forEach((select) => select.addEventListener("change", updateSaveControls));
+    rowCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener("change", updateSelectionControls);
+    });
+    selectAll.addEventListener("change", () => {
+      rowCheckboxes.forEach((checkbox) => {
+        checkbox.checked = selectAll.checked;
+      });
+      updateSelectionControls();
+    });
+    selectedCategory.addEventListener("change", updateSelectionControls);
+    applySelected.addEventListener("click", () => {
+      const selectedNames = new Set(
+        rowCheckboxes.filter((checkbox) => checkbox.checked)
+          .map((checkbox) => checkbox.value)
+      );
+      const categoryValue = selectedCategory.value === "__unclassified__"
+        ? ""
+        : selectedCategory.value;
+      selects.forEach((select) => {
+        if (selectedNames.has(select.closest("tr").querySelector(
+          'input[name="models"]'
+        ).value)) {
+          select.value = categoryValue;
+        }
+      });
+      updateSaveControls();
+    });
+    form.addEventListener("submit", () => {
+      selects.forEach((select) => {
+        if (select.value === select.dataset.original) {
+          select.disabled = true;
+          select.closest("tr").querySelector('input[name="models"]').disabled = true;
+        }
+      });
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}
