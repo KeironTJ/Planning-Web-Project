@@ -29,6 +29,7 @@ class ShortageRow:
     job_firm: Optional[bool] = None
     po_exists: bool = False
     status: str = "no_data"  # 4-tier coverage status — set during netting
+    material_group: str = "fabric"
 
 
 @dataclass

@@ -46,7 +46,7 @@
                 <a href="{{ url_for('materials.mrp') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
             </div>
             <div class="col-auto ms-auto">
-                <a href="{{ url_for('materials.shortage') }}{% if so_number %}?q={{ so_number }}{% elif search %}?q={{ search }}{% endif %}"
+                <a href="{{ url_for('materials.shortage', material_group=material_group, so=so_number or None, q=search or None) }}"
                    class="btn btn-outline-secondary btn-sm">
                     <i class="bi bi-exclamation-triangle me-1"></i>Shortage Report
                 </a>

@@ -47,7 +47,7 @@
         </div></a>
     </div>
     <div class="col-6 col-md">
-        <a href="{{ url_for('materials.component_shortage') }}" class="text-decoration-none">
+        <a href="{{ url_for('materials.shortage', material_group='component') }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 h-100 card-hover {{ 'border-warning border-top border-3' if mat_summary.comp_shortage_est else '' }}">
             <div class="fs-3 fw-bold {{ 'text-warning' if mat_summary.comp_shortage_est else 'text-success' }}">
                 {{ '{:,}'.format(mat_summary.comp_shortage_est) }}

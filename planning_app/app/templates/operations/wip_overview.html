@@ -33,7 +33,7 @@ Operations WIP Overview
         </div></a>
     </div>
     <div class="col-6 col-md-4">
-        <a href="{{ url_for('materials.component_shortage') }}" class="text-decoration-none">
+        <a href="{{ url_for('materials.shortage', material_group='component') }}" class="text-decoration-none">
         <div class="card border-0 shadow-sm text-center p-3 border-top border-3 {{ 'border-warning' if comp_shortages else 'border-success' }}">
             <div class="fs-2 fw-bold {{ 'text-warning' if comp_shortages else 'text-success' }}">{{ comp_shortages }}</div>
             <div class="text-muted small">Components At Risk</div>

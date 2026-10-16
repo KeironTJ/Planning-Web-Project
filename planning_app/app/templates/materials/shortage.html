@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% set scope = {'material_group': material_group, 'so': so_filter, 'source': source} %}
 {% block title %}{{ title }}{% endblock %}
 
 {% block page_title %}
@@ -13,18 +14,29 @@
 <a href="{{ url_for('materials.po_list') }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-truck me-1"></i>Open POs
 </a>
-<a href="{{ url_for('materials.index') }}" class="btn btn-sm btn-outline-primary">
+<a href="{{ url_for('materials.index', material_group=material_group) }}" class="btn btn-sm btn-outline-primary">
     <i class="bi bi-grid me-1"></i>Hub
 </a>
 {% endblock %}
 
 {% block content %}
+<div class="btn-group btn-group-sm mb-3" role="group" aria-label="Material type filter">
+    {% for group_key, group_label in [('fabric', 'Fabrics'), ('component', 'Components'), ('all', 'All')] %}
+    <a href="{{ url_for('materials.shortage', material_group=group_key, dept=dept_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, status=status_filter, so=so_filter, source=source) }}"
+       class="btn btn-outline-primary {{ 'active' if material_group == group_key }}"
+       aria-pressed="{{ 'true' if material_group == group_key else 'false' }}">{{ group_label }}</a>
+    {% endfor %}
+</div>
+<p class="text-muted small">Fabric and hide or component requirements, using the same coverage calculations as Material Availability.
+    Switching material type clears the material-class filter.</p>
 
 <!-- Filters -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
         <form method="GET" class="row g-2 align-items-end">
             <input type="hidden" name="status" value="{{ status_filter }}">
+            <input type="hidden" name="material_group" value="{{ material_group }}">
+            <input type="hidden" name="source" value="{{ source }}">
             <div class="col-sm-3 col-md-2">
                 <label class="form-label form-label-sm fw-semibold mb-1">Warehouse</label>
                 <select name="dept" class="form-select form-select-sm">
@@ -70,36 +82,44 @@
                        placeholder="Material code or works order…" value="{{ search }}">
             </div>
             <div class="col-auto">
+                <label class="form-label form-label-sm fw-semibold mb-1" for="shortageSo">Sales order</label>
+                <input id="shortageSo" type="search" name="so" class="form-control form-control-sm" value="{{ so_filter }}" placeholder="Exact SO number">
+            </div>
+            <div class="col-auto">
                 <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-                <a href="{{ url_for('materials.shortage') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+                <a href="{{ url_for('materials.shortage', material_group=material_group) }}" class="btn btn-outline-secondary btn-sm">Clear</a>
             </div>
         </form>
-        {% if dept_filter or cls_filter or wo_status_filter or due_from or due_before or search %}
+        {% if dept_filter or cls_filter or wo_status_filter or due_from or due_before or search or so_filter %}
         <div class="d-flex flex-wrap align-items-center gap-1 mt-2 pt-2 border-top">
             <span class="text-muted text-xs me-1">Active filters:</span>
             {% if dept_filter %}
             <span class="badge text-bg-light border text-dark">Warehouse: {{ dept_filter }}
-                <a href="{{ url_for('materials.shortage', dept='', cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+                <a href="{{ url_for('materials.shortage', dept='', cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, status=status_filter, **scope) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
             {% endif %}
             {% if cls_filter %}
             <span class="badge text-bg-light border text-dark">Class: {{ class_labels.get(cls_filter, cls_filter) }}
-                <a href="{{ url_for('materials.shortage', dept=dept_filter, cls='', wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+                <a href="{{ url_for('materials.shortage', dept=dept_filter, cls='', wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, status=status_filter, **scope) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
             {% endif %}
             {% if wo_status_filter %}
             <span class="badge text-bg-light border text-dark">WO status: {{ wo_status_meta[wo_status_filter][0] }}
-                <a href="{{ url_for('materials.shortage', dept=dept_filter, cls=cls_filter, wo_status='', due_from=due_from, due_before=due_before, q=search, status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+                <a href="{{ url_for('materials.shortage', dept=dept_filter, cls=cls_filter, wo_status='', due_from=due_from, due_before=due_before, q=search, status=status_filter, **scope) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
             {% endif %}
             {% if due_from %}
             <span class="badge text-bg-light border text-dark">From: {{ due_from }}
-                <a href="{{ url_for('materials.shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from='', due_before=due_before, q=search, status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+                <a href="{{ url_for('materials.shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from='', due_before=due_before, q=search, status=status_filter, **scope) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
             {% endif %}
             {% if due_before %}
             <span class="badge text-bg-light border text-dark">Before: {{ due_before }}
-                <a href="{{ url_for('materials.shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before='', q=search, status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+                <a href="{{ url_for('materials.shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before='', q=search, status=status_filter, **scope) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
             {% endif %}
             {% if search %}
             <span class="badge text-bg-light border text-dark">Search: “{{ search }}”
-                <a href="{{ url_for('materials.shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q='', status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+                <a href="{{ url_for('materials.shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q='', status=status_filter, **scope) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
+            {% endif %}
+            {% if so_filter %}
+            <span class="badge text-bg-light border text-dark">SO: {{ so_filter }}
+                <a href="{{ url_for('materials.shortage', material_group=material_group, source=source, dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, status=status_filter) }}" class="text-reset text-decoration-none ms-1"><i class="bi bi-x-circle"></i></a></span>
             {% endif %}
         </div>
         {% endif %}
@@ -113,13 +133,21 @@
 </div>
 {% endif %}
 
+{% for group in missing_groups %}
+<div class="alert alert-info py-2">
+    <i class="bi bi-info-circle me-2"></i>No {{ 'fabric and hide' if group == 'fabric' else 'component' }} requirement data found.
+    Run the <strong>{{ 'material_requirements' if group == 'fabric' else 'component_requirements' }}</strong> sync
+    from <a href="{{ url_for('admin.epicor_sync') }}" class="alert-link">Epicor Sync</a>.
+</div>
+{% endfor %}
+
 <!-- KPI filter cards -->
 {% set _hr = status_counts_all.get('high_risk', 0) %}
 {% set _lp = status_counts_all.get('late_po', 0) %}
 {% set _mr = status_counts_all.get('med_risk', 0) %}
 {% set _total = _hr + _lp + _mr %}
 {# Build base URL preserving dept/class/date/search filters but no status #}
-{% set _base = url_for('materials.shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search) %}
+{% set _base = url_for('materials.shortage', dept=dept_filter, cls=cls_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, **scope) %}
 <div class="row g-3 mb-4">
     {% for st_key, label, sublabel, count, color in [
         ('high_risk', 'Shortage',   'No PO coverage',        _hr,    '#dc3545'),
@@ -192,6 +220,8 @@
                     <tr>
                         <th data-export-cols="Part Num|Description">Material</th>
                         <th data-export-cols="Class ID|Class Label">Class</th>
+                        <th>Status</th>
+                        <th class="text-center">Jobs</th>
                         <th class="text-end">Genuine Short</th>
                         <th class="text-end">At Risk (all tiers)</th>
                         <th class="text-end">PO Cover</th>
@@ -228,7 +258,7 @@
                             {% if m.earliest_due %}{{ m.earliest_due.strftime('%d %b %y') }}{% if is_overdue %} <i class="bi bi-exclamation-circle"></i>{% endif %}{% else %}—{% endif %}
                         </td>
                         <td>
-                            <a href="{{ url_for('materials.mrp') }}?q={{ m.material_code | urlencode }}"
+                            <a href="{{ url_for('materials.mrp', q=m.material_code, material_group=material_group) }}"
                                class="btn btn-outline-secondary btn-sm py-0" style="font-size:.72rem;" target="_blank">
                                 <i class="bi bi-graph-up"></i> Peg
                             </a>
@@ -261,6 +291,7 @@
                 <thead class="thead-subtle sticky-top">
                     <tr>
                         <th data-export-cols="Part Num|Description">Material</th>
+                        {% if material_group == 'all' %}<th>Material Type</th>{% endif %}
                         <th data-export-cols="Class ID|Class Label">Class</th>
                         <th>Whs</th>
                         <th data-export-cols="Works Order|SO Number|WO Status">Works Order</th>
@@ -279,13 +310,14 @@
                     {% set is_overdue = row.due_date and row.due_date < today %}
                     <tr class="{{ 'table-danger' if row.shortage > 0 else '' }}"
                         style="cursor:pointer;"
-                        onclick="window.location='{{ url_for('materials.mrp') }}?q={{ row.material_code | urlencode }}'">
+                        onclick="window.location={{ url_for('materials.mrp', q=row.material_code, material_group=row.material_group) | tojson | forceescape }}">
                         <td data-export-vals="{{ row.material_code }}|{{ row.description or '' }}">
                             <span class="fw-semibold">{{ row.material_code }}</span>
                             {% if row.description %}
                             <div class="text-muted text-truncate" style="max-width:200px;font-size:.72rem;" title="{{ row.description }}">{{ row.description }}</div>
                             {% endif %}
                         </td>
+                        {% if material_group == 'all' %}<td>{{ 'Fabrics' if row.material_group == 'fabric' else 'Components' }}</td>{% endif %}
                         <td data-export-vals="{{ row.class_id or '' }}|{{ class_labels.get(row.class_id, '') }}">
                             {% if row.class_id %}<span class="badge bg-secondary bg-opacity-25 text-dark" style="font-size:.68rem;" title="{{ row.class_id }}">{{ class_labels.get(row.class_id, row.class_id) }}</span>{% else %}—{% endif %}
                         </td>
@@ -326,7 +358,7 @@
         <i class="bi bi-info-circle me-1"></i>
         <strong>Cumulative netting</strong>: stock allocated earliest-due-date first per material.
         <strong>Avail Stock</strong> = remaining before this line.
-        Click any row ? MRP Pegging.
+        Click any row to open MRP Pegging.
     </div>
 </div>
 {% else %}
@@ -344,7 +376,7 @@
 window.SHORTAGE_DATA = {
   topMaterials: {{ shortage_insights.top_materials | tojson }},
   byClass:      {{ shortage_insights.by_class | tojson }},
-  classFilterUrl: {{ url_for('materials.shortage', dept=dept_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, status=status_filter) | tojson }},
+  classFilterUrl: {{ url_for('materials.shortage', dept=dept_filter, wo_status=wo_status_filter, due_from=due_from, due_before=due_before, q=search, status=status_filter, **scope) | tojson }},
 };
 </script>
 <script src="{{ url_for('static', filename='js/components/table.js') }}" defer></script>

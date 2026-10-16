@@ -264,7 +264,7 @@
           </td>
           <td class="text-center">
             {% if o.comp_status not in ('no_data', 'ok') %}
-            <a href="{{ url_for('materials.component_shortage') }}?so={{ o.so_number }}" target="_blank" class="text-decoration-none">
+            <a href="{{ url_for('materials.shortage', material_group='component', so=o.so_number) }}" target="_blank" class="text-decoration-none">
             {% if o.comp_status == 'high_risk' %}
             <span class="badge text-bg-danger" style="font-size:.65rem;" title="Component shortage"><i class="bi bi-exclamation-triangle-fill me-1"></i>C.Short</span>
             {% elif o.comp_status == 'late_po' %}
@@ -365,7 +365,7 @@
               {# Component status — per job #}
               <div class="ob-detail-status">
               {% if line.comp_status not in ('no_data', 'ok') %}
-              <a href="{{ url_for('materials.component_shortage') }}?so={{ o.so_number }}" target="_blank" class="text-decoration-none">
+              <a href="{{ url_for('materials.shortage', material_group='component', so=o.so_number) }}" target="_blank" class="text-decoration-none">
               {% if line.comp_status == 'high_risk' %}
               <span class="badge text-bg-danger" style="font-size:.65rem;" title="Component shortage"><i class="bi bi-exclamation-triangle-fill me-1"></i>C.Short</span>
               {% elif line.comp_status == 'late_po' %}

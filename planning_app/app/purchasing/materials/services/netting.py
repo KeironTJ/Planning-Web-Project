@@ -219,6 +219,7 @@ def get_shortage_report(
             continue
 
         rows.append(ShortageRow(
+            material_group=material_group,
             source=r["source"],
             material_code=r["material_code"],
             description=r["description"],

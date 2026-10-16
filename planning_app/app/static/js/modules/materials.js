@@ -3,12 +3,11 @@
  *
  * Handles:
  *  - materials/shortage.html          — pagination, CSV export, 2 charts
- *  - materials/component_shortage.html — pagination, CSV export, 2 charts
  *  - materials/stock_list.html        — doughnut chart with click filter
  *  - materials/index.html             — SO breakdown stacked chart + table
  *
  * Reads:
- *  - window.SHORTAGE_DATA          (shortage + component_shortage pages)
+ *  - window.SHORTAGE_DATA          (unified shortage page)
  *  - window.STOCK_LIST_DATA        (stock_list page)
  *  - window.MATERIALS_INDEX_DATA   (index page)
  *
@@ -19,7 +18,7 @@
 
 document.addEventListener('DOMContentLoaded', function () {
 
-    // ── Shortage / component shortage page ────────────────────────────────
+    // ── Shortage page ────────────────────────────────────────────────────
     var S = window.SHORTAGE_DATA;
     if (S) {
         window.initPagination('summaryTable', 20);
@@ -27,7 +26,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         var tmCtx = document.getElementById('topMaterialsChart');
         if (tmCtx && S.topMaterials.length) {
-            tmCtx.style.height = Math.max(120, S.topMaterials.length * 24) + 'px';
+            tmCtx.style.height = Math.max(160, S.topMaterials.length * 44 + 70) + 'px';
             var TIERS = [
                 { key: 'high_risk', label: 'Shortage',   color: '#dc3545' },
                 { key: 'late_po',   label: 'Late PO',    color: '#fd7e14' },
@@ -35,6 +34,34 @@ document.addEventListener('DOMContentLoaded', function () {
             ];
             new Chart(tmCtx, {
                 type: 'bar',
+                plugins: [{
+                    id: 'materialDescriptions',
+                    afterDatasetsDraw: function (chart) {
+                        var ctx = chart.ctx, area = chart.chartArea;
+                        var x = area.left + 6, maxWidth = area.right - x - 6;
+                        if (maxWidth <= 0) return;
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.rect(area.left, area.top, area.width, area.height);
+                        ctx.clip();
+                        ctx.font = '11px ' + Chart.defaults.font.family;
+                        ctx.textAlign = 'left';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillStyle = '#212529';
+                        S.topMaterials.forEach(function (material, index) {
+                            var text = material.code + (material.description ? ' \u2014 ' + material.description : '');
+                            if (ctx.measureText(text).width > maxWidth) {
+                                while (text && ctx.measureText(text + '\u2026').width > maxWidth) {
+                                    text = text.slice(0, -1);
+                                }
+                                text += '\u2026';
+                            }
+                            var y = chart.scales.y.getPixelForValue(index) - 12;
+                            ctx.fillText(text, x, y);
+                        });
+                        ctx.restore();
+                    },
+                }],
                 data: {
                     labels: S.topMaterials.map(function (m) { return m.code; }),
                     datasets: TIERS.map(function (t) {
@@ -42,20 +69,23 @@ document.addEventListener('DOMContentLoaded', function () {
                             label: t.label,
                             data: S.topMaterials.map(function (m) { return parseFloat(m[t.key] || 0); }),
                             backgroundColor: t.color + '99', borderColor: t.color, borderWidth: 1,
-                            borderRadius: 3, stack: 'risk',
+                            borderRadius: 3, stack: 'risk', barThickness: 10,
                         };
                     }),
                 },
                 options: {
                     indexAxis: 'y', responsive: true, maintainAspectRatio: false,
                     plugins: { legend: { display: true, position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } }, tooltip: { callbacks: {
-                        title: function (i) { return S.topMaterials[i[0].dataIndex].description || i[0].label; },
+                        title: function (i) {
+                            var material = S.topMaterials[i[0].dataIndex];
+                            return material.code + (material.description ? ' \u2014 ' + material.description : '');
+                        },
                         label: function (i) { return ' ' + i.dataset.label + ': ' + i.raw.toLocaleString('en-GB', { maximumFractionDigits: 2 }); },
                         afterLabel: function (i) { var d = S.topMaterials[i.dataIndex].earliest_due; return d ? ' Earliest due: ' + d : ''; },
                     }}},
                     scales: {
                         x: { stacked: true, beginAtZero: true, title: { display: true, text: 'At-risk quantity' } },
-                        y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } },
+                        y: { stacked: true, grid: { display: false }, ticks: { display: false, autoSkip: false } },
                     },
                 },
             });

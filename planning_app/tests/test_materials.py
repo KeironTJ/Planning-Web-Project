@@ -598,7 +598,7 @@ class TestConsolidatedPoReliance:
         })
         with app.test_request_context():
             url = url_for(endpoint, **query)
-        response = client.get(url)
+        response = client.get(url, follow_redirects=True)
         assert response.status_code == 200
         html = response.data.decode()
         assert "PO Reliant" in html

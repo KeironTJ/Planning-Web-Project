@@ -47,7 +47,7 @@ SECTION_MODULES = {
     "forecasting.dashboard": {"forecasting.model_classifications"},
     "purchasing.dashboard": {
         "purchasing.overview", "materials.index", "materials.shortage",
-        "materials.component_shortage", "materials.mrp", "materials.release_impact",
+        "materials.mrp", "materials.release_impact",
         "purchasing.supplier_delivery", "materials.stock_list", "materials.po_list",
         "materials.main_requirements", "materials.exempt_materials", "materials.class_labels",
     },

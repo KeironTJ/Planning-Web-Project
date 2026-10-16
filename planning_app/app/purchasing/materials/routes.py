@@ -128,6 +128,9 @@ def index():
 @login_required
 @permission_required("view_materials")
 def shortage():
+    material_group = request.args.get("material_group", "fabric").strip().lower()
+    if material_group not in {"fabric", "component", "all"}:
+        abort(400, description="Invalid material type.")
     source       = request.args.get("source", "all")
     dept_filter  = request.args.get("dept", "")
     search       = request.args.get("q", "")
@@ -136,6 +139,7 @@ def shortage():
     wo_status_filter = request.args.get("wo_status", "")  # "" = all work-order statuses
     due_before_str = request.args.get("due_before", "")
     due_from_str   = request.args.get("due_from", "")
+    so_filter = request.args.get("so", "")
 
     due_before = None
     if due_before_str:
@@ -153,14 +157,29 @@ def shortage():
 
     # Always fetch all rows (before class/status filtering) so class options and the
     # "clear this filter" experience reflect the full picture for the current dept/date/search scope
-    data = get_shortage_report(
-        source=source,
-        dept_filter=dept_filter or None,
-        search=search or None,
-        shortages_only=False,
-        due_before=due_before,
-        due_from=due_from,
-    )
+    groups = ("fabric", "component") if material_group == "all" else (material_group,)
+    reports = {
+        group: get_shortage_report(
+            material_group=group,
+            source=source,
+            dept_filter=dept_filter or None,
+            search=search or None,
+            so_filter=so_filter or None,
+            shortages_only=False,
+            due_before=due_before,
+            due_from=due_from,
+        )
+        for group in groups
+    }
+    rows = [row for report in reports.values() for row in report["rows"]]
+    rows.sort(key=lambda row: (row.due_date or date.max, -row.shortage))
+    data = {
+        "rows": rows,
+        "stock_imported": any(report["stock_imported"] for report in reports.values()),
+        "reqs_imported": any(report["reqs_imported"] for report in reports.values()),
+        "shortage_count": sum(report["shortage_count"] for report in reports.values()),
+    }
+    missing_groups = [group for group, report in reports.items() if not report["reqs_imported"]]
 
     class_labels = get_class_label_map()
     class_options = _class_options(data["rows"], class_labels)
@@ -193,7 +212,7 @@ def shortage():
 
     return render_template(
         "materials/shortage.html",
-        title="Material Shortage Report",
+        title="Material Shortages",
         data=data,
         shortage_insights=shortage_insights,
         status_counts_all=status_counts_all,
@@ -205,6 +224,9 @@ def shortage():
         wo_status_of=wo_status,
         mat_status_meta=MAT_STATUS_META,
         source=source,
+        material_group=material_group,
+        missing_groups=missing_groups,
+        so_filter=so_filter,
         dept_filter=dept_filter,
         search=search,
         status_filter=_valid_status,
@@ -220,90 +242,10 @@ def shortage():
 @login_required
 @permission_required("view_materials")
 def component_shortage():
-    """Component availability shortage report (sourced from PlanningMatReqComp)."""
-    dept_filter   = request.args.get("dept", "")
-    search        = request.args.get("q", "")
-    status_filter = normalize_mat_status(request.args.get("status", ""))
-    cls_filter    = request.args.get("cls", "")
-    wo_status_filter = request.args.get("wo_status", "")  # "" = all work-order statuses
-    due_before_str = request.args.get("due_before", "")
-    due_from_str   = request.args.get("due_from", "")
-    so_filter      = request.args.get("so", "")
-
-    due_before = None
-    if due_before_str:
-        try:
-            due_before = date.fromisoformat(due_before_str)
-        except ValueError:
-            pass
-
-    due_from = None
-    if due_from_str:
-        try:
-            due_from = date.fromisoformat(due_from_str)
-        except ValueError:
-            pass
-
-    data = get_shortage_report(
-        material_group="component",
-        dept_filter=dept_filter or None,
-        search=search or None,
-        so_filter=so_filter or None,
-        shortages_only=False,
-        due_before=due_before,
-        due_from=due_from,
-    )
-
-    class_labels = get_class_label_map()
-    class_options = _class_options(data["rows"], class_labels)
-    _valid_cls = cls_filter if cls_filter in {c["class_id"] for c in class_options} else ""
-    if _valid_cls:
-        data["rows"] = [r for r in data["rows"] if (r.class_id or "Unassigned") == _valid_cls]
-
-    wo_status_options = _wo_status_options(data["rows"])
-    _valid_wo_status = wo_status_filter if wo_status_filter in WO_STATUS_META else ""
-    if _valid_wo_status:
-        data["rows"] = [r for r in data["rows"] if wo_status(r.job_released, r.job_firm) == _valid_wo_status]
-
-    # KPI card counts always reflect the full class/dept/date/search scope (all tiers),
-    # independent of the status filter below, so the cards keep working as filter buttons.
-    status_counts_all = _status_counts(data["rows"])
-
-    _valid_status = status_filter if status_filter in _AT_RISK_STATUSES else ""
-    if _valid_status:
-        data["rows"] = [r for r in data["rows"] if r.status == _valid_status]
-    else:
-        data["rows"] = [r for r in data["rows"] if r.status in _AT_RISK_STATUSES]
-    data["total_rows"] = len(data["rows"])
-
-    # Charts/summary computed on the same rows as the detail table, so they reflect
-    # every active filter including the status tier.
-    shortage_insights = get_shortage_insights(data["rows"], class_labels=class_labels)
-
-    departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
-
-    return render_template(
-        "materials/component_shortage.html",
-        title="Component Shortage Report",
-        data=data,
-        shortage_insights=shortage_insights,
-        status_counts_all=status_counts_all,
-        departments=departments,
-        class_options=class_options,
-        class_labels=class_labels,
-        wo_status_options=wo_status_options,
-        wo_status_meta=WO_STATUS_META,
-        wo_status_of=wo_status,
-        mat_status_meta=MAT_STATUS_META,
-        dept_filter=dept_filter,
-        search=search,
-        status_filter=_valid_status,
-        cls_filter=_valid_cls,
-        wo_status_filter=_valid_wo_status,
-        due_before=due_before_str,
-        due_from=due_from_str,
-        today=date.today(),
-    )
+    """Keep bookmarked component reports working with the unified report."""
+    params = request.args.to_dict(flat=False)
+    params["material_group"] = ["component"]
+    return redirect(url_for("materials.shortage", **params))
 
 
 @materials_bp.route("/stock")
