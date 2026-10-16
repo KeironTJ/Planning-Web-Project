@@ -72,3 +72,27 @@ def test_purchasing_dashboard_lists_modules(app, client, request, path, user_fix
     with app.test_request_context():
         expected_cards = {url_for(endpoint): label for endpoint, label in modules.items()}
     assert parser.cards == expected_cards
+
+
+def test_procurement_inventory_uses_material_class_labels(client, purchasing_user, db):
+    from app.purchasing.materials.models import MaterialClassLabel, Stock
+
+    db.session.add(MaterialClassLabel(class_id="A101", label="Upholstery Leather"))
+    for code, class_id in [("MAPPED", "A101"), ("UNMAPPED", "Z999"), ("UNASSIGNED", None)]:
+        db.session.add(Stock(
+            part_num=code, class_id=class_id, qty_on_hand=10,
+            qty_on_hand_stores=10, qty_required=0,
+        ))
+    db.session.commit()
+    login(client, purchasing_user.email, "Purchasing!Pass1234")
+
+    response = client.get("/purchasing/overview")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    inventory = html.split("<!-- Section 4: Inventory -->", 1)[1]
+    assert "Upholstery Leather" in inventory
+    assert "A101</span>" in inventory
+    assert "Z999" in inventory
+    assert "—" in inventory
+    assert inventory.count("10.0") == 3

@@ -277,7 +277,12 @@
                 <tbody>
                     {% for c in stock_overview.classes %}
                     <tr>
-                        <td class="fw-semibold">{{ c.class_id }}</td>
+                        <td class="fw-semibold">
+                            {{ class_labels.get(c.class_id, c.class_id) }}
+                            {% if class_labels.get(c.class_id) and class_labels[c.class_id] != c.class_id %}
+                            <span class="text-muted small fw-normal ms-1">{{ c.class_id }}</span>
+                            {% endif %}
+                        </td>
                         <td class="text-end">{{ c.count }}</td>
                         <td class="text-end">{{ '{:,.1f}'.format(c.total_qty) }}</td>
                         <td class="text-end {% if c.deficit_count %}text-danger fw-semibold{% else %}text-muted{% endif %}">

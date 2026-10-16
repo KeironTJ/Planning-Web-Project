@@ -7,6 +7,7 @@ from flask_login import login_required
 
 from . import purchasing_bp
 from app.core.decorators import permission_required
+from app.purchasing.materials.services.class_labels import get_class_label_map
 from app.purchasing.materials.services.dashboard import get_purchasing_dashboard, get_supplier_delivery, get_weekly_so_breakdown
 from app.purchasing.materials.services.stock import get_stock_overview, get_stock_summary
 
@@ -34,6 +35,7 @@ def overview():
         mat_summary=mat_summary,
         so_breakdown=so_breakdown,
         stock_overview=stock_overview,
+        class_labels=get_class_label_map(),
         today=date.today(),
         timedelta=timedelta,
     )
