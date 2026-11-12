@@ -2,159 +2,142 @@
 
 ## Purpose
 
-Build and evaluate a forecasting tool that helps sales and planning teams
-understand upcoming revenue and product demand. The project will follow a
-business-led AI lifecycle: understand the problem, prepare and explore the
-data, establish benchmarks, test models, deliver forecasts, and monitor results.
+Develop two linked projects:
 
-The [project overview](README.md) defines the goals and initial scope. The
-[data contract](data-contract.md) holds the detailed source mappings and
-calculation rules. This document describes how we will develop and evaluate
-the solution.
+1. **AI intake forecasting:** predict incoming orders, order value, and volume.
+2. **Intake-to-output conversion:** use Project 1's forecasts and the existing
+   backlog to predict shipped value and volume over the next 12-16 weeks,
+   accounting for amendments, cancellations, and shipment timing.
 
-## Initial outcomes
-
-- Forecast monthly net invoiced sales in GBP for the next three months.
-- Forecast weekly unit demand due to ship for the next twelve weeks.
-- Show results by customer group and for the company overall.
-- Explain forecast performance, uncertainty, and limitations in business terms.
-
-Revenue and unit demand will be developed as separate targets within a shared
-browser-based workflow. Lead-time prediction remains a later extension.
-
-## Working method
-
-Work in small, reviewable milestones. At each milestone, review the evidence, agree the next decision, and document why the approach was chosen.
-Findings can change the design; earlier datasets and experiment results must
-remain traceable to the definitions used at the time.
-
-Browser controls will expose meaningful choices such as target, grouping,
-history window, features, model settings, and tuning budget. Validated options
-will keep those choices compatible with the selected data and model. The first
-working experiment will guide which controls are genuinely useful rather than
-building a large configuration interface before the modelling needs are known.
+Complete the modelling lifecycle for Project 1 first, then Project 2. Evaluate
+each separately and the combined workflow end to end.
+The [overview](README.md) defines the scope; the [data contract](data-contract.md)
+records source definitions and findings.
 
 ## Delivery stages
 
-### 1. Confirm the business problem
+### 1. Define the business problem
 
-Agree who will use each forecast, which decisions it supports, and what an
-error means for those decisions. Confirm targets, horizons, reporting groups,
-and how known orders should appear alongside forecast demand.
+Agree who will use the forecasts, which decisions they support, and the cost
+of over- or under-forecasting. Confirm horizons, groups, and how known orders
+will contribute alongside forecast new intake. Output is measured at shipment,
+not invoice or production-completion date.
 
-**Output:** agreed forecast definitions and business acceptance criteria.
-Agree measurable accuracy, bias, and uncertainty expectations before final
-evaluation; do not choose thresholds after seeing the final results.
+**Output:** forecast definitions and measurable acceptance criteria agreed
+before final evaluation.
 
-### 2. Establish reliable historical data
+### 2. Prepare reliable history
 
-Review the available Epicor sources and map their identifiers, dates,
-quantities, customer fields, invoice amounts, and credits. Profile actual
-coverage and reconcile totals with a trusted operational or financial report.
+Link original intake, subsequent value/quantity changes, cancellations, and
+actual shipment events. Map keys, dates, UOM, values, and customer/category
+fields. Profile coverage and reconcile the movement from opening order book
+through intake and changes to shipments and closing order book.
 
-Model categories support this preparation. Full units, covers, scatters, and
-other work can have different demand patterns and forecasting needs.
-Categories describe the work; each forecast will explicitly define how those
-categories are grouped or included. A category applied to blank model names
-labels the combined unnamed group, not its individual product types.
+Save versioned datasets separately from operational tables, retaining source
+parameters, extraction details, mappings, quality results, and calculation
+settings.
 
-Save forecasting data separately from the refreshed operational tables.
-Retain source and extraction details, category and customer-group mappings,
-and the calculation settings used to build each dataset.
+**Output:** a reconciled dataset and data-quality report for the first target.
 
-**Output:** a reconciled, versioned dataset for the first target, with a
-data-quality report and completed source mapping. Historical availability must
-be understood before using order-book or production fields in backtests.
+### 3. Explore demand
 
-### 3. Explore and understand demand
+Examine trends, seasonality, product mix, customer concentration, gaps, zeros,
+outliers, and business changes. Distinguish missing data from genuine zero
+demand and investigate exceptions before correcting or excluding them.
+Examine how much intake eventually ships, how long it takes, and how amendments
+and cancellations vary by customer and work content. Recent unshipped intake
+must not be treated as lost or cancelled.
 
-Analyse trends, seasonality, customer concentration, product mix, missing
-periods, zero-demand periods, outliers, and changes in business activity.
-Compare categories and customer groups to understand where separate treatment
-may help and where there is too little history to model reliably.
+**Output:** EDA findings that justify preparation, features, and candidate
+models, including whether groups need separate treatment.
 
-Separate genuine zero activity from missing data. Investigate unusual values
-before deciding whether to retain, correct, or exclude them.
+### 4. Establish benchmarks
 
-**Output:** EDA findings, justified preparation decisions, and a shortlist of
-features and modelling approaches supported by the observed data.
+Test simple intake/output forecasts such as the latest period and the same
+period last year, where history permits. Establish an intake-to-shipment
+baseline using observed conversion and timing. Evaluate forward from several
+historical cutoffs across the full 12-16-week output horizon.
 
-### 4. Establish forecasting benchmarks
+Fit preprocessing on training data only and use information available at each
+cutoff. Reserve a final holdout for evaluation after model selection.
 
-Build simple benchmarks such as repeating the latest period and the equivalent
-period in the previous year, where sufficient history exists.
+**Output:** repeatable baseline results by group and horizon.
 
-Evaluate forecasts forward from several historical cutoffs across the full
-target horizon. Keep a final holdout period separate from model selection.
-Fit preprocessing only on each training window and use only information
-available at that cutoff.
+### 5. Develop and tune models
 
-**Output:** a repeatable evaluation pipeline and baseline results by customer
-group, company total, and forecast horizon.
+Compare a small set of statistical and machine-learning approaches supported
+by the EDA. Test features and tune within an agreed budget using the same
+time-based evaluation as the benchmarks.
 
-### 5. Develop and tune candidate models
+First develop and evaluate AI intake forecasts against simple intake baselines.
+Then compare intake-to-output models with a simple conversion baseline and a
+direct output forecast. Evaluate shipped value and volume as well as stage
+errors, including the effect of uncertain intake.
+Do not assume volume converts to value at a fixed average price.
 
-Compare a small set of statistical and machine-learning approaches selected
-from the EDA findings. Test useful features and tune parameters within an
-agreed budget using the same time-based evaluation as the benchmarks.
+Record dataset, code and model versions, settings, features, cutoffs, runtime,
+and results. Retain the simpler approach unless complexity adds useful value.
 
-Record dataset version, settings, features, model and code versions, evaluation
-cutoffs, runtime, and results for each experiment. Prefer the simpler approach
-when extra complexity does not provide a useful improvement.
+**Output:** a justified model choice and final holdout results.
 
-**Output:** a justified model choice, comparison results, and final holdout
-evaluation. Retain the baseline if candidates do not improve on it usefully.
+### 6. Deliver and monitor
 
-### 6. Deliver a usable forecasting workflow
+Bring dataset selection, experiments, forecasts, uncertainty, and exports into
+AI Tools. Develop browser controls around the choices demonstrated by working
+experiments. Review usability with intended users.
 
-Bring dataset selection, experiments, results, and forecast generation into
-AI Tools. Show forecast values and uncertainty, group and company totals,
-model version, and exports. Keep known order-book demand distinguishable from
-predicted demand so it is not counted twice.
+Store issued forecasts and compare them with actuals. Agree review, retraining,
+and replacement criteria; keep forecasting separate from live planning changes.
 
-Validate the workflow with its intended users. Forecasting must remain separate
-from automatic changes to live planning.
+**Output:** a usable workflow, feedback, monitoring, and project evaluation.
 
-**Output:** a working browser workflow, user guidance, and recorded feedback.
+## Evaluation
 
-### 7. Monitor and evaluate
+| Measure | Purpose |
+| --- | --- |
+| MAE | Report value errors in GBP, volume errors in verified units, and order-count errors for the relevant project |
+| Bias | Identify systematic over- or under-forecasting |
+| WAPE | Express relative error where actual totals are nonzero |
+| Interval coverage and width | Assess uncertainty where intervals are produced |
 
-Store issued forecasts and compare them with actuals as they become available.
-Review accuracy, systematic over- or under-forecasting, interval performance,
-and changes in the underlying data. Agree when a model should be reviewed,
-retrained, or replaced.
+Report each project's outputs by customer group and horizon as well as overall.
+Assess runtime, reproducibility, explainability, usability, and planning value alongside
+accuracy. Record unsuccessful experiments too.
 
-**Output:** forecast-versus-actual reporting and a project evaluation covering
-business usefulness, technical performance, limitations, and recommendations.
+## Project report and evidence
 
-## How performance will be judged
+This documentation will support my AI Level 7 project report. Each stage will
+record the findings, decisions, alternatives, and outcomes needed to explain
+the work. Mapping to the exact assessment criteria remains to be done.
 
-Use MAE to express errors in GBP or units, bias to show their direction, and
-WAPE where actual totals are nonzero. Evaluate prediction-interval coverage
-and width where intervals are produced. Report results by horizon and customer
-group as well as overall, so strong performance in large groups does not hide
-poor performance elsewhere.
+| Report area | Project evidence |
+| --- | --- |
+| Business and system understanding | Planning needs, forecast definitions, Epicor mappings, and release/job/assembly relationships |
+| Data preparation and governance | Profiles, UOM and cancellation rules, reconciliation, access controls, and dataset versions |
+| EDA and method selection | Observed patterns, preparation decisions, technical references, and baseline/candidate rationale |
+| Experiments and evaluation | Time-based splits, leakage controls, tuning, errors, uncertainty, and holdout results |
+| Delivery and reflection | Tests, user feedback, business usefulness, trade-offs, limitations, and revised decisions |
 
-Accuracy alone is not enough. Consider reproducibility, runtime, usability,
-explainability, and whether the forecast improves the intended planning
-decision. Record failures and negative findings as well as successful results.
+The source review already shows why one-piece job planning does not make every
+imported row one item, why classification is separate from forecast inclusion,
+and why refreshed operational tables cannot reconstruct an earlier order book.
+The [data contract](data-contract.md#local-data-checks) holds the supporting
+findings rather than duplicating them here.
 
-## Next milestone: historical source review
+Keep the question, method, source/date or dataset version, result, and decision
+for each substantial check. Use approved aggregates or anonymised examples in
+the report. Personal reflection will accompany the technical evidence as the
+work develops; development assistance should follow the course's assessment
+rules.
 
-The model-classification tool provides the initial product-preparation workflow.
-The next step is to establish a trustworthy historical dataset, not select an
-AI algorithm.
+## Next milestone
 
-1. Review the unit-demand source: record grain, required ship-by date, quantity
-   basis, model and customer identity, cancellations, and historical coverage.
-2. Identify the invoice/credit source with Finance and agree its reconciliation
-   report and revenue calculation.
-3. Profile available history and reconcile a representative sample for each
-   target.
-4. Choose the first target to implement based on data readiness and business
-   value, then complete one dataset-to-baseline workflow before extending it.
+Establish Project 1's intake dataset and first baseline:
 
-This milestone is complete when the selected target can be reconstructed from
-verified fields, reconciled against an agreed source, and saved reproducibly.
-Unresolved data issues will have an explicit treatment before EDA and modelling
-proceed.
+1. Confirm original order-received dates, counts, values, and quantities.
+2. Resolve UOM, valuation, duplicates, and usable historical coverage.
+3. Agree intake frequency/horizon and reconcile representative totals.
+4. Save the intake dataset, complete EDA, and evaluate the first intake baseline.
+
+Record amendment/cancellation and shipment-source requirements for Project 2
+alongside this work.

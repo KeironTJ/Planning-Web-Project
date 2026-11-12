@@ -2,394 +2,351 @@
 
 ## Purpose
 
-This document describes the Epicor data used to build the revenue and
-unit-demand forecasts. It defines the source records, fields, business
-calculations, and checks that make the resulting datasets useful for analysis
-and modelling.
+Define the sources, calculations, and quality checks for the forecasts.
+Source-review sections record observed findings; dataset fields and preparation
+rules describe the planned design.
 
-It supports the [project overview](README.md). The overview describes the
-application; this contract describes the data behind it.
-
-The initial definitions will be refined as the BAQs and historical data are
-examined. Field names below describe the forecasting dataset. Actual Epicor
-aliases will be recorded in the field mappings as each source is connected.
+See the [overview](README.md) for scope and the [project approach](approach.md)
+for delivery and AI Level 7 report evidence.
 
 ## 1. Forecast measures
 
-| Measure | Definition | Horizon |
+| Project / measure | Definition | Horizon |
 | --- | --- | --- |
-| Net sales | Monthly net invoiced revenue in GBP, excluding VAT and accounting for credits and returns | Three months |
-| Unit demand | Weekly units due to ship, assigned to required ship-by date | Twelve weeks |
-| Lead time, later phase | Time from order received date to actual shipment | Defined during lead-time analysis |
+| Project 1: incoming orders | Number of new orders received | To be agreed to support output planning |
+| Project 1: intake value and volume | Value and verified quantity of new orders at receipt, before later amendments/cancellations | Same intake horizon |
+| Project 2: shipped output value | Value of goods actually shipped, assigned to actual shipment date | Next 12-16 weeks |
+| Project 2: shipped output volume | Verified quantity actually shipped, assigned to actual shipment date | Next 12-16 weeks |
+| Supporting: unit demand | Units due to ship, assigned to required ship-by date | Weekly planning view |
 
-Both initial forecasts will be available by customer group and for the company
-as a whole. Planning-app groups will be the default, with Epicor group codes as
-an alternative.
+Project 1 produces AI intake forecasts; Project 2 combines them with the existing
+backlog to predict output. Both projects will support planning-app customer
+groups, optional Epicor groups, and company totals. Five-plus years of history
+has been reported as available; usable coverage remains unverified.
 
-Five-plus years of history is available for investigation. The first data
-profile will establish the usable date range for each source.
+### Intake to shipped output
 
-### Revenue calculation
+Keep original intake separate from later signed amendments and cancellations.
+Link each shipment to its order/release and count its actual quantity and
+attributable value, including partial shipments. Volume must use verified UOM;
+do not combine furniture-unit counts with metres of fabric.
+Finished goods awaiting shipment do not count as realised output.
 
-Revenue is the sum of signed, posted net sales amounts for the reporting month.
-Invoice amounts contribute positively and credits reduce the total. Posted GBP
-base-currency values preserve the accounting value of historical sales.
+Reconcile opening outstanding value, new intake, amendments, cancellations,
+shipped value, and closing outstanding value under a consistent valuation
+basis. Reconcile quantities separately under consistent UOM. Rescheduling
+changes expected output timing, not raw intake.
 
-All in-scope sales contribute to revenue, including products excluded from the
-unit-demand measure. Product metadata is useful for analysis but is not a
-condition for including a valid financial record.
+Confirm selling-price versus cost valuation, GBP conversion, VAT/discount/charge
+treatment, price changes, returns, and the reference reports/tolerances.
+Invoices may support reconciliation; net invoiced revenue is not the primary
+target.
 
-The financial mapping will establish:
+### Supporting unit demand
 
-- Whether the reporting month follows invoice date or posting date.
-- How the source represents credit signs, reversals, and voided documents.
-- Which discounts, freight, miscellaneous charges, and rebates belong in net
-  sales, including amounts held at document-header level.
-- The reference Epicor report used to reconcile monthly totals.
+Sum eligible quantities by current required ship-by week. This measures shipping
+volume, not labour or unfinished production; completed but unshipped goods still
+contribute.
 
-These choices will be documented alongside the field mapping so the same
-definition is used in imports, charts, forecasts, and actuals.
+One-piece job planning informed the classification screen's count review.
+However, a release can contain several items and repeat across jobs and
+assemblies. The proposed dataset has one record per release, retaining
+job/assembly detail separately. The quantity basis and any allocation to
+eligible jobs need validation before weekly totals are built.
 
-### Unit-demand calculation
+Model categories describe work content; each forecast configuration will decide
+inclusion and grouping. Names are trimmed and case-sensitive. Blank, null, and
+whitespace-only names share one category assignment, which cannot identify
+their individual product types.
 
-Unit demand is the sum of eligible quantities due to ship in each week. The
-required ship-by date determines the week; required delivery date is retained
-as a separate field for analysis.
+### Calendar and grouping
 
-Each exact model value can be assigned a user-managed descriptive category.
-Names are trimmed and case-sensitive. Categories do not have fixed forecast
-semantics: each forecast configuration will independently determine which
-categories it includes and how it groups them. This lets the same source
-classifications support different targets without embedding business rules in
-the model-name labels. Blank, null, and whitespace-only model names form one
-review group. A category assigned to that group applies to all of its records;
-it does not distinguish their individual product types.
+Proposed output reporting uses Monday-start ISO weeks, identified by week-start
+date, across the 12-16-week horizon. Interpret business dates in Europe/London and extraction
+timestamps in UTC; confirm calendar versus fiscal reporting.
 
-The business uses one-piece planning: jobs are configured for one item.
-The initial counting basis is one eligible job/assembly record per item,
-with full units and cover-only work reported separately. Before constructing
-the historical target, the job/assembly grain will be checked for parent and
-subassembly duplication. Source quantities will identify exceptions to the
-one-piece convention rather than silently replacing the count measure.
-Release-level extracts may represent several items and will need quantity
-aggregation or a verified link to one-piece jobs.
-
-Cancellation and amendment handling will be recorded with the quantity mapping,
-including whether the source release quantity is already net of changes.
-
-This is a shipping-volume measure used as a production-demand indicator.
-Completed but unshipped products still contribute to units due to ship. A
-separate measure of unfinished production would require completion and
-stock-allocation data.
-
-### Periods and grouping
-
-The proposed calendar uses calendar months and Monday-start ISO weeks, with
-business dates interpreted in Europe/London and extraction timestamps in UTC.
-Calendar or fiscal reporting will be confirmed during source mapping.
-Week-start dates identify weekly periods across year boundaries.
-
-Each record belongs to one customer group in the selected grouping scheme.
-Customers without a mapping appear under `Unassigned`, keeping them in the
-company total. Group totals and the company total use the same filters.
-
-The planning-app customer groups and membership configuration will be reused.
-Each dataset will retain the mapping used to produce its group series.
-Applying current groups to historical records provides a current-group view
-of past demand; historical membership analysis requires effective-dated
-mappings.
+Use one customer group per record and identical filters for group and company
+totals. Unmapped customers remain under `Unassigned`. Save the grouping used:
+applying current groups to old records is a current-group view, not evidence
+of historical membership.
 
 ## 2. Data sources
 
-| Source | Initial role |
+| Source | Role |
 | --- | --- |
-| Invoice and credit history | Construct monthly revenue and reconcile financial totals |
-| Order-release history | Construct due-to-ship quantities and link demand to customers and models |
-| COOIS job/release data | Supply or validate unit-demand fields and explain production context |
+| Original order intake and change history, source to establish | Receipt quantities/values and dated amendments/cancellations |
+| Shipment history, source to establish | Actual shipment dates, output quantities, and value |
+| `bskyVA05v1`, selected sales-order source | Current release state, customers, and model links |
+| `bskyCOOISv3` | Supporting job/assembly and production context |
 
-The unit-source review will determine whether COOIS contains the complete
-release-level history or whether a dedicated order-release BAQ is needed.
-Each quantity will have one authoritative source; joining two sources will
-not cause it to be counted twice.
+COOIS quantities are not additional demand to add to sales releases.
+The reviewed sales-order data does not yet establish original intake quantities
+and values, change history, or dated shipment quantities and values.
 
-### A. Invoice and credit history
+### A. Intake, changes, and shipments
 
-**Record grain:** one posted invoice or credit detail line.
+**Proposed grains:** original order-line receipt; subsequent change event;
+shipment detail. Preserve company/order/line/release links where available and
+a unique event or shipment-line key.
 
-**Business key:** company, document, and detail line. Document type is included
-where invoice and credit identifiers share a numbering range.
-
-#### Core fields
-
-| Dataset field | Use |
+| Dataset fields | Use |
 | --- | --- |
-| `company_id` | Identify company scope and distinguish source keys |
-| `document_id`, `document_line_id` | Identify each financial line |
-| `document_type`, `posted_status` | Select posted sales and credit records |
-| `invoice_date`, `posting_date` | Establish the monthly reporting basis |
-| `customer_id` | Link revenue to a stable customer identity |
-| `net_amount_gbp` | Signed net revenue excluding VAT, after the agreed accounting treatment |
-| `epicor_group_code` | Support Epicor grouping when selected |
+| `company_id`, `order_num`, `order_line`, `release_num` | Link intake, changes, and output |
+| `intake_received_date`, `original_intake_value_gbp` | Raw intake timing and value |
+| `original_intake_qty`, `amendment_qty`, `cancelled_qty`, `quantity_uom` | Raw intake and quantity changes in verified units |
+| `event_id`, `event_type`, `effective_at`, `available_at` | Identify changes and when they were known |
+| `amendment_value_gbp`, `cancelled_value_gbp` | Signed amendments and cancelled value under agreed rules |
+| `shipment_id`, `shipment_line_id`, `actual_ship_date` | Identify output events and periods |
+| `shipped_qty`, `quantity_uom`, `shipped_value_gbp` | Actual shipped volume and its attributable value |
+| `customer_id`, `epicor_group_code`, `model`, `part_num` | Attribution and product mix |
+| `currency`, `valuation_basis`, `conversion_rate` | Reconcile values consistently |
 
-#### Supporting fields
-
-| Dataset field | Use |
-| --- | --- |
-| `document_currency`, `net_amount_document_currency` | Currency reconciliation |
-| `original_document_id` | Trace credits and reversals |
-| `part_num`, `model`, `product_family` | Product-mix analysis |
-| `source_modified_at`, `available_at` | Track corrections and when records became available, where supplied |
-
-Header-level charges may need a separate extract or explicit allocation,
-depending on the chosen revenue definition. Monetary totals are reconciled
-before and after any allocation.
-
-Financial lines will be aggregated at their own grain. Job, assembly, shipment,
-and release links will use separate aggregates or allocation tables where
-needed, preserving the original financial total.
+Release schedules must not duplicate order-line intake. A current value already
+net of changes must not have those changes deducted again. Original values and
+event history need a verified source; current snapshots cannot supply them by
+assumption. If unavailable, agree a narrower reconstructible intake measure.
+Order counts use distinct company/order keys, not line or release counts.
 
 ### B. Order-release history
 
-**Record grain:** one order release.
+**Selected BAQ:** `bskyVA05v1`.
+**Proposed grain/key:** one release, identified by company, order, line, and
+release number.
+**Business-confirmed planned date:** `OrderRel_ReqDate`, the current required
+ship-by date. It maps through `SalesOrder.req_date` to
+`required_ship_by_date`. It supports expected timing and unit demand; actual
+shipment date determines realised output value and volume.
 
-**Business key:** company, order number, order line, and release number.
-
-The historical extract includes fulfilled and cancelled releases as well as
-open releases, so it represents the full history rather than only today's
-outstanding demand.
-
-#### Core fields
-
-| Dataset field | Use |
+| Dataset fields | Use |
 | --- | --- |
-| `company_id`, `order_num`, `order_line`, `release_num` | Identify the release |
-| `customer_id`, `epicor_group_code` | Customer attribution and grouping |
-| `required_ship_by_date` | Assign demand to the due-to-ship week |
-| `release_qty` | Quantity at the verified release grain |
-| `selling_uom` | Interpret the quantity consistently |
-| `model` | Apply the unit inclusion rule |
-| `open_status`, `void_status` | Interpret release state |
-| `cancelled_qty` | Apply cancellation treatment where separately represented |
+| `company_id`, `order_num`, `order_line`, `release_num` | Release identity |
+| `customer_id`, `epicor_group_code` | Customer attribution |
+| `required_ship_by_date`, `release_qty` | Planned timing and supporting weekly demand |
+| `selling_uom`, `production_uom`, `uom_conversion` | Interpret and convert quantities |
+| `model`, `part_num`, `product_family` | Category allocation and product mix |
+| `open_status`, `void_status`, `cancelled_qty` | Cancellation treatment, where represented |
+| `order_received_date`, `required_delivery_date`, `original_required_ship_by_date` | Timing and schedule analysis |
+| `fulfilled_qty`, `hold_status` | Fulfilment and release context |
+| `created_at`, `source_modified_at`, `available_at` | Historical availability, where supplied |
 
-#### Supporting fields
+Map UOM to each quantity explicitly; the imported `OrderDtl_IUM` alone does not
+establish selling or release-quantity units. Confirm part-specific conversions
+and whether fulfilment fields describe shipment or production.
 
-| Dataset field | Use |
+#### BAQ expression and join review
+
+The supplied simplified query represents `Calculated_ReleaseQty` as:
+
+```sql
+case
+    when JobAsmbl.AssemblySeq is null or JobAsmbl.AssemblySeq = 0
+    then OrderRel.OurReqQty
+    else null
+end
+```
+
+This expression neither subtracts shipments nor allocates quantity between
+jobs. The live response differs on subassemblies, as recorded below.
+
+| Query finding | Consequence |
 | --- | --- |
-| `order_received_date` | Analyse order timing and support the later lead-time target |
-| `required_delivery_date`, `original_required_ship_by_date` | Examine delivery expectations and schedule changes |
-| `part_num`, `product_family` | Product-mix analysis and unit conversion |
-| `production_uom`, `uom_conversion` | Convert quantities where selling and production units differ |
-| `fulfilled_qty`, `hold_status` | Explain outstanding demand and release status |
-| `created_at`, `source_modified_at`, `available_at` | Support historical availability analysis where supplied |
+| `Calculated_SellingQty` returns `SellingReqQty` on main/no-assembly rows | Check UOM before equating it with release quantity |
+| `Calculated_ShippedQty` adds `OurJobShippedQty` and `OurStockShippedQty` when job-shipped quantity is non-null, on main/no-assembly rows | Shipment is a separate measure |
+| Releases join `JobProd`, jobs, and assemblies | Full release quantity can repeat across jobs |
+| `PartWip` and customer/channel joins may multiply rows | Raw join uniqueness needs checking |
+| Customer joins through `OrderHed.BTCustNum` | Confirm bill-to is the intended customer perspective |
+| Date filters use `OrderHed.OrderDate` | An order-date window does not prove complete ship-by-week coverage |
+| Open/closed filters use `OrderHed.OpenOrder`; release-open and line-void flags are selected, not filtered | Header status alone cannot determine release eligibility |
+| Company is used in joins but omitted from the selection | Retain verified extraction company scope in the dataset key |
 
-Part-specific conversion factors will be used where units differ. The mapping
-will identify whether fulfilment quantities describe shipment or production
-completion, since these support different measures.
+At release grain, retain one consistent quantity, flag conflicts rather than
+picking the first row, and keep model/assembly detail separately. Mixed-model
+releases need explicit category allocation. Include fulfilled history and
+identify cancellations so the agreed rule can be applied.
 
 ### C. COOIS job/release data
 
-**Existing BAQ:** `bskyCOOISv3`.
+`bskyCOOISv3` refreshes the live works-order table at job/assembly grain.
 
-The application currently imports one row per job/assembly and refreshes the
-live works-order table on each sync. A separate historical extract will supply
-the forecasting dataset.
-
-Relevant existing mappings include:
-
-| Existing BAQ field | Current use |
+| Existing BAQ fields | Current use |
 | --- | --- |
-| `Calculated_Model` | Model |
-| `JobHead_JobNum`, `JobAsmbl_AssemblySeq` | Imported job/assembly identity |
-| `JobProd_OrderNum`, `JobProd_OrderLine`, `JobProd_OrderRelNum` | Order-release links |
-| `Customer_CustID` | Customer identifier |
-| `JobAsmbl_RequiredQty` | Required quantity used in the one-piece review |
-| `Calculated_SellingQty` | Selling quantity |
-| `JobHead_QtyCompleted` | Completed job quantity |
-| `Calculated_ShippedQty01` | Shipped quantity |
-| `JobHead_ProdPlnWk_c` | Production plan week |
-| `JobHead_ReqDueDate` | Job required due date |
-| `JobHead_StartDate` | Job start date |
-| `OrderRel_ReqDate` | Release requested date |
-| `OrderHed_OrderReceivedDate_c` | Order received date |
+| `Calculated_Model` | Model classification |
+| `JobHead_JobNum`, `JobAsmbl_AssemblySeq` | Job/assembly identity |
+| `JobProd_OrderNum`, `JobProd_OrderLine`, `JobProd_OrderRelNum` | Release links |
+| `Customer_CustID` | Customer |
+| `JobAsmbl_RequiredQty`, `Calculated_SellingQty` | Required and selling quantities |
+| `JobHead_QtyCompleted`, `Calculated_ShippedQty01` | Completion and shipment |
+| `JobHead_ProdPlnWk_c`, `JobHead_ReqDueDate`, `JobHead_StartDate` | Production scheduling |
+| `OrderRel_ReqDate`, `OrderHed_OrderReceivedDate_c` | Release requested and order-received dates |
 
-The reported ReqShipbyDate and ReqDel Date fields will be mapped separately
-after reviewing the BAQ. Their relationship to the existing date mappings
-will be recorded.
+Verify historical coverage, company scope, status filters, UOM, delivery-date
+mapping, and allocations where jobs serve multiple releases. Aggregate before
+joining operations or assemblies to avoid multiplying demand.
 
-The historical source review will cover:
+### Source review: findings from the application code
 
-- Company, job, assembly, and linked order/line/release identifiers.
-- Customer, model, product family, and quantity/UOM.
-- Required ship-by and delivery dates.
-- Planned start, due date, and production plan week.
-- Released, completed, closed, and cancelled status.
-- Production and completed quantities.
-- Allocated quantities where a job serves multiple releases.
+| Area | Import behaviour | Forecasting consequence |
+| --- | --- | --- |
+| COOIS retention | Deletes works orders before reloading | Current snapshot, not historical snapshots |
+| COOIS key | Keeps the first job/assembly row | Discarded raw duplicates cannot be assessed locally |
+| COOIS filters | Production plan bounds are `0` to `9999999` | Historical inclusion still needs verification |
+| Sales-order retention | Replaces open rows; closed imports replace orders returned in their batch | Retained history is mutable, not an as-of order book |
+| Closed import window | Starts at current-year January on first default run; later uses rolling overlap and capped open-order lookback; manual dates supported | Local coverage differs from available Epicor history |
+| Sales-order key | Order, line, release, assembly, and job | Multiple stored rows per release |
+| Sales-order mapping | Imports requested, need-by, original ship-by, release/selling/shipped quantities, and inventory UOM | Validate meanings and units before aggregation |
+| Parsing | Malformed dates/decimals become missing | Forecasting validation must report conversion failures |
+| Pagination | Client uses `$top`/`$skip`; importer comments say these BAQs ignore paging | Actual extraction completeness needs checking |
 
-Finished-unit quantities will be calculated at the appropriate grain before
-joining jobs, releases, or operations. This keeps multiple operations and
-subassemblies from multiplying the same demand.
+Implementation references:
+
+- [COOIS importer](../../app/core/epicor_importers.py#L432)
+- [Sales-order mapping](../../app/core/epicor_importers.py#L608)
+- [Open-order importer](../../app/core/epicor_importers.py#L706)
+- [Closed-order importer](../../app/core/epicor_importers.py#L774)
+- [BAQ client](../../app/core/epicor_client.py#L172)
+
+#### Local data checks
+
+Read-only checks on 12 November 2026 used the default development SQLite file,
+not a confirmed active application database. Import timestamps span July to
+October 2026.
+
+| Check | Result |
+| --- | --- |
+| Stored rows / distinct order-line-release keys | 97,272 / 69,422 |
+| Releases with multiple rows | 17,002 |
+| Subassembly rows with populated release quantity | All 27,848 |
+| Releases where subassembly quantity differs from a consistent main quantity | 17,000 |
+| Releases without a main/no-assembly row | 0 |
+| Missing main-row release quantities | 0 |
+| Releases with nonpositive main quantity | 180 |
+| Releases with conflicting main quantities | 1, with values zero and one |
+| Order-date range | 2024-01-02 to 2026-10-19 |
+| Required ship-by range | 1899-12-31 to 2173-04-10 |
+| Rows with ship-by earlier than order date | 82 |
+
+One multi-job release repeats its full quantity on two main rows. Partial
+shipment examples retain the full release requirement. Reviewed examples
+contain both `EA` and `M`.
+
+These findings require release-level deduplication, UOM checks, and review of
+quantity/date exceptions rather than automatic correction. The local date range
+does not establish the reported five-plus years of history.
+
+Rows have no batch identifier. Import timestamps cannot establish which query
+definition produced them, and previously discarded duplicates cannot be
+reconstructed from this file.
+
+#### Fresh BAQ response check
+
+On 12 November 2026, the existing Epicor client fetched separate `Open` and
+`Closed` responses for order dates 13 October to 12 November 2026. No importer
+ran or operational tables changed. Raw responses remained in memory, so these
+counts are diagnostic evidence, not a saved reproducible dataset.
+
+| Check | Open orders | Closed orders |
+| --- | --- | --- |
+| Returned rows | 3,789 | 257 |
+| Distinct order/line/release keys | 2,787 | 209 |
+| Main/no-assembly rows | 2,787 | 209 |
+| Subassembly rows | 1,002 | 48 |
+| Subassembly rows with populated release quantity | 1,002 | 48 |
+| Repeated job/assembly import keys | 0 | 0 |
+| Releases with multiple nonblank jobs | 0 | 0 |
+| Conflicting non-null main-row release quantities | 0 | 0 |
+| Missing required ship-by dates | 0 | 0 |
+| Required ship-by range | 2026-01-18 to 2027-02-05 | 2026-10-23 to 2027-01-22 |
+
+Both responses include inventory UOM `EA` and `M`. The reviewed main/subassembly
+pairs return main quantity one and subassembly quantity zero, rather than null.
+The difference from the supplied expression therefore occurs in the current
+response too; its cause remains unexplained.
+
+No multi-job or numerically partially shipped release appeared in this window.
+Those cases need targeted fresh checks. This sample does not establish full
+history, cancellation rules, quantity units, or reconciled totals.
 
 ## 3. Dataset preparation and quality
 
-### Mapping and import
+Planned imports will record BAQ, aliases, types, company scope, keys, parameters,
+and extraction timestamps. Use bounded windows, verify date boundaries and
+pagination, and check ordering/consistency across pages.
 
-Each source configuration will record its BAQ ID, field aliases, types, date
-parameters, company scope, and business-key definition. Imports will use
-bounded date windows and verified pagination, with documented date boundaries.
-Stable ordering and source consistency will be checked for multi-page extracts.
-
-Import results will show the extracted period, record counts, validation
-results, and reconciliation totals. A dataset with errors affecting its keys,
-dates, values, or quantities will remain unavailable for training until those
-errors are resolved.
-
-### Quality checks
-
-| Check | Purpose |
+| Check | Required treatment |
 | --- | --- |
-| Required keys, dates, and values | Ensure records can be attributed and aggregated |
-| Duplicate business keys | Detect repeated records or joins that multiply values; distinguish exact repeats from conflicting versions |
-| Credit and currency treatment | Preserve the correct signed GBP revenue |
-| Quantity grain and UOM | Preserve finished-unit totals across source joins |
-| Model inclusion | Explain included and excluded unit demand |
-| Customer mapping | Show unassigned customers without losing their values |
-| Date coverage | Identify gaps and incomplete months or weeks |
-| Financial and unit reconciliation | Match trusted Epicor reports under equivalent filters |
+| Missing keys, dates, values, or parse failures | Report explicitly; do not convert missing quantities or money to zero |
+| Duplicate keys | Separate consistent repeats from conflicts |
+| Quantity grain, UOM, and model allocation | Preserve eligible unit totals across joins |
+| Intake/change/shipment links and values | Preserve original intake, count changes once, and allocate partial shipments |
+| Currency and valuation | Keep intake, outstanding orders, and output comparable |
+| Customer mapping | Retain unassigned customers in totals |
+| Coverage and partial periods | Distinguish gaps from genuine zero activity |
+| Reconciliation | Match agreed Finance/planning reports under equivalent filters and tolerances |
 
-Missing quantities and financial values will be reported as data errors rather
-than converted to zero. Empty periods will be treated as zero activity only
-when source coverage supports that interpretation. Partial periods will be
-identified separately from completed training periods.
+Blocking errors must be resolved or given an agreed, recorded treatment before
+training. Report counts and totals before and after preparation.
 
-Revenue reconciliation will compare document counts and monthly GBP totals.
-Unit reconciliation will compare release and eligible COOIS quantities at their
-declared grain. Finance and planning will provide the reference reports and
-appropriate numerical tolerances.
+### Versions and access
 
-### Dataset versions
+Save each dataset's source settings, category/customer mappings, measure rules,
+coverage, quality results, content hash, and historical-availability assumptions.
+Experiments will reference the dataset version alongside code, settings, and
+evaluation dates.
 
-Each saved dataset will record:
-
-- Source BAQs, mappings, filters, and extraction timestamps.
-- Customer-group mapping and measure definitions.
-- Date coverage, record counts, and quality results.
-- A content hash and source-availability assumptions.
-
-Experiments will reference these versions along with their configuration, code
-version, evaluation dates, and random seed where applicable. This makes results
-traceable and allows earlier experiments to be repeated after new data arrives.
-
-### Access and storage
-
-Forecasting imports will use read-only Epicor access. Customer identifiers
-provide the required linkage; personal details and free-text comments are
-outside the initial dataset scope.
-
-Dataset access and exports will use application permissions. Credentials and
-raw company data will remain outside source control. Storage location and
-retention will follow the agreed company policy.
+Use read-only Epicor access and application permissions. Exclude personal
+details and free-text comments from the forecasting extract. Credentials and
+raw company data stay outside source control; storage and retention must follow
+company policy.
 
 ## 4. Historical evaluation
 
-Initial models will use the historical revenue and unit-demand series with
-time-based training and evaluation periods. Data preparation within each test
-will use the training period, preserving a fair comparison with later actuals.
+Use time-based evaluation, fitting preprocessing on training data only.
+Keep amendments, cancellations, and shipments after a forecast cutoff out of
+its input features. They are later outcomes, not information available at
+prediction time. Record business dates and availability separately.
 
-The source review will establish how late postings and historical corrections
-affect the series. An event's business date and the date it became visible can
-differ; this distinction matters when reconstructing a historical forecast.
-Where the dataset reflects final corrected values, that basis will be recorded
-in the evaluation.
-
-Historical order-book snapshots are needed when testing features such as
-"units already booked at the forecast date." They are not a prerequisite for
-exploring the historical target series or starting simple baseline models.
+Features such as "units already booked at the forecast date" require historical
+snapshots or change events. Today's order book cannot reconstruct those states.
+Simple target-series baselines can proceed without order-book features.
+Evaluate Project 1's intake counts, value, and volume before using its forecasts
+in Project 2.
+Use actual observed intake to study conversion, but forecast intake when testing
+the end-to-end future workflow; report those two evaluations separately.
 
 ## 5. Later data extensions
 
-### Order-book-aware forecasting
+- **Richer production features:** completion and capacity data may help explain
+  shipment timing once the intake-to-output baseline is established.
+- **Detailed lead-time prediction:** shipment timing is part of the core flow;
+  a separate job/customer-level lead-time tool remains an extension. Treat open
+  orders as incomplete observations, not zero lead time.
+- **Historical customer groups:** effective-dated membership would support
+  historical grouping; the initial saved current mapping provides today's
+  grouping of past demand.
 
-Dated snapshots or audit events would allow the model to use the order book as
-it stood at each forecast date. Each snapshot needs the release business key
-and capture timestamp; change events need an event identifier and effective
-and availability timestamps.
+## 6. Outstanding source decisions
 
-Historical change tracking is still to be checked in Epicor. If it is
-unavailable, prospective snapshots can build this history from deployment.
+1. Explain zero versus null subassembly quantities in the deployed response.
+2. Obtain fresh multi-job, partial-shipment, and conflicting-quantity examples.
+3. Confirm quantity UOM/conversions, category allocation, and cancellation rules.
+4. Confirm bill-to attribution, delivery/original-date meanings, and company
+   scope.
+5. Verify usable coverage and reconcile totals; check COOIS links without
+   multiplying release demand.
+6. Identify original intake and dated change/shipment sources; agree valuation
+   and how cancellations, returns, and price changes affect the flow.
+7. Agree calendar, reference reports, tolerances, storage, and retention.
 
-Two forecast designs can then be compared:
-
-1. Forecast total units due to ship and show the known order book alongside it.
-2. Forecast additional demand and combine it with an estimate of how known
-   orders will be fulfilled, cancelled, or rescheduled.
-
-The first design does not add the known order book to the total forecast.
-The second requires historical order-book states to evaluate its components.
-
-### Lead-time prediction
-
-The lead-time extension will link order received dates to actual shipment
-events. Its dataset will include release keys, shipment identifiers, shipment
-dates and quantities, and corrections or returns.
-
-Analysis will determine whether first shipment, final shipment, or
-quantity-weighted shipment time best answers the business question, and whether
-to measure calendar or working days.
-
-Open orders will be represented as incomplete observations rather than
-zero-duration orders. The modelling approach will account for that distinction
-or define a completed-order cohort and explain its limitations.
-
-### Historical customer membership
-
-Effective-dated customer-group membership would support analysis using the
-groups that existed at each historical date. The initial dataset can instead
-use a saved current-group mapping to compare historical demand under today's
-planning structure.
-
-## 6. Next source-mapping work
-
-The next step is to review the invoice/credit and COOIS BAQ definitions and
-record:
-
-1. Source aliases, types, keys, date filters, and available historical range.
-2. Revenue date basis, credit signs, charge treatment, and GBP amounts.
-3. Required ship-by date, quantity/UOM, and model inclusion.
-4. Whether COOIS supplies the complete unit history or needs an order-release
-   source alongside it.
-5. Company scope, reporting calendar, reference reports, and storage arrangements.
-
-Historical snapshots, lead-time shipment definitions, and model acceptance
-criteria will be addressed in their respective development stages.
-
-## Maintaining this document
-
-This contract will be updated as source mapping, EDA, and model development
-clarify the data. Actual mappings and agreed calculations will replace the
-initial descriptions, and analysis findings will explain changes to the dataset.
-
-Changes to targets, inclusion rules, or group definitions will be versioned
-with the affected datasets. The project overview will be updated when those
-changes affect the application's scope or behaviour. Both documents will
-describe the current design while saved dataset and experiment versions
-preserve the definitions used for earlier results.
+Record each resolution with its evidence and date or dataset version. Version
+changes to calculations, inclusion rules, and group mappings with affected
+datasets.
 
 ## Current implementation
 
-The model review screen is available under **AI Tools** at
-`/ai-tools/models`. It uses the current COOIS snapshot and saved
-categories, not historical training data. It shows job/assembly record counts,
-known required quantities, missing quantities, and quantities other than one.
-Categories can be created, renamed, and deleted when no models are assigned.
-Model/category assignments survive operational refreshes. They are descriptive
-metadata only and do not currently filter or aggregate forecast targets.
-The database migration converts the initial Full unit, Cover-only, Scatter, and
-Excluded labels into editable categories while preserving existing assignments.
+Model Classification uses the current COOIS snapshot and persistent categories,
+not historical training data. It reports record counts and quantity exceptions;
+categories do not yet filter or aggregate forecast targets. Saves and removals
+are audited; existing planning and revenue calculations are unchanged.
 
-Viewing requires `view_planning`; editing requires both `view_planning` and
-`manage_planning`. Saves and removals are audited. The existing planning board
-and all revenue calculations remain unchanged.
-
-The Finance reporting source is still to be identified. Revenue mapping will
-follow a review of how Finance currently reports invoiced sales and credits.
+See the [usage and setup guide](README.md#model-classification) for permissions,
+assignment behaviour, and migration instructions.

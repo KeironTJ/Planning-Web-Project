@@ -1,250 +1,111 @@
-# Sales and production demand forecasting
+# Order intake and shipped output forecasting
 
-## Project aim
+## Aim
 
-This project will use historical Epicor data to forecast monthly net sales and
-weekly unit demand within the planning application. It will give sales and
-planning teams a forward view of expected revenue and volume, showing where
-demand is likely to increase, fall, or change between customer groups.
+**Project 1** forecasts future customer demand by predicting incoming orders,
+order value, and volume. **Project 2** converts forecast demand and the existing
+order backlog into predictions of shipped value and volume over a **12-16-week**
+planning horizon.
 
-The application will support the full modelling process through the browser:
-exploring data, configuring experiments, comparing models, generating
-forecasts, and tracking results against actual performance.
+Together, they form an end-to-end forecasting workflow from order intake to
+operational output, accounting for amendments, cancellations, and shipment timing.
 
-## Business questions
-
-- What net sales can be expected over the next three months?
-- How many units are likely to be due to ship over the next twelve weeks?
-- Which customer groups are driving changes in revenue and volume?
-- How do seasonal patterns affect demand?
-- How accurate are the forecasts, and where do they consistently overestimate
-  or underestimate demand?
-
-A later extension will examine how the time from order receipt to shipment
-changes throughout the year.
-
-## Forecasts
-
-| Forecast | Measure | Horizon |
+| Project | Outputs | Horizon |
 | --- | --- | --- |
-| Net sales | Monthly net invoiced revenue in GBP, excluding VAT and accounting for credits and returns | Three months |
-| Unit demand | Weekly units due to ship, grouped by required ship-by date | Twelve weeks |
-| Lead time, later phase | Time from order received date to actual shipment | To be defined during lead-time analysis |
+| 1. AI intake forecasting | Incoming orders, value, and volume | To be agreed to support output planning |
+| 2. Intake-to-output conversion | Actual shipped value and volume | Next 12-16 weeks |
 
-Results will be available by customer group and for the company as a whole.
-The existing planning groups will be the default, with Epicor customer group
-codes available as an alternative.
+The relationship is **raw intake -> amendments/cancellations and shipment
+timing -> shipped output**. Existing outstanding orders also contribute to
+future output. Shipment date, not invoice date or production completion,
+determines when output occurs; the valuation basis still needs agreement.
+Finished goods awaiting shipment do not count as output until they ship.
 
-The revenue forecast will include all in-scope sales. Exact model values can
-be assigned to browser-managed descriptive categories. Categories organise
-products but do not decide whether a product is included in a forecast. Each
-forecast configuration will independently map categories to its groups and
-inclusion rules. This allows revenue, full-unit demand, cover-only work such as
-ACO/LCO, Scatter products, and other groupings to be handled differently without
-changing the underlying model labels.
+Results will be available by customer group and for the company overall.
+Planning-app customer groups will be the default, with Epicor groups as an
+alternative. Weekly units due to ship remain a supporting planning measure.
 
-The business uses one-piece job planning. Unit preparation will start with
-eligible job/assembly counts and check source quantities for exceptions.
+Shipped volume measures quantities, not labour hours. Full units, covers,
+scatters, and other work can place different demands on production.
 
-Units due to ship provide a practical indicator of upcoming production demand.
-They measure volume rather than labour hours; product mix will help explain
-why similar unit totals can place different demands on production.
+## Planned workflow
 
-## Using the application
+The browser will support:
 
-### Explore the data
+1. Selecting sources, history windows, customer groups, and product categories.
+2. Exploring data quality, trends, seasonality, and product mix.
+3. Configuring features, models, evaluation periods, and tuning budgets.
+4. Comparing models against simple forecasting benchmarks.
+5. Generating forecasts, uncertainty intervals, and exports.
+6. Tracking issued forecasts against actual results.
 
-Select a historical period and examine sales and unit demand by customer group.
-Charts and summaries will show trends, seasonal patterns, product mix, customer
-concentration, and periods of unusually high or low activity. A data-quality
-view will show missing values, duplicates, and gaps that affect the analysis.
+Develop and evaluate Project 1 first, then use its forecasts in Project 2.
+Compare conversion models with a simple conversion baseline and a direct output
+forecast. Known orders and forecast new intake must be counted once. Group
+forecasts will reconcile to the company total.
 
-### Configure and run experiments
-
-Choose the forecast target, customer grouping, history window, and forecast
-horizon. Select a model and its features, set the evaluation period, and
-optionally run a parameter search within a chosen tuning budget.
-
-Each experiment will save its settings, dataset version, and results so it can
-be repeated or compared with another approach. Training will run in the
-background, with progress and errors shown in the browser.
-
-### Compare models
-
-Compare forecasts with actual results across historical periods. The comparison
-will show overall accuracy, performance by customer group and forecast horizon,
-and whether a model tends to forecast too high or too low.
-
-Simple forecasts, such as repeating the previous period or the same period last
-year, will provide the starting benchmark. More complex models will be judged
-on whether they offer a useful improvement.
-
-### Produce and review forecasts
-
-Use the selected model to generate forecasts, inspect expected values and
-prediction intervals, and export results. Group forecasts will reconcile to the
-company total.
-
-Known order-book demand will be shown alongside the forecast. The calculation
-will distinguish a forecast of total demand from additional demand so that
-existing orders are counted once.
-
-As new actuals arrive, the application will track accuracy, bias, and changes in
-the data, supporting decisions about when to retrain or replace a model.
-
-## Technical approach
-
-### Integration with the planning application
-
-The forecasting module will use the existing Flask application, authentication,
-permissions, Epicor connection, and customer-group configuration. This keeps
-forecasting alongside the sales and planning information it is intended to
-support.
-
-All AI and forecasting pages will sit in the dedicated **AI Tools** section,
-with its own home-page card, landing page, and sidebar menu. Data preparation,
-analysis, experiments, forecasts, and configuration will be accessed from there.
-The section overview explains the business goals, forecast measures, and
-data-to-forecast workflow, alongside links to the tools currently available.
-
-Data preparation, training, evaluation, and prediction will sit in separate
-services behind the browser interface. This allows the modelling logic to be
-tested independently and keeps experiments separate from live planning changes.
-Credentials will remain server-side, and browser settings will use validated
-options rather than executable code.
-
-### Historical datasets
-
-Historical invoice and credit data will provide the revenue series. Order-release
-and COOIS data will provide the unit-demand series and supporting production
-context. Five-plus years of history is available for investigation.
-
-Training datasets will be versioned separately from the live order-book and
-works-order tables, which are refreshed for operational use. Saving the data
-used by each experiment makes model comparisons repeatable and allows results
-to be traced back to their source.
-
-The [historical data contract](data-contract.md) defines the BAQ requirements,
-field mappings, inclusion rules, and reconciliation checks.
-
-### Model development
-
-Revenue and unit demand will have separate models because they measure different
-outcomes and operate at different time frequencies. They will share the same
-experiment and reporting tools.
-
-Exploratory analysis will guide model selection. The comparison will start with
-simple baselines, then examine a small set of statistical and machine-learning
-approaches suited to the observed trends, seasonality, and demand patterns.
-Feature engineering and parameter tuning will be evaluated as part of that
-comparison.
-
-### Evaluation
-
-Models will be tested by forecasting forward from several points in the
-historical data. Each test will use information available at that point,
-including fitting data transformations on the training period only. A final
-holdout period will be kept separate from model selection and tuning.
-
-Evaluation will cover the full three-month revenue and twelve-week unit
-horizons. Measures will include:
-
-- **MAE:** average error in GBP or units.
-- **Bias:** whether forecasts tend to be too high or too low.
-- **WAPE:** error relative to actual volume, where actual totals are nonzero.
-- **Interval coverage and width:** how often actuals fall within prediction
-  intervals, and how informative those intervals are.
-
-Results will be broken down by customer group and horizon, alongside company
-totals. Business acceptance criteria will be agreed before the final evaluation
-so the chosen model is assessed against a practical planning need.
-
-## Development stages
-
-| Stage | Main outcome |
-| --- | --- |
-| 1. Business and data definition | Forecast targets, business rules, and historical BAQ requirements |
-| 2. Data ingestion | Browser source configuration, validated imports, and versioned datasets |
-| 3. Exploratory analysis | Data-quality reports and analysis of trends, seasonality, and demand patterns |
-| 4. Baseline forecasting | Simple forecasts with repeatable time-based evaluation |
-| 5. Modelling and tuning | Feature engineering, model comparison, and parameter optimisation |
-| 6. Forecast delivery | Saved model versions, browser forecasts, prediction intervals, and exports |
-| 7. Monitoring | Forecast-versus-actual reporting and retraining controls |
-| 8. Project evaluation | Business findings, technical evaluation, and recommendations |
-
-Development will proceed in small stages, with a review of the approach and a
-walkthrough of the implementation at each stage.
-
-## Documentation
-
-The [project approach](approach.md) sets out the delivery stages, evidence,
-decision points, and next milestone. Use it alongside this overview and the
-[data contract](data-contract.md) when planning the work.
-
-The documentation will explain the data, modelling choices, experiment results,
-and reasons for the final approach. Code documentation will describe module
-responsibilities, public functions, and the reasoning behind data preparation
-and modelling logic.
-
-Together, these will provide a technical reference for maintaining the
-application and material for explaining the project during the AI Level 7
-apprenticeship assessment.
-
-The overview and data contract will be updated throughout source mapping,
-analysis, and development. They will describe the current design and explain
-changes arising from the findings. Dataset and experiment versions will retain
-the definitions used for earlier results.
+The module will reuse Flask authentication, permissions, Epicor access, and
+customer-group configuration. Preparation and modelling services will sit
+behind validated browser controls, with background training and visible errors.
+Versioned training data will remain separate from refreshed operational tables.
+Forecasts will not automatically change live planning.
 
 ## Current progress
 
-The initial forecast scope and business definitions are documented. The first
-browser tool manages descriptive categories for exact COOIS model names and
-reviews the one-piece counting basis. It is available from **AI Tools** as
-**Model Classification**.
+**Available:** AI Tools navigation and the Model Classification screen.
 
-The next step is to review these model decisions, map the historical unit
-source, and establish the invoice/credit reporting source with Finance.
+**Investigated:** existing importers, a local sales-order extract, and a bounded
+live `bskyVA05v1` response on 12 November 2026. The checks found repeated release
+quantities, mixed UOM, and date exceptions. Historical demand cannot be inferred
+from snapshot record counts alone.
 
-### Running the model classification screen
+**Next:** establish Project 1's historical intake dataset and first baseline.
+Confirm original receipt dates, order counts, quantities/values, UOM, and coverage.
+Project 2 will also need amendment/cancellation history and dated shipments.
 
-Apply the database migration before opening the new screen:
+No historical training dataset, EDA, or forecasting model has been produced.
+
+## Model Classification
+
+Open **AI Tools > Model Classification** at `/ai-tools/models`.
+Viewing requires `view_planning`; editing also requires `manage_planning`.
+
+Create categories around work content, then assign exact model names using
+individual dropdowns or the checkbox selection action. Click **Save all
+changes** to persist pending assignments together.
+
+- Model names are trimmed and case-sensitive.
+- Unclassified models can remain unassigned.
+- Blank names form one group; its category does not distinguish individual
+  parts, replacements, fabrics, or other unnamed work.
+- Assigned models must be moved before deleting a category.
+- Assignments survive COOIS refreshes.
+
+The summary shows current COOIS job/assembly records and quantity exceptions,
+not historical unit demand. Saved-assignment counts can include models absent
+from the current snapshot.
+
+Categories describe products. Future forecast configurations will decide
+inclusion and grouping independently, allowing different treatment of work
+content without changing its labels. Classification does not change existing
+capacity-board calculations.
+
+### Setup
+
+Apply the migration using the application's configured environment:
 
 ```text
 flask --app wsgi db upgrade
 ```
 
-Run this from the application directory using its configured Python environment
-and normal deployment settings. The screen is at
-`/ai-tools/models`, with the section overview at `/ai-tools/`. Users need
-`view_planning` to view it and
-`manage_planning` as well to save decisions.
+The migration creates editable categories and preserves existing assignments.
 
-Create categories to describe products, then assign each exact model name from
-the current snapshot. Change individual model dropdowns or select multiple rows
-and apply a category to them together. These changes remain pending until
-**Save all changes** is clicked, which applies them in one operation.
-Unclassified models can be left unassigned or returned to that state through
-the dropdown or selection action. Categories can be edited as business needs
-change; assigned models must be moved before a category is deleted. Saved
-decisions remain available after COOIS refreshes. The screen shows current
-imported records and quantity exceptions; it does not yet generate forecasts
-or change existing capacity-board calculations.
+## Documentation
 
-Classify models according to the work they represent. Different work content
-may have different demand patterns, useful features, exceptions, and suitable
-forecasting approaches. The summary and category table show current COOIS
-snapshot record counts; saved assignment counts can also include names with no
-records in the current snapshot.
+- [Project approach](approach.md): lifecycle, evaluation, and AI Level 7 report
+  evidence.
+- [Data contract](data-contract.md): definitions, source mappings, findings, and
+  outstanding data decisions.
 
-Blank model names are grouped into one review row. Assigning a category to that
-row applies to the entire group of records without a model name; it does not
-identify whether those records are parts, replacements, fabrics, or another
-type of work.
-
-Category labels are organizational metadata; future forecast configurations
-will define how categories are grouped and included for each target.
-
-The section currently retains the existing planning
-permissions; moving navigation does not change who can view or edit decisions.
-The database migration creates editable category records and converts any
-existing fixed classifications to their corresponding starting categories.
+These documents will support the project report with actual findings and the
+reasoning behind decisions.
