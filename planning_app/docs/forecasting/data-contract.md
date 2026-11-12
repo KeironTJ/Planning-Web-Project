@@ -85,6 +85,10 @@ and values, change history, or dated shipment quantities and values.
 
 ### A. Intake, changes, and shipments
 
+**Business-confirmed intake date:** `OrderHed_OrderReceivedDate_c`, when the
+customer order was received. It maps through `SalesOrder.order_received_date`
+to `intake_received_date`. `OrderHed_OrderDate` is not the selected intake date.
+
 **Proposed grains:** original order-line receipt; subsequent change event;
 shipment detail. Preserve company/order/line/release links where available and
 a unique event or shipment-line key.
@@ -106,6 +110,14 @@ net of changes must not have those changes deducted again. Original values and
 event history need a verified source; current snapshots cannot supply them by
 assumption. If unavailable, agree a narrower reconstructible intake measure.
 Order counts use distinct company/order keys, not line or release counts.
+
+Current candidate mappings:
+
+| Source field | Intake use / remaining check |
+| --- | --- |
+| `OrderHed_OrderReceivedDate_c` | Confirmed customer order receipt date; date exceptions still need review |
+| `Calculated_ReleasePrice` | Supplied query allocates `(DocExtPriceDtl - DocDiscount) / OrderQty * OurReqQty` to main/no-assembly rows, returning zero for zero `OrderQty`: a release value, not a unit price; discount and quantity bases need verification |
+| `Calculated_ReleasePriceGBP` | Supplied query divides release value by header exchange rate; verify conversion and whether values preserve original intake |
 
 ### B. Order-release history
 
@@ -236,6 +248,14 @@ does not establish the reported five-plus years of history.
 Rows have no batch identifier. Import timestamps cannot establish which query
 definition produced them, and previously discarded duplicates cannot be
 reconstructed from this file.
+
+**Project 1 intake check:** all 33,666 local orders have one received date,
+but 10,968 differ from order date. Received dates range from 2002-03-31 to
+2045-10-21, so presence alone does not establish a usable intake date.
+Main-row release/GBP values are populated, but 8,874 rows have nonpositive
+values and one release has conflicting main-row GBP values. Main rows include
+67,585 GBP and 1,839 EUR currency records. These checks do not establish original
+receipt values or explain subsequent amendments.
 
 #### Fresh BAQ response check
 
