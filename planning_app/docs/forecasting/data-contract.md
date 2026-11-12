@@ -61,7 +61,9 @@ Names are trimmed and case-sensitive. Categories do not have fixed forecast
 semantics: each forecast configuration will independently determine which
 categories it includes and how it groups them. This lets the same source
 classifications support different targets without embedding business rules in
-the model-name labels. Blank model names cannot be assigned a category.
+the model-name labels. Blank, null, and whitespace-only model names form one
+review group. A category assigned to that group applies to all of its records;
+it does not distinguish their individual product types.
 
 The business uses one-piece planning: jobs are configured for one item.
 The initial counting basis is one eligible job/assembly record per item,

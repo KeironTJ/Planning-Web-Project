@@ -177,6 +177,10 @@ walkthrough of the implementation at each stage.
 
 ## Documentation
 
+The [project approach](approach.md) sets out the delivery stages, evidence,
+decision points, and next milestone. Use it alongside this overview and the
+[data contract](data-contract.md) when planning the work.
+
 The documentation will explain the data, modelling choices, experiment results,
 and reasons for the final approach. Code documentation will describe module
 responsibilities, public functions, and the reasoning behind data preparation
