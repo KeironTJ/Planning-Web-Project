@@ -37,29 +37,53 @@ class LandingLinksParser(HTMLParser):
 
 SECTION_MODULES = {
     "sales.dashboard": {
-        "orders.order_book_dashboard", "orders.order_book", "orders.overdue_report",
-        "sales.customer_report", "sales.model_report",
+        "orders.order_book_dashboard",
+        "orders.order_book",
+        "orders.overdue_report",
+        "sales.customer_report",
+        "sales.model_report",
     },
     "planning.dashboard": {
-        "capacity.dashboard", "capacity.labour_plan_list", "workorder_plan.sessions",
-        "workorder_plan.groups_list", "workorder_plan.capacity_targets",
+        "capacity.dashboard",
+        "capacity.labour_plan_list",
+        "workorder_plan.sessions",
+        "workorder_plan.groups_list",
+        "workorder_plan.capacity_targets",
     },
-    "forecasting.dashboard": {"forecasting.model_classifications"},
+    "forecasting.dashboard": {
+        "forecasting.data_readiness",
+        "forecasting.model_classifications",
+    },
     "purchasing.dashboard": {
-        "purchasing.overview", "materials.index", "materials.shortage",
-        "materials.mrp", "materials.release_impact",
-        "purchasing.supplier_delivery", "materials.stock_list", "materials.po_list",
-        "materials.main_requirements", "materials.exempt_materials", "materials.class_labels",
+        "purchasing.overview",
+        "materials.index",
+        "materials.shortage",
+        "materials.mrp",
+        "materials.release_impact",
+        "purchasing.supplier_delivery",
+        "materials.stock_list",
+        "materials.po_list",
+        "materials.main_requirements",
+        "materials.exempt_materials",
+        "materials.class_labels",
     },
     "operations.dashboard": {"operations.wip_overview", "operations.daily_output"},
     "transport.dashboard": {
-        "transport.loads", "transport.manifest_history",
-        "transport.loading_bay", "transport.bay_state",
+        "transport.loads",
+        "transport.manifest_history",
+        "transport.loading_bay",
+        "transport.bay_state",
     },
     "admin.dashboard": {
-        "admin.user_list", "admin.role_list", "admin.dept_list", "admin.epicor_sync",
-        "admin.import_list", "admin.audit_log", "admin.system_settings",
-        "admin.sync_schedules", "admin.data_main_material",
+        "admin.user_list",
+        "admin.role_list",
+        "admin.dept_list",
+        "admin.epicor_sync",
+        "admin.import_list",
+        "admin.audit_log",
+        "admin.system_settings",
+        "admin.sync_schedules",
+        "admin.data_main_material",
     },
     "it.dashboard": set(),
 }
@@ -81,12 +105,14 @@ def test_admin_landing_links_cover_section_modules(app, client, admin_user, endp
     if endpoint == "it.dashboard":
         assert response.get_data(as_text=True).count("Coming soon") == 2
     else:
-        section_prefixes = {urlsplit(path).path.rsplit("/", 1)[0] for path in expected_paths}
+        section_prefixes = {
+            urlsplit(path).path.rsplit("/", 1)[0] for path in expected_paths
+        }
         sidebar_modules = {
-            path for path in parser.sidebar_links
-            if path in expected_paths or any(
-                path.startswith(prefix + "/") for prefix in section_prefixes
-            )
+            path
+            for path in parser.sidebar_links
+            if path in expected_paths
+            or any(path.startswith(prefix + "/") for prefix in section_prefixes)
         }
         sidebar_modules.discard(path)
         assert sidebar_modules <= parser.main_links
@@ -95,15 +121,34 @@ def test_admin_landing_links_cover_section_modules(app, client, admin_user, endp
 @pytest.mark.parametrize(
     ("user_fixture", "password", "endpoint", "hidden_endpoints"),
     [
-        ("viewer_user", "Viewer!Pass1234", "planning.dashboard", {"capacity.labour_plan_list"}),
-        ("planner_user", "Planner!Pass1234", "sales.dashboard",
-         {"sales.customer_report", "sales.model_report"}),
-        ("viewer_user", "Viewer!Pass1234", "purchasing.dashboard",
-         {"materials.exempt_materials", "materials.class_labels"}),
+        (
+            "viewer_user",
+            "Viewer!Pass1234",
+            "planning.dashboard",
+            {"capacity.labour_plan_list"},
+        ),
+        (
+            "planner_user",
+            "Planner!Pass1234",
+            "sales.dashboard",
+            {"sales.customer_report", "sales.model_report"},
+        ),
+        (
+            "viewer_user",
+            "Viewer!Pass1234",
+            "purchasing.dashboard",
+            {"materials.exempt_materials", "materials.class_labels"},
+        ),
     ],
 )
 def test_restricted_tools_hidden_on_landing_and_sidebar(
-    app, client, request, user_fixture, password, endpoint, hidden_endpoints,
+    app,
+    client,
+    request,
+    user_fixture,
+    password,
+    endpoint,
+    hidden_endpoints,
 ):
     user = request.getfixturevalue(user_fixture)
     login(client, user.email, password)
@@ -124,7 +169,9 @@ def test_restricted_tools_hidden_on_landing_and_sidebar(
     assert hidden_paths.isdisjoint(parser.sidebar_links)
 
 
-def test_purchasing_manager_sees_management_tools_on_both_surfaces(app, client, purchasing_user):
+def test_purchasing_manager_sees_management_tools_on_both_surfaces(
+    app, client, purchasing_user
+):
     assert purchasing_user.has_permission("manage_purchasing")
     assert not purchasing_user.has_permission("manage_imports")
     login(client, purchasing_user.email, "Purchasing!Pass1234")
@@ -135,7 +182,8 @@ def test_purchasing_manager_sees_management_tools_on_both_surfaces(app, client, 
     parser.feed(response.get_data(as_text=True))
     with app.test_request_context():
         expected_paths = {
-            url_for(module) for module in ("materials.exempt_materials", "materials.class_labels")
+            url_for(module)
+            for module in ("materials.exempt_materials", "materials.class_labels")
         }
     assert expected_paths <= parser.main_links
     assert expected_paths <= parser.sidebar_links

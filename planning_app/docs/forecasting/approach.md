@@ -130,12 +130,23 @@ the report. Personal reflection will accompany the technical evidence as the
 work develops; development assistance should follow the course's assessment
 rules.
 
+### Review feedback
+
+On 18 November 2026, review of the VA05 findings highlighted that the number of
+records makes a single mixed list difficult to work through. Filtering by
+finding type is the next usability improvement to assess. This is a review
+workflow issue, not evidence that every flagged record is an error or needs
+individual correction.
+
 ## Next milestone
 
 Establish Project 1's intake dataset and first baseline:
 
-1. Confirm original order-received dates, counts, values, and quantities.
-2. Resolve UOM, valuation, duplicates, and usable historical coverage.
+1. Use the existing VA05 source to investigate receipt dates, counts, values,
+   and quantities. Saved local observations and review evidence are available;
+   verify which values preserve original receipt rather than later changes.
+2. Resolve UOM, valuation, duplicates, and usable historical coverage, recording
+   decisions against saved findings before implementing preparation rules.
 3. Agree intake frequency/horizon and reconcile representative totals.
 4. Save the intake dataset, complete EDA, and evaluate the first intake baseline.
 

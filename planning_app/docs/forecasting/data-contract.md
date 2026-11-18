@@ -76,7 +76,7 @@ of historical membership.
 | --- | --- |
 | Original order intake and change history, source to establish | Receipt quantities/values and dated amendments/cancellations |
 | Shipment history, source to establish | Actual shipment dates, output quantities, and value |
-| `bskyVA05v1`, selected sales-order source | Current release state, customers, and model links |
+| `bskyVA05v1`, selected intake-investigation and sales-order source | Observed release state, receipt dates, values, customers, and model links; original receipt quantities/values still need verification |
 | `bskyCOOISv3` | Supporting job/assembly and production context |
 
 COOIS quantities are not additional demand to add to sales releases.
@@ -90,12 +90,12 @@ customer order was received. It maps through `SalesOrder.order_received_date`
 to `intake_received_date`. `OrderHed_OrderDate` is not the selected intake date.
 
 **Proposed grains:** original order-line receipt; subsequent change event;
-shipment detail. Preserve company/order/line/release links where available and
+shipment detail. Preserve order/line/release links where available and
 a unique event or shipment-line key.
 
 | Dataset fields | Use |
 | --- | --- |
-| `company_id`, `order_num`, `order_line`, `release_num` | Link intake, changes, and output |
+| `order_num`, `order_line`, `release_num` | Link intake, changes, and output |
 | `intake_received_date`, `original_intake_value_gbp` | Raw intake timing and value |
 | `original_intake_qty`, `amendment_qty`, `cancelled_qty`, `quantity_uom` | Raw intake and quantity changes in verified units |
 | `event_id`, `event_type`, `effective_at`, `available_at` | Identify changes and when they were known |
@@ -109,7 +109,7 @@ Release schedules must not duplicate order-line intake. A current value already
 net of changes must not have those changes deducted again. Original values and
 event history need a verified source; current snapshots cannot supply them by
 assumption. If unavailable, agree a narrower reconstructible intake measure.
-Order counts use distinct company/order keys, not line or release counts.
+Order counts use distinct order numbers, not line or release counts.
 
 Current candidate mappings:
 
@@ -122,8 +122,7 @@ Current candidate mappings:
 ### B. Order-release history
 
 **Selected BAQ:** `bskyVA05v1`.
-**Proposed grain/key:** one release, identified by company, order, line, and
-release number.
+**Proposed grain/key:** one release, identified by order, line, and release number.
 **Business-confirmed planned date:** `OrderRel_ReqDate`, the current required
 ship-by date. It maps through `SalesOrder.req_date` to
 `required_ship_by_date`. It supports expected timing and unit demand; actual
@@ -131,7 +130,7 @@ shipment date determines realised output value and volume.
 
 | Dataset fields | Use |
 | --- | --- |
-| `company_id`, `order_num`, `order_line`, `release_num` | Release identity |
+| `order_num`, `order_line`, `release_num` | Release identity |
 | `customer_id`, `epicor_group_code` | Customer attribution |
 | `required_ship_by_date`, `release_qty` | Planned timing and supporting weekly demand |
 | `selling_uom`, `production_uom`, `uom_conversion` | Interpret and convert quantities |
@@ -169,7 +168,6 @@ jobs. The live response differs on subassemblies, as recorded below.
 | Customer joins through `OrderHed.BTCustNum` | Confirm bill-to is the intended customer perspective |
 | Date filters use `OrderHed.OrderDate` | An order-date window does not prove complete ship-by-week coverage |
 | Open/closed filters use `OrderHed.OpenOrder`; release-open and line-void flags are selected, not filtered | Header status alone cannot determine release eligibility |
-| Company is used in joins but omitted from the selection | Retain verified extraction company scope in the dataset key |
 
 At release grain, retain one consistent quantity, flag conflicts rather than
 picking the first row, and keep model/assembly detail separately. Mixed-model
@@ -191,7 +189,7 @@ identify cancellations so the agreed rule can be applied.
 | `JobHead_ProdPlnWk_c`, `JobHead_ReqDueDate`, `JobHead_StartDate` | Production scheduling |
 | `OrderRel_ReqDate`, `OrderHed_OrderReceivedDate_c` | Release requested and order-received dates |
 
-Verify historical coverage, company scope, status filters, UOM, delivery-date
+Verify historical coverage, status filters, UOM, delivery-date
 mapping, and allocations where jobs serve multiple releases. Aggregate before
 joining operations or assemblies to avoid multiplying demand.
 
@@ -288,7 +286,7 @@ history, cancellation rules, quantity units, or reconciled totals.
 
 ## 3. Dataset preparation and quality
 
-Planned imports will record BAQ, aliases, types, company scope, keys, parameters,
+Planned imports will record BAQ, aliases, types, keys, parameters,
 and extraction timestamps. Use bounded windows, verify date boundaries and
 pagination, and check ordering/consistency across pages.
 
@@ -349,8 +347,7 @@ the end-to-end future workflow; report those two evaluations separately.
 1. Explain zero versus null subassembly quantities in the deployed response.
 2. Obtain fresh multi-job, partial-shipment, and conflicting-quantity examples.
 3. Confirm quantity UOM/conversions, category allocation, and cancellation rules.
-4. Confirm bill-to attribution, delivery/original-date meanings, and company
-   scope.
+4. Confirm bill-to attribution and delivery/original-date meanings.
 5. Verify usable coverage and reconcile totals; check COOIS links without
    multiplying release demand.
 6. Identify original intake and dated change/shipment sources; agree valuation
@@ -368,5 +365,20 @@ not historical training data. It reports record counts and quantity exceptions;
 categories do not yet filter or aggregate forecast targets. Saves and removals
 are audited; existing planning and revenue calculations are unchanged.
 
-See the [usage and setup guide](README.md#model-classification) for permissions,
-assignment behaviour, and migration instructions.
+Data Readiness summarizes local sales-order rows, repeated order/line/release
+keys, date and quantity exceptions, observed units/currencies, and import
+timestamps. Saved VA05 reviews additionally retain whitelisted local
+observations, source limitations, a content hash, and versioned quality results.
+Capture does not call Epicor and cannot recover discarded raw duplicates,
+parse failures or extraction parameters.
+
+Saved checks use main/no-assembly rows for missing/nonpositive quantities and
+GBP values; repeated release keys are distinct from conflicting main-row
+quantities/values. Order-level received-date conflicts span releases.
+Review outcomes append evidence without altering findings or source values.
+These records support source investigation, not training approval or a
+reconstructible original-intake series. Original intake values, dated changes,
+and actual shipment detail remain unverified.
+
+See the [usage and setup guide](README.md#data-readiness) for permissions,
+capture/review behaviour, storage limitations, and migration instructions.

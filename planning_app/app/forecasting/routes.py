@@ -4,14 +4,21 @@ Existing planning permissions provide read access and a separate write gate.
 All writes are POST requests covered by the application's CSRF protection.
 """
 
-from flask import flash, redirect, render_template, request, url_for
+from flask import abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from app.core.decorators import permission_required
 from app.core.exceptions import NotFoundError, ValidationError
 
 from . import forecasting_bp
+from .data_quality import (
+    DECISION_STATUSES,
+    save_data_decision,
+    save_va05_extract,
+)
+from .models import ForecastDataExtract, ForecastDataRecord
 from .services import (
+    get_intake_data_readiness,
     get_model_categories,
     get_model_review,
     remove_model_category,
@@ -30,6 +37,96 @@ from .services import (
 def dashboard():
     """Open the dedicated AI Tools section."""
     return render_template("forecasting/dashboard.html", title="AI Tools")
+
+
+@forecasting_bp.route("/data-readiness")
+@login_required
+@permission_required("view_planning")
+def data_readiness():
+    """Show local order data signals and unresolved source requirements."""
+    return render_template(
+        "forecasting/data_readiness.html",
+        title="Forecasting Data Readiness",
+        readiness=get_intake_data_readiness(),
+        extracts=ForecastDataExtract.query.order_by(
+            ForecastDataExtract.id.desc(),
+        ).paginate(page=request.args.get("page", 1, type=int), per_page=10),
+        can_manage=current_user.has_permission("manage_planning"),
+    )
+
+
+@forecasting_bp.route("/data-readiness/capture", methods=["POST"])
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def data_extract_capture():
+    """Save local VA05 observations and their quality results."""
+    try:
+        extract = save_va05_extract(current_user.id)
+    except ValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("forecasting.data_readiness"))
+    flash("Local VA05 extract saved. Operational data is unchanged.", "success")
+    return redirect(url_for(
+        "forecasting.data_extract", extract_id=extract.id,
+    ))
+
+
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>")
+@login_required
+@permission_required("view_planning")
+def data_extract(extract_id: int):
+    """Inspect saved observations rather than mutable operational rows."""
+    extract = ForecastDataExtract.query.get_or_404(extract_id)
+    scope = request.args.get("scope", "findings")
+    if scope not in ("findings", "unreviewed", "all"):
+        abort(400, description="Choose an available record filter.")
+    records = ForecastDataRecord.query.filter_by(extract_id=extract.id)
+    if scope != "all":
+        records = records.filter_by(has_findings=True)
+    if scope == "unreviewed":
+        records = records.filter(~ForecastDataRecord.decisions.any())
+    return render_template(
+        "forecasting/data_extract.html",
+        title=f"VA05 Data Review #{extract.id}",
+        extract=extract,
+        records=records.order_by(ForecastDataRecord.id).paginate(
+            page=request.args.get("page", 1, type=int), per_page=25,
+            error_out=False,
+        ),
+        scope=scope,
+        decision_statuses=DECISION_STATUSES,
+        can_manage=current_user.has_permission("manage_planning"),
+    )
+
+
+@forecasting_bp.route(
+    "/data-readiness/records/<int:record_id>/review", methods=["POST"],
+)
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def data_record_review(record_id: int):
+    """Append review evidence for a saved record."""
+    record = ForecastDataRecord.query.get_or_404(record_id)
+    scope = request.form.get("scope", "findings")
+    if scope not in ("findings", "unreviewed", "all"):
+        abort(400, description="Choose an available record filter.")
+    try:
+        save_data_decision(
+            record.id, request.form.get("status", ""),
+            request.form.get("rationale", ""), current_user.id,
+        )
+    except (NotFoundError, ValidationError) as exc:
+        flash(str(exc), "danger")
+    else:
+        flash("Review evidence saved. No source values were changed.", "success")
+    return redirect(url_for(
+        "forecasting.data_extract", extract_id=record.extract_id,
+        page=request.form.get("page", 1, type=int),
+        scope=scope,
+        _anchor=f"record-{record.id}",
+    ))
 
 
 @forecasting_bp.route("/models")
@@ -175,9 +272,7 @@ def model_classifications_save_all():
 def model_classification_remove():
     """Return a saved model to the unclassified review list."""
     try:
-        remove_model_classification(
-            request.form.get("model", ""), current_user.id
-        )
+        remove_model_classification(request.form.get("model", ""), current_user.id)
     except NotFoundError as exc:
         flash(str(exc), "danger")
     else:

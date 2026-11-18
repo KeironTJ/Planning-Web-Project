@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap align-items-center gap-2 pt-2 pb-1 mb-3 border-bottom">
+  <h1 class="h3 mb-0">{{ title }}</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_readiness') }}">Data Readiness</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid pb-3">
+  <div class="alert alert-warning" role="status">
+    Saved local observation, not an approved training dataset. Acceptance records a review
+    judgement; it does not correct, exclude, deduplicate, or certify any value.
+  </div>
+  <section class="card mb-3" aria-labelledby="extract-details">
+    <div class="card-body">
+      <h2 id="extract-details" class="h5">Extract details</h2>
+      <p class="mb-1">
+        <strong>{{ extract.source }}</strong> |
+        Captured {{ extract.captured_at | utcfmt('datetime-year') }} |
+        {{ extract.row_count }} rows |
+        {{ extract.summary.order_count }} distinct local order numbers |
+        {{ extract.summary.release_count }} local release keys
+      </p>
+      <p class="small text-muted mb-1">
+        Main-row quantity/value checks use assembly zero or no assembly. Subassembly zeroes
+        are not treated as invalid main quantities. Repeated releases are review signals,
+        not automatic duplicate errors.
+      </p>
+      <details class="small mt-2">
+        <summary>Provenance and content hash</summary>
+        <dl class="row mt-2 mb-0">
+          {% for key, value in extract.source_settings.items() if key != 'company_scope' %}
+          <dt class="col-sm-3">{{ key }}</dt><dd class="col-sm-9 text-break">{{ value }}</dd>
+          {% endfor %}
+          <dt class="col-sm-3">Rules version</dt><dd class="col-sm-9">{{ extract.rules_version }}</dd>
+          <dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9 text-break"><code>{{ extract.content_hash }}</code></dd>
+        </dl>
+      </details>
+      <details class="small mt-2">
+        <summary>Check results (affected row counts, not unit totals)</summary>
+        <ul class="mt-2 mb-0">
+          {% for rule, label in extract.summary.rules.items() %}
+          <li>{{ label }}: <strong>{{ extract.summary.counts.get(rule, 0) }}</strong></li>
+          {% endfor %}
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <form method="get" class="d-flex gap-2 align-items-center mb-3">
+    <label for="review-scope" class="form-label mb-0">Show</label>
+    <select name="scope" id="review-scope" class="form-select w-auto">
+      <option value="findings" {% if scope == 'findings' %}selected{% endif %}>Rows with findings</option>
+      <option value="unreviewed" {% if scope == 'unreviewed' %}selected{% endif %}>Findings without review evidence</option>
+      <option value="all" {% if scope == 'all' %}selected{% endif %}>All saved rows</option>
+    </select>
+    <button class="btn btn-outline-primary" type="submit">Apply</button>
+  </form>
+  <p class="small text-muted">{{ records.total }} matching saved records. Each review applies to all findings shown for that row.</p>
+
+  {% for record in records.items %}
+  <article class="card mb-3" id="record-{{ record.id }}">
+    <div class="card-body">
+      <h2 class="h6">
+        Order {{ record.data.order_num }} / line {{ record.data.order_line }} / release {{ record.data.rel_num }}
+        <span class="text-muted fw-normal">
+          - Job {{ record.data.job_num if record.data.job_num else "not supplied" }},
+          assembly {{ record.data.assembly_seq if record.data.assembly_seq is not none else "not supplied" }}
+          (source row {{ record.source_row_id }})
+        </span>
+      </h2>
+      <div class="row small mb-2">
+        <div class="col-md-4">Received: {{ record.data.order_received_date or "Missing" }}</div>
+        <div class="col-md-4">Order date: {{ record.data.order_date or "Missing" }}</div>
+        <div class="col-md-4">Required ship-by: {{ record.data.req_date or "Missing" }}</div>
+        <div class="col-md-4">Release qty: {{ record.data.release_qty if record.data.release_qty is not none else "Missing" }}</div>
+        <div class="col-md-4">Inventory UOM: {{ record.data.ium or "Missing" }}</div>
+        <div class="col-md-4">GBP release value: {{ record.data.release_price_gbp if record.data.release_price_gbp is not none else "Missing" }}</div>
+      </div>
+      <ul class="small mb-2">
+        {% for rule in record.findings %}
+        <li>{{ extract.summary.rules[rule] }}</li>
+        {% else %}
+        <li>No findings under {{ extract.rules_version }}. This does not establish training readiness.</li>
+        {% endfor %}
+      </ul>
+      {% if record.decisions %}
+      <details class="small mb-3">
+        <summary>Review history (latest: {{ decision_statuses[record.decisions[0].status] }})</summary>
+        <ol class="mt-2 mb-0">
+          {% for decision in record.decisions %}
+          <li class="mb-2">
+            <strong>{{ decision_statuses[decision.status] }}</strong>
+            - {{ decision.reviewed_at | utcfmt('datetime-year') }}
+            - reviewer ID {{ decision.reviewed_by_id if decision.reviewed_by_id is not none else "unavailable" }}
+            <div class="text-break">{{ decision.rationale }}</div>
+          </li>
+          {% endfor %}
+        </ol>
+      </details>
+      {% endif %}
+      {% if can_manage and record.has_findings %}
+      <form method="post" action="{{ url_for('forecasting.data_record_review', record_id=record.id) }}" class="border-top pt-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="page" value="{{ records.page }}">
+        <input type="hidden" name="scope" value="{{ scope }}">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-4">
+            <label for="outcome-{{ record.id }}" class="form-label small">Review outcome</label>
+            <select id="outcome-{{ record.id }}" name="status" class="form-select form-select-sm" required>
+              <option value="">Choose outcome</option>
+              {% for value, label in decision_statuses.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-8">
+            <label for="evidence-{{ record.id }}" class="form-label small">Reason and supporting evidence (no personal details)</label>
+            <textarea id="evidence-{{ record.id }}" name="rationale" class="form-control form-control-sm" rows="2" maxlength="2000" required></textarea>
+          </div>
+          <div class="col-12 d-flex justify-content-end">
+            <button type="submit" class="btn btn-sm btn-primary">Save review evidence</button>
+          </div>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+  </article>
+  {% else %}
+  <div class="card p-3 text-muted">No saved rows match this filter. Source coverage and measure definitions still require verification.</div>
+  {% endfor %}
+
+  {% if records.pages > 1 %}
+  <nav class="d-flex justify-content-between mt-3" aria-label="Saved record pages">
+    <span>{% if records.has_prev %}<a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, page=records.prev_num) }}">Previous</a>{% endif %}</span>
+    <span>Page {{ records.page }} of {{ records.pages }}</span>
+    <span>{% if records.has_next %}<a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, page=records.next_num) }}">Next</a>{% endif %}</span>
+  </nav>
+  {% endif %}
+</div>
+{% endblock %}

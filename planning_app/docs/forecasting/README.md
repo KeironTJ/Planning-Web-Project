@@ -52,7 +52,8 @@ Forecasts will not automatically change live planning.
 
 ## Current progress
 
-**Available:** AI Tools navigation and the Model Classification screen.
+**Available:** AI Tools overview, Data Readiness with saved VA05 observations
+and record-level quality review, and Model Classification.
 
 **Investigated:** existing importers, a local sales-order extract, and a bounded
 live `bskyVA05v1` response on 12 November 2026. The checks found repeated release
@@ -62,8 +63,47 @@ from snapshot record counts alone.
 **Next:** establish Project 1's historical intake dataset and first baseline.
 Confirm original receipt dates, order counts, quantities/values, UOM, and coverage.
 Project 2 will also need amendment/cancellation history and dated shipments.
+Saved quality reviews preserve observed local values, not verified historical
+intake or an approved training dataset.
 
 No historical training dataset, EDA, or forecasting model has been produced.
+
+## Data Readiness
+
+Open **AI Tools > Data Readiness** at `/ai-tools/data-readiness`.
+Viewing requires `view_planning`; capture and review also require
+`manage_planning`.
+
+1. Use **Save local VA05 extract and check** to preserve the currently imported
+   `bskyVA05v1` observations. This does not fetch Epicor or run an importer.
+2. Inspect findings and their affected records. Switch between all records,
+   records with findings, and findings without review evidence.
+3. Record an outcome and supporting evidence. Later reviews append to the
+   history; they do not overwrite earlier decisions.
+
+Checks distinguish main/no-assembly quantities and values from subassemblies,
+flag repeated releases separately from conflicting main quantities/values,
+and report missing fields and date exceptions. Counts are affected records,
+not deduplicated units or money. The rule version and labels are saved with
+each extract.
+
+The extract retains selected keys, job/assembly links, dates, quantities,
+inventory UOM, release values, currency fields, and row import timestamps.
+Customer names, personal fields, and operational free-text comments are not
+copied. Extraction parameters cannot be recovered from the current local table
+and are recorded as unverified, not guessed.
+
+Each extract records its capture time/user, selection, fields, rule version,
+findings, and SHA-256 hash of source metadata and ordered observations.
+It survives operational refreshes. Stored decimal values retain their precision;
+missing values remain missing. Review evidence is audited and must not contain
+personal details.
+
+Acceptance means a recorded judgement, **not training approval**. No review
+automatically corrects, excludes, deduplicates, or changes operational records.
+Controlled preparation, reconciliation, and dataset approval remain later steps.
+The configured application database holds saved extracts and evidence; there is
+no automatic expiry. Agree storage/retention policy before production capture.
 
 ## Model Classification
 
@@ -98,7 +138,9 @@ Apply the migration using the application's configured environment:
 flask --app wsgi db upgrade
 ```
 
-The migration creates editable categories and preserves existing assignments.
+Migrations preserve model assignments and add separate extract, observation,
+and review-history tables. Apply them before opening Data Readiness. They do
+not capture operational records automatically.
 
 ## Documentation
 

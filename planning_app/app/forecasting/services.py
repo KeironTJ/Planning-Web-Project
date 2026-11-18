@@ -2,15 +2,41 @@
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
+
+from sqlalchemy import case, func
 
 from app.auth.models import AuditLog
 from app.core.exceptions import NotFoundError, ValidationError
 from app.extensions import db
 from app.operations.models import WorksOrder
+from app.sales.orders.models import SalesOrder
 
 from .models import ModelCategory, ModelClassification
+
+
+@dataclass(frozen=True)
+class IntakeDataReadiness:
+    """Observable quality signals from the mutable local sales-order table."""
+
+    row_count: int
+    order_count: int
+    release_count: int
+    repeated_release_count: int
+    missing_received_date_count: int
+    missing_required_ship_by_count: int
+    ship_by_before_order_count: int
+    missing_release_qty_count: int
+    nonpositive_release_qty_count: int
+    missing_or_nonpositive_gbp_value_count: int
+    received_date_min: date | None
+    received_date_max: date | None
+    required_ship_by_min: date | None
+    required_ship_by_max: date | None
+    quantity_units: tuple[str, ...]
+    currencies: tuple[str, ...]
+    latest_import_at: datetime | None
 
 
 @dataclass
@@ -24,6 +50,123 @@ class ModelReview:
     required_qty_total: Decimal = Decimal("0")
     missing_qty_count: int = 0
     non_single_qty_count: int = 0
+
+
+def get_intake_data_readiness() -> IntakeDataReadiness:
+    """Summarize local data without treating it as historical."""
+    repeated_releases = (
+        db.session.query(
+            SalesOrder.order_num.label("order_num"),
+            SalesOrder.order_line.label("order_line"),
+            SalesOrder.rel_num.label("rel_num"),
+            func.count(SalesOrder.id).label("row_count"),
+        )
+        .group_by(
+            SalesOrder.order_num,
+            SalesOrder.order_line,
+            SalesOrder.rel_num,
+        )
+        .subquery()
+    )
+    repeated_release_count = (
+        db.session.query(func.count())
+        .select_from(repeated_releases)
+        .filter(repeated_releases.c.row_count > 1)
+        .scalar()
+    ) or 0
+    release_count = (
+        db.session.query(func.count())
+        .select_from(repeated_releases)
+        .scalar()
+        or 0
+    )
+
+    values = db.session.query(
+        func.count(SalesOrder.id),
+        func.count(func.distinct(SalesOrder.order_num)),
+        func.sum(case((SalesOrder.order_received_date.is_(None), 1), else_=0)),
+        func.sum(case((SalesOrder.req_date.is_(None), 1), else_=0)),
+        func.sum(
+            case(
+                (
+                    (SalesOrder.req_date.is_not(None))
+                    & (SalesOrder.order_date.is_not(None))
+                    & (SalesOrder.req_date < SalesOrder.order_date),
+                    1,
+                ),
+                else_=0,
+            )
+        ),
+        func.sum(case((SalesOrder.release_qty.is_(None), 1), else_=0)),
+        func.sum(
+            case(
+                (
+                    (SalesOrder.release_qty.is_not(None))
+                    & (SalesOrder.release_qty <= 0),
+                    1,
+                ),
+                else_=0,
+            )
+        ),
+        func.sum(
+            case(
+                (
+                    (SalesOrder.release_price_gbp.is_(None))
+                    | (SalesOrder.release_price_gbp <= 0),
+                    1,
+                ),
+                else_=0,
+            )
+        ),
+        func.min(SalesOrder.order_received_date),
+        func.max(SalesOrder.order_received_date),
+        func.min(SalesOrder.req_date),
+        func.max(SalesOrder.req_date),
+        func.max(SalesOrder.imported_at),
+    ).one()
+
+    quantity_units = tuple(
+        value
+        for (value,) in db.session.query(SalesOrder.ium)
+        .filter(SalesOrder.ium.is_not(None), func.trim(SalesOrder.ium) != "")
+        .distinct()
+        .order_by(SalesOrder.ium)
+        .all()
+    )
+    currencies = tuple(
+        value
+        for (value,) in db.session.query(SalesOrder.currency_code)
+        .filter(
+            SalesOrder.currency_code.is_not(None),
+            func.trim(SalesOrder.currency_code) != "",
+        )
+        .distinct()
+        .order_by(SalesOrder.currency_code)
+        .all()
+    )
+
+    def count(value: int | None) -> int:
+        return int(value or 0)
+
+    return IntakeDataReadiness(
+        row_count=count(values[0]),
+        order_count=count(values[1]),
+        release_count=count(release_count),
+        repeated_release_count=count(repeated_release_count),
+        missing_received_date_count=count(values[2]),
+        missing_required_ship_by_count=count(values[3]),
+        ship_by_before_order_count=count(values[4]),
+        missing_release_qty_count=count(values[5]),
+        nonpositive_release_qty_count=count(values[6]),
+        missing_or_nonpositive_gbp_value_count=count(values[7]),
+        received_date_min=values[8],
+        received_date_max=values[9],
+        required_ship_by_min=values[10],
+        required_ship_by_max=values[11],
+        quantity_units=quantity_units,
+        currencies=currencies,
+        latest_import_at=values[12],
+    )
 
 
 def get_model_categories() -> list[ModelCategory]:
@@ -124,12 +267,14 @@ def save_model_category(
             user_id=user_id,
             action="forecast_model_category_saved",
             resource="forecast_model_category",
-            details=json.dumps({
-                "category_id": category.id,
-                "previous": old_values,
-                "name": category_name,
-                "description": category_description,
-            }),
+            details=json.dumps(
+                {
+                    "category_id": category.id,
+                    "previous": old_values,
+                    "name": category_name,
+                    "description": category_description,
+                }
+            ),
         )
     )
     db.session.commit()
@@ -142,9 +287,7 @@ def remove_model_category(category_id: int, user_id: int) -> None:
     if category is None:
         raise NotFoundError("The category no longer exists.")
     if ModelClassification.query.filter_by(category_id=category_id).first():
-        raise ValidationError(
-            "Move the models in this category before deleting it."
-        )
+        raise ValidationError("Move the models in this category before deleting it.")
     db.session.add(
         AuditLog(
             user_id=user_id,
@@ -194,12 +337,14 @@ def save_model_classification(
             user_id=user_id,
             action="forecast_model_classification_saved",
             resource="forecast_model_classification",
-            details=json.dumps({
-                "model": name,
-                "previous": previous,
-                "category_id": category.id,
-                "category_name": category.name,
-            }),
+            details=json.dumps(
+                {
+                    "model": name,
+                    "previous": previous,
+                    "category_id": category.id,
+                    "category_name": category.name,
+                }
+            ),
         )
     )
     db.session.commit()
@@ -253,12 +398,14 @@ def save_model_classifications(
             user_id=user_id,
             action="forecast_model_classifications_bulk_saved",
             resource="forecast_model_classification",
-            details=json.dumps({
-                "models": names,
-                "previous": previous,
-                "category_id": category.id,
-                "category_name": category.name,
-            }),
+            details=json.dumps(
+                {
+                    "models": names,
+                    "previous": previous,
+                    "category_id": category.id,
+                    "category_name": category.name,
+                }
+            ),
         )
     )
     db.session.commit()
@@ -341,11 +488,13 @@ def save_model_classification_updates(
             user_id=user_id,
             action="forecast_model_classifications_bulk_saved",
             resource="forecast_model_classification",
-            details=json.dumps({
-                "models": list(assignments),
-                "previous": previous,
-                "assignments": assignments,
-            }),
+            details=json.dumps(
+                {
+                    "models": list(assignments),
+                    "previous": previous,
+                    "assignments": assignments,
+                }
+            ),
         )
     )
     db.session.commit()
@@ -362,11 +511,13 @@ def remove_model_classification(model: str, user_id: int) -> None:
             user_id=user_id,
             action="forecast_model_classification_removed",
             resource="forecast_model_classification",
-            details=json.dumps({
-                "model": item.model,
-                "previous_category_id": item.category_id,
-                "previous_category_name": item.category.name,
-            }),
+            details=json.dumps(
+                {
+                    "model": item.model,
+                    "previous_category_id": item.category_id,
+                    "previous_category_name": item.category.name,
+                }
+            ),
         )
     )
     db.session.delete(item)

@@ -168,6 +168,12 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint in ('forecasting.data_readiness', 'forecasting.data_extract') %}active{% endif %}"
+                               href="{{ url_for('forecasting.data_readiness') }}">
+                                <i class="bi bi-clipboard-data me-2"></i>Data Readiness
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link {% if request.endpoint in ('forecasting.model_classifications', 'forecasting.model_classification_save', 'forecasting.model_classification_remove') %}active{% endif %}"
                                href="{{ url_for('forecasting.model_classifications') }}">
                                 <i class="bi bi-tags me-2"></i>Model Classification
