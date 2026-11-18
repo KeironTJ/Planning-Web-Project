@@ -13,12 +13,17 @@ from app.core.exceptions import NotFoundError, ValidationError
 from . import forecasting_bp
 from .data_quality import (
     DECISION_STATUSES,
+    delete_unreviewed_extract,
+    extract_has_reviews,
+    finding_matches,
     save_data_decision,
+    save_extract_note,
     save_va05_extract,
 )
-from .models import ForecastDataExtract, ForecastDataRecord
+from .models import ForecastDataExtract, ForecastDataNote, ForecastDataRecord
 from .services import (
     get_intake_data_readiness,
+    get_model_category_names,
     get_model_categories,
     get_model_review,
     remove_model_category,
@@ -81,23 +86,107 @@ def data_extract(extract_id: int):
     scope = request.args.get("scope", "findings")
     if scope not in ("findings", "unreviewed", "all"):
         abort(400, description="Choose an available record filter.")
+    finding = request.args.get("finding", "")
+    if finding and finding not in extract.summary["rules"]:
+        abort(400, description="Choose an available finding type.")
     records = ForecastDataRecord.query.filter_by(extract_id=extract.id)
+    release = None
+    release_anchor = request.args.get("release", type=int)
+    if "release" in request.args:
+        if release_anchor is None or release_anchor < 1:
+            abort(400, description="Choose a valid saved release.")
+        anchor = records.filter_by(id=release_anchor).first_or_404()
+        release = {
+            key: anchor.data[key]
+            for key in ("order_num", "order_line", "rel_num")
+        }
+        records = records.filter(*(
+            ForecastDataRecord.data[key].as_integer() == value
+            for key, value in release.items()
+        ))
     if scope != "all":
         records = records.filter_by(has_findings=True)
     if scope == "unreviewed":
         records = records.filter(~ForecastDataRecord.decisions.any())
+    if finding:
+        records = records.filter(finding_matches(finding))
+    pagination = records.order_by(ForecastDataRecord.id).paginate(
+        page=request.args.get("page", 1, type=int), per_page=25,
+        error_out=False,
+    )
+    if pagination.page > max(pagination.pages, 1):
+        return redirect(url_for(
+            "forecasting.data_extract", extract_id=extract.id,
+            scope=scope, finding=finding, page=max(pagination.pages, 1),
+            release=release_anchor,
+        ))
+    models = {
+        (record.data["model"] or "").strip()
+        for record in pagination.items
+        if "model" in record.data
+    }
+    notes = ForecastDataNote.query.filter_by(extract_id=extract.id).order_by(
+        ForecastDataNote.id.desc(),
+    ).all()
+    can_manage = current_user.has_permission("manage_planning")
     return render_template(
         "forecasting/data_extract.html",
-        title=f"VA05 Data Review #{extract.id}",
+        title=f"VA05 Data Review {extract.reference}",
         extract=extract,
-        records=records.order_by(ForecastDataRecord.id).paginate(
-            page=request.args.get("page", 1, type=int), per_page=25,
-            error_out=False,
-        ),
+        records=pagination,
         scope=scope,
+        finding=finding,
+        release=release,
+        release_anchor=release_anchor,
+        model_categories=get_model_category_names(models),
         decision_statuses=DECISION_STATUSES,
-        can_manage=current_user.has_permission("manage_planning"),
+        notes=notes,
+        can_manage=can_manage,
+        can_delete=can_manage and not notes and not extract_has_reviews(extract.id),
     )
+
+
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/notes", methods=["POST"])
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def data_extract_note(extract_id: int):
+    """Append a note without editing the saved observation."""
+    try:
+        save_extract_note(
+            extract_id, request.form.get("body", ""), current_user.id,
+            request.form.get("capture_identity", ""),
+        )
+    except NotFoundError:
+        abort(404)
+    except ValidationError as exc:
+        flash(str(exc), "danger")
+    else:
+        flash("Extract note added.", "success")
+    return redirect(url_for(
+        "forecasting.data_extract", extract_id=extract_id, _anchor="extract-notes",
+    ))
+
+
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/delete", methods=["POST"])
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def data_extract_delete(extract_id: int):
+    """Delete an extract only after confirmation and evidence checks."""
+    try:
+        if request.form.get("confirm") != "yes":
+            raise ValidationError("Confirm permanent deletion before continuing.")
+        delete_unreviewed_extract(
+            extract_id, current_user.id, request.form.get("capture_identity", ""),
+        )
+    except NotFoundError:
+        abort(404)
+    except ValidationError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("forecasting.data_extract", extract_id=extract_id))
+    flash("Saved extract deleted. Operational data is unchanged.", "success")
+    return redirect(url_for("forecasting.data_readiness"))
 
 
 @forecasting_bp.route(
@@ -109,13 +198,18 @@ def data_extract(extract_id: int):
 def data_record_review(record_id: int):
     """Append review evidence for a saved record."""
     record = ForecastDataRecord.query.get_or_404(record_id)
+    extract = ForecastDataExtract.query.get_or_404(record.extract_id)
     scope = request.form.get("scope", "findings")
     if scope not in ("findings", "unreviewed", "all"):
         abort(400, description="Choose an available record filter.")
+    finding = request.form.get("finding", "")
+    if finding and finding not in extract.summary["rules"]:
+        abort(400, description="Choose an available finding type.")
     try:
         save_data_decision(
             record.id, request.form.get("status", ""),
             request.form.get("rationale", ""), current_user.id,
+            capture_identity=request.form.get("capture_identity", ""),
         )
     except (NotFoundError, ValidationError) as exc:
         flash(str(exc), "danger")
@@ -125,6 +219,10 @@ def data_record_review(record_id: int):
         "forecasting.data_extract", extract_id=record.extract_id,
         page=request.form.get("page", 1, type=int),
         scope=scope,
+        finding=finding,
+        release=(
+            record.id if request.form.get("release_context") == "1" else None
+        ),
         _anchor=f"record-{record.id}",
     ))
 

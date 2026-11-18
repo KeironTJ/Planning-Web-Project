@@ -25,8 +25,16 @@
       </p>
       <p class="small text-muted mb-1">
         Main-row quantity/value checks use assembly zero or no assembly. Subassembly zeroes
-        are not treated as invalid main quantities. Repeated releases are review signals,
-        not automatic duplicate errors.
+        are not treated as invalid main quantities.
+        {% if 'repeated_release' in extract.summary.rules %}
+        This extract retains its original findings, including releases with multiple rows.
+        {% else %}
+        Multiple job/assembly rows for a release are context, not a finding on their own.
+        {% endif %}
+      </p>
+      <p class="small text-muted mb-1">
+        Model categories are current labels for review, not historical assignments or
+        rules for counting work. Verify whether the VA05 model identifies each assembly.
       </p>
       <details class="small mt-2">
         <summary>Provenance and content hash</summary>
@@ -38,23 +46,77 @@
           <dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9 text-break"><code>{{ extract.content_hash }}</code></dd>
         </dl>
       </details>
-      <details class="small mt-2">
-        <summary>Check results (affected row counts, not unit totals)</summary>
-        <ul class="mt-2 mb-0">
-          {% for rule, label in extract.summary.rules.items() %}
-          <li>{{ label }}: <strong>{{ extract.summary.counts.get(rule, 0) }}</strong></li>
-          {% endfor %}
-        </ul>
-      </details>
     </div>
   </section>
 
-  <form method="get" class="d-flex gap-2 align-items-center mb-3">
+  <section class="card mb-3" aria-labelledby="extract-notes">
+    <div class="card-body">
+      <h2 id="extract-notes" class="h5">Comments / Notes</h2>
+      <p class="small text-muted">Use notes for observations about the whole extract. Notes are separate from row reviews and cannot be edited or deleted.</p>
+      {% for note in notes %}
+      <div class="border-top py-2">
+        <div class="small text-muted">{{ note.author.username if note.author else "Author unavailable" }} &middot; {{ note.created_at | utcfmt('datetime-year') }}</div>
+        <div class="text-break" style="white-space: pre-wrap">{{ note.body }}</div>
+      </div>
+      {% else %}
+      <p class="small text-muted">No notes yet.</p>
+      {% endfor %}
+      {% if can_manage %}
+      <form method="post" action="{{ url_for('forecasting.data_extract_note', extract_id=extract.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="capture_identity" value="{{ extract.capture_identity }}">
+        <label for="extract-note-body" class="form-label">Add a note (no customer or personal details)</label>
+        <textarea id="extract-note-body" name="body" class="form-control mb-2" rows="2" maxlength="2000" required></textarea>
+        <button type="submit" class="btn btn-sm btn-outline-primary">Add note</button>
+      </form>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="card mb-3" aria-labelledby="finding-summary">
+    <div class="card-body">
+      <h2 id="finding-summary" class="h5">Findings summary</h2>
+      <p class="small text-muted">
+        Affected rows across the full extract, not units or review progress.
+        A row can appear under more than one finding. Select a finding below
+        or use the filter to review its records.
+      </p>
+      <ul class="row g-2 list-unstyled mb-0">
+        {% for rule, label in extract.summary.rules.items() %}
+        <li class="col-12 col-lg-6">
+          <div class="d-flex justify-content-between align-items-start gap-2 border rounded px-3 py-2 h-100">
+            <a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=rule, release=release_anchor) }}"
+               {% if finding == rule %}aria-current="true"{% endif %}>{{ label }}</a>
+            <strong>{{ extract.summary.counts.get(rule, 0) }}</strong>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+
+  {% if release %}
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <strong>Release context: order {{ release.order_num }} / line {{ release.order_line }} / release {{ release.rel_num }}</strong>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=finding) }}">Clear release filter</a>
+  </div>
+  {% endif %}
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    {% if release %}<input type="hidden" name="release" value="{{ release_anchor }}">{% endif %}
     <label for="review-scope" class="form-label mb-0">Show</label>
     <select name="scope" id="review-scope" class="form-select w-auto">
       <option value="findings" {% if scope == 'findings' %}selected{% endif %}>Rows with findings</option>
       <option value="unreviewed" {% if scope == 'unreviewed' %}selected{% endif %}>Findings without review evidence</option>
       <option value="all" {% if scope == 'all' %}selected{% endif %}>All saved rows</option>
+    </select>
+    <label for="review-finding" class="form-label mb-0">Finding type</label>
+    <select name="finding" id="review-finding" class="form-select w-auto">
+      <option value="">All finding types</option>
+      {% for rule, label in extract.summary.rules.items() %}
+      <option value="{{ rule }}" {% if finding == rule %}selected{% endif %}>
+        {{ label }} ({{ extract.summary.counts.get(rule, 0) }})
+      </option>
+      {% endfor %}
     </select>
     <button class="btn btn-outline-primary" type="submit">Apply</button>
   </form>
@@ -71,6 +133,10 @@
           (source row {{ record.source_row_id }})
         </span>
       </h2>
+      {% if not release or finding or scope != 'all' %}
+      <a class="small d-inline-block mb-2"
+         href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope='all', release=record.id) }}">View all rows for this release</a>
+      {% endif %}
       <div class="row small mb-2">
         <div class="col-md-4">Received: {{ record.data.order_received_date or "Missing" }}</div>
         <div class="col-md-4">Order date: {{ record.data.order_date or "Missing" }}</div>
@@ -78,6 +144,13 @@
         <div class="col-md-4">Release qty: {{ record.data.release_qty if record.data.release_qty is not none else "Missing" }}</div>
         <div class="col-md-4">Inventory UOM: {{ record.data.ium or "Missing" }}</div>
         <div class="col-md-4">GBP release value: {{ record.data.release_price_gbp if record.data.release_price_gbp is not none else "Missing" }}</div>
+        {% if 'model' in record.data %}
+        {% set model_name = (record.data.model or '')|trim %}
+        <div class="col-md-4">Model: {{ model_name if model_name else "Blank" }}</div>
+        <div class="col-md-4">Current model category: {{ model_categories.get(model_name, "Unclassified") }}</div>
+        {% else %}
+        <div class="col-12">Model: Not captured in this extract</div>
+        {% endif %}
       </div>
       <ul class="small mb-2">
         {% for rule in record.findings %}
@@ -104,8 +177,11 @@
       {% if can_manage and record.has_findings %}
       <form method="post" action="{{ url_for('forecasting.data_record_review', record_id=record.id) }}" class="border-top pt-2">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="capture_identity" value="{{ extract.capture_identity }}">
         <input type="hidden" name="page" value="{{ records.page }}">
         <input type="hidden" name="scope" value="{{ scope }}">
+        <input type="hidden" name="finding" value="{{ finding }}">
+        {% if release %}<input type="hidden" name="release_context" value="1">{% endif %}
         <div class="row g-2 align-items-end">
           <div class="col-md-4">
             <label for="outcome-{{ record.id }}" class="form-label small">Review outcome</label>
@@ -132,10 +208,28 @@
 
   {% if records.pages > 1 %}
   <nav class="d-flex justify-content-between mt-3" aria-label="Saved record pages">
-    <span>{% if records.has_prev %}<a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, page=records.prev_num) }}">Previous</a>{% endif %}</span>
+    <span>{% if records.has_prev %}<a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=finding, release=release_anchor, page=records.prev_num) }}">Previous</a>{% endif %}</span>
     <span>Page {{ records.page }} of {{ records.pages }}</span>
-    <span>{% if records.has_next %}<a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, page=records.next_num) }}">Next</a>{% endif %}</span>
+    <span>{% if records.has_next %}<a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=finding, release=release_anchor, page=records.next_num) }}">Next</a>{% endif %}</span>
   </nav>
+  {% endif %}
+
+  {% if can_delete %}
+  <details class="border rounded p-3 mt-4">
+    <summary class="text-danger">Delete entire saved extract</summary>
+    <p class="small mt-2">Permanently remove extract {{ extract.reference }} and all {{ extract.row_count }} of its saved rows, including rows hidden by filters. This does not change Epicor or live planning data.</p>
+    <form method="post" action="{{ url_for('forecasting.data_extract_delete', extract_id=extract.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="capture_identity" value="{{ extract.capture_identity }}">
+      <div class="form-check mb-2">
+        <input class="form-check-input" id="confirm-extract-delete" type="checkbox" name="confirm" value="yes" required>
+        <label class="form-check-label" for="confirm-extract-delete">I understand this cannot be undone.</label>
+      </div>
+      <button type="submit" class="btn btn-sm btn-danger">Delete entire saved extract</button>
+    </form>
+  </details>
+  {% elif can_manage %}
+  <p class="small text-muted mt-4">This extract cannot be deleted because it has notes or row reviews.</p>
   {% endif %}
 </div>
 {% endblock %}

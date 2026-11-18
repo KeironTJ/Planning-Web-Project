@@ -41,7 +41,7 @@
         {% for extract in extracts.items %}
         <li class="list-group-item px-0 d-flex flex-wrap justify-content-between gap-2">
           <a href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">
-            Extract #{{ extract.id }} - {{ extract.captured_at | utcfmt('datetime-year') }}
+            Extract {{ extract.reference }} - {{ extract.captured_at | utcfmt('datetime-year') }}
           </a>
           <span class="small text-muted">
             {{ extract.row_count }} rows; {{ extract.summary.flagged_rows }} rows with findings
@@ -85,7 +85,7 @@
         </div>
         <div class="col-6 col-lg-3">
           <div class="border rounded p-3 h-100">
-            <div class="text-muted small">Keys with repeated rows</div>
+            <div class="text-muted small">Releases with multiple rows</div>
             <div class="fs-4 fw-semibold">{{ readiness.repeated_release_count }}</div>
           </div>
         </div>
@@ -93,6 +93,7 @@
       <p class="small text-muted mt-3 mb-0">
         The stored rows are not linked to an import batch. Distinct key counts describe the
         current local table; they cannot establish source uniqueness or recreate an earlier import.
+        A release can have multiple planning rows, so this count does not indicate duplicates.
       </p>
     </div>
   </section>

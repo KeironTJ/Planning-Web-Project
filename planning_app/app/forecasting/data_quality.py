@@ -7,7 +7,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from itertools import groupby
 
-from sqlalchemy import insert
+from flask import current_app
+from sqlalchemy import cast, delete, exists, func, insert, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.auth.models import AuditLog
 from app.core.exceptions import NotFoundError, ValidationError
@@ -17,15 +19,13 @@ from app.sales.orders.models import SalesOrder
 from .models import (
     ForecastDataDecision,
     ForecastDataExtract,
+    ForecastDataNote,
     ForecastDataRecord,
 )
 
 
-RULES_VERSION = "va05-local-v1"
+RULES_VERSION = "va05-local-v2"
 RULES = {
-    "repeated_release": (
-        "Release appears on multiple stored rows (review grain)"
-    ),
     "missing_main": "Release has no main/no-assembly row",
     "conflicting_qty": (
         "Main rows have conflicting non-null release quantities"
@@ -55,6 +55,7 @@ SNAPSHOT_FIELDS = (
     "rel_num",
     "assembly_seq",
     "job_num",
+    "model",
     "order_date",
     "order_received_date",
     "req_date",
@@ -68,6 +69,24 @@ SNAPSHOT_FIELDS = (
 )
 
 
+def finding_matches(finding: str):
+    """Match an exact saved JSON-array element on supported databases."""
+    dialect = db.session.get_bind().dialect.name
+    if dialect == "sqlite":
+        elements = func.json_each(ForecastDataRecord.findings).table_valued(
+            "value"
+        )
+    elif dialect == "postgresql":
+        elements = func.jsonb_array_elements_text(
+            cast(ForecastDataRecord.findings, JSONB)
+        ).table_valued("value").render_derived()
+    else:
+        raise RuntimeError(f"Finding filter is unsupported on {dialect}.")
+    return exists(
+        select(1).select_from(elements).where(elements.c.value == finding)
+    )
+
+
 def _serialize(value):
     if isinstance(value, (date, datetime)):
         return value.isoformat()
@@ -79,8 +98,6 @@ def _serialize(value):
 def _release_findings(rows: list[dict]) -> list[str]:
     main_rows = [row for row in rows if row["assembly_seq"] in (None, 0)]
     findings = []
-    if len(rows) > 1:
-        findings.append("repeated_release")
     if not main_rows:
         findings.append("missing_main")
     for field, rule in (
@@ -126,6 +143,7 @@ def save_va05_extract(user_id: int) -> ForecastDataExtract:
         row_count=0,
         content_hash="",
         source_settings={
+            "capture_environment": current_app.config.get("APP_ENVIRONMENT"),
             "origin": "local_sales_orders",
             "selection": "All locally retained rows at capture",
             "baq_parameters": "Not retained by the operational importer",
@@ -244,11 +262,103 @@ def save_va05_extract(user_id: int) -> ForecastDataExtract:
     return extract
 
 
+def _lock_extract(
+    extract_id: int, capture_identity: str | None,
+) -> ForecastDataExtract:
+    # Serialize deletion with evidence writes, including on SQLite where
+    # SELECT FOR UPDATE is unavailable and foreign keys may not be enabled.
+    result = db.session.connection().execute(
+        update(ForecastDataExtract.__table__)
+        .where(ForecastDataExtract.id == extract_id)
+        .values(row_count=ForecastDataExtract.row_count)
+    )
+    extract = (
+        db.session.get(ForecastDataExtract, extract_id, populate_existing=True)
+        if result.rowcount == 1 else None
+    )
+    if extract is None:
+        db.session.rollback()
+        raise NotFoundError("The saved VA05 extract does not exist.")
+    if (
+        capture_identity is not None
+        and extract.capture_identity != capture_identity
+    ):
+        db.session.rollback()
+        raise ValidationError(
+            "The extract has changed. Reopen it before continuing."
+        )
+    return extract
+
+
+def extract_has_reviews(extract_id: int) -> bool:
+    return bool(db.session.scalar(select(exists(
+        select(ForecastDataDecision.id)
+        .join(
+            ForecastDataRecord,
+            ForecastDataRecord.id == ForecastDataDecision.record_id,
+        )
+        .where(ForecastDataRecord.extract_id == extract_id)
+    ))))
+
+
+def save_extract_note(
+    extract_id: int, body: str, user_id: int, capture_identity: str,
+) -> None:
+    body = body.strip()
+    if not body or len(body) > 2000:
+        raise ValidationError("Enter a note between 1 and 2,000 characters.")
+    _lock_extract(extract_id, capture_identity)
+    note = ForecastDataNote(
+        extract_id=extract_id, body=body, author_id=user_id,
+    )
+    db.session.add(note)
+    db.session.flush()
+    db.session.add(AuditLog(
+        user_id=user_id,
+        action="forecast_data_note_added",
+        resource="forecast_data_extract",
+        details=json.dumps({"extract_id": extract_id, "note_id": note.id}),
+    ))
+    db.session.commit()
+
+
+def delete_unreviewed_extract(
+    extract_id: int, user_id: int, capture_identity: str,
+) -> None:
+    extract = _lock_extract(extract_id, capture_identity)
+    has_notes = db.session.scalar(select(exists().where(
+        ForecastDataNote.extract_id == extract_id,
+    )))
+    if has_notes or extract_has_reviews(extract_id):
+        db.session.rollback()
+        raise ValidationError(
+            "Extracts with notes or row reviews cannot be deleted."
+        )
+    db.session.add(AuditLog(
+        user_id=user_id,
+        action="forecast_data_extract_deleted",
+        resource="forecast_data_extract",
+        details=json.dumps({
+            "extract_id": extract.id,
+            "captured_at": extract.captured_at.isoformat(),
+            "row_count": extract.row_count,
+            "content_hash": extract.content_hash,
+        }),
+    ))
+    db.session.execute(delete(ForecastDataRecord).where(
+        ForecastDataRecord.extract_id == extract.id,
+    ))
+    db.session.delete(extract)
+    db.session.commit()
+
+
 def save_data_decision(
     record_id: int,
     status: str,
     rationale: str,
     user_id: int,
+    *,
+    capture_identity: str | None = None,
 ) -> ForecastDataDecision:
     """Append evidence without changing the saved values or findings."""
     if status not in DECISION_STATUSES:
@@ -263,6 +373,7 @@ def save_data_decision(
         raise NotFoundError("The saved data record does not exist.")
     if not record.has_findings:
         raise ValidationError("This saved record has no findings to review.")
+    _lock_extract(record.extract_id, capture_identity)
     decision = ForecastDataDecision(
         record_id=record.id,
         status=status,

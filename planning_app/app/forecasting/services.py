@@ -176,6 +176,18 @@ def get_model_categories() -> list[ModelCategory]:
     ).all()
 
 
+def get_model_category_names(models: set[str]) -> dict[str, str]:
+    """Return current labels for exact, trimmed model names."""
+    if not models:
+        return {}
+    return dict(
+        db.session.query(ModelClassification.model, ModelCategory.name)
+        .join(ModelCategory, ModelClassification.category_id == ModelCategory.id)
+        .filter(ModelClassification.model.in_(models))
+        .all()
+    )
+
+
 def get_model_review() -> list[ModelReview]:
     """Compare saved category labels with model values in the live COOIS snapshot.
 

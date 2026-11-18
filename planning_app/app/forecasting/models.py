@@ -79,6 +79,43 @@ class ForecastDataExtract(db.Model):
     source_settings = db.Column(db.JSON, nullable=False)
     summary = db.Column(db.JSON, nullable=False)
 
+    @property
+    def reference(self) -> str:
+        environment = self.source_settings.get("capture_environment")
+        prefix = {
+            "development": "DEV",
+            "production": "LIVE",
+            "testing": "TEST",
+        }.get(environment, "UNLABELLED")
+        return f"{prefix}-{self.id}"
+
+    @property
+    def capture_identity(self) -> str:
+        return f"{self.id}:{self.captured_at.isoformat()}"
+
+
+class ForecastDataNote(db.Model):
+    """Append-only commentary about a saved extract."""
+
+    __tablename__ = "forecast_data_notes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    extract_id = db.Column(
+        db.Integer,
+        db.ForeignKey("forecast_data_extracts.id", ondelete="RESTRICT"),
+        nullable=False, index=True,
+    )
+    body = db.Column(db.Text, nullable=False)
+    author_id = db.Column(
+        db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = db.Column(
+        db.DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    author = db.relationship("User", lazy="joined")
+
 
 class ForecastDataRecord(db.Model):
     """Whitelisted observed values and findings, preserved across refreshes."""

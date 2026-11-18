@@ -110,6 +110,14 @@ This documentation will support my AI Level 7 project report. Each stage will
 record the findings, decisions, alternatives, and outcomes needed to explain
 the work. Mapping to the exact assessment criteria remains to be done.
 
+Keep review evidence from both environments. Development notes show why
+checks or workflows changed; production notes show what happened after
+deployment and what still needed attention. When citing evidence in the
+report, record the environment-qualified extract reference (for example
+`DEV-12` or `LIVE-12`), capture date, and rules version. An extract number
+on its own is not unique across environments. Link related decisions in
+the report rather than copying notes between databases.
+
 | Report area | Project evidence |
 | --- | --- |
 | Business and system understanding | Planning needs, forecast definitions, Epicor mappings, and release/job/assembly relationships |

@@ -4,22 +4,32 @@ import runpy
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from sqlalchemy.dialects import postgresql
 
 from app.auth.models import AuditLog
 from app.core.exceptions import NotFoundError, ValidationError
 from app.forecasting.data_quality import (
+    finding_matches,
     save_data_decision,
     save_va05_extract,
 )
 from app.forecasting.models import (
     ForecastDataDecision,
     ForecastDataExtract,
+    ForecastDataNote,
     ForecastDataRecord,
+)
+from app.forecasting.services import (
+    save_model_category,
+    save_model_classification,
+    save_model_classification_updates,
 )
 from app.sales.orders.models import SalesOrder
 
@@ -153,7 +163,6 @@ def test_main_row_grain_and_conflicts_are_checked_without_summing(
     assert extract.summary["order_count"] == 1
     for row in rows[:3]:
         assert set(row.findings) == {
-            "repeated_release",
             "conflicting_qty",
             "conflicting_value",
             "conflicting_received",
@@ -163,6 +172,32 @@ def test_main_row_grain_and_conflicts_are_checked_without_summing(
     assert SalesOrder.query.count() == 4
 
 
+def test_extract_reference_uses_saved_environment_not_current_config(
+    app, db_session, client, planner_user, monkeypatch,
+):
+    add_source(db_session)
+    monkeypatch.setitem(app.config, "APP_ENVIRONMENT", "development")
+    dev = save_va05_extract(planner_user.id)
+    monkeypatch.setitem(app.config, "APP_ENVIRONMENT", "production")
+    live = save_va05_extract(planner_user.id)
+    legacy = save_va05_extract(planner_user.id)
+    legacy.source_settings = {
+        key: value for key, value in legacy.source_settings.items()
+        if key != "capture_environment"
+    }
+    db_session.commit()
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    html = client.get(PAGE).get_data(as_text=True)
+    for extract, prefix in (
+        (dev, "DEV"), (live, "LIVE"), (legacy, "UNLABELLED"),
+    ):
+        reference = f"{prefix}-{extract.id}"
+        assert f"Extract {reference}" in html
+        review = client.get(f"{PAGE}/extracts/{extract.id}")
+        assert f"VA05 Data Review {reference}" in review.get_data(as_text=True)
+
+
 def test_consistent_main_repeats_are_not_quantity_conflicts(
     db_session,
     planner_user,
@@ -170,7 +205,100 @@ def test_consistent_main_repeats_are_not_quantity_conflicts(
     add_source(db_session)
     add_source(db_session, assembly_seq=None, job_num="J2")
     extract = save_va05_extract(planner_user.id)
-    assert extract.summary["counts"] == {"repeated_release": 2}
+    assert extract.summary["counts"] == {}
+
+
+def test_release_assemblies_are_visible_without_entering_review_queue(
+    db_session, client, planner_user,
+):
+    source = add_source(db_session, model="SOFA")
+    for assembly in (4, 5, 6):
+        add_source(
+            db_session, assembly_seq=assembly, model=f"SUB-{assembly}",
+            release_qty=Decimal("0"), release_price_gbp=Decimal("0"),
+        )
+    add_source(db_session, order_num=13, model="OTHER-ORDER", release_qty=None)
+    add_source(db_session, order_line=2, model="OTHER-LINE")
+    add_source(db_session, rel_num=2, model="OTHER-RELEASE")
+    extract = save_va05_extract(planner_user.id)
+    assert extract.summary["counts"] == {"missing_qty": 1}
+    assert extract.summary["flagged_rows"] == 1
+    assert "repeated_release" not in extract.summary["rules"]
+    login(client, planner_user.email, "Planner!Pass1234")
+    path = f"{PAGE}/extracts/{extract.id}"
+    html = client.get(path).get_data(as_text=True)
+    assert "Order 12 / line 1" not in html
+    assert "Order 13 / line 1" in html
+
+    record = ForecastDataRecord.query.filter_by(
+        extract_id=extract.id, source_row_id=source.id,
+    ).one()
+    html = client.get(f"{path}?scope=all").get_data(as_text=True)
+    assert "View all rows for this release" in html
+    assert f"release={record.id}" in html
+    SalesOrder.query.delete()
+    db_session.commit()
+    response = client.get(path, query_string={
+        "scope": "all", "release": record.id,
+    })
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "4 matching saved records" in html
+    for assembly in (0, 4, 5, 6):
+        assert f"assembly {assembly}" in html
+    assert "Model: SOFA" in html and "Model: SUB-6" in html
+    assert "Model: OTHER-" not in html
+    assert "Save review evidence" not in html
+
+
+def test_release_context_and_legacy_findings_stay_in_their_extract(
+    db_session, client, planner_user,
+):
+    add_source(db_session)
+    add_source(db_session, assembly_seq=4)
+    old = save_va05_extract(planner_user.id)
+    old.rules_version = "va05-local-v1"
+    label = "Release appears on multiple stored rows (review grain)"
+    old.summary = {
+        **old.summary, "flagged_rows": 2,
+        "rules": {"repeated_release": label},
+        "counts": {"repeated_release": 2},
+    }
+    for record in ForecastDataRecord.query.filter_by(extract_id=old.id):
+        record.findings = ["repeated_release"]
+        record.has_findings = True
+    db_session.commit()
+    new = save_va05_extract(planner_user.id)
+    old_record = ForecastDataRecord.query.filter_by(
+        extract_id=old.id, source_row_id=1,
+    ).one()
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    response = client.get(
+        f"{PAGE}/extracts/{old.id}",
+        query_string={"finding": "repeated_release"},
+    )
+    assert response.status_code == 200
+    assert "2 matching saved records" in response.get_data(as_text=True)
+    assert client.get(
+        f"{PAGE}/extracts/{new.id}",
+        query_string={"scope": "all", "release": old_record.id},
+    ).status_code == 404
+    assert client.get(
+        f"{PAGE}/extracts/{new.id}", query_string={"release": "invalid"},
+    ).status_code == 400
+    response = client.post(
+        f"{PAGE}/records/{old_record.id}/review",
+        data={
+            "status": "accepted", "rationale": "Expected assembly detail.",
+            "scope": "all", "release_context": "1",
+            "capture_identity": old.capture_identity,
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert f"release={old_record.id}" in response.request.url
+    assert "Expected assembly detail." in response.get_data(as_text=True)
 
 
 def test_row_exceptions_preserve_missing_and_nonpositive_values(
@@ -356,6 +484,80 @@ def test_legacy_extract_hides_company_scope_without_changing_provenance(
     assert saved.content_hash == old_hash
 
 
+def test_saved_model_shows_current_classification_without_changing_findings(
+    db_session, client, planner_user,
+):
+    sofa = save_model_category("Sofas", "", planner_user.id)
+    scatters = save_model_category("Scatters", "", planner_user.id)
+    save_model_classification("SOFA", sofa.id, planner_user.id)
+    save_model_classification("SCATTER", scatters.id, planner_user.id)
+    save_model_classification_updates([("", scatters.id)], planner_user.id)
+    add_source(db_session, order_num=1, model=" SOFA ", release_qty=None)
+    add_source(db_session, order_num=2, model="SCATTER", release_qty=None)
+    add_source(db_session, order_num=3, model="sofa", release_qty=None)
+    add_source(db_session, order_num=4, model=None, release_qty=None)
+    extract = save_va05_extract(planner_user.id)
+    first = ForecastDataRecord.query.filter_by(
+        extract_id=extract.id, source_row_id=1,
+    ).one()
+    before_data = dict(first.data)
+    before_findings = list(first.findings)
+    before_hash = extract.content_hash
+    assert first.data["model"] == " SOFA "
+    assert "model" in extract.source_settings["fields"]
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    html = client.get(
+        f"{PAGE}/extracts/{extract.id}",
+    ).get_data(as_text=True)
+    assert "Model: SOFA" in html
+    assert "Model: SCATTER" in html
+    assert "Model: sofa" in html
+    assert "Model: Blank" in html
+    assert "Current model category: Sofas" in html
+    assert html.count("Current model category: Scatters") == 2
+    assert "Current model category: Unclassified" in html
+    assert "not historical assignments" in html
+
+    save_model_classification("SOFA", scatters.id, planner_user.id)
+    SalesOrder.query.delete()
+    db_session.commit()
+    html = client.get(
+        f"{PAGE}/extracts/{extract.id}",
+    ).get_data(as_text=True)
+    assert html.count("Current model category: Scatters") == 3
+    db_session.expire_all()
+    assert db_session.get(ForecastDataRecord, first.id).data == before_data
+    saved_record = db_session.get(ForecastDataRecord, first.id)
+    assert saved_record.findings == before_findings
+    assert (
+        db_session.get(ForecastDataExtract, extract.id).content_hash
+        == before_hash
+    )
+
+
+def test_old_extract_does_not_backfill_model_from_live_order(
+    db_session, client, planner_user,
+):
+    source = add_source(db_session, model="CURRENT", release_qty=None)
+    extract = save_va05_extract(planner_user.id)
+    record = ForecastDataRecord.query.filter_by(extract_id=extract.id).one()
+    record.data = {
+        key: value for key, value in record.data.items() if key != "model"
+    }
+    db_session.commit()
+    source.model = "LATER"
+    db_session.commit()
+    login(client, planner_user.email, "Planner!Pass1234")
+    html = client.get(
+        f"{PAGE}/extracts/{extract.id}",
+    ).get_data(as_text=True)
+    assert "Model: Not captured in this extract" in html
+    assert "Model: LATER" not in html
+    db_session.expire_all()
+    assert "model" not in db_session.get(ForecastDataRecord, record.id).data
+
+
 def test_browser_capture_review_and_read_only_permissions(
     db_session,
     client,
@@ -379,6 +581,7 @@ def test_browser_capture_review_and_read_only_permissions(
         data={
             "status": "source_correction",
             "rationale": "Check the BAQ expression.",
+            "capture_identity": extract.capture_identity,
         },
         follow_redirects=True,
     )
@@ -414,6 +617,150 @@ def test_browser_capture_review_and_read_only_permissions(
     assert ForecastDataDecision.query.count() == 1
 
 
+def test_finding_filter_combines_with_scope_and_preserves_review(
+    db_session, client, planner_user,
+):
+    add_source(db_session, order_num=1, release_qty=None)
+    add_source(db_session, order_num=2, release_price_gbp=None)
+    add_source(
+        db_session, order_num=3, release_qty=None, release_price_gbp=None,
+    )
+    extract = save_va05_extract(planner_user.id)
+    login(client, planner_user.email, "Planner!Pass1234")
+    path = f"{PAGE}/extracts/{extract.id}"
+
+    response = client.get(path, query_string={
+        "scope": "unreviewed", "finding": "missing_qty",
+    })
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "2 matching saved records" in html
+    assert "Order 1 / line 1" in html
+    assert "Order 2 / line 1" not in html
+    assert "Order 3 / line 1" in html
+    assert 'name="finding" value="missing_qty"' in html
+    summary = html.split(
+        '<section class="card mb-3" aria-labelledby="finding-summary">', 1,
+    )[1]
+    summary = summary.split("</section>", 1)[0]
+    assert "Findings summary" in summary
+    assert "Missing main-row release quantity" in summary
+    assert "Missing main-row GBP release value" in summary
+    assert summary.count("<strong>2</strong>") == 2
+    assert "affected rows across the full extract" in summary.lower()
+    assert html.index('id="finding-summary"') < html.index(
+        'id="review-finding"',
+    )
+    record = ForecastDataRecord.query.filter_by(
+        extract_id=extract.id, source_row_id=1,
+    ).one()
+    response = client.post(
+        f"{PAGE}/records/{record.id}/review",
+        data={
+            "status": "investigate", "rationale": "Check quantity.",
+            "scope": "unreviewed", "finding": "missing_qty", "page": "1",
+            "capture_identity": extract.capture_identity,
+        },
+        follow_redirects=True,
+    )
+    html = response.get_data(as_text=True)
+    assert "1 matching saved records" in html
+    assert "Order 1 / line 1" not in html
+    assert "Order 3 / line 1" in html
+    assert "scope=unreviewed" in response.request.url
+    assert "finding=missing_qty" in response.request.url
+
+    response = client.get(path, query_string={
+        "scope": "all", "finding": "missing_value",
+    })
+    assert "2 matching saved records" in response.get_data(as_text=True)
+    assert "Order 1 / line 1" not in response.get_data(as_text=True)
+    response = client.get(path, query_string={"finding": "invalid"})
+    assert response.status_code == 400
+    assert client.post(
+        f"{PAGE}/records/{record.id}/review",
+        data={
+            "status": "accepted", "rationale": "Evidence.",
+            "finding": "invalid",
+        },
+    ).status_code == 400
+
+
+def test_finding_filter_paginates_matching_records_only(
+    db_session, client, planner_user,
+):
+    for order_num in range(1, 29):
+        add_source(
+            db_session, order_num=order_num,
+            release_qty=None if order_num <= 26 else Decimal("1"),
+        )
+    extract = save_va05_extract(planner_user.id)
+    login(client, planner_user.email, "Planner!Pass1234")
+    response = client.get(
+        f"{PAGE}/extracts/{extract.id}",
+        query_string={"finding": "missing_qty", "page": 2},
+    )
+    html = response.get_data(as_text=True)
+    assert "26 matching saved records" in html
+    assert "Order 26 / line 1" in html
+    assert "Order 27 / line 1" not in html
+    assert "finding=missing_qty" in html
+    assert "Page 2 of 2" in html
+    last_record = ForecastDataRecord.query.filter_by(
+        extract_id=extract.id, source_row_id=26,
+    ).one()
+    response = client.post(
+        f"{PAGE}/records/{last_record.id}/review",
+        data={
+            "status": "investigate", "rationale": "Check quantity.",
+            "scope": "unreviewed", "finding": "missing_qty", "page": "2",
+            "capture_identity": extract.capture_identity,
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert "25 matching saved records" in response.get_data(as_text=True)
+    assert "Order 1 / line 1" in response.get_data(as_text=True)
+    assert "finding=missing_qty" in response.request.url
+
+
+def test_finding_filter_matches_exact_saved_rule(
+    db_session, client, planner_user,
+):
+    add_source(db_session, order_num=1, release_qty=None)
+    add_source(db_session, order_num=2, release_qty=None)
+    extract = save_va05_extract(planner_user.id)
+    record = ForecastDataRecord.query.filter_by(
+        extract_id=extract.id, source_row_id=2,
+    ).one()
+    record.findings = ["missing_qty_extra"]
+    summary = dict(extract.summary)
+    summary["rules"] = {
+        **summary["rules"], "missing_qty_extra": "Other quantity finding",
+    }
+    extract.summary = summary
+    db_session.commit()
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    html = client.get(
+        f"{PAGE}/extracts/{extract.id}",
+        query_string={"finding": "missing_qty"},
+    ).get_data(as_text=True)
+    assert "1 matching saved records" in html
+    assert "Order 1 / line 1" in html
+    assert "Order 2 / line 1" not in html
+
+
+def test_finding_filter_builds_postgresql_json_membership(db_session):
+    bind = SimpleNamespace(dialect=postgresql.dialect())
+    with patch.object(db_session, "get_bind", return_value=bind):
+        condition = finding_matches("missing_qty")
+    statement = sa.select(ForecastDataRecord.id).where(condition)
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+    assert "jsonb_array_elements_text" in sql
+    assert "AS anon_1(value)" in sql
+
+
 def test_missing_extracts_filters_and_cross_permission_access(
     db_session,
     client,
@@ -437,11 +784,138 @@ def test_missing_extracts_filters_and_cross_permission_access(
     )
 
 
-def test_capture_and_review_require_csrf(
+def test_extract_notes_are_append_only_and_protect_evidence(
+    db_session, client, planner_user, viewer_user,
+):
+    add_source(db_session)
+    extract = save_va05_extract(planner_user.id)
+    path = f"{PAGE}/extracts/{extract.id}"
+    identity = extract.capture_identity
+    before_hash = extract.content_hash
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    note_form = {"capture_identity": identity}
+    for body in ("  ", "x" * 2001):
+        response = client.post(
+            path + "/notes", data={**note_form, "body": body},
+            follow_redirects=True,
+        )
+        assert "Enter a note between" in response.get_data(as_text=True)
+    assert ForecastDataNote.query.count() == 0
+    for body in ("  First observation <detail>  ", "Follow-up"):
+        response = client.post(
+            path + "/notes", data={**note_form, "body": body},
+            follow_redirects=True,
+        )
+    html = response.get_data(as_text=True)
+    assert "First observation &lt;detail&gt;" in html
+    assert html.index("Follow-up") < html.index("First observation")
+    assert planner_user.username in html
+    assert "Delete entire saved extract" not in html
+    first = ForecastDataNote.query.order_by(ForecastDataNote.id).first()
+    assert first.body == "First observation <detail>"
+    assert first.author_id == planner_user.id and first.created_at
+    assert ForecastDataDecision.query.count() == 0
+    assert extract.content_hash == before_hash
+    assert AuditLog.query.filter_by(
+        action="forecast_data_note_added",
+    ).count() == 2
+    response = client.post(
+        path + "/delete", data={**note_form, "confirm": "yes"},
+        follow_redirects=True,
+    )
+    assert "Extracts with notes or row reviews cannot be deleted." in (
+        response.get_data(as_text=True)
+    )
+    assert ForecastDataRecord.query.count() == 1
+
+    client.get("/auth/logout")
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    html = client.get(path).get_data(as_text=True)
+    assert "First observation &lt;detail&gt;" in html
+    assert "Add note" not in html
+    assert client.post(path + "/notes", data=note_form).status_code == 403
+    assert client.post(path + "/delete", data=note_form).status_code == 403
+
+
+def test_confirmed_deletion_only_removes_unused_saved_extract(
+    db_session, client, planner_user,
+):
+    add_source(db_session, release_qty=None)
+    protected = save_va05_extract(planner_user.id)
+    target = save_va05_extract(planner_user.id)
+    protected_id, target_id = protected.id, target.id
+    protected_record = ForecastDataRecord.query.filter_by(
+        extract_id=protected_id,
+    ).one()
+    save_data_decision(
+        protected_record.id, "investigate", "Keep evidence.", planner_user.id,
+    )
+    login(client, planner_user.email, "Planner!Pass1234")
+    target_path = f"{PAGE}/extracts/{target_id}"
+    protected_path = f"{PAGE}/extracts/{protected_id}"
+    form = {"capture_identity": target.capture_identity}
+    html = client.get(target_path).get_data(as_text=True)
+    assert "Delete entire saved extract" in html
+    assert client.get(target_path + "/delete").status_code == 405
+    for bad_form in (form, {"capture_identity": "old", "confirm": "yes"}):
+        response = client.post(
+            target_path + "/delete", data=bad_form, follow_redirects=True,
+        )
+        assert response.request.path == target_path
+    response = client.post(
+        protected_path + "/delete",
+        data={
+            "capture_identity": protected.capture_identity, "confirm": "yes",
+        },
+        follow_redirects=True,
+    )
+    assert "Extracts with notes or row reviews cannot be deleted." in (
+        response.get_data(as_text=True)
+    )
+    assert ForecastDataExtract.query.count() == 2
+
+    response = client.post(
+        target_path + "/delete", data={**form, "confirm": "yes"},
+        follow_redirects=True,
+    )
+    assert response.request.path == PAGE
+    assert "Saved extract deleted." in response.get_data(as_text=True)
+    assert client.get(target_path).status_code == 404
+    assert ForecastDataRecord.query.one().extract_id == protected_id
+    assert SalesOrder.query.count() == ForecastDataDecision.query.count() == 1
+    audit = AuditLog.query.filter_by(
+        action="forecast_data_extract_deleted",
+    ).one()
+    assert json.loads(audit.details)["extract_id"] == target_id
+
+    replacement = save_va05_extract(planner_user.id)
+    replacement_path = f"{PAGE}/extracts/{replacement.id}"
+    replacement_record = ForecastDataRecord.query.filter_by(
+        extract_id=replacement.id,
+    ).one()
+    # SQLite can reuse IDs after deletion. Stale forms must not affect a
+    # different capture even if their URL happens to match.
+    for path, data in (
+        (replacement_path + "/delete", {"confirm": "yes"}),
+        (replacement_path + "/notes", {"body": "Stale note."}),
+        (f"{PAGE}/records/{replacement_record.id}/review",
+         {"status": "accepted", "rationale": "Stale review."}),
+    ):
+        response = client.post(
+            path, data={**form, **data}, follow_redirects=True,
+        )
+        assert "The extract has changed." in response.get_data(as_text=True)
+    assert ForecastDataExtract.query.count() == 2
+    assert ForecastDataNote.query.count() == 0
+    assert ForecastDataDecision.query.count() == 1
+
+
+def test_capture_review_notes_and_deletion_require_csrf(
     app, db_session, client, planner_user
 ):
     add_source(db_session, release_qty=None)
-    save_va05_extract(planner_user.id)
+    extract = save_va05_extract(planner_user.id)
     record = ForecastDataRecord.query.one()
     login(client, planner_user.email, "Planner!Pass1234")
     with app.app_context():
@@ -449,6 +923,10 @@ def test_capture_and_review_require_csrf(
         app.config["WTF_CSRF_ENABLED"] = True
         try:
             assert client.post(PAGE + "/capture").status_code == 400
+            for action in ("notes", "delete"):
+                assert client.post(
+                    f"{PAGE}/extracts/{extract.id}/{action}",
+                ).status_code == 400
             assert (
                 client.post(
                     f"{PAGE}/records/{record.id}/review",
@@ -460,6 +938,7 @@ def test_capture_and_review_require_csrf(
             app.config["WTF_CSRF_ENABLED"] = old_setting
     assert ForecastDataExtract.query.count() == 1
     assert ForecastDataDecision.query.count() == 0
+    assert ForecastDataNote.query.count() == 0
 
 
 def test_saved_extract_pagination_keeps_unflagged_rows(
@@ -477,6 +956,11 @@ def test_saved_extract_pagination_keeps_unflagged_rows(
     assert response.status_code == 200
     assert "Order 27 / line 1" in response.get_data(as_text=True)
     assert "No findings under" in response.get_data(as_text=True)
+    delete_url = f'action="{PAGE}/extracts/{extract.id}/delete"'
+    assert response.get_data(as_text=True).count(delete_url) == 1
+    html = client.get(f"{PAGE}/extracts/{extract.id}").get_data(as_text=True)
+    assert "No saved rows match this filter" in html
+    assert html.count(delete_url) == 1
     assert extract.row_count == 27
 
 
@@ -488,6 +972,9 @@ def test_data_review_migration_round_trip():
         / "c92e7a14d6b8_add_forecast_data_reviews.py"
     )
     migration = runpy.run_path(str(migration_path))
+    notes_migration = runpy.run_path(str(migration_path.with_name(
+        "e6d1c5f8a237_add_forecast_data_notes.py",
+    )))
     engine = sa.create_engine("sqlite://")
     with engine.begin() as connection:
         connection.execute(sa.text("PRAGMA foreign_keys=ON"))
@@ -521,6 +1008,18 @@ def test_data_review_migration_round_trip():
                 ).scalar_one()
                 == "bskyVA05v1"
             )
+            notes_migration["upgrade"]()
+            notes = sa.Table(
+                "forecast_data_notes", sa.MetaData(), autoload_with=connection,
+            )
+            connection.execute(notes.insert().values(
+                extract_id=1, body="Retain this extract.", author_id=1,
+                created_at=date(2026, 11, 18),
+            ))
+            with pytest.raises(sa.exc.IntegrityError):
+                connection.execute(extracts.delete().where(extracts.c.id == 1))
+            notes_migration["downgrade"]()
+            assert connection.scalar(sa.select(extracts.c.id)) == 1
             migration["downgrade"]()
             assert sa.inspect(connection).get_table_names() == ["users"]
     engine.dispose()

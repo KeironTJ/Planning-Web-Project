@@ -77,18 +77,33 @@ Viewing requires `view_planning`; capture and review also require
 1. Use **Save local VA05 extract and check** to preserve the currently imported
    `bskyVA05v1` observations. This does not fetch Epicor or run an importer.
 2. Inspect findings and their affected records. Switch between all records,
-   records with findings, and findings without review evidence.
-3. Record an outcome and supporting evidence. Later reviews append to the
+   records with findings, and findings without review evidence. Select a
+   finding type, or click an item in the visible findings summary, to focus
+   on that kind of issue. To see the job and assembly rows together, select
+   **View all rows for this release** on a saved row. Use **All saved rows**
+   to browse releases that don't have findings.
+3. Use the model name and its current Model Classification category as context
+   where captured. Verify whether the VA05 model identifies the individual
+   assembly; a category does not decide which work to count.
+4. Record an outcome and supporting evidence. Later reviews append to the
    history; they do not overwrite earlier decisions.
+5. Use **Comments / Notes** for observations about the whole extract. Notes
+   are timestamped, attributed to the author, and append-only. They do not
+   change the saved observations, hash, findings, or row decisions. Do not
+   include customer or personal details.
 
-Checks distinguish main/no-assembly quantities and values from subassemblies,
-flag repeated releases separately from conflicting main quantities/values,
-and report missing fields and date exceptions. Counts are affected records,
-not deduplicated units or money. The rule version and labels are saved with
-each extract.
+Checks distinguish main/no-assembly quantities and values from subassemblies
+and report conflicts, missing fields, and date exceptions. New captures
+do not flag a release simply because it has multiple rows. Earlier extracts
+retain their original findings and evidence; save a new extract to use the
+updated checks. The findings summary shows affected rows across the full
+extract, not units, money, or review progress. Rows can appear under multiple
+findings. The matching-record count reflects the selected filters.
 
-The extract retains selected keys, job/assembly links, dates, quantities,
-inventory UOM, release values, currency fields, and row import timestamps.
+New extracts retain selected keys, job/assembly links, model names, dates,
+quantities, inventory UOM, release values, currency fields, and row import
+timestamps. Older extracts without model names remain unchanged and show
+that the model was not captured.
 Customer names, personal fields, and operational free-text comments are not
 copied. Extraction parameters cannot be recovered from the current local table
 and are recorded as unverified, not guessed.
@@ -99,11 +114,28 @@ It survives operational refreshes. Stored decimal values retain their precision;
 missing values remain missing. Review evidence is audited and must not contain
 personal details.
 
+The category shown beside a saved model is the **current** assignment and can
+change after capture. It is not evidence of historical membership. Models
+are matched using the same trimmed, case-sensitive names and blank-name
+assignment as Model Classification. Category labels do not change checks,
+quantities, or forecast inclusion.
+
 Acceptance means a recorded judgement, **not training approval**. No review
 automatically corrects, excludes, deduplicates, or changes operational records.
 Controlled preparation, reconciliation, and dataset approval remain later steps.
-The configured application database holds saved extracts and evidence; there is
-no automatic expiry. Agree storage/retention policy before production capture.
+The configured application database holds saved extracts and evidence. Use
+separate development and production databases; a deployment does not carry
+development extracts or notes into production. Live imports update the local
+operational table, not existing saved extracts or their evidence.
+Extract references such as `DEV-12` and `LIVE-12` use the app environment
+recorded when the extract was saved. Earlier extracts with no recorded
+environment appear as `UNLABELLED`; their provenance is not inferred.
+
+Users with `manage_planning` can use **Delete entire saved extract** at the
+bottom of the review page. Confirmation deletes all saved rows for that
+extract, regardless of filters. Extracts with notes or row reviews are protected.
+Deletion is audited and does not change Epicor or operational data. There is
+no automatic expiry; agree a retention policy before production capture.
 
 ## Model Classification
 
@@ -139,8 +171,9 @@ flask --app wsgi db upgrade
 ```
 
 Migrations preserve model assignments and add separate extract, observation,
-and review-history tables. Apply them before opening Data Readiness. They do
-not capture operational records automatically.
+row review, and extract note tables. Apply them to the intended environment
+before opening Data Readiness. They do not capture operational records
+automatically.
 
 ## Documentation
 

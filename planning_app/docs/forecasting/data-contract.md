@@ -59,6 +59,19 @@ inclusion and grouping. Names are trimmed and case-sensitive. Blank, null, and
 whitespace-only names share one category assignment, which cannot identify
 their individual product types.
 
+In day-to-day planning, each subassembly is treated as a distinct line of
+work. The saved VA05 review showed this pattern: configured scatters appeared
+as separate assembly rows under the same sofa release. Scatters are one
+example of subassembly work, not the definition of a subassembly.
+
+Keep each distinct job/assembly line as production detail. For customer
+intake, a shared order/line/release key still represents one release: do not
+sum repeated release quantities or values across its assemblies. A shared
+release key alone is not evidence of duplicate assembly rows. Conflicting
+main-row quantities or values still need review. Verify whether VA05's model
+field identifies the individual assembly before using its category for
+allocation.
+
 ### Calendar and grouping
 
 Proposed output reporting uses Monday-start ISO weeks, identified by week-start
@@ -365,17 +378,24 @@ not historical training data. It reports record counts and quantity exceptions;
 categories do not yet filter or aggregate forecast targets. Saves and removals
 are audited; existing planning and revenue calculations are unchanged.
 
-Data Readiness summarizes local sales-order rows, repeated order/line/release
-keys, date and quantity exceptions, observed units/currencies, and import
+Data Readiness summarizes local sales-order rows, multi-row releases for
+context, date and quantity exceptions, observed units/currencies, and import
 timestamps. Saved VA05 reviews additionally retain whitelisted local
 observations, source limitations, a content hash, and versioned quality results.
 Capture does not call Epicor and cannot recover discarded raw duplicates,
 parse failures or extraction parameters.
 
 Saved checks use main/no-assembly rows for missing/nonpositive quantities and
-GBP values; repeated release keys are distinct from conflicting main-row
-quantities/values. Order-level received-date conflicts span releases.
+GBP values. From `va05-local-v2`, sharing a release key is not itself a
+finding; conflicting main-row quantities/values still are. Reviewers can
+open all saved rows for a release to compare jobs and assemblies without
+aggregating them. Earlier extracts retain their original checks and evidence.
+Order-level received-date conflicts span releases.
 Review outcomes append evidence without altering findings or source values.
+New saved reviews include the observed VA05 model and display its current
+classification for context; older reviews without a captured model are not
+backfilled from mutable operational data. These current labels are not
+historical assignments or forecast inclusion rules.
 These records support source investigation, not training approval or a
 reconstructible original-intake series. Original intake values, dated changes,
 and actual shipment detail remain unverified.

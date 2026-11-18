@@ -91,6 +91,7 @@ class DevelopmentConfig(BaseConfig):
     Set DATABASE_URL in .env to switch to PostgreSQL.
     """
 
+    APP_ENVIRONMENT: str = "development"
     DEBUG: bool = True
     SQLALCHEMY_DATABASE_URI: str = os.environ.get(
         "DATABASE_URL", "sqlite:///planning_dev.db"
@@ -107,6 +108,7 @@ class TestingConfig(BaseConfig):
     CSRF is disabled to allow form submission in tests.
     """
 
+    APP_ENVIRONMENT: str = "testing"
     TESTING: bool = True
     WTF_CSRF_ENABLED: bool = False
     SQLALCHEMY_DATABASE_URI: str = os.environ.get(
@@ -122,6 +124,7 @@ class TestingConfig(BaseConfig):
 class ProductionConfig(BaseConfig):
     """Production hardening."""
 
+    APP_ENVIRONMENT: str = "production"
     DEBUG: bool = False
     TESTING: bool = False
     SQLALCHEMY_DATABASE_URI: str = os.environ.get("DATABASE_URL", "")
