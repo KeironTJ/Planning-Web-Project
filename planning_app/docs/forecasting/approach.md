@@ -28,10 +28,13 @@ before final evaluation.
 
 ### 2. Prepare reliable history
 
-Link original intake, subsequent value/quantity changes, cancellations, and
-actual shipment events. Map keys, dates, UOM, values, and customer/category
-fields. Profile coverage and reconcile the movement from opening order book
-through intake and changes to shipments and closing order book.
+For Project 1, reconcile VA05 order counts, GBP values, and like-for-like
+quantities to the existing month-end intake report. Use the customer
+Epicor order date to assign intake to SOI reporting periods and treat the open
+month as provisional.
+For Project 2, link subsequent changes, cancellations, and actual shipments
+without counting changes already included in the intake figures. Reconcile
+movement from opening order book to closing order book.
 
 Save versioned datasets separately from operational tables, retaining source
 parameters, extraction details, mappings, quality results, and calculation
@@ -150,9 +153,9 @@ individual correction.
 
 Establish Project 1's intake dataset and first baseline:
 
-1. Use the existing VA05 source to investigate receipt dates, counts, values,
-   and quantities. Saved local observations and review evidence are available;
-   verify which values preserve original receipt rather than later changes.
+1. Confirm which date the upstream SOI extract uses to assign weeks and how
+   the report handles orders still open at close. Reconcile another closed
+   period before accepting VA05 as a historical intake source.
 2. Resolve UOM, valuation, duplicates, and usable historical coverage, recording
    decisions against saved findings before implementing preparation rules.
 3. Agree intake frequency/horizon and reconcile representative totals.
@@ -160,3 +163,24 @@ Establish Project 1's intake dataset and first baseline:
 
 Record amendment/cancellation and shipment-source requirements for Project 2
 alongside this work.
+
+### October 2026 SOI reconciliation
+
+The Week 45 SOI workbook (`Oct!E84`, `Dates`, and `Intake Report Data`)
+assigns October to reporting weeks 40-43 (5 October to 1 November).
+The 19 November local VA05 extract was 0.47% below the reported October total
+on that calendar, using customer order-received date and one GBP value per
+release. The workbook has no 2026 order-level rows or order counts to match.
+
+Weeks 41 and 42 showed offsetting differences. Bucketing the same VA05 source
+by Epicor order date reduced both weekly gaps. A provisional classification
+match using customer IDs from the workbook's 2025 comparators showed the
+same pattern for several large groups, but did not cover all 2026 releases.
+Project 1 uses Epicor order date for reported intake. Customer order-received
+date is retained separately. The date used by the upstream SOI extract
+remains unconfirmed.
+
+If a material month-end difference cannot be explained by the reporting rules,
+compare one amended order with its dated revision and VA05 at the same grain.
+Epicor Sales Order Change Log is a candidate source; its field coverage and
+retention are unverified. This check is not a prerequisite for Project 1.

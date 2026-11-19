@@ -2,19 +2,16 @@
 
 ## Purpose
 
-Define the sources, calculations, and quality checks for the forecasts.
-Source-review sections record observed findings; dataset fields and preparation
-rules describe the planned design.
-
-See the [overview](README.md) for scope and the [project approach](approach.md)
-for delivery and AI Level 7 report evidence.
+Defines forecast measures, source mappings, record grain, and data quality
+requirements. Proposed mappings and unresolved rules are not approved for use.
+The [project approach](approach.md) records investigation and delivery steps.
 
 ## 1. Forecast measures
 
 | Project / measure | Definition | Horizon |
 | --- | --- | --- |
-| Project 1: incoming orders | Number of new orders received | To be agreed to support output planning |
-| Project 1: intake value and volume | Value and verified quantity of new orders at receipt, before later amendments/cancellations | Same intake horizon |
+| Project 1: incoming orders | Distinct new orders assigned to the SOI reporting period by Epicor order date | To be agreed to support output planning |
+| Project 1: intake value and volume | Value and verified quantity of new orders on the business's month-end reporting basis, assigned to the SOI reporting period by Epicor order date | Same intake horizon |
 | Project 2: shipped output value | Value of goods actually shipped, assigned to actual shipment date | Next 12-16 weeks |
 | Project 2: shipped output volume | Verified quantity actually shipped, assigned to actual shipment date | Next 12-16 weeks |
 | Supporting: unit demand | Units due to ship, assigned to required ship-by date | Weekly planning view |
@@ -26,7 +23,13 @@ has been reported as available; usable coverage remains unverified.
 
 ### Intake to shipped output
 
-Keep original intake separate from later signed amendments and cancellations.
+The month-end intake report is the historical reference for Project 1.
+Open-month figures are provisional. A ship-date-only change affects expected
+output, not the intake month or amount. The treatment of orders open at close
+and any subsequent restatements is not yet confirmed.
+
+For Project 2, keep later amendments and cancellations separate from the
+intake basis. Do not apply a change again if it is already reflected in that basis.
 Link each shipment to its order/release and count its actual quantity and
 attributable value, including partial shipments. Volume must use verified UOM;
 do not combine furniture-unit counts with metres of fabric.
@@ -34,13 +37,8 @@ Finished goods awaiting shipment do not count as realised output.
 
 Reconcile opening outstanding value, new intake, amendments, cancellations,
 shipped value, and closing outstanding value under a consistent valuation
-basis. Reconcile quantities separately under consistent UOM. Rescheduling
-changes expected output timing, not raw intake.
-
-Confirm selling-price versus cost valuation, GBP conversion, VAT/discount/charge
-treatment, price changes, returns, and the reference reports/tolerances.
-Invoices may support reconciliation; net invoiced revenue is not the primary
-target.
+basis. Reconcile quantities separately by UOM. Net invoiced revenue is not a
+forecast measure.
 
 ### Supporting unit demand
 
@@ -48,29 +46,18 @@ Sum eligible quantities by current required ship-by week. This measures shipping
 volume, not labour or unfinished production; completed but unshipped goods still
 contribute.
 
-One-piece job planning informed the classification screen's count review.
-However, a release can contain several items and repeat across jobs and
-assemblies. The proposed dataset has one record per release, retaining
-job/assembly detail separately. The quantity basis and any allocation to
-eligible jobs need validation before weekly totals are built.
+A release can contain multiple units and appear on multiple job or assembly
+rows. The proposed grain for unit demand is one record per release.
 
 Model categories describe work content; each forecast configuration will decide
 inclusion and grouping. Names are trimmed and case-sensitive. Blank, null, and
 whitespace-only names share one category assignment, which cannot identify
 their individual product types.
 
-In day-to-day planning, each subassembly is treated as a distinct line of
-work. The saved VA05 review showed this pattern: configured scatters appeared
-as separate assembly rows under the same sofa release. Scatters are one
-example of subassembly work, not the definition of a subassembly.
-
-Keep each distinct job/assembly line as production detail. For customer
-intake, a shared order/line/release key still represents one release: do not
-sum repeated release quantities or values across its assemblies. A shared
-release key alone is not evidence of duplicate assembly rows. Conflicting
-main-row quantities or values still need review. Verify whether VA05's model
-field identifies the individual assembly before using its category for
-allocation.
+Job and assembly rows are production detail, not additional customer demand.
+Where VA05 supplies release quantities or values, count each consistent
+main/no-assembly observation once per release. Missing or conflicting main
+observations are exceptions; subassembly values cannot substitute for them.
 
 ### Calendar and grouping
 
@@ -87,30 +74,37 @@ of historical membership.
 
 | Source | Role |
 | --- | --- |
-| Original order intake and change history, source to establish | Receipt quantities/values and dated amendments/cancellations |
+| Month-end intake report, source/export to confirm | Reference for Project 1 historical totals and inclusion rules |
+| Order change history, source to establish if needed | Dated amendments/cancellations for Project 2 or unexplained intake differences |
 | Shipment history, source to establish | Actual shipment dates, output quantities, and value |
-| `bskyVA05v1`, selected intake-investigation and sales-order source | Observed release state, receipt dates, values, customers, and model links; original receipt quantities/values still need verification |
+| `bskyVA05v1`, selected intake-investigation and sales-order source | Observed release state, receipt dates, values, customers, and model links; reconcile to month-end intake before relying on it for history |
 | `bskyCOOISv3` | Supporting job/assembly and production context |
 
 COOIS quantities are not additional demand to add to sales releases.
-The reviewed sales-order data does not yet establish original intake quantities
-and values, change history, or dated shipment quantities and values.
+VA05 does not supply a verified month-end snapshot, change history, or dated
+shipment detail.
 
 ### A. Intake, changes, and shipments
 
-**Business-confirmed intake date:** `OrderHed_OrderReceivedDate_c`, when the
-customer order was received. It maps through `SalesOrder.order_received_date`
-to `intake_received_date`. `OrderHed_OrderDate` is not the selected intake date.
+**Project 1 reporting date:** `OrderHed_OrderDate` maps through
+`SalesOrder.order_date` to `intake_reporting_date`. This date assigns orders to
+SOI reporting weeks and months. The upstream SOI extract's date field remains
+unverified.
 
-**Proposed grains:** original order-line receipt; subsequent change event;
-shipment detail. Preserve order/line/release links where available and
-a unique event or shipment-line key.
+**Customer receipt date:** `OrderHed_OrderReceivedDate_c` maps through
+`SalesOrder.order_received_date` to `intake_received_date`. It records when
+the customer order arrived and does not assign the Project 1 reporting period.
+
+**Proposed grains:** reported intake at order-line or release grain, as supported
+by the source; subsequent change event; shipment detail. Preserve
+order/line/release links where available and a unique event or shipment-line key.
 
 | Dataset fields | Use |
 | --- | --- |
 | `order_num`, `order_line`, `release_num` | Link intake, changes, and output |
-| `intake_received_date`, `original_intake_value_gbp` | Raw intake timing and value |
-| `original_intake_qty`, `amendment_qty`, `cancelled_qty`, `quantity_uom` | Raw intake and quantity changes in verified units |
+| `intake_reporting_date`, `intake_value_gbp` | SOI period assignment and value on the month-end reporting basis |
+| `intake_received_date` | Customer receipt date, retained separately |
+| `intake_qty`, `amendment_qty`, `cancelled_qty`, `quantity_uom` | Reported intake and quantity changes in verified units |
 | `event_id`, `event_type`, `effective_at`, `available_at` | Identify changes and when they were known |
 | `amendment_value_gbp`, `cancelled_value_gbp` | Signed amendments and cancelled value under agreed rules |
 | `shipment_id`, `shipment_line_id`, `actual_ship_date` | Identify output events and periods |
@@ -119,20 +113,21 @@ a unique event or shipment-line key.
 | `currency`, `valuation_basis`, `conversion_rate` | Reconcile values consistently |
 
 Release schedules must not duplicate order-line intake. A current value already
-net of changes must not have those changes deducted again. Original values and
-event history need a verified source; current snapshots cannot supply them by
-assumption. If unavailable, agree a narrower reconstructible intake measure.
+net of changes must not have those changes deducted again. A current VA05
+snapshot is not a month-end snapshot; use it for historical intake only once
+reconciled to the reporting basis.
 Order counts use distinct order numbers, not line or release counts.
 
 Current candidate mappings:
 
 | Source field | Intake use / remaining check |
 | --- | --- |
+| `OrderHed_OrderDate` | Selected date for Project 1 SOI reporting periods |
 | `OrderHed_OrderReceivedDate_c` | Confirmed customer order receipt date; date exceptions still need review |
 | `Calculated_ReleasePrice` | Supplied query allocates `(DocExtPriceDtl - DocDiscount) / OrderQty * OurReqQty` to main/no-assembly rows, returning zero for zero `OrderQty`: a release value, not a unit price; discount and quantity bases need verification |
-| `Calculated_ReleasePriceGBP` | Supplied query divides release value by header exchange rate; verify conversion and whether values preserve original intake |
+| `Calculated_ReleasePriceGBP` | Supplied query divides release value by header exchange rate; verify conversion and reconcile allocated release values to the month-end report |
 
-### B. Order-release history
+### B. Order-release observations
 
 **Selected BAQ:** `bskyVA05v1`.
 **Proposed grain/key:** one release, identified by order, line, and release number.
@@ -153,9 +148,8 @@ shipment date determines realised output value and volume.
 | `fulfilled_qty`, `hold_status` | Fulfilment and release context |
 | `created_at`, `source_modified_at`, `available_at` | Historical availability, where supplied |
 
-Map UOM to each quantity explicitly; the imported `OrderDtl_IUM` alone does not
-establish selling or release-quantity units. Confirm part-specific conversions
-and whether fulfilment fields describe shipment or production.
+Each quantity requires a verified UOM. `OrderDtl_IUM` is inventory UOM and does
+not establish selling or release-quantity units.
 
 #### BAQ expression and join review
 
@@ -174,18 +168,13 @@ jobs. The live response differs on subassemblies, as recorded below.
 
 | Query finding | Consequence |
 | --- | --- |
-| `Calculated_SellingQty` returns `SellingReqQty` on main/no-assembly rows | Check UOM before equating it with release quantity |
+| `Calculated_SellingQty` returns `SellingReqQty` on main/no-assembly rows | Selling and release quantities are not established as equivalent |
 | `Calculated_ShippedQty` adds `OurJobShippedQty` and `OurStockShippedQty` when job-shipped quantity is non-null, on main/no-assembly rows | Shipment is a separate measure |
 | Releases join `JobProd`, jobs, and assemblies | Full release quantity can repeat across jobs |
-| `PartWip` and customer/channel joins may multiply rows | Raw join uniqueness needs checking |
-| Customer joins through `OrderHed.BTCustNum` | Confirm bill-to is the intended customer perspective |
+| `PartWip` and customer/channel joins may multiply rows | BAQ rows are not guaranteed unique per release |
+| Customer joins through `OrderHed.BTCustNum` | VA05 customer attribution is bill-to |
 | Date filters use `OrderHed.OrderDate` | An order-date window does not prove complete ship-by-week coverage |
 | Open/closed filters use `OrderHed.OpenOrder`; release-open and line-void flags are selected, not filtered | Header status alone cannot determine release eligibility |
-
-At release grain, retain one consistent quantity, flag conflicts rather than
-picking the first row, and keep model/assembly detail separately. Mixed-model
-releases need explicit category allocation. Include fulfilled history and
-identify cancellations so the agreed rule can be applied.
 
 ### C. COOIS job/release data
 
@@ -201,10 +190,6 @@ identify cancellations so the agreed rule can be applied.
 | `JobHead_QtyCompleted`, `Calculated_ShippedQty01` | Completion and shipment |
 | `JobHead_ProdPlnWk_c`, `JobHead_ReqDueDate`, `JobHead_StartDate` | Production scheduling |
 | `OrderRel_ReqDate`, `OrderHed_OrderReceivedDate_c` | Release requested and order-received dates |
-
-Verify historical coverage, status filters, UOM, delivery-date
-mapping, and allocations where jobs serve multiple releases. Aggregate before
-joining operations or assemblies to avoid multiplying demand.
 
 ### Source review: findings from the application code
 
@@ -265,8 +250,8 @@ but 10,968 differ from order date. Received dates range from 2002-03-31 to
 2045-10-21, so presence alone does not establish a usable intake date.
 Main-row release/GBP values are populated, but 8,874 rows have nonpositive
 values and one release has conflicting main-row GBP values. Main rows include
-67,585 GBP and 1,839 EUR currency records. These checks do not establish original
-receipt values or explain subsequent amendments.
+67,585 GBP and 1,839 EUR currency records. No comparison to month-end report
+totals was made.
 
 #### Fresh BAQ response check
 
@@ -294,8 +279,22 @@ The difference from the supplied expression therefore occurs in the current
 response too; its cause remains unexplained.
 
 No multi-job or numerically partially shipped release appeared in this window.
-Those cases need targeted fresh checks. This sample does not establish full
-history, cancellation rules, quantity units, or reconciled totals.
+The sample does not establish full history, cancellation rules, quantity units,
+or reconciled totals.
+
+#### Development capture comparison (19 November 2026)
+
+A read-only comparison of four saved development captures from 18 November
+(latest `DEV-4`, `va05-local-v2`) found the same 97,272 observations across all
+four for the compared keys, quantities, values, inventory UOM, currency, rate,
+and import time. The default development sales-order table and the 2 October
+local backup also matched on the compared fields, including selling quantity.
+The newest sales-order import timestamp in that file was 2 October. These
+copies did not yield a before/after amendment or a receipt baseline; this does
+not show that the underlying Epicor orders were unchanged.
+
+Original PO values and amendment history are not required for the Project 1
+month-end measure.
 
 ## 3. Dataset preparation and quality
 
@@ -308,7 +307,7 @@ pagination, and check ordering/consistency across pages.
 | Missing keys, dates, values, or parse failures | Report explicitly; do not convert missing quantities or money to zero |
 | Duplicate keys | Separate consistent repeats from conflicts |
 | Quantity grain, UOM, and model allocation | Preserve eligible unit totals across joins |
-| Intake/change/shipment links and values | Preserve original intake, count changes once, and allocate partial shipments |
+| Intake/change/shipment links and values | Reconcile intake to month-end totals, count changes once, and allocate partial shipments |
 | Currency and valuation | Keep intake, outstanding orders, and output comparable |
 | Customer mapping | Retain unassigned customers in totals |
 | Coverage and partial periods | Distinguish gaps from genuine zero activity |
@@ -329,47 +328,20 @@ details and free-text comments from the forecasting extract. Credentials and
 raw company data stay outside source control; storage and retention must follow
 company policy.
 
-## 4. Historical evaluation
+## 4. Historical availability and unresolved mappings
 
-Use time-based evaluation, fitting preprocessing on training data only.
-Keep amendments, cancellations, and shipments after a forecast cutoff out of
-its input features. They are later outcomes, not information available at
-prediction time. Record business dates and availability separately.
+Business dates and availability timestamps are separate fields. An observation
+can be used as a forecast input only when it was available by the forecast
+cutoff. Current order-book rows do not establish prior open-order balances.
 
-Features such as "units already booked at the forecast date" require historical
-snapshots or change events. Today's order book cannot reconstruct those states.
-Simple target-series baselines can proceed without order-book features.
-Evaluate Project 1's intake counts, value, and volume before using its forecasts
-in Project 2.
-Use actual observed intake to study conversion, but forecast intake when testing
-the end-to-end future workflow; report those two evaluations separately.
-
-## 5. Later data extensions
-
-- **Richer production features:** completion and capacity data may help explain
-  shipment timing once the intake-to-output baseline is established.
-- **Detailed lead-time prediction:** shipment timing is part of the core flow;
-  a separate job/customer-level lead-time tool remains an extension. Treat open
-  orders as incomplete observations, not zero lead time.
-- **Historical customer groups:** effective-dated membership would support
-  historical grouping; the initial saved current mapping provides today's
-  grouping of past demand.
-
-## 6. Outstanding source decisions
-
-1. Explain zero versus null subassembly quantities in the deployed response.
-2. Obtain fresh multi-job, partial-shipment, and conflicting-quantity examples.
-3. Confirm quantity UOM/conversions, category allocation, and cancellation rules.
-4. Confirm bill-to attribution and delivery/original-date meanings.
-5. Verify usable coverage and reconcile totals; check COOIS links without
-   multiplying release demand.
-6. Identify original intake and dated change/shipment sources; agree valuation
-   and how cancellations, returns, and price changes affect the flow.
-7. Agree calendar, reference reports, tolerances, storage, and retention.
-
-Record each resolution with its evidence and date or dataset version. Version
-changes to calculations, inclusion rules, and group mappings with affected
-datasets.
+| Area | Unresolved |
+| --- | --- |
+| Project 1 reference | Month-end report/export, historical coverage, orders open at close, cancellations, restatements, and reconciliation tolerances |
+| Quantity | Selling/release UOM and conversion, fulfilment field definitions, and mixed-model allocation |
+| Valuation | Selling-price versus cost basis, FX, VAT, discounts, charges, and returns |
+| Attribution and dates | Bill-to attribution, delivery and original-date meanings, calendar versus fiscal periods |
+| Project 2 sources | Dated amendment, cancellation and shipment data |
+| Governance | Forecast dataset storage and retention |
 
 ## Current implementation
 
@@ -397,8 +369,8 @@ classification for context; older reviews without a captured model are not
 backfilled from mutable operational data. These current labels are not
 historical assignments or forecast inclusion rules.
 These records support source investigation, not training approval or a
-reconstructible original-intake series. Original intake values, dated changes,
-and actual shipment detail remain unverified.
+reconciled month-end intake series. Dated changes and actual shipment detail
+remain unverified.
 
 See the [usage and setup guide](README.md#data-readiness) for permissions,
 capture/review behaviour, storage limitations, and migration instructions.

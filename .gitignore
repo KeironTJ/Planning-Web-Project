@@ -38,6 +38,9 @@ MANIFEST
 *.sqlite
 *.sqlite3
 
+# Local forecasting reconciliation workbooks
+/planning_app/data/Tetrad Weekly SOI *.xlsx
+
 # ── Flask / Werkzeug ──────────────────────────────────────────────────────────
 instance/
 .webassets-cache

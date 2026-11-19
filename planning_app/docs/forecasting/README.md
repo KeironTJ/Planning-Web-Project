@@ -15,8 +15,10 @@ operational output, accounting for amendments, cancellations, and shipment timin
 | 1. AI intake forecasting | Incoming orders, value, and volume | To be agreed to support output planning |
 | 2. Intake-to-output conversion | Actual shipped value and volume | Next 12-16 weeks |
 
-The relationship is **raw intake -> amendments/cancellations and shipment
-timing -> shipped output**. Existing outstanding orders also contribute to
+The relationship is **reported intake -> later amendments/cancellations and
+shipment timing -> shipped output**. Project 1 uses the business's month-end
+reporting basis and assigns intake to SOI periods by Epicor order date. Existing
+outstanding orders also contribute to
 future output. Shipment date, not invoice date or production completion,
 determines when output occurs; the valuation basis still needs agreement.
 Finished goods awaiting shipment do not count as output until they ship.
@@ -61,7 +63,8 @@ quantities, mixed UOM, and date exceptions. Historical demand cannot be inferred
 from snapshot record counts alone.
 
 **Next:** establish Project 1's historical intake dataset and first baseline.
-Confirm original receipt dates, order counts, quantities/values, UOM, and coverage.
+Reconcile VA05 order counts, values, and quantities in verified UOM to the
+month-end intake report before establishing historical coverage.
 Project 2 will also need amendment/cancellation history and dated shipments.
 Saved quality reviews preserve observed local values, not verified historical
 intake or an approved training dataset.
