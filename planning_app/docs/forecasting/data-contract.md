@@ -33,6 +33,12 @@ and any manual reporting adjustments. A refreshed VA05 extract alone is not
 equivalent to published SOI, even when the reporting dates and financial
 calendar match.
 
+The first weekly GBP baseline excludes releases whose VA05 line is marked
+void at extraction. The source rows are retained and their excluded value
+is reported separately. Missing or conflicting void flags are exceptions,
+not assumed to be non-void. This rule describes the current extract, not
+the order's status at the time it was booked.
+
 For Project 2, keep later amendments and cancellations separate from the
 intake basis. Do not apply a change again if it is already reflected in that basis.
 Link each shipment to its order/release and count its actual quantity and

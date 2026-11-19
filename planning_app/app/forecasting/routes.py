@@ -33,6 +33,7 @@ from .services import (
     save_model_classifications,
     save_model_classification_updates,
 )
+from .weekly_intake import CALENDAR, REQUIRED_FIELDS, RULES, explore_weekly_intake
 
 
 @forecasting_bp.route("/")
@@ -143,6 +144,37 @@ def data_extract(extract_id: int):
         notes=notes,
         can_manage=can_manage,
         can_delete=can_manage and not notes and not extract_has_reviews(extract.id),
+    )
+
+
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/weekly-intake")
+@login_required
+@permission_required("view_planning")
+def weekly_intake(extract_id: int):
+    """Render the weekly net GBP exploration for a single saved extract."""
+    extract = ForecastDataExtract.query.get_or_404(extract_id)
+    profile = None
+    if REQUIRED_FIELDS.issubset(extract.source_settings.get("fields", ())):
+        records = ForecastDataRecord.query.with_entities(ForecastDataRecord.data)
+        records = records.filter_by(extract_id=extract.id).yield_per(500)
+        profile = explore_weekly_intake(
+            (data for (data,) in records), extract.captured_at.date(),
+        )
+    chart_scale = None
+    if profile is not None:
+        magnitudes = [
+            abs(week.net_gbp) for week in profile.weeks if week.net_gbp is not None
+        ]
+        if magnitudes:
+            chart_scale = max(magnitudes) or 1
+    return render_template(
+        "forecasting/weekly_intake.html",
+        title=f"Explore weekly intake {extract.reference}",
+        extract=extract,
+        profile=profile,
+        calendar=CALENDAR,
+        rules=RULES,
+        chart_scale=chart_scale,
     )
 
 

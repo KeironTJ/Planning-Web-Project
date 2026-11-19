@@ -1,7 +1,7 @@
 import hashlib
 import json
 import runpy
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,6 +31,7 @@ from app.forecasting.services import (
     save_model_classification,
     save_model_classification_updates,
 )
+from app.forecasting.weekly_intake import explore_weekly_intake
 from app.sales.orders.models import SalesOrder
 
 from .conftest import login
@@ -59,6 +60,72 @@ def add_source(session, **overrides):
     session.add(row)
     session.commit()
     return row
+
+
+def test_weekly_intake_matches_release_grain_and_flags_gaps():
+    row = {
+        "order_num": 12, "order_line": 1, "rel_num": 1, "assembly_seq": 0,
+        "order_date": "2026-01-05", "release_price_gbp": "100", "void_line": False,
+    }
+    profile = explore_weekly_intake(
+        [
+            row, {**row, "job_num": "other-job"},
+            {**row, "assembly_seq": 1, "release_price_gbp": "500"},
+            {**row, "rel_num": 2, "release_price_gbp": "40", "void_line": True},
+            {**row, "rel_num": 3, "void_line": None},
+            {**row, "rel_num": 4}, {**row, "rel_num": 4, "release_price_gbp": "99"},
+            {**row, "rel_num": 5, "order_date": "2026-01-19", "release_price_gbp": "0"},
+            {**row, "rel_num": 6, "order_date": "2026-01-25"},
+            {**row, "rel_num": 7, "order_date": "2025-12-29"},
+        ],
+        date(2026, 1, 21),
+    )
+    first, gap, partial = profile.weeks
+    assert (first.net_gbp, first.void_gbp) == (Decimal("100"), Decimal("40"))
+    assert (first.releases, first.included, first.voided, first.exceptions) == (4, 1, 1, 2)
+    assert gap.net_gbp is None and not gap.partial
+    assert partial.net_gbp == 0 and partial.partial
+    assert profile.outside_calendar == 1
+    assert profile.issues == {
+        "Releases with missing or conflicting GBP": 1,
+        "Releases with missing or conflicting void flags": 1,
+        "Releases dated after the capture": 1,
+    }
+
+
+def test_weekly_intake_page_reads_saved_capture_and_handles_legacy_extract(
+    db_session, client, planner_user, viewer_user,
+):
+    source = add_source(db_session, order_date=date(2026, 12, 21), void_line=False)
+    extract = save_va05_extract(planner_user.id)
+    legacy = save_va05_extract(planner_user.id)
+    for saved in (extract, legacy):
+        saved.captured_at = datetime(2026, 12, 22, tzinfo=timezone.utc)
+    legacy.source_settings = {
+        **legacy.source_settings,
+        "fields": [field for field in legacy.source_settings["fields"] if field != "void_line"],
+    }
+    source.release_price_gbp = Decimal("999")
+    source.void_line = True
+    db_session.commit()
+    path = f"{PAGE}/extracts/{extract.id}/weekly-intake"
+    assert client.get(path).status_code == 302
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    response = client.get(path)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "SOI 2026" in html
+    assert "120.00 GBP" in html
+    assert "999.00" not in html
+    assert "Partial week" in html and "Possible shutdown" in html
+    assert "No usable observations" in html
+    assert client.get(f"{PAGE}/extracts/{extract.id}").get_data(as_text=True).count(
+        path,
+    ) == 1
+    unavailable = client.get(f"{PAGE}/extracts/{legacy.id}/weekly-intake")
+    assert unavailable.status_code == 200
+    assert "including the void flag" in unavailable.get_data(as_text=True)
+    assert "120.00 GBP" not in unavailable.get_data(as_text=True)
 
 
 def test_extract_is_reproducible_and_survives_operational_refresh(

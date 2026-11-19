@@ -177,6 +177,28 @@ and compare representative periods with SOI. Separate known reporting
 adjustments from unexplained differences. The resulting history reflects
 VA05 values at extraction, not what the order book showed at each close.
 
+Use the net VA05 view for the GBP baseline: exclude lines marked void at
+extraction and report their value separately. In the 45 completed 2026
+weeks checked, voided lines accounted for 4.54% of stored release value,
+with a maximum weekly impact of 15.08%.
+
+The weekly intake view was checked against independent read-only SQL for
+financial week 40 (5-11 October) using development capture `DEV-6`
+(19 November 2026, `va05-local-v3`, `weekly-net-gbp-v1`). The rendered chart
+and table matched the SQL check on release counts, net GBP and voided GBP:
+616 included releases, 40 excluded as void, and no exceptions. This checks
+one completed week against the local source, not historical completeness.
+
+The Christmas shutdown is part of the trading calendar. Mark the confirmed
+shutdown weeks in the history and retain any orders recorded during them.
+Check year-end gaps against each year's shutdown dates before treating a
+week with no records as zero intake. The three year-end gaps in local VA05
+contain receipt-dated orders but no orders dated in those weeks. Nearly all
+of those receipts have January order dates. This is consistent with the
+shutdown affecting order entry, but the exact historical closure dates
+are not verified. Keep those weeks separate from confirmed zero-intake
+weeks.
+
 Build the first dataset once coverage and valuation are understood. Explore
 the resulting series and test a simple baseline. Add volume once the quantity
 basis and UOM are verified. Project 2 needs dated change and shipment

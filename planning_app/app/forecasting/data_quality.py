@@ -24,7 +24,7 @@ from .models import (
 )
 
 
-RULES_VERSION = "va05-local-v2"
+RULES_VERSION = "va05-local-v3"
 RULES = {
     "missing_main": "Release has no main/no-assembly row",
     "conflicting_qty": (
@@ -65,6 +65,7 @@ SNAPSHOT_FIELDS = (
     "ium",
     "currency_code",
     "exchange_rate",
+    "void_line",
     "imported_at",
 )
 

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap align-items-center gap-2 pt-2 pb-1 mb-3 border-bottom">
+  <h1 class="h3 mb-0">{{ title }}</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">Back to saved extract</a>
+</div>
+{% endblock %}
+{% block content %}
+<div class="container-fluid pb-3">
+  <p>
+    Captured {{ extract.captured_at | utcfmt('datetime-year') }} |
+    Extract rules: {{ extract.rules_version }} |
+    Calendar: {{ calendar }} |
+    Analysis rules: {{ rules }}
+  </p>
+  {% if profile is none %}
+  <div class="alert alert-warning">Weekly net GBP is unavailable for this extract because it does not contain all required fields, including the void flag. Use a newer saved extract; live values are never used to fill the gap.</div>
+  {% elif not profile.weeks %}
+  <div class="alert alert-warning">This capture predates the supported financial calendar.</div>
+  {% else %}
+  <p class="text-muted">
+    One consistent main observation per release, assigned by Epicor order date.
+    Void lines are excluded from net GBP. Weeks without usable observations are not plotted as zero.
+    The capture week is partial. Figures describe this extract, not a month-end snapshot or an approved training dataset.
+  </p>
+  <section class="card mb-3" aria-labelledby="weekly-net-heading">
+    <div class="card-body">
+      <h2 class="h5" id="weekly-net-heading">Weekly net GBP</h2>
+      {% if chart_scale %}
+      <svg class="w-100" viewBox="0 0 520 126" role="img" aria-labelledby="weekly-chart-title weekly-chart-desc">
+        <title id="weekly-chart-title">Net GBP by financial week</title>
+        <desc id="weekly-chart-desc">Bars show weekly totals. A dot means zero; a gap means no usable data. See the table below for values and flags.</desc>
+        <path d="M0 58H520" stroke="currentColor" opacity=".3"/>
+        {% for week in profile.weeks if week.net_gbp is not none %}
+          {% set x = (week.number - 1) * 10 %}
+          {% set height = ((week.net_gbp | abs) / chart_scale * 52) | float %}
+          {% if week.net_gbp == 0 %}
+          <circle cx="{{ x + 5 }}" cy="58" r="2" fill="currentColor"/>
+          {% else %}
+          <rect x="{{ x + 1 }}" y="{{ 58 - height if week.net_gbp > 0 else 58 }}" width="8" height="{{ height }}"
+                fill="currentColor" opacity="{{ '.45' if week.partial or week.exceptions else '.9' }}">
+            <title>Week {{ week.number }}: {{ '{:,.2f}'.format(week.net_gbp) }} GBP</title>
+          </rect>
+          {% endif %}
+        {% endfor %}
+      </svg>
+      {% else %}
+      <p class="mb-0">No usable weekly GBP values to plot.</p>
+      {% endif %}
+    </div>
+  </section>
+  <section class="mb-3" aria-labelledby="coverage-heading">
+    <h2 class="h5" id="coverage-heading">Coverage and exclusions</h2>
+    <p>{{ profile.outside_calendar }} dated releases outside the supported calendar.</p>
+    {% if profile.issues %}
+    <ul>
+      {% for label, count in profile.issues | dictsort %}
+      <li>{{ label }}: {{ count }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <div class="table-responsive">
+      <table class="table table-sm table-striped align-middle">
+        <caption>Release counts and GBP values by financial week</caption>
+        <thead><tr>
+          <th scope="col">Week</th><th scope="col">Dates</th><th scope="col">Coverage</th>
+          <th scope="col" class="text-end">Releases</th><th scope="col" class="text-end">Included</th>
+          <th scope="col" class="text-end">Voided</th><th scope="col" class="text-end">Exceptions</th>
+          <th scope="col" class="text-end">Net GBP</th><th scope="col" class="text-end">Void GBP excluded</th>
+        </tr></thead>
+        <tbody>
+          {% for week in profile.weeks %}
+          <tr>
+            <th scope="row">{{ week.number }}</th><td>{{ week.start }} to {{ week.end }}</td>
+            <td>
+              {% if week.partial %}<div>Partial week</div>{% endif %}
+              {% if week.possible_shutdown %}<div>Possible shutdown</div>{% endif %}
+              {% if week.net_gbp is none %}<div>No usable observations</div>
+              {% elif week.exceptions %}<div>Incomplete: exceptions excluded</div>
+              {% elif not week.partial and not week.possible_shutdown %}Observed{% endif %}
+            </td>
+            <td class="text-end">{{ week.releases }}</td><td class="text-end">{{ week.included }}</td>
+            <td class="text-end">{{ week.voided }}</td><td class="text-end">{{ week.exceptions }}</td>
+            <td class="text-end">{{ '{:,.2f}'.format(week.net_gbp) if week.net_gbp is not none else 'Unavailable' }}</td>
+            <td class="text-end">{{ '{:,.2f}'.format(week.void_gbp) if week.net_gbp is not none else 'Unavailable' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

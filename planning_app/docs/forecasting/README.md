@@ -94,6 +94,12 @@ Viewing requires `view_planning`; capture and review also require
    are timestamped, attributed to the author, and append-only. They do not
    change the saved observations, hash, findings, or row decisions. Do not
    include customer or personal details.
+6. Open **Explore weekly intake** from a saved extract. The chart and table
+   use the verified 2026 SOI calendar, show one consistent main value per
+   release, and report void GBP separately from net GBP. Partial weeks,
+   possible Christmas shutdown weeks, and unavailable values are labelled.
+   Extracts without the captured void field cannot run this analysis.
+   The view does not fetch Epicor, read live order values, or save a dataset.
 
 Checks distinguish main/no-assembly quantities and values from subassemblies
 and report conflicts, missing fields, and date exceptions. New captures
