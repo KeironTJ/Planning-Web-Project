@@ -2,68 +2,84 @@
 {% block title %}{{ title }}{% endblock %}
 
 {% block page_header %}
-<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-2 pb-1 mb-2 border-bottom">
+<div class="d-flex justify-content-between flex-wrap gap-2 align-items-center pt-2 pb-2 mb-3 border-bottom">
   <h1 class="h3 mb-0">{{ title }}</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.dashboard') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> AI Tools workflow</a>
 </div>
 {% endblock %}
 
 {% block content %}
 <div class="container-fluid pt-0 pb-3">
-  <div class="alert alert-warning" role="status">
-    <strong>Not ready for training.</strong>
-    These checks describe the mutable local sales-order table, not a versioned historical dataset.
-    No forecasting baseline has been created.
-  </div>
-
-  <p class="text-muted">
-    The current table is sourced from <code>bskyVA05v1</code>. Counts below are diagnostic
-    signals only: they do not prove complete coverage, source uniqueness, or historical
-    intake and shipment behaviour.
-  </p>
-
-  <section class="card mb-4" aria-labelledby="saved-extracts">
+  <section class="card border-primary mb-4" aria-labelledby="readiness-guide">
     <div class="card-body p-4">
-      <h2 id="saved-extracts" class="h5 fw-semibold">Saved VA05 quality reviews</h2>
-      <p class="small text-muted">
-        Save the locally retained VA05 values and repeatable check results before reviewing
-        individual records. This does not fetch Epicor, change source rows, or approve training data.
-        Original receipt values remain unverified.
-      </p>
+      <p class="text-primary text-uppercase fw-semibold small mb-1">Project 1 &middot; Step 1 of 5</p>
+      <h2 id="readiness-guide" class="h4">Choose the data you want to explore</h2>
+      <p>Use a saved VA05 extract for repeatable analysis. Use the live checks to diagnose the current import, not to infer historical intake.</p>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-primary" href="#saved-extracts"><i class="bi bi-archive" aria-hidden="true"></i> Browse saved extracts</a>
+        <a class="btn btn-outline-secondary" href="#snapshot-summary"><i class="bi bi-activity" aria-hidden="true"></i> View live checks</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-4" aria-labelledby="saved-extracts">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+      <div>
+        <h2 id="saved-extracts" class="h5 fw-semibold">Saved VA05 extracts</h2>
+        <p class="small text-muted mb-0">Open EDA for a saved extract, or review the individual records that were flagged.</p>
+      </div>
       {% if can_manage %}
-      <form method="post" action="{{ url_for('forecasting.data_extract_capture') }}" class="mb-3">
+      <form method="post" action="{{ url_for('forecasting.data_extract_capture') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn btn-primary">Save local VA05 extract and check</button>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Save local VA05 extract and check</button>
       </form>
-      {% else %}
-      <p class="small text-muted">Read-only access. A planning manager can save extracts and review findings.</p>
-      {% endif %}
-      <ul class="list-group list-group-flush">
-        {% for extract in extracts.items %}
-        <li class="list-group-item px-0 d-flex flex-wrap justify-content-between gap-2">
-          <a href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">
-            Extract {{ extract.reference }} - {{ extract.captured_at | utcfmt('datetime-year') }}
-          </a>
-          <span class="small text-muted">
-            {{ extract.row_count }} rows; {{ extract.summary.flagged_rows }} rows with findings
-          </span>
-        </li>
-        {% else %}
-        <li class="list-group-item px-0 text-muted">No saved quality reviews yet.</li>
-        {% endfor %}
-      </ul>
-      {% if extracts.pages > 1 %}
-      <nav class="d-flex justify-content-between mt-3" aria-label="Saved extract pages">
-        <span>{% if extracts.has_prev %}<a href="{{ url_for('forecasting.data_readiness', page=extracts.prev_num) }}">Previous</a>{% endif %}</span>
-        <span>Page {{ extracts.page }} of {{ extracts.pages }}</span>
-        <span>{% if extracts.has_next %}<a href="{{ url_for('forecasting.data_readiness', page=extracts.next_num) }}">Next</a>{% endif %}</span>
-      </nav>
       {% endif %}
     </div>
+    {% if can_manage %}
+    <p class="small text-muted">Saving copies the current local import and runs checks. It does not fetch Epicor or change source rows.</p>
+    {% else %}
+    <p class="small text-muted">Read-only access. A planning manager can save extracts.</p>
+    {% endif %}
+    {% if extracts.items %}
+    <ul class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3 list-unstyled" role="list">
+        {% for extract in extracts.items %}
+        {% set latest = extracts.page == 1 and loop.first %}
+        <li class="col">
+          <article class="card ai-nav-card position-relative h-100 {% if latest %}border-primary{% endif %}">
+            <div class="card-body">
+              <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
+                <h3 class="h6 mb-0">Extract {{ extract.reference }}</h3>
+                {% if latest %}<span class="badge text-bg-primary">Latest capture</span>{% endif %}
+              </div>
+              <p class="small text-muted">{{ extract.captured_at | utcfmt('datetime-year') }}</p>
+              <p class="small mb-0"><strong>{{ '{:,}'.format(extract.row_count) }}</strong> rows &middot;
+                <strong>{{ '{:,}'.format(extract.summary.flagged_rows) }}</strong> rows with findings</p>
+            </div>
+            <div class="card-footer bg-transparent d-flex flex-wrap justify-content-between gap-2 align-items-center">
+              <a class="stretched-link fw-semibold" href="{{ url_for('forecasting.eda', extract_id=extract.id) }}" aria-label="Explore EDA for {{ extract.reference }}">Explore EDA <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+              <a class="btn btn-sm btn-outline-secondary position-relative z-1" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}" aria-label="Review findings for {{ extract.reference }}">Review findings</a>
+            </div>
+          </article>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div class="card"><div class="card-body text-muted">No saved extracts yet. {% if can_manage %}Save the local import above to get started.{% else %}Ask a planning manager to save the local import.{% endif %}</div></div>
+    {% endif %}
+    {% if extracts.pages > 1 %}
+    <nav class="d-flex justify-content-between align-items-center mt-3" aria-label="Saved extract pages">
+      <span>{% if extracts.has_prev %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_readiness', page=extracts.prev_num, _anchor='saved-extracts') }}">Previous</a>{% endif %}</span>
+      <span class="small text-muted">Page {{ extracts.page }} of {{ extracts.pages }}</span>
+      <span>{% if extracts.has_next %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_readiness', page=extracts.next_num, _anchor='saved-extracts') }}">Next</a>{% endif %}</span>
+    </nav>
+    {% endif %}
   </section>
 
   <section class="card border-0 shadow-sm mb-4" aria-labelledby="snapshot-summary">
     <div class="card-body p-4">
-      <h2 id="snapshot-summary" class="h5 fw-semibold">Current local sales-order data</h2>
+      <p class="text-primary text-uppercase fw-semibold small mb-1">Live source checks</p>
+      <h2 id="snapshot-summary" class="h5 fw-semibold">Current VA05 import</h2>
+      <p class="small text-muted mb-2">These counts describe the mutable local sales-order table (<code>bskyVA05v1</code>), not a saved extract or a training-readiness verdict.</p>
       <div class="row g-3 mt-1">
         <div class="col-6 col-lg-3">
           <div class="border rounded p-3 h-100">
@@ -181,9 +197,9 @@
     <div class="card-body p-4">
       <h2 id="unresolved-sources" class="h5 fw-semibold">Remaining source checks</h2>
       <ul class="mb-0">
-        <li>Verify whether VA05 quantities and values preserve original intake or reflect later changes.</li>
-        <li>Confirm quantity UOM and conversion, value basis, currency treatment, and eligibility rules.</li>
-        <li>Verify historical coverage and reconcile representative totals with agreed business reports.</li>
+        <li>Original receipt values and historical month-end states are not verified; saved extracts preserve what the import showed when captured.</li>
+        <li>Verify quantity units and conversion before adding a volume forecast.</li>
+        <li>Check additional financial years before extending the weekly analysis beyond the verified calendar.</li>
         <li>For Project 2, establish dated amendments, cancellations, and actual shipment detail.</li>
       </ul>
     </div>

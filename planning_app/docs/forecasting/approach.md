@@ -44,9 +44,21 @@ settings.
 
 ### 3. Explore demand
 
-Examine trends, seasonality, product mix, customer concentration, gaps, zeros,
-outliers, and business changes. Distinguish missing data from genuine zero
-demand and investigate exceptions before correcting or excluding them.
+For weekly GBP, start with coverage, gaps, zeros, trend, lag relationships
+and outliers. Then profile model, size within model and Epicor customer
+group on the same eligible releases. Reconcile each breakdown to weekly
+GBP. Use concentration, category activity, missing or conflicting labels,
+and contributors to peak weeks to decide which groups merit further study.
+Distinguish missing data from genuine zero demand; do not remove a spike
+solely because it is unusual.
+
+Before fitting, record each candidate feature's coverage, stability and
+availability at the forecast cutoff. Keep, defer or reject it with a reason.
+Check whether earlier history supports seasonal tests; fewer than 52
+observations cannot establish a full annual pattern. Freeze the target
+definition, feature list and chronological evaluation plan before fitting.
+
+For Project 2,
 Examine how much intake eventually ships, how long it takes, and how amendments
 and cancellations vary by customer and work content. Recent unshipped intake
 must not be treated as lost or cancelled.
@@ -79,15 +91,19 @@ errors, including the effect of uncertain intake.
 Do not assume volume converts to value at a fixed average price.
 
 Record dataset, code and model versions, settings, features, cutoffs, runtime,
-and results. Retain the simpler approach unless complexity adds useful value.
+and results. Use rolling cutoffs with the same target weeks for every
+candidate and baseline. Fit transformations and tune only inside the
+development period. Apply the selected settings to an untouched or
+prospective holdout, review errors by period and relevant group, and retain
+the simpler approach unless complexity adds useful value.
 
 **Output:** a justified model choice and final holdout results.
 
 ### 6. Deliver and monitor
 
-Bring dataset selection, experiments, forecasts, uncertainty, and exports into
-AI Tools. Develop browser controls around the choices demonstrated by working
-experiments. Review usability with intended users.
+Bring dataset selection, evaluated model selection, forecasts, uncertainty,
+and exports into AI Tools. Show the data, settings and scores behind each
+selectable model. Review usability with intended users.
 
 Store issued forecasts and compare them with actuals. Agree review, retraining,
 and replacement criteria; keep forecasting separate from live planning changes.
@@ -169,9 +185,9 @@ finding type is the next usability improvement to assess. This is a review
 workflow issue, not evidence that every flagged record is an error or needs
 individual correction.
 
-## Next milestone
+## Project 1: baseline and EDA evidence
 
-The first milestone is a weekly GBP baseline from Planning's imported VA05.
+The first milestone was a weekly GBP baseline from Planning's imported VA05.
 Aggregate one value per release by financial week, check historical coverage,
 and compare representative periods with SOI. Separate known reporting
 adjustments from unexplained differences. The resulting history reflects
@@ -200,6 +216,35 @@ validation, CSV generation and the benchmark. The
 counts and GBP totals against the saved rows. See the
 [run instructions](README.md#reproduce-the-weekly-gbp-review).
 
+On the same 41 forecast weeks, the previous-four-week mean reduced WAPE
+from 19.00% to 16.85% relative to the previous-week forecast. With week 34
+excluded from both targets and lookbacks, the mean still had lower WAPE
+(16.99% versus 19.23%) but higher overforecast bias. It reduced two of the
+three largest previous-week misses substantially but barely changed the
+third. These are development results; reserve future weeks for a held-out
+comparison before choosing a default.
+
+The repeatable EDA (`--eda`) found 44 unflagged observations, no missing
+or zero weeks in the verified period, and one outlier candidate (week 1).
+Lag-one and lag-two correlations remained positive after removing week 1
+for sensitivity; lag four weakened. The spike remains in the source.
+This supports testing a small lag-based regression, not assuming annual
+seasonality from less than a full year.
+
+Saved capture `DEV-7` (19 November 2026) includes all four mix dimensions.
+All 45 completed weeks matched independent SQL, and each mix breakdown
+reconciled to the weekly included release counts and net GBP. No conflicting
+labels were found among included releases; missing labels remained unassigned.
+
+| Candidate | Saved-extract evidence | Decision for the first learned model |
+| --- | --- | --- |
+| Prior weekly net GBP | Lag-one and lag-two relationships persisted when week 1 was removed in sensitivity analysis. | Use a small set of lagged totals or summaries of completed weeks. |
+| Product model | 237 categories; median active in 11 of 45 weeks; 20 active only once; 2,077 releases unassigned. | Defer per-model inputs. Test broader lagged product shares separately if justified. |
+| Size within model | 835 combinations; median active in six weeks; 5,651 releases unassigned. | Defer: sparse combinations and unverified size definitions. |
+| Production size within model | 942 combinations; median active in five weeks; 2,100 releases unassigned. | Defer for the same reasons; do not treat as interchangeable with size. |
+| Epicor customer group | 16 groups; median active in 27 weeks; top five accounted for 90.1% of net GBP; two releases unassigned. | Best mix candidate for a separate lagged-feature comparison, not a first-model requirement. Group concentration does not establish account concentration. |
+| Calendar, receipt activity and quantity | One verified calendar year, incomplete historical shutdown dates, and unverified quantity basis/UOM. | Use the calendar to assign weeks; defer these predictor families for the first experiment. |
+
 The Christmas shutdown is part of the trading calendar. Mark the confirmed
 shutdown weeks in the history and retain any orders recorded during them.
 Check year-end gaps against each year's shutdown dates before treating a
@@ -210,7 +255,23 @@ shutdown affecting order entry, but the exact historical closure dates
 are not verified. Keep those weeks separate from confirmed zero-intake
 weeks.
 
-Build the first dataset once coverage and valuation are understood. Explore
-the resulting series and test a simple baseline. Add volume once the quantity
-basis and UOM are verified. Project 2 needs dated change and shipment
-records; these are separate from the first intake baseline.
+## Next milestone: make the EDA evidence visible
+
+The initial analytical review is complete for the one-week-ahead GBP
+prototype. Before fitting, bring the evidence into the browser EDA workflow:
+distribution and unusual weeks first, then time patterns and lags, then
+feature decisions. Use `DEV-7` throughout; no new capture is needed.
+
+### Following milestone: first learned forecast
+
+Use the frozen `DEV-7` weekly series to compare a small lag-based regression
+with the previous-week and four-week-average benchmarks on common rolling
+forecast targets. Report MAE, WAPE and bias and repeat the comparison without
+windows touching the flagged week 34. The
+[review command](../../scripts/weekly_intake_review.py) reproduces the EDA
+and benchmarks with `--eda --mix --compare-lookback 4`.
+
+Treat the inspected 2026 weeks as development data. Use prospective forecasts
+for an untouched check before recommending a default in AI Tools. No further
+extract is needed for the development comparison; this does not establish
+historical as-of accuracy or annual seasonality.

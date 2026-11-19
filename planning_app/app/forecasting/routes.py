@@ -33,7 +33,50 @@ from .services import (
     save_model_classifications,
     save_model_classification_updates,
 )
-from .weekly_intake import CALENDAR, REQUIRED_FIELDS, RULES, explore_weekly_intake
+from .weekly_intake import (
+    CALENDAR, MIX_AXES, REQUIRED_FIELDS, RULES, available_mix_axes, explore_weekly_intake,
+    summarize_mix,
+)
+
+
+WORKFLOW_TODO = {
+    "distribution": (
+        "Distribution and unusual weeks",
+        "Separate genuine intake spikes from reporting or coverage exceptions before deciding how to treat them.",
+        ("Plot the spread of completed weekly totals", "Flag unusual weeks and show what contributed",
+         "Compare results with and without flagged weeks without changing the saved extract"),
+    ),
+    "time-patterns": (
+        "Time patterns and lags",
+        "Decide which historical inputs are worth testing and which calendar patterns lack evidence.",
+        ("Plot changes across financial weeks", "Check lag relationships without bridging gaps",
+         "Review shutdowns and assess whether enough verified history exists for seasonality"),
+    ),
+    "feature-decisions": (
+        "Feature decisions",
+        "Connect EDA findings to what the first model will use, defer or reject.",
+        ("Link evidence for each candidate input", "Check what is known at forecast issue time",
+         "Record the decision and its rationale before fitting"),
+    ),
+    "experiments": (
+        "Model experiments",
+        "Compare learned forecasts with simple benchmarks on the same target weeks.",
+        ("Set rolling development cutoffs", "Compare previous-week, four-week-average and learned forecasts",
+         "Report WAPE, GBP error and bias, then check performance prospectively"),
+    ),
+    "forecasts": (
+        "Forecasts",
+        "Let planners choose from evaluated models and see the evidence behind each choice.",
+        ("Show model and data versions", "Visualise predictions and uncertainty",
+         "Save issued forecasts for later comparison"),
+    ),
+    "monitoring": (
+        "Monitoring",
+        "Track whether issued forecasts remain useful as actuals arrive.",
+        ("Compare issued forecasts with actual intake", "Track error and bias over time",
+         "Agree when to review, retrain or replace a model"),
+    ),
+}
 
 
 @forecasting_bp.route("/")
@@ -43,6 +86,39 @@ from .weekly_intake import CALENDAR, REQUIRED_FIELDS, RULES, explore_weekly_inta
 def dashboard():
     """Open the dedicated AI Tools section."""
     return render_template("forecasting/dashboard.html", title="AI Tools")
+
+
+@forecasting_bp.route("/eda")
+@forecasting_bp.route("/eda/<int:extract_id>")
+@login_required
+@permission_required("view_planning")
+def eda(extract_id: int | None = None):
+    """Choose the saved extract for the browser EDA workflow."""
+    extract = (
+        ForecastDataExtract.query.get_or_404(extract_id) if extract_id is not None
+        else ForecastDataExtract.query.order_by(ForecastDataExtract.id.desc()).first()
+    )
+    fields = extract.source_settings.get("fields", ()) if extract is not None else ()
+    return render_template(
+        "forecasting/eda.html", title="Exploratory Data Analysis",
+        extract=extract, has_weekly=REQUIRED_FIELDS.issubset(fields),
+        captured_mix=available_mix_axes(fields), mix_axes=MIX_AXES,
+    )
+
+
+@forecasting_bp.route("/workflow/<stage>")
+@login_required
+@permission_required("view_planning")
+def workflow_todo(stage: str):
+    """Show planned work without implying the analysis or models already exist."""
+    if stage not in WORKFLOW_TODO:
+        abort(404)
+    title, purpose, tasks = WORKFLOW_TODO[stage]
+    return render_template(
+        "forecasting/workflow_todo.html", title=title, purpose=purpose, tasks=tasks,
+        eda_stage=stage in {"distribution", "time-patterns", "feature-decisions"},
+        extract_id=request.args.get("extract_id", type=int),
+    )
 
 
 @forecasting_bp.route("/data-readiness")
@@ -154,11 +230,13 @@ def weekly_intake(extract_id: int):
     """Render the weekly net GBP exploration for a single saved extract."""
     extract = ForecastDataExtract.query.get_or_404(extract_id)
     profile = None
-    if REQUIRED_FIELDS.issubset(extract.source_settings.get("fields", ())):
+    fields = extract.source_settings.get("fields", ())
+    if REQUIRED_FIELDS.issubset(fields):
         records = ForecastDataRecord.query.with_entities(ForecastDataRecord.data)
         records = records.filter_by(extract_id=extract.id).yield_per(500)
         profile = explore_weekly_intake(
             (data for (data,) in records), extract.captured_at.date(),
+            mix_axes=available_mix_axes(fields),
         )
     chart_scale = None
     if profile is not None:
@@ -172,6 +250,8 @@ def weekly_intake(extract_id: int):
         title=f"Explore weekly intake {extract.reference}",
         extract=extract,
         profile=profile,
+        mix_axes=MIX_AXES,
+        mix_summaries=summarize_mix(profile) if profile is not None else {},
         calendar=CALENDAR,
         rules=RULES,
         chart_scale=chart_scale,

@@ -24,7 +24,7 @@ from .models import (
 )
 
 
-RULES_VERSION = "va05-local-v3"
+RULES_VERSION = "va05-local-v4"
 RULES = {
     "missing_main": "Release has no main/no-assembly row",
     "conflicting_qty": (
@@ -56,6 +56,9 @@ SNAPSHOT_FIELDS = (
     "assembly_seq",
     "job_num",
     "model",
+    "size_desc",
+    "prod_size",
+    "customer_group",
     "order_date",
     "order_received_date",
     "req_date",

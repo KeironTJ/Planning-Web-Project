@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_header %}
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 border-bottom pt-2 pb-2 mb-3">
+  <h1 class="h3 mb-0">{{ title }}</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.dashboard') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> AI Tools workflow</a>
+</div>
+{% endblock %}
+{% block content %}
+<div class="container-fluid pb-4">
+  <section class="card border-primary mb-4" aria-labelledby="selected-extract">
+    <div class="card-body p-4">
+      <p class="small text-primary text-uppercase fw-semibold mb-1">Project 1 &middot; Step 2 of 5</p>
+      <h2 class="h5" id="selected-extract">Saved extract{% if extract %}: {{ extract.reference }}{% endif %}</h2>
+      {% if extract %}
+      <p class="mb-1">Captured {{ extract.captured_at | utcfmt('datetime-year') }} &middot; {{ '{:,}'.format(extract.row_count) }} rows &middot; {{ extract.rules_version }}</p>
+      <p class="small text-muted">The analysis uses this saved extract, not live order rows or historical month-end snapshots.</p>
+      {% else %}
+      <p class="text-muted">No saved extract yet. Pick or save an extract in Data Readiness to start exploring.</p>
+      {% endif %}
+      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.data_readiness', _anchor='saved-extracts') }}">Browse saved extracts</a>
+      {% if extract %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">Review extract findings</a>
+      {% endif %}
+    </div>
+  </section>
+  <h2 class="h5">EDA review steps</h2>
+  <p class="text-muted">Start with coverage, then use patterns and mix to decide which inputs are worth testing.</p>
+  <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
+    {% set steps = [
+      ('Coverage and exclusions', 'Check completed weeks, flagged releases and voided value before interpreting the totals.', 'coverage-heading'),
+      ('Weekly intake', 'See how net GBP changes across financial weeks without treating gaps as zero.', 'weekly-net-heading'),
+      ('Product and customer mix', 'Compare category activity, missing labels and concentration before considering mix inputs.', 'mix-heading')
+    ] %}
+    {% for name, description, anchor in steps %}
+    {% set available = has_weekly and (anchor != 'mix-heading' or captured_mix) %}
+    <div class="col">
+      {% if available %}
+      <a href="{{ url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor=anchor) }}" class="card ai-nav-card h-100 text-decoration-none">
+      {% else %}
+      <article class="card h-100">
+      {% endif %}
+      <div class="card-body">
+      <span class="badge {{ 'text-bg-primary' if available else 'text-bg-secondary' }} mb-2">{{ 'Available' if available else ('Not captured' if extract else 'Needs an extract') }}</span>
+      <h3 class="h6">{{ loop.index }}. {{ name }}</h3>
+      <p class="small text-muted">{{ description }}</p>
+      {% if extract and anchor == 'mix-heading' %}
+      <p class="small">{{ captured_mix | length }} of {{ mix_axes | length }} dimensions captured.</p>
+      {% endif %}
+      {% if available %}
+      <span class="text-primary">View {{ name | lower }} <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
+      {% endif %}
+      </div>
+      {% if available %}</a>{% else %}</article>{% endif %}
+    </div>
+    {% endfor %}
+    {% set planned = [
+      ('distribution', 'Distribution and unusual weeks', 'Find unusually high or low weeks and test whether they change the conclusions.'),
+      ('time-patterns', 'Time patterns and lags', 'Check what previous weeks can tell us without assuming annual seasonality.'),
+      ('feature-decisions', 'Feature decisions', 'Tie each use or defer decision to evidence and forecast-time availability.')
+    ] %}
+    {% for stage, name, description in planned %}
+    <div class="col"><a href="{{ url_for('forecasting.workflow_todo', stage=stage, extract_id=extract.id if extract else none) }}" class="card ai-nav-card h-100 text-decoration-none"><div class="card-body">
+      <span class="badge text-bg-secondary mb-2">To do</span>
+      <h3 class="h6">{{ loop.index + 3 }}. {{ name }}</h3>
+      <p class="small text-muted">{{ description }}</p>
+      <span class="text-primary">View plan for {{ name | lower }} <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
+    </div></a></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -3,7 +3,10 @@
 {% block page_header %}
 <div class="d-flex justify-content-between flex-wrap align-items-center gap-2 pt-2 pb-1 mb-3 border-bottom">
   <h1 class="h3 mb-0">{{ title }}</h1>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">Back to saved extract</a>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.eda', extract_id=extract.id) }}">EDA workspace</a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">Back to saved extract</a>
+  </div>
 </div>
 {% endblock %}
 {% block content %}
@@ -24,30 +27,113 @@
     Void lines are excluded from net GBP. Weeks without usable observations are not plotted as zero.
     The capture week is partial. Figures describe this extract, not a month-end snapshot or an approved training dataset.
   </p>
+  <nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Weekly intake sections">
+    <a class="btn btn-sm btn-outline-secondary" href="#weekly-net-heading"><i class="bi bi-bar-chart" aria-hidden="true"></i> Weekly chart</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#mix-heading"><i class="bi bi-pie-chart" aria-hidden="true"></i> Product and customer mix</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#coverage-heading"><i class="bi bi-clipboard-data" aria-hidden="true"></i> Coverage and exclusions</a>
+  </nav>
   <section class="card mb-3" aria-labelledby="weekly-net-heading">
     <div class="card-body">
       <h2 class="h5" id="weekly-net-heading">Weekly net GBP</h2>
       {% if chart_scale %}
-      <svg class="w-100" viewBox="0 0 520 126" role="img" aria-labelledby="weekly-chart-title weekly-chart-desc">
+      {% set negative = profile.weeks | rejectattr('net_gbp', 'none') | selectattr('net_gbp', 'lt', 0) | list %}
+      {% set baseline = 96 if negative else 152 %}
+      {% set plot_height = baseline - 22 %}
+      {% set divisor = 1000 if chart_scale >= 1000 else 1 %}
+      {% set suffix = 'k' if divisor == 1000 else '' %}
+      <svg class="w-100 d-block text-primary" viewBox="0 0 624 194" role="img" aria-labelledby="weekly-chart-title weekly-chart-desc">
         <title id="weekly-chart-title">Net GBP by financial week</title>
-        <desc id="weekly-chart-desc">Bars show weekly totals. A dot means zero; a gap means no usable data. See the table below for values and flags.</desc>
-        <path d="M0 58H520" stroke="currentColor" opacity=".3"/>
+        <desc id="weekly-chart-desc">Bars show weekly totals. Outlined bars mark partial or flagged weeks. A dot means zero; a gap means no usable data. See the coverage table for exact values.</desc>
+        <g fill="currentColor" font-size="10">
+          {% for fraction in (1, 0.5, 0) %}
+          {% set y = baseline - fraction * plot_height %}
+          <path d="M64 {{ y }}H613" stroke="currentColor" opacity="{{ '.5' if not fraction else '.2' }}"/>
+          <text x="58" y="{{ y + 3 }}" text-anchor="end">{{ '{:,.1f}'.format((chart_scale | float) * fraction / divisor) }}{{ suffix }}</text>
+          {% endfor %}
+          {% if negative %}
+          <path d="M64 {{ baseline + plot_height }}H613" stroke="currentColor" opacity=".2"/>
+          <text x="58" y="{{ baseline + plot_height + 3 }}" text-anchor="end">-{{ '{:,.1f}'.format((chart_scale | float) / divisor) }}{{ suffix }}</text>
+          {% endif %}
+          <text x="58" y="12" text-anchor="end">GBP</text>
+        </g>
+        {% for week in profile.weeks if week.number == 1 or week.number % 5 == 0 %}
+        <text x="{{ 70 + (week.number - 1) * 10.4 }}" y="183" fill="currentColor" font-size="10" text-anchor="middle">{{ week.number }}</text>
+        {% endfor %}
         {% for week in profile.weeks if week.net_gbp is not none %}
-          {% set x = (week.number - 1) * 10 %}
-          {% set height = ((week.net_gbp | abs) / chart_scale * 52) | float %}
+          {% set x = 70 + (week.number - 1) * 10.4 %}
+          {% set height = ((week.net_gbp | abs) / chart_scale * plot_height) | float %}
           {% if week.net_gbp == 0 %}
-          <circle cx="{{ x + 5 }}" cy="58" r="2" fill="currentColor"/>
+          <circle cx="{{ x }}" cy="{{ baseline }}" r="2" fill="currentColor"/>
           {% else %}
-          <rect x="{{ x + 1 }}" y="{{ 58 - height if week.net_gbp > 0 else 58 }}" width="8" height="{{ height }}"
-                fill="currentColor" opacity="{{ '.45' if week.partial or week.exceptions else '.9' }}">
+          <rect x="{{ x - 3.5 }}" y="{{ baseline - height if week.net_gbp > 0 else baseline }}" width="7" height="{{ height }}" rx="1"
+                {% if week.partial or week.exceptions %}fill="none" stroke="currentColor" stroke-dasharray="2 1"{% else %}fill="currentColor"{% endif %}>
             <title>Week {{ week.number }}: {{ '{:,.2f}'.format(week.net_gbp) }} GBP</title>
           </rect>
           {% endif %}
         {% endfor %}
       </svg>
+      <p class="small text-muted mb-0">Financial weeks &middot; Outlined bars: partial or flagged &middot; Dot: zero &middot; Gap: no usable data</p>
       {% else %}
       <p class="mb-0">No usable weekly GBP values to plot.</p>
       {% endif %}
+    </div>
+  </section>
+  <section class="card mb-3" aria-labelledby="mix-heading">
+    <div class="card-body">
+      <h2 class="h5" id="mix-heading">Product and customer mix</h2>
+      <p class="text-muted">
+        Included releases in completed weeks only. Flagged weeks contribute their retained totals.
+        Missing or conflicting labels stay in net GBP but are not assigned to a category.
+        This describes the saved extract; it does not select forecast inputs.
+      </p>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <caption class="visually-hidden">Coverage, activity and concentration by dimension</caption>
+          <thead><tr>
+            <th scope="col">Dimension</th>
+            <th scope="col" class="text-end">Categories</th>
+            <th scope="col" class="text-end">Median active weeks</th>
+            <th scope="col" class="text-end">Top five share of net GBP</th>
+            <th scope="col" class="text-end">Missing labels</th>
+            <th scope="col" class="text-end">Conflicting labels</th>
+          </tr></thead>
+          <tbody>
+            {% for axis in mix_axes %}
+            {% set summary = mix_summaries.get(axis) %}
+            <tr>
+              <th scope="row">{{ axis }}</th>
+              {% if summary is none %}
+              <td colspan="5" class="text-muted">Not captured</td>
+              {% elif not summary.observed_weeks %}
+              <td colspan="5" class="text-muted">No usable completed weeks</td>
+              {% else %}
+              <td class="text-end">{{ summary.categories }}</td>
+              <td class="text-end">
+                {% if summary.median_active_weeks is not none %}
+                {{ '{:g}'.format(summary.median_active_weeks) }} of {{ summary.observed_weeks }}
+                {% else %}Unavailable{% endif %}
+              </td>
+              <td class="text-end">
+                {{ '{:.1f}%'.format(summary.top_share) if summary.top_share is not none else 'Unavailable' }}
+                {% if summary.top_share is not none and 0 <= summary.top_share <= 100 %}
+                <svg class="d-block ms-auto text-primary" width="88" height="7" viewBox="0 0 100 8" aria-hidden="true">
+                  <rect width="100" height="8" rx="4" fill="currentColor" opacity=".15"/>
+                  <rect width="{{ summary.top_share }}" height="8" rx="4" fill="currentColor"/>
+                </svg>
+                {% endif %}
+              </td>
+              {% for unresolved in (summary.missing, summary.conflicting) %}
+              <td class="text-end">
+                {{ '{:,}'.format(unresolved.releases) }} {{ 'release' if unresolved.releases == 1 else 'releases' }}<br>
+                <span class="text-muted">{{ '{:,.2f}'.format(unresolved.gbp) }} GBP</span>
+              </td>
+              {% endfor %}
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </section>
   <section class="mb-3" aria-labelledby="coverage-heading">

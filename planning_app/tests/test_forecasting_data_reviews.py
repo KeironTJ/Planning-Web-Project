@@ -4,7 +4,7 @@ import json
 import runpy
 import sqlite3
 from contextlib import closing
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,9 +34,16 @@ from app.forecasting.services import (
     save_model_classification,
     save_model_classification_updates,
 )
-from app.forecasting.weekly_intake import explore_weekly_intake
+from app.forecasting.weekly_intake import IntakeWeek, explore_weekly_intake
 from app.sales.orders.models import SalesOrder
-from scripts.weekly_intake_review import previous_week_benchmark, review
+from scripts.weekly_intake_review import (
+    ForecastComparison,
+    compare_forecasts,
+    describe_mix,
+    describe_weekly_intake,
+    previous_week_benchmark,
+    review,
+)
 
 from .conftest import login
 
@@ -149,6 +156,79 @@ def test_weekly_review_exports_and_benchmarks_without_bridging_gaps(tmp_path):
     assert output.read_text(encoding="utf-8") == "different\n"
 
 
+def test_forecast_comparison_uses_prior_weeks_on_a_shared_window():
+    weeks = [
+        IntakeWeek(
+            number=i,
+            start=date(2026, 1, 5) + timedelta(weeks=i - 1),
+            partial=i == 15,
+            possible_shutdown=False,
+            net_gbp=Decimal(i * 10) if i != 7 else None,
+            exceptions=int(i == 3),
+        )
+        for i in range(1, 16) if i != 12
+    ]
+    assert compare_forecasts(weeks, lookback=4, skip_exceptions=False) == [
+        ForecastComparison(5, Decimal(50), Decimal(40), Decimal(25)),
+        ForecastComparison(6, Decimal(60), Decimal(50), Decimal(35)),
+    ]
+    assert compare_forecasts(weeks, lookback=4, skip_exceptions=True) == []
+    with pytest.raises(ValueError, match="at least two"):
+        compare_forecasts(weeks, lookback=1, skip_exceptions=False)
+
+
+def test_weekly_eda_keeps_missing_and_flagged_weeks_out_of_statistics():
+    weeks = [
+        IntakeWeek(
+            number=i, start=date(2026, 1, 5) + timedelta(weeks=i - 1),
+            partial=i == 8, possible_shutdown=i == 7,
+            net_gbp=Decimal(value) if value is not None else None,
+            exceptions=int(i == 3),
+        )
+        for i, value in enumerate((0, 10, 999, None, 40, 50, 60, 999), start=1)
+    ]
+    lines = describe_weekly_intake(weeks)
+    assert lines[:3] == [
+        "EDA coverage: 7 completed weeks; 5 unflagged observations",
+        "Unavailable weeks: 4; exception weeks: 3; possible shutdown weeks: 7",
+        "Net GBP: mean 32.00; median 40.00; range 0.00 to 60.00; zero weeks 1",
+    ]
+    assert "Lag 1 Pearson correlation: +1.00 (3 pairs)" in lines
+    assert "Lag 2 Pearson correlation: unavailable (1 pairs)" in lines
+    assert "Lag 4 Pearson correlation: unavailable (2 pairs)" in lines
+
+
+def test_release_mix_reconciles_without_assigning_conflicting_labels(
+    db_session, planner_user,
+):
+    source = {
+        "order_date": date(2026, 1, 5), "void_line": False, "model": "Sofa",
+        "size_desc": "Large", "prod_size": "3-seat", "customer_group": "Trade",
+    }
+    add_source(db_session, **source)
+    add_source(db_session, **{**source, "job_num": "J2", "size_desc": "Small"})
+    add_source(db_session, **{**source, "assembly_seq": 1, "model": "Scatter"})
+    add_source(db_session, **{**source, "rel_num": 2, "customer_group": None})
+    add_source(db_session, **{**source, "rel_num": 3, "void_line": True})
+    extract = save_va05_extract(planner_user.id)
+    axes = ("Product model", "Size within model", "Epicor customer group")
+    profile = explore_weekly_intake(
+        (row.data for row in ForecastDataRecord.query.filter_by(extract_id=extract.id)),
+        date(2026, 1, 12), mix_axes=axes,
+    )
+    assert profile.weeks[0].net_gbp == 240
+    assert profile.mix["Product model"][1][("assigned", ("Sofa",))].releases == 2
+    assert profile.mix["Size within model"][1][("conflicting", ())].gbp == 120
+    assert profile.mix["Epicor customer group"][1][("missing", ())].releases == 1
+    lines = describe_mix(profile)
+    assert "Production size within model: unavailable (not captured)" in lines
+    assert "  conflicting: 1 releases, 120.00 GBP" in lines
+    assert "  missing: 1 releases, 120.00 GBP" in lines
+    assert {"model", "size_desc", "prod_size", "customer_group"}.issubset(
+        extract.source_settings["fields"],
+    )
+
+
 def test_weekly_intake_page_reads_saved_capture_and_handles_legacy_extract(
     db_session, client, planner_user, viewer_user,
 ):
@@ -171,9 +251,11 @@ def test_weekly_intake_page_reads_saved_capture_and_handles_legacy_extract(
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "SOI 2026" in html
+    assert "Outlined bars: partial or flagged" in html
     assert "120.00 GBP" in html
     assert "999.00" not in html
     assert "Partial week" in html and "Possible shutdown" in html
+    assert "No usable completed weeks" in html
     assert "No usable observations" in html
     assert client.get(f"{PAGE}/extracts/{extract.id}").get_data(as_text=True).count(
         path,
@@ -182,6 +264,59 @@ def test_weekly_intake_page_reads_saved_capture_and_handles_legacy_extract(
     assert unavailable.status_code == 200
     assert "including the void flag" in unavailable.get_data(as_text=True)
     assert "120.00 GBP" not in unavailable.get_data(as_text=True)
+
+
+def test_weekly_intake_mix_uses_capture_metadata_and_excludes_partial_week(
+    db_session, client, planner_user, viewer_user,
+):
+    source = {
+        "order_date": date(2026, 1, 5), "void_line": False, "model": "Sofa",
+        "size_desc": "Large", "prod_size": "3-seat", "customer_group": "Trade",
+    }
+    add_source(db_session, **source)
+    add_source(db_session, **{**source, "rel_num": 2, "customer_group": None})
+    add_source(db_session, **{
+        **source, "rel_num": 3, "order_date": date(2026, 1, 12), "model": "Partial",
+    })
+    current = save_va05_extract(planner_user.id)
+    legacy = save_va05_extract(planner_user.id)
+    for saved in (current, legacy):
+        saved.captured_at = datetime(2026, 1, 13, tzinfo=timezone.utc)
+    legacy.source_settings = {
+        **legacy.source_settings,
+        "fields": [
+            field for field in legacy.source_settings["fields"]
+            if field not in {"size_desc", "prod_size", "customer_group"}
+        ],
+    }
+    db_session.commit()
+    assert client.get("/ai-tools/eda").status_code == 302
+    login(client, viewer_user.email, "Viewer!Pass1234")
+
+    hub = client.get(f"/ai-tools/eda/{current.id}").get_data(as_text=True)
+    assert current.reference in hub and "4 of 4 dimensions captured" in hub
+    for anchor in ("coverage-heading", "weekly-net-heading", "mix-heading"):
+        assert f'{PAGE}/extracts/{current.id}/weekly-intake#{anchor}' in hub
+    plan = client.get(f"/ai-tools/workflow/feature-decisions?extract_id={current.id}").get_data(as_text=True)
+    assert "Check what is known at forecast issue time" in plan
+    assert f'href="/ai-tools/eda/{current.id}"' in plan
+    latest = client.get("/ai-tools/eda").get_data(as_text=True)
+    assert legacy.reference in latest and "1 of 4 dimensions captured" in latest
+
+    def mix_html(extract_id):
+        response = client.get(f"{PAGE}/extracts/{extract_id}/weekly-intake")
+        assert response.status_code == 200
+        return response.get_data(as_text=True).split('id="mix-heading"', 1)[1].split("</section>", 1)[0]
+
+    html = mix_html(current.id)
+    assert "Product and customer mix" in html
+    assert html.count(">1</td>") == 4
+    assert html.count("1 of 1") == 4
+    assert "50.0%" in html and "1 release<br>" in html and "120.00 GBP" in html
+    assert "Not captured" not in html
+    old_html = mix_html(legacy.id)
+    assert old_html.count("Not captured") == 3
+    assert "100.0%" in old_html and "50.0%" not in old_html
 
 
 def test_extract_is_reproducible_and_survives_operational_refresh(

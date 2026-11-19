@@ -89,6 +89,30 @@ totals. Unmapped customers remain under `Unassigned`. Save the grouping used:
 applying current groups to old records is a current-group view, not evidence
 of historical membership.
 
+### Project 1 EDA fields and feature availability
+
+| Field family | Captured source and use | Model eligibility |
+| --- | --- | --- |
+| Order and receipt dates; financial calendar | Epicor order date assigns the reporting week. Receipt date supports timing comparisons. The verified financial calendar defines period boundaries. | Published calendar fields may be known in advance. Receipt and order activity may be used only from periods available at the forecast cutoff. |
+| GBP, quantity, UOM and void status | Stored VA05 release value, release quantity, inventory UOM and line-void flag. GBP uses the confirmed net rule. | Prior-period GBP is a candidate predictor. Quantity-derived features require a verified quantity basis and comparable UOM. Current void flags are not proof of status at past cutoffs. |
+| Product model and size | `model`, `size_desc` and `prod_size` as captured from VA05. Size is profiled within model; the two size fields are evaluated separately. | Candidate historical mix features only. Check coverage, cardinality, definition and stability before use. |
+| Epicor customer group | `customer_group` as captured from VA05, not a historically effective group assignment. | Candidate historical mix feature only. Named accounts and customer identifiers are not captured for this review. |
+
+The capture field list is authoritative. Older extracts without a dimension
+cannot be profiled for it and are not backfilled from live data. Mix analysis
+uses the same eligible release set as net GBP. Missing or conflicting
+dimension labels remain unassigned and their GBP stays in the overall total.
+Realised target-week orders, customer mix, model mix and adjustments are not
+forecast inputs.
+
+For the first one-week-ahead development comparison, the target is total
+weekly net GBP and the only predictor family is net GBP from completed prior
+financial weeks. Product, size and customer group remain descriptive in this
+comparison. Prior-week values reconstructed from one saved capture reflect
+what VA05 showed at capture, not necessarily what was known at each historical
+forecast cutoff. Record the capture used and retain inputs at issue time for
+prospective evaluation.
+
 ## 2. Data sources
 
 | Source | Role |

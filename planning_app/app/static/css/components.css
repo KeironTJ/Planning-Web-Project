@@ -413,3 +413,18 @@
         border: 1px solid #999 !important;
     }
 }
+.ai-nav-card:hover,
+.ai-nav-card:focus-visible {
+    border-color: var(--ph-nav-card-focus);
+    box-shadow: var(--ph-nav-card-shadow);
+}
+
+.ai-nav-card:hover .text-primary,
+.ai-nav-card:focus-visible .text-primary {
+    text-decoration: underline;
+}
+
+.ai-nav-card:focus-visible {
+    outline: 2px solid var(--ph-nav-card-focus);
+    outline-offset: 3px;
+}

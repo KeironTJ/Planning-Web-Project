@@ -75,6 +75,8 @@
 
     /* -- Filter / form active state ------------------------------------ */
     --ph-filter-active-border:    var(--bs-primary);
+    --ph-nav-card-focus:          var(--bs-primary);
+    --ph-nav-card-shadow:         var(--bs-box-shadow-sm);
 
     /* -- Panels and overlays ------------------------------------------- */
     --ph-detail-panel-bg:         var(--bs-secondary-bg);  /* ops detail panel in planning */

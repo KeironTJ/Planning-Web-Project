@@ -69,7 +69,8 @@ def test_data_readiness_reports_local_order_quality_without_claiming_history(
 
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert "Not ready for training." in html
+    assert "Choose the data you want to explore" in html
+    assert "No saved extracts yet" in html
     assert "mutable local sales-order table" in html
     assert '<div class="fs-4 fw-semibold">3</div>' in html
     assert "Required dates earlier than order dates" in html

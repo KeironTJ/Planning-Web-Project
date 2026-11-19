@@ -71,6 +71,19 @@ intake or an approved training dataset.
 
 No historical training dataset, EDA, or forecasting model has been produced.
 
+## Browser EDA workflow
+
+Open **AI Tools > EDA workspace** to explore the latest saved extract, or use
+an extract card in Data Readiness. Click **Review findings** on the card
+to inspect flagged records instead. The live-source diagnostics sit separately
+under **Current VA05 import**. Start the extract analysis with
+coverage and exclusions, then review the weekly GBP chart and product and
+customer mix. Select anywhere on a navigation card to open it. Cards with no
+available destination are informational only. The EDA workspace links to
+planned distribution, time-pattern and feature-decision pages. These are
+checklists, not analysis results.
+Model experiments, forecasting and monitoring are separate planned stages.
+
 ## Reproduce the weekly GBP review
 
 From `planning_app`, with the project's Python environment active:
@@ -89,6 +102,30 @@ Keep the CSV in the ignored `data` directory or another approved local location.
 The command reports previous-week MAE, WAPE and bias with and without
 flagged weeks. Partial weeks are not exported, and missing weeks are not
 replaced with zero or bridged when computing forecast errors.
+
+Append `--compare-lookback 4` to compare last week's intake with the average
+of the previous four weeks. Both methods are scored on the same target weeks,
+using only observations before each target. The command lists the scored
+weeks and the three largest previous-week misses. The sensitivity comparison
+omits any target or lookback window containing a flagged week. This is a
+development comparison, not a held-out evaluation.
+
+Append `--eda` for weekly coverage, distribution, outlier candidates,
+early-versus-late mean, and lag correlations. The statistics exclude partial,
+unavailable, and exception weeks, but report those observed coverage gaps.
+Lag pairs use financial week numbers rather than closing gaps by shifting
+rows. A possible shutdown is a label, not a reason to discard a recorded total.
+
+Append `--mix` for model, size within model, production size within model,
+and Epicor customer-group profiles. The command checks each breakdown against
+weekly GBP and release counts, then reports unresolved labels, concentration,
+category activity and the main contributors to the peak week. Save a new
+VA05 capture for size and customer group. Older captures report unavailable
+dimensions without reading live rows. Keep detailed category results local.
+The **Product and customer mix** table in **Explore weekly intake** shows
+the same coverage, activity and concentration metrics for the saved extract.
+Partial weeks are excluded; dimensions absent from the capture are marked
+**Not captured**.
 
 ## Data Readiness
 

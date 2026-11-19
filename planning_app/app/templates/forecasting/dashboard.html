@@ -4,136 +4,59 @@
 
 {% block content %}
 <div class="container-fluid py-3">
-  <div class="d-flex align-items-center mb-4 gap-3">
-    <div class="rounded-3 p-3 bg-primary bg-opacity-10">
-      <i class="bi bi-cpu fs-2 text-primary"></i>
-    </div>
-    <div>
-      <h4 class="mb-0 fw-semibold">AI Tools</h4>
-      <p class="text-muted mb-0 small">Order intake and shipped-output forecasting, analysis, and model configuration</p>
-    </div>
-  </div>
-
-  <section class="card border-0 shadow-sm mb-4" aria-labelledby="ai-purpose">
+  <header class="card border-primary mb-4">
     <div class="card-body p-4">
-      <h2 id="ai-purpose" class="h5 fw-semibold">Purpose and goal</h2>
-      <p>
-        AI Tools will connect order intake to shipped output. Project 1 forecasts incoming
-        orders, their value, and verified volume; Project 2 uses forecast intake and the
-        existing backlog to predict shipped value and volume over 12–16 weeks.
-      </p>
-      <p class="mb-0">
-        The toolset is being developed to support the whole process through the browser:
-        prepare data, explore patterns, compare models, produce forecasts, and review
-        their accuracy as actual results arrive. Forecasts will support business decisions
-        alongside the order book and planners' judgement.
-      </p>
+      <p class="text-primary text-uppercase fw-semibold small mb-1">Forecasting workspace</p>
+      <h1 class="h2">AI Tools</h1>
+      <p class="mb-3">Project 1 starts with next week's net GBP order intake from Planning's VA05, grouped by Epicor order date.</p>
+      <a class="btn btn-primary" href="{{ url_for('forecasting.eda') }}">Open EDA workspace</a>
     </div>
+  </header>
+
+  <section aria-labelledby="ai-workflow" class="mb-4">
+    <h2 id="ai-workflow" class="h5">From data to a useful forecast</h2>
+    <p class="text-muted">See what is available now and what evidence is needed for the next stage.</p>
+    {% set stages = [
+      ('Prepare data', 'Available', 'Save VA05 extracts and review quality, coverage and source limitations.', url_for('forecasting.data_readiness'), 'Data Readiness'),
+      ('Explore data', 'Current focus', 'Review the weekly series, mix and limitations before choosing model inputs.', url_for('forecasting.eda'), 'EDA workspace'),
+      ('Compare models', 'To do', 'Benchmark and test learned models using the same rolling targets.', url_for('forecasting.workflow_todo', stage='experiments'), 'Model experiments'),
+      ('Issue forecasts', 'To do', 'Choose an evaluated model, review uncertainty and save forecasts.', url_for('forecasting.workflow_todo', stage='forecasts'), 'Forecasts'),
+      ('Monitor performance', 'To do', 'Compare issued forecasts with actuals and review when a model should change.', url_for('forecasting.workflow_todo', stage='monitoring'), 'Monitoring')
+    ] %}
+    <ol class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3 list-unstyled" role="list">
+      {% for name, status, description, href, action in stages %}
+      <li class="col">
+        <a href="{{ href }}" class="card ai-nav-card h-100 text-decoration-none {% if status == 'Current focus' %}border-primary{% endif %}">
+          <div class="card-body d-flex flex-column">
+            <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+              <span class="text-muted small">Step {{ loop.index }}</span>
+              <span class="badge {% if status == 'To do' %}text-bg-secondary{% else %}text-bg-primary{% endif %}">{{ status }}</span>
+            </div>
+            <h3 class="h6">{{ name }}</h3>
+            <p class="small text-muted">{{ description }}</p>
+            <span class="mt-auto align-self-start text-primary">{{ action }} <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
+          </div>
+        </a>
+      </li>
+      {% endfor %}
+    </ol>
   </section>
 
-  <section class="mb-4" aria-labelledby="ai-goals">
-    <h2 id="ai-goals" class="h5 fw-semibold mb-3">What we want to understand</h2>
-    <div class="row g-3">
-      <div class="col-12 col-lg-4">
-        <div class="card h-100">
-          <div class="card-body">
-            <h3 class="h6 fw-semibold">Incoming orders</h3>
-            <p class="small">
-              How many new orders are expected, and what value and verified quantity
-              will they bring?
-            </p>
-            <p class="text-muted small mb-0">
-              Intake is measured at customer order receipt. The original-value source,
-              quantity basis, and usable history still need verification.
-            </p>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-lg-4">
-        <div class="card h-100">
-          <div class="card-body">
-            <h3 class="h6 fw-semibold">Shipped output</h3>
-            <p class="small">
-              How much value and verified quantity will actually ship over the next
-              12–16 weeks?
-            </p>
-            <p class="text-muted small mb-0">
-              Shipment date determines output timing. Existing backlog, amendments,
-              cancellations, and partial shipments must be accounted for.
-            </p>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-lg-4">
-        <div class="card h-100">
-          <div class="card-body">
-            <h3 class="h6 fw-semibold">Weekly unit demand</h3>
-            <p class="small">
-              How much quantity is currently due by required ship-by week?
-            </p>
-            <p class="text-muted small mb-0">
-              This is a supporting planning measure, not labour hours or realised
-              shipped output. UOM and quantity definitions need validation.
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-    <p class="text-muted small mt-3 mb-0">
-      Forecast results will cover customer groups and the company total, using
-      the existing planning groups by default, with Epicor groups as an alternative.
-    </p>
-  </section>
-
-  <section class="card mb-4" aria-labelledby="ai-workflow">
-    <div class="card-body p-4">
-      <h2 id="ai-workflow" class="h5 fw-semibold">From data to a useful forecast</h2>
-      <ol class="mb-0">
-        <li class="mb-2"><strong>Prepare:</strong> verify historical sources, classify products, and check data quality.</li>
-        <li class="mb-2"><strong>Explore:</strong> examine trends, seasonal patterns, customer activity, and product mix.</li>
-        <li class="mb-2"><strong>Experiment:</strong> configure features and models, tune parameters, and compare against simple baselines using historical forecasts.</li>
-        <li class="mb-2"><strong>Forecast:</strong> review predicted intake and shipped value and volume, uncertainty, and exports.</li>
-        <li><strong>Monitor:</strong> compare forecasts with actuals, track accuracy and bias, and decide when to retrain.</li>
-      </ol>
-    </div>
-  </section>
-
-  <h2 class="h5 fw-semibold mb-2">Available tools</h2>
-  <p class="text-muted small">
-    Data readiness and model classification are the available tools. No historical
-    training dataset or forecasting baseline has been produced.
-  </p>
   <div class="row g-3">
-    <div class="col-12 col-md-6 col-lg-4">
-      <a href="{{ url_for('forecasting.data_readiness') }}" class="text-decoration-none">
-        <div class="card h-100 border-0 shadow-sm card-hover">
-          <div class="card-body d-flex align-items-start gap-3 p-4">
-            <div class="rounded-3 p-2 bg-primary bg-opacity-10 flex-shrink-0">
-              <i class="bi bi-clipboard-data fs-4 text-primary"></i>
-            </div>
-            <div>
-              <h6 class="fw-semibold mb-1">Data Readiness</h6>
-              <p class="text-muted small mb-0">Save VA05 observations, inspect quality findings, and record review evidence</p>
-            </div>
-          </div>
-        </div>
-      </a>
-    </div>
-    <div class="col-12 col-md-6 col-lg-4">
-      <a href="{{ url_for('forecasting.model_classifications') }}" class="text-decoration-none">
-        <div class="card h-100 border-0 shadow-sm card-hover">
-          <div class="card-body d-flex align-items-start gap-3 p-4">
-            <div class="rounded-3 p-2 bg-primary bg-opacity-10 flex-shrink-0">
-              <i class="bi bi-tags fs-4 text-primary"></i>
-            </div>
-            <div>
-              <h6 class="fw-semibold mb-1">Model Classification</h6>
-              <p class="text-muted small mb-0">Manage descriptive model categories and review one-piece quantities</p>
-            </div>
-          </div>
-        </div>
-      </a>
-    </div>
+    <section class="col-md-6" aria-labelledby="ai-tools">
+      <a href="{{ url_for('forecasting.model_classifications') }}" class="card ai-nav-card h-100 text-decoration-none"><div class="card-body">
+        <h2 id="ai-tools" class="h5">Supporting tools</h2>
+        <span class="text-primary">Model Classification <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
+        <p class="small text-muted mb-0 mt-2">Maintain descriptive product categories. This does not train a forecasting model.</p>
+      </div></a>
+    </section>
+    <section class="col-md-6" aria-labelledby="ai-output">
+      <div class="card h-100"><div class="card-body">
+        <h2 id="ai-output" class="h5">Project 2: shipped output</h2>
+        <p class="small mb-2">Planned: use forecast intake and backlog to predict shipped value and verified volume over 12&ndash;16 weeks.</p>
+        <p class="small text-muted mb-0">Shipment date determines output timing. Weekly unit demand by required ship date is a separate planning measure.</p>
+      </div></div>
+    </section>
   </div>
 </div>
 {% endblock %}

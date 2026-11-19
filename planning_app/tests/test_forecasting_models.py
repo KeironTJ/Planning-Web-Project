@@ -692,7 +692,7 @@ def test_ai_tools_landing_and_home_link(client, viewer_user):
     login(client, viewer_user.email, "Viewer!Pass1234")
     response = client.get("/ai-tools/")
     assert response.status_code == 200
-    assert '<h4 class="mb-0 fw-semibold">AI Tools</h4>' in response.get_data(
+    assert '<h1 class="h2">AI Tools</h1>' in response.get_data(
         as_text=True
     )
     parser = LandingLinksParser()
@@ -711,12 +711,14 @@ def test_ai_tools_hidden_without_read_permission(client, purchasing_user):
     login(client, purchasing_user.email, "Purchasing!Pass1234")
     assert client.get("/ai-tools/").status_code == 403
     assert client.get(PAGE).status_code == 403
+    assert client.get("/ai-tools/eda").status_code == 403
+    assert client.get("/ai-tools/workflow/experiments").status_code == 403
     html = client.get("/").get_data(as_text=True)
     assert 'id="aiToolsMenu"' not in html
     assert 'href="/ai-tools/dashboard"' not in html
 
 
-def test_ai_overview_explains_goals_and_distinguishes_available_tools(
+def test_ai_workflow_distinguishes_available_tools_from_planned_stages(
     client, viewer_user
 ):
     """Keep the overview aligned with the agreed targets and delivery status."""
@@ -725,20 +727,26 @@ def test_ai_overview_explains_goals_and_distinguishes_available_tools(
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     for text in (
-        "Purpose and goal",
         "Project 1",
-        "12–16 weeks",
-        "Incoming orders",
+        "Project 2",
+        "12&ndash;16 weeks",
         "Weekly unit demand",
         "Shipment date determines output timing",
         "From data to a useful forecast",
-        "Available tools",
+        "Current focus",
+        "Open EDA workspace",
         "Data Readiness",
         "Model Classification",
-        "training dataset",
     ):
         assert text in html
     assert 'href="' + PAGE + '"' in html
+    for stage in ("experiments", "forecasts", "monitoring"):
+        path = f"/ai-tools/workflow/{stage}"
+        assert f'href="{path}"' in html
+        planned = client.get(path)
+        assert planned.status_code == 200
+        assert "This browser step is not available yet" in planned.get_data(as_text=True)
+    assert client.get("/ai-tools/workflow/unknown").status_code == 404
 
 
 def test_category_editor_and_model_select_use_database_categories(client, planner_user):

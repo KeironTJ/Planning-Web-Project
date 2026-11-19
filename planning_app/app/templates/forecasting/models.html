@@ -5,7 +5,10 @@
 {% if title %}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-2 pb-1 mb-2 border-bottom">
   <h1 class="h3 mb-0">{% block page_title %}{{ title }}{% endblock %}</h1>
-  <div class="btn-toolbar gap-2">{% block page_actions %}{% endblock %}</div>
+  <div class="btn-toolbar gap-2">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.dashboard') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> AI Tools workflow</a>
+    {% block page_actions %}{% endblock %}
+  </div>
 </div>
 {% endif %}
 {% endblock %}
