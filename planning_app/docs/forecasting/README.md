@@ -71,6 +71,25 @@ intake or an approved training dataset.
 
 No historical training dataset, EDA, or forecasting model has been produced.
 
+## Reproduce the weekly GBP review
+
+From `planning_app`, with the project's Python environment active:
+
+```powershell
+python -m scripts.weekly_intake_review --db .\instance\planning_dev.db --extract-id 6 --output .\data\va05-weekly-net-gbp-dev-6.csv
+```
+
+Use the local SQLite database containing the saved extract. `DEV-6` is the
+development capture used for the initial benchmark; extract IDs differ by
+environment. The command opens SQLite read-only, compares the Python result
+with independent SQL over the saved observations, and writes a CSV only if
+the totals agree. It verifies an existing identical CSV without overwriting it.
+Keep the CSV in the ignored `data` directory or another approved local location.
+
+The command reports previous-week MAE, WAPE and bias with and without
+flagged weeks. Partial weeks are not exported, and missing weeks are not
+replaced with zero or bridged when computing forecast errors.
+
 ## Data Readiness
 
 Open **AI Tools > Data Readiness** at `/ai-tools/data-readiness`.

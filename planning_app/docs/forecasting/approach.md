@@ -182,12 +182,23 @@ extraction and report their value separately. In the 45 completed 2026
 weeks checked, voided lines accounted for 4.54% of stored release value,
 with a maximum weekly impact of 15.08%.
 
-The weekly intake view was checked against independent read-only SQL for
-financial week 40 (5-11 October) using development capture `DEV-6`
-(19 November 2026, `va05-local-v3`, `weekly-net-gbp-v1`). The rendered chart
-and table matched the SQL check on release counts, net GBP and voided GBP:
-616 included releases, 40 excluded as void, and no exceptions. This checks
-one completed week against the local source, not historical completeness.
+The weekly intake chart and table matched independent read-only SQL for all
+45 completed financial weeks in development capture `DEV-6` (19 November
+2026, `va05-local-v3`, `weekly-net-gbp-v1`). The SQL comparison uses the
+capture's four-decimal GBP precision. The first local dataset excludes
+partial week 46. Week 34 is marked incomplete: its one release with
+conflicting GBP and void status is excluded, and the remaining observed
+total is retained.
+
+The first benchmark predicts each week from the preceding week (44
+one-week-ahead comparisons). A sensitivity check skips comparisons where
+week 34 supplies either the forecast input or the actual. Both checks use
+one VA05 capture, so they do not recreate historical order-book snapshots.
+The [review command](../../scripts/weekly_intake_review.py) reruns capture
+validation, CSV generation and the benchmark. The
+[independent SQL](../../scripts/verify_weekly_intake.sql) verifies release
+counts and GBP totals against the saved rows. See the
+[run instructions](README.md#reproduce-the-weekly-gbp-review).
 
 The Christmas shutdown is part of the trading calendar. Mark the confirmed
 shutdown weeks in the history and retain any orders recorded during them.

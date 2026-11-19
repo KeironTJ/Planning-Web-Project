@@ -1,6 +1,9 @@
+import csv
 import hashlib
 import json
 import runpy
+import sqlite3
+from contextlib import closing
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -33,6 +36,7 @@ from app.forecasting.services import (
 )
 from app.forecasting.weekly_intake import explore_weekly_intake
 from app.sales.orders.models import SalesOrder
+from scripts.weekly_intake_review import previous_week_benchmark, review
 
 from .conftest import login
 
@@ -91,6 +95,58 @@ def test_weekly_intake_matches_release_grain_and_flags_gaps():
         "Releases with missing or conflicting void flags": 1,
         "Releases dated after the capture": 1,
     }
+
+
+def test_weekly_review_exports_and_benchmarks_without_bridging_gaps(tmp_path):
+    database = tmp_path / "capture.db"
+    output = tmp_path / "review.csv"
+    row = {
+        "order_num": 12, "order_line": 1, "rel_num": 1, "assembly_seq": 0,
+        "order_date": "2026-01-05", "release_price_gbp": "100", "void_line": False,
+    }
+    with closing(sqlite3.connect(database)) as conn:
+        conn.executescript("""
+            CREATE TABLE forecast_data_extracts (
+                id, captured_at, rules_version, content_hash, row_count, source_settings, source
+            );
+            CREATE TABLE forecast_data_records (extract_id, data);
+        """)
+        conn.execute(
+            "INSERT INTO forecast_data_extracts VALUES (1, ?, 'test', 'hash', 6, ?, 'bskyVA05v1')",
+            ("2026-02-05T00:00:00Z", json.dumps({
+                "fields": list(row), "capture_environment": "testing",
+            })),
+        )
+        conn.executemany("INSERT INTO forecast_data_records VALUES (1, ?)", [
+            (json.dumps(row),),
+            (json.dumps({**row, "rel_num": 2, "order_date": "2026-01-12",
+                         "release_price_gbp": "80"}),),
+            (json.dumps({**row, "rel_num": 3, "order_date": "2026-01-12",
+                         "void_line": None}),),
+            (json.dumps({**row, "rel_num": 4, "order_date": "2026-01-26",
+                         "release_price_gbp": "50"}),),
+            (json.dumps({**row, "rel_num": 5, "order_date": "2026-01-26",
+                         "release_price_gbp": "10", "void_line": True}),),
+            (json.dumps({**row, "rel_num": 6, "order_date": "2026-02-02"}),),
+        ])
+        conn.commit()
+    weeks = review(database, 1, output)
+    with output.open(newline="", encoding="utf-8") as file:
+        saved = list(csv.DictReader(file))
+    assert [row["net_gbp"] for row in saved] == ["100.0000", "80.0000", "", "50.0000"]
+    assert saved[1]["coverage"] == "incomplete_excluded_release"
+    assert saved[2]["coverage"] == "unavailable"
+    assert saved[3]["void_gbp"] == "10.0000"
+    assert saved[0]["extract"] == "TEST-1"
+    result = previous_week_benchmark(weeks, skip_exceptions=False)
+    assert result is not None
+    assert (result.pairs, result.mae, result.wape, result.bias) == (1, 20, 25, 20)
+    assert previous_week_benchmark(weeks, skip_exceptions=True) is None
+    assert review(database, 1, output) == weeks
+    output.write_text("different\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="refusing to overwrite"):
+        review(database, 1, output)
+    assert output.read_text(encoding="utf-8") == "different\n"
 
 
 def test_weekly_intake_page_reads_saved_capture_and_handles_legacy_extract(
