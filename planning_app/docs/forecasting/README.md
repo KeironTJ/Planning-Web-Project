@@ -16,9 +16,9 @@ operational output, accounting for amendments, cancellations, and shipment timin
 | 2. Intake-to-output conversion | Actual shipped value and volume | Next 12-16 weeks |
 
 The relationship is **reported intake -> later amendments/cancellations and
-shipment timing -> shipped output**. Project 1 uses the business's month-end
-reporting basis and assigns intake to SOI periods by Epicor order date. Existing
-outstanding orders also contribute to
+shipment timing -> shipped output**. Project 1 uses Planning's imported VA05
+and assigns intake to financial periods by Epicor order date. Published SOI is
+a reconciliation reference. Existing outstanding orders also contribute to
 future output. Shipment date, not invoice date or production completion,
 determines when output occurs; the valuation basis still needs agreement.
 Finished goods awaiting shipment do not count as output until they ship.

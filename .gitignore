@@ -38,8 +38,8 @@ MANIFEST
 *.sqlite
 *.sqlite3
 
-# Local forecasting reconciliation workbooks
-/planning_app/data/Tetrad Weekly SOI *.xlsx
+# Local business data and extracts, regardless of file format
+/planning_app/data/
 
 # ── Flask / Werkzeug ──────────────────────────────────────────────────────────
 instance/

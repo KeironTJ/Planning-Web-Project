@@ -11,7 +11,7 @@ The [project approach](approach.md) records investigation and delivery steps.
 | Project / measure | Definition | Horizon |
 | --- | --- | --- |
 | Project 1: incoming orders | Distinct new orders assigned to the SOI reporting period by Epicor order date | To be agreed to support output planning |
-| Project 1: intake value and volume | Value and verified quantity of new orders on the business's month-end reporting basis, assigned to the SOI reporting period by Epicor order date | Same intake horizon |
+| Project 1: intake value and volume | GBP release value and verified quantity from imported VA05, assigned to the SOI reporting period by Epicor order date | Same intake horizon |
 | Project 2: shipped output value | Value of goods actually shipped, assigned to actual shipment date | Next 12-16 weeks |
 | Project 2: shipped output volume | Verified quantity actually shipped, assigned to actual shipment date | Next 12-16 weeks |
 | Supporting: unit demand | Units due to ship, assigned to required ship-by date | Weekly planning view |
@@ -23,10 +23,15 @@ has been reported as available; usable coverage remains unverified.
 
 ### Intake to shipped output
 
-The month-end intake report is the historical reference for Project 1.
-Open-month figures are provisional. A ship-date-only change affects expected
-output, not the intake month or amount. The treatment of orders open at close
-and any subsequent restatements is not yet confirmed.
+The Project 1 source is Planning's local VA05 data, refreshed by the Epicor
+importer. Published SOI is a reconciliation reference, not the forecast
+target. Open-month figures are provisional. A ship-date-only change affects
+expected output, not the intake month or amount.
+
+Published SOI GBP includes the weekly VA05-based pivots, a Shop subtotal,
+and any manual reporting adjustments. A refreshed VA05 extract alone is not
+equivalent to published SOI, even when the reporting dates and financial
+calendar match.
 
 For Project 2, keep later amendments and cancellations separate from the
 intake basis. Do not apply a change again if it is already reflected in that basis.
@@ -61,9 +66,17 @@ observations are exceptions; subassembly values cannot substitute for them.
 
 ### Calendar and grouping
 
-Proposed output reporting uses Monday-start ISO weeks, identified by week-start
-date, across the 12-16-week horizon. Interpret business dates in Europe/London and extraction
-timestamps in UTC; confirm calendar versus fiscal reporting.
+Project 1 uses the SOI financial calendar. Epicor order date assigns each order
+to a Monday-start financial week, and the SOI calendar assigns that week to a
+financial month. Financial months consist of whole weeks and may cross
+calendar-month boundaries. The verified 2026 calendar follows a 4-4-5
+pattern in each quarter. Use the reporting calendar for the relevant year
+rather than deriving month from the order date or assuming the same pattern
+in other years.
+
+The proposed Project 2 output calendar uses Monday-start ISO weeks, identified
+by week-start date, across the 12-16-week horizon. Interpret business dates in
+Europe/London and extraction timestamps in UTC.
 
 Use one customer group per record and identical filters for group and company
 totals. Unmapped customers remain under `Unassigned`. Save the grouping used:
@@ -74,10 +87,10 @@ of historical membership.
 
 | Source | Role |
 | --- | --- |
-| Month-end intake report, source/export to confirm | Reference for Project 1 historical totals and inclusion rules |
+| Published SOI intake report | Reconciliation reference; known differences include the Shop subtotal and manual reporting adjustments |
 | Order change history, source to establish if needed | Dated amendments/cancellations for Project 2 or unexplained intake differences |
 | Shipment history, source to establish | Actual shipment dates, output quantities, and value |
-| `bskyVA05v1`, selected intake-investigation and sales-order source | Observed release state, receipt dates, values, customers, and model links; reconcile to month-end intake before relying on it for history |
+| `bskyVA05v1`, imported into Planning's `sales_orders` table | Project 1 source for order dates, release values, quantities, customers, and model links; historical coverage remains unverified |
 | `bskyCOOISv3` | Supporting job/assembly and production context |
 
 COOIS quantities are not additional demand to add to sales releases.
@@ -86,10 +99,11 @@ shipment detail.
 
 ### A. Intake, changes, and shipments
 
-**Project 1 reporting date:** `OrderHed_OrderDate` maps through
-`SalesOrder.order_date` to `intake_reporting_date`. This date assigns orders to
-SOI reporting weeks and months. The upstream SOI extract's date field remains
-unverified.
+**Default Project 1 reporting date:** `OrderHed_OrderDate` maps through
+`SalesOrder.order_date` to `intake_reporting_date`. The August-October 2026 SOI
+preparation workbooks use `Order Date` to look up the financial week and that
+week to look up the financial month. A manual SOI adjustment may assign a
+different period in published SOI, but does not change the Project 1 period.
 
 **Customer receipt date:** `OrderHed_OrderReceivedDate_c` maps through
 `SalesOrder.order_received_date` to `intake_received_date`. It records when
@@ -102,7 +116,7 @@ order/line/release links where available and a unique event or shipment-line key
 | Dataset fields | Use |
 | --- | --- |
 | `order_num`, `order_line`, `release_num` | Link intake, changes, and output |
-| `intake_reporting_date`, `intake_value_gbp` | SOI period assignment and value on the month-end reporting basis |
+| `intake_reporting_date`, `intake_value_gbp` | Financial period assignment and VA05 release value in GBP |
 | `intake_received_date` | Customer receipt date, retained separately |
 | `intake_qty`, `amendment_qty`, `cancelled_qty`, `quantity_uom` | Reported intake and quantity changes in verified units |
 | `event_id`, `event_type`, `effective_at`, `available_at` | Identify changes and when they were known |
@@ -113,9 +127,9 @@ order/line/release links where available and a unique event or shipment-line key
 | `currency`, `valuation_basis`, `conversion_rate` | Reconcile values consistently |
 
 Release schedules must not duplicate order-line intake. A current value already
-net of changes must not have those changes deducted again. A current VA05
-snapshot is not a month-end snapshot; use it for historical intake only once
-reconciled to the reporting basis.
+net of changes must not have those changes deducted again. Historical periods
+derived from current VA05 rows reflect the state at extraction, not what was
+known or recorded at month-end. Record the extraction date with the series.
 Order counts use distinct order numbers, not line or release counts.
 
 Current candidate mappings:
