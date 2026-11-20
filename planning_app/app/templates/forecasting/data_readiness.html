@@ -1,7 +1,7 @@
-{% extends "base.html" %}
+{% extends "forecasting/_base.html" %}
 {% block title %}{{ title }}{% endblock %}
 
-{% block page_header %}
+{% block tool_page_header %}
 <div class="d-flex justify-content-between flex-wrap gap-2 align-items-center pt-2 pb-2 mb-3 border-bottom">
   <h1 class="h3 mb-0">{{ title }}</h1>
   <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.dashboard') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> AI Tools workflow</a>
@@ -12,7 +12,6 @@
 <div class="container-fluid pt-0 pb-3">
   <section class="card border-primary mb-4" aria-labelledby="readiness-guide">
     <div class="card-body p-4">
-      <p class="text-primary text-uppercase fw-semibold small mb-1">Project 1 &middot; Step 1 of 5</p>
       <h2 id="readiness-guide" class="h4">Choose the data you want to explore</h2>
       <p>Use a saved VA05 extract for repeatable analysis. Use the live checks to diagnose the current import, not to infer historical intake.</p>
       <div class="d-flex flex-wrap gap-2">
@@ -26,17 +25,24 @@
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
       <div>
         <h2 id="saved-extracts" class="h5 fw-semibold">Saved VA05 extracts</h2>
-        <p class="small text-muted mb-0">Open EDA for a saved extract, or review the individual records that were flagged.</p>
+        <p class="small text-muted mb-0">Choose the order-date period when you save. Then review coverage and resolve findings before moving to EDA.</p>
       </div>
       {% if can_manage %}
-      <form method="post" action="{{ url_for('forecasting.data_extract_capture') }}">
+      <form method="post" class="d-flex flex-wrap gap-2 align-items-end" action="{{ url_for('forecasting.data_extract_capture') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% for index, name, label in [(0, 'order_date_from', 'First order date'), (1, 'order_date_to', 'Last order date')] %}
+        <div>
+          <label for="{{ name }}" class="form-label small">{{ label }} (DD/MM/YYYY)</label>
+          <input required class="form-control" id="{{ name }}" name="{{ name }}" placeholder="DD/MM/YYYY"
+                 value="{{ copy_period[index] | uk_date if copy_period else '' }}">
+        </div>
+        {% endfor %}
         <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Save local VA05 extract and check</button>
       </form>
       {% endif %}
     </div>
     {% if can_manage %}
-    <p class="small text-muted">Saving copies the current local import and runs checks. It does not fetch Epicor or change source rows.</p>
+    <p class="small text-muted">Both dates are inclusive. Releases with missing or conflicting order dates are saved separately for review, not counted in the period. Saving copies local observations only; it does not refresh Epicor or change orders.</p>
     {% else %}
     <p class="small text-muted">Read-only access. A planning manager can save extracts.</p>
     {% endif %}
@@ -51,13 +57,14 @@
                 <h3 class="h6 mb-0">Extract {{ extract.reference }}</h3>
                 {% if latest %}<span class="badge text-bg-primary">Latest capture</span>{% endif %}
               </div>
-              <p class="small text-muted">{{ extract.captured_at | utcfmt('datetime-year') }}</p>
+              <p class="small text-muted mb-1">{{ extract.captured_at | utcfmt('uk-datetime') }}</p>
+              {% set period = extract.order_period %}
+              <p class="small mb-1">{% if period %}{{ period[0] | uk_date }} to {{ period[1] | uk_date }}{% else %}Legacy capture: all retained rows{% endif %}</p>
               <p class="small mb-0"><strong>{{ '{:,}'.format(extract.row_count) }}</strong> rows &middot;
                 <strong>{{ '{:,}'.format(extract.summary.flagged_rows) }}</strong> rows with findings</p>
             </div>
             <div class="card-footer bg-transparent d-flex flex-wrap justify-content-between gap-2 align-items-center">
-              <a class="stretched-link fw-semibold" href="{{ url_for('forecasting.eda', extract_id=extract.id) }}" aria-label="Explore EDA for {{ extract.reference }}">Explore EDA <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
-              <a class="btn btn-sm btn-outline-secondary position-relative z-1" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}" aria-label="Review findings for {{ extract.reference }}">Review findings</a>
+              <a class="stretched-link fw-semibold" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}" aria-label="Review data for {{ extract.reference }}">Review data <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
             </div>
           </article>
         </li>
@@ -114,16 +121,60 @@
     </div>
   </section>
 
+  <section class="card mb-4" aria-labelledby="order-date-coverage">
+    <div class="card-body p-4">
+      <h2 id="order-date-coverage" class="h5 fw-semibold">Project 1: Epicor order-date readiness</h2>
+      <p class="small text-muted">Epicor order date assigns releases to financial weeks. These checks group the current VA05 rows by order, line and release, using main observations where present. Customer received date is never substituted.</p>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <tbody>
+            <tr>
+              <th scope="row">Consistent Epicor order-date range</th>
+              <td>
+                {% if readiness.order_date_min %}
+                  {{ readiness.order_date_min | uk_date }} to {{ readiness.order_date_max | uk_date }}
+                {% else %}
+                  No consistent dates recorded
+                {% endif %}
+              </td>
+              <td class="text-muted">Across releases with one consistent date. A range does not prove continuous historical coverage.</td>
+            </tr>
+            <tr>
+              <th scope="row">Releases dated inside {{ calendar }}</th>
+              <td>{{ readiness.in_calendar_order_date_release_count }}</td>
+              <td class="text-muted">{{ calendar_start | uk_date }} to {{ calendar_end | uk_date }}, inclusive. Date coverage only: does not establish a completed week or a usable GBP observation.</td>
+            </tr>
+            <tr>
+              <th scope="row">Releases with missing order dates</th>
+              <td>{{ readiness.missing_order_date_release_count }}</td>
+              <td class="text-muted">No order date on the observations used for week assignment.</td>
+            </tr>
+            <tr>
+              <th scope="row">Releases with inconsistent order dates</th>
+              <td>{{ readiness.inconsistent_order_date_release_count }}</td>
+              <td class="text-muted">Conflicting dates, or a mixture of dated and undated observations. No week can be assigned.</td>
+            </tr>
+            <tr>
+              <th scope="row">Releases dated outside {{ calendar }}</th>
+              <td>{{ readiness.outside_calendar_order_date_release_count }}</td>
+              <td class="text-muted">Consistent dates outside the supported calendar are not necessarily errors, but are outside the current weekly analysis.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <section class="card mb-4" aria-labelledby="quality-signals">
     <div class="card-body p-4">
-      <h2 id="quality-signals" class="h5 fw-semibold">Coverage and quality signals</h2>
+      <h2 id="quality-signals" class="h5 fw-semibold">Other source diagnostics</h2>
       <div class="table-responsive">
         <table class="table table-sm align-middle mb-0">
           <tbody>
             <tr>
               <th scope="row">Missing order-received dates</th>
               <td>{{ readiness.missing_received_date_count }}</td>
-              <td class="text-muted">Date presence does not verify original intake value or usable coverage.</td>
+              <td class="text-muted">Stored rows. A missing received date limits timing analysis but does not prevent weekly intake eligibility.</td>
             </tr>
             <tr>
               <th scope="row">Missing required ship-by dates</th>
@@ -164,18 +215,18 @@
               <th scope="row">Order-received date range</th>
               <td>
                 {% if readiness.received_date_min %}
-                  {{ readiness.received_date_min }} to {{ readiness.received_date_max }}
+                  {{ readiness.received_date_min | uk_date }} to {{ readiness.received_date_max | uk_date }}
                 {% else %}
                   No dates recorded
                 {% endif %}
               </td>
-              <td class="text-muted">A range in the retained table is not proof of continuous historical coverage.</td>
+              <td class="text-muted">Customer receipt timing, not the basis for weekly intake. Compare with Epicor order date to investigate entry delays.</td>
             </tr>
             <tr>
               <th scope="row">Required ship-by date range</th>
               <td>
                 {% if readiness.required_ship_by_min %}
-                  {{ readiness.required_ship_by_min }} to {{ readiness.required_ship_by_max }}
+                  {{ readiness.required_ship_by_min | uk_date }} to {{ readiness.required_ship_by_max | uk_date }}
                 {% else %}
                   No dates recorded
                 {% endif %}
@@ -184,7 +235,7 @@
             </tr>
             <tr>
               <th scope="row">Latest row import timestamp</th>
-              <td>{{ readiness.latest_import_at or "Not recorded" }}</td>
+              <td>{{ (readiness.latest_import_at | utcfmt('uk-datetime')) if readiness.latest_import_at else "Not recorded" }}</td>
               <td class="text-muted">Import timestamps do not identify the query version or a complete extraction batch.</td>
             </tr>
           </tbody>

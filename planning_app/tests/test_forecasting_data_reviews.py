@@ -6,6 +6,7 @@ import sqlite3
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -34,7 +35,12 @@ from app.forecasting.services import (
     save_model_classification,
     save_model_classification_updates,
 )
-from app.forecasting.weekly_intake import IntakeWeek, explore_weekly_intake
+from app.forecasting.weekly_intake import (
+    REQUIRED_FIELDS,
+    IntakeWeek,
+    explore_weekly_intake,
+    summarize_weekly_distribution,
+)
 from app.sales.orders.models import SalesOrder
 from scripts.weekly_intake_review import (
     ForecastComparison,
@@ -90,6 +96,7 @@ def test_weekly_intake_matches_release_grain_and_flags_gaps():
             {**row, "rel_num": 7, "order_date": "2025-12-29"},
         ],
         date(2026, 1, 21),
+        detail_week=1,
     )
     first, gap, partial = profile.weeks
     assert (first.net_gbp, first.void_gbp) == (Decimal("100"), Decimal("40"))
@@ -102,6 +109,17 @@ def test_weekly_intake_matches_release_grain_and_flags_gaps():
         "Releases with missing or conflicting void flags": 1,
         "Releases dated after the capture": 1,
     }
+    assert [
+        (detail.key, detail.status, detail.gbp) for detail in profile.release_details
+    ] == [
+        ((12, 1, 1), "included", Decimal("100")),
+        ((12, 1, 2), "voided", Decimal("40")),
+        ((12, 1, 3), "excluded", Decimal("100")),
+        ((12, 1, 4), "excluded", None),
+    ]
+    assert profile.release_details[2].reasons == (
+        "Releases with missing or conflicting void flags",
+    )
 
 
 def test_weekly_review_exports_and_benchmarks_without_bridging_gaps(tmp_path):
@@ -193,9 +211,319 @@ def test_weekly_eda_keeps_missing_and_flagged_weeks_out_of_statistics():
         "Unavailable weeks: 4; exception weeks: 3; possible shutdown weeks: 7",
         "Net GBP: mean 32.00; median 40.00; range 0.00 to 60.00; zero weeks 1",
     ]
+    assert "IQR outlier candidates: none" in lines
+    assert any(
+        line.startswith("  Without data-quality flagged weeks: 5 weeks; mean 32.00")
+        for line in lines
+    )
     assert "Lag 1 Pearson correlation: +1.00 (3 pairs)" in lines
     assert "Lag 2 Pearson correlation: unavailable (1 pairs)" in lines
     assert "Lag 4 Pearson correlation: unavailable (2 pairs)" in lines
+
+
+def test_weekly_distribution_separates_outliers_flags_and_exclusions():
+    values = {1: 1000, 2: 10, 3: 20, 4: 30, 5: 40, 6: None, 7: 500, 34: 100}
+    weeks = [
+        IntakeWeek(
+            number=number, start=date(2026, 1, 5) + timedelta(weeks=number - 1),
+            partial=number == 7, possible_shutdown=False,
+            net_gbp=Decimal(value) if value is not None else None,
+            exceptions=int(number == 34),
+        )
+        for number, value in values.items()
+    ]
+
+    distribution = summarize_weekly_distribution(weeks)
+
+    assert distribution.completed_weeks == 7
+    assert distribution.missing_weeks == (6,)
+    assert distribution.partial_weeks == (7,)
+    assert [week.number for week in distribution.quality_flagged_weeks] == [34]
+    assert distribution.outlier_weeks == (1,)
+    assert [
+        (comparison.statistics.count, comparison.statistics.mean, comparison.statistics.median)
+        for comparison in distribution.comparisons
+    ] == [
+        (6, Decimal(200), Decimal(35)),
+        (5, Decimal(40), Decimal(30)),
+        (5, Decimal(220), Decimal(30)),
+        (4, Decimal(25), Decimal(25)),
+    ]
+
+
+def test_distribution_page_renders_read_only_saved_extract_comparisons(
+    client, planner_user, db_session,
+):
+    extract = ForecastDataExtract(
+        captured_at=datetime(2026, 11, 19, tzinfo=timezone.utc),
+        captured_by_id=planner_user.id,
+        source="bskyVA05v1",
+        rules_version="test",
+        row_count=8,
+        content_hash="test",
+        source_settings={
+            "capture_environment": "testing",
+            "fields": list(REQUIRED_FIELDS),
+        },
+        summary={},
+    )
+    db_session.add(extract)
+    db_session.flush()
+    source_rows = [
+        (1, "2026-01-05", "1000", False, 1),
+        (2, "2026-01-12", "10", False, 1),
+        (3, "2026-01-19", "20", False, 1),
+        (4, "2026-01-26", "30", False, 1),
+        (5, "2026-02-02", "40", False, 1),
+        (34, "2026-08-24", "101", False, 1),
+        (34, "2026-08-24", "99", False, 1),
+        (34, "2026-08-24", "100", False, 2),
+    ]
+    db_session.add_all([
+        ForecastDataRecord(
+            extract_id=extract.id,
+            source_row_id=index,
+            data={
+                "order_num": order_num,
+                "order_line": 1,
+                "rel_num": rel_num,
+                "assembly_seq": 0,
+                "order_date": order_date,
+                "release_price_gbp": amount,
+                "void_line": void_line,
+            },
+            findings=[],
+            has_findings=False,
+        )
+        for index, (order_num, order_date, amount, void_line, rel_num) in enumerate(
+            source_rows, start=1,
+        )
+    ])
+    db_session.commit()
+    record_count = ForecastDataRecord.query.filter_by(extract_id=extract.id).count()
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    response = client.get(
+        f"/ai-tools/data-readiness/extracts/{extract.id}/distribution",
+    )
+
+    assert response.status_code == 200
+    html = " ".join(response.get_data(as_text=True).split())
+    assert "Distribution and unusual weeks" in html
+    assert 'data-fmt="uk-datetime">19/11/2026 00:00:00</time>' in html
+    workspace_html = client.get(f"/ai-tools/eda/{extract.id}").get_data(as_text=True)
+    assert 'data-fmt="uk-datetime">19/11/2026 00:00:00</time>' in workspace_html
+    assert "week 1 by the 1.5x IQR rule" in html
+    assert "Week 34: 1 exception" in html
+    assert "200.00" in html
+    assert "Without outlier or data-quality flagged weeks" in html
+    assert "partial weeks are excluded and unavailable weeks are left out, never replaced with zero" in html
+    assert ForecastDataRecord.query.filter_by(extract_id=extract.id).count() == record_count
+    assert f"/extracts/{extract.id}/weeks/1" in html
+    assert f"/extracts/{extract.id}/weeks/34" in html
+    outlier = client.get(f"{PAGE}/extracts/{extract.id}/weeks/1")
+    assert outlier.status_code == 200
+    assert "Statistical outlier candidate, not a record error" in outlier.get_data(as_text=True)
+    gap = client.get(f"{PAGE}/extracts/{extract.id}/weeks/6")
+    assert gap.status_code == 200
+    assert "Unavailable (not zero)" in gap.get_data(as_text=True)
+    assert "No saved releases match this filter" in gap.get_data(as_text=True)
+
+
+def test_intake_history_reviews_fixed_period_across_years_and_keeps_gaps(
+    db_session, client, planner_user,
+):
+    add_source(db_session, rel_num=1, order_date=date(2024, 12, 30), void_line=False)
+    add_source(db_session, rel_num=2, order_date=date(2025, 1, 5), void_line=False)
+    add_source(db_session, rel_num=3, order_date=date(2025, 1, 13), void_line=False)
+    for voided in (False, True):
+        add_source(db_session, rel_num=4, order_date=date(2025, 1, 13), void_line=voided)
+    add_source(db_session, rel_num=5, order_date=date(2025, 1, 20), void_line=False)
+    extract = save_va05_extract(planner_user.id, period=(date(2024, 12, 30), date(2025, 1, 21)))
+    extract.captured_at = datetime(2025, 1, 22, tzinfo=timezone.utc)
+    db_session.commit()
+    path = f"{PAGE}/extracts/{extract.id}/history"
+    assert client.get(path).status_code == 302
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    response = client.get(path)
+    assert response.status_code == 200
+    html = " ".join(response.get_data(as_text=True).split())
+    assert "SOI 2024" in html and "SOI 2025" in html
+    assert "Month 12</strong>" in html
+    assert "/weeks/53?year=2024" in html
+    assert "240.00" in html
+    assert "30/12/2024 to 21/01/2025</strong> (inclusive)" in html
+    assert "2 of 3 completed weeks with GBP</span> &middot; 1 unavailable &middot; 1 with release exceptions" in html
+    assert "20/01/2025 to 26/01/2025" in html
+    assert "23/12/2024" not in html and "27/01/2025" not in html
+    assert "candidate training period" not in html
+    base = f"{PAGE}/extracts/{extract.id}"
+    week = client.get(f"{base}/weeks/53?year=2024").get_data(as_text=True)
+    assert "SOI 2024 week 53" in week and "Order 12 / line 1 / release 2" in week
+    partial = client.get(f"{base}/weeks/3?year=2025").get_data(as_text=True)
+    assert "Partial week:" in partial and "Order 12 / line 1 / release 5" in partial
+    assert client.get(f"{base}/weeks/52?year=2024").status_code == 404
+
+
+def test_scoped_capture_keeps_full_releases_and_unassigned_dates(db_session, planner_user):
+    start, end = date(2026, 1, 7), date(2026, 1, 18)
+    main = add_source(db_session, order_date=start, void_line=False)
+    assembly = add_source(db_session, order_date=date(2025, 1, 2), assembly_seq=1)
+    last = add_source(db_session, rel_num=2, order_date=end, void_line=False)
+    add_source(db_session, rel_num=3, order_date=end + timedelta(days=1), order_received_date=start)
+    conflict_in = add_source(db_session, rel_num=4, order_date=start)
+    conflict_out = add_source(db_session, rel_num=4, order_date=end + timedelta(days=1))
+    missing = add_source(db_session, rel_num=5, order_date=None, order_received_date=start)
+    extract = save_va05_extract(planner_user.id, period=(start, end))
+    assert extract.order_period == (start, end)
+    records = {record.source_row_id: record for record in ForecastDataRecord.query.filter_by(extract_id=extract.id)}
+    assert records.keys() == {main.id, assembly.id, last.id, conflict_in.id, conflict_out.id, missing.id}
+    assert extract.summary["unassigned_releases"] == 2
+    assert {key for key, record in records.items() if "unassigned_order_date" in record.findings} == {
+        conflict_in.id, conflict_out.id, missing.id,
+    }
+    profile = explore_weekly_intake(
+        [record.data for record in records.values()], date(2026, 2, 1), period=extract.order_period,
+    )
+    assert [(week.number, week.partial, week.net_gbp) for week in profile.weeks] == [
+        (1, True, Decimal("120")), (2, False, Decimal("120")),
+    ]
+    assert len(summarize_weekly_distribution(profile.weeks).chart_weeks) == 1
+    other = save_va05_extract(planner_user.id, period=(start + timedelta(days=1), end))
+    assert other.content_hash != extract.content_hash
+
+
+def test_week_investigation_traces_saved_releases_and_preserves_flags_after_review(
+    db_session, client, planner_user, viewer_user,
+):
+    source = {
+        "order_date": date(2026, 1, 5), "void_line": False, "model": "Sofa",
+        "size_desc": "Large", "prod_size": "3-seat", "customer_group": "Trade",
+    }
+    original = add_source(db_session, **source)
+    add_source(db_session, **{**source, "release_price_gbp": Decimal("99"), "void_line": True})
+    for _ in range(2):
+        add_source(db_session, **{**source, "rel_num": 2, "release_price_gbp": Decimal("300")})
+    add_source(db_session, **{
+        **source, "rel_num": 2, "assembly_seq": 1, "order_date": date(2026, 1, 12),
+        "release_price_gbp": Decimal("900"),
+    })
+    add_source(db_session, **{
+        **source, "rel_num": 3, "void_line": True, "release_price_gbp": Decimal("50"),
+    })
+    add_source(db_session, **{
+        **source, "rel_num": 4, "order_date": date(2026, 1, 12),
+        "release_price_gbp": Decimal("800"),
+    })
+    extract = save_va05_extract(planner_user.id)
+    extract.captured_at = datetime(2026, 1, 14, tzinfo=timezone.utc)
+    original.release_price_gbp = Decimal("9999")
+    db_session.commit()
+    before = [
+        (record.id, record.data, record.findings)
+        for record in ForecastDataRecord.query.filter_by(extract_id=extract.id).order_by(
+            ForecastDataRecord.id,
+        )
+    ]
+    path = f"{PAGE}/extracts/{extract.id}/weeks/1"
+    assert client.get(path).status_code == 302
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    html = " ".join(client.get(path).get_data(as_text=True).split())
+    assert "05/01/2026 to 11/01/2026" in html
+    assert "<td>05/01/2026</td>" in html
+    assert "Incomplete: 1 release excluded" in html
+    assert "Releases with missing or conflicting GBP" in html
+    assert "Releases with missing or conflicting void flags" in html
+    assert "No review evidence" in html
+    assert "Add a note (no customer or personal details)" not in html
+    assert client.post(f"{PAGE}/extracts/{extract.id}/notes", data={
+        "week": "1", "body": "Evidence", "capture_identity": extract.capture_identity,
+    }).status_code == 403
+    for suffix in ("?scope=invalid", "?page=bad", "?page=0"):
+        assert client.get(path + suffix).status_code == 400
+    for number in (0, 2, 53):
+        assert client.get(f"{PAGE}/extracts/{extract.id}/weeks/{number}").status_code == 404
+    all_html = client.get(path + "?scope=all").get_data(as_text=True)
+    assert "300.00" in all_html and "50.00 GBP excluded as void" in all_html
+    assert "Trade: 300.00 GBP" in all_html
+    assert "Subassembly: not counted" in all_html
+    assert "9999" not in all_html and "800.00" not in all_html
+    redirected = client.get(path + "?scope=included&page=999")
+    assert redirected.status_code == 302
+    assert "scope=included" in redirected.location and "page=1" in redirected.location
+    client.get("/auth/logout")
+    login(client, planner_user.email, "Planner!Pass1234")
+    record = ForecastDataRecord.query.filter_by(
+        extract_id=extract.id, source_row_id=original.id,
+    ).one()
+    release_review = client.get(
+        f"{PAGE}/extracts/{extract.id}?scope=all&release={record.id}&week=1",
+    )
+    review_html = release_review.get_data(as_text=True)
+    assert "Back to week 1 investigation" in review_html
+    assert 'name="week" value="1"' in review_html
+    assert "Void line:" in review_html
+    assert "Received: 02/01/2026" in review_html
+    assert "Order date: 05/01/2026" in review_html
+    assert "Required ship-by: 01/02/2026" in review_html
+    assert record.data["order_date"] == "2026-01-05"
+    review_response = client.post(f"{PAGE}/records/{record.id}/review", data={
+        "status": "accepted", "rationale": "Reviewed both observations; reconciliation still required.",
+        "capture_identity": extract.capture_identity,
+        "scope": "all", "release_context": "1", "week": "1",
+    })
+    assert review_response.status_code == 302
+    assert "week=1" in review_response.location
+    assert f"release={record.id}" in review_response.location
+    reviewed_html = client.get(path).get_data(as_text=True)
+    assert "Accepted with evidence" in reviewed_html
+    assert "Incomplete: 1 release excluded" in reviewed_html
+    assert "reconciliation still required" in reviewed_html
+    note_response = client.post(f"{PAGE}/extracts/{extract.id}/notes", data={
+        "week": "1", "body": "Explained business event: closure delayed order entry.",
+        "capture_identity": extract.capture_identity,
+    })
+    assert note_response.location.endswith("/weeks/1#extract-notes")
+    note = ForecastDataNote.query.filter_by(extract_id=extract.id).one()
+    assert note.body == "SOI 2026 week 1: Explained business event: closure delayed order entry."
+    assert note.body in client.get(path).get_data(as_text=True)
+    client.post(f"{PAGE}/extracts/{extract.id}/notes", data={
+        "week": "1", "body": " ", "capture_identity": extract.capture_identity,
+    })
+    assert ForecastDataNote.query.filter_by(extract_id=extract.id).count() == 1
+    assert client.post(f"{PAGE}/extracts/{extract.id}/notes", data={
+        "week": "bad", "body": "Evidence", "capture_identity": extract.capture_identity,
+    }).status_code == 400
+    assert before == [
+        (record.id, record.data, record.findings)
+        for record in ForecastDataRecord.query.filter_by(extract_id=extract.id).order_by(
+            ForecastDataRecord.id,
+        )
+    ]
+
+
+def test_week_investigation_paginates_distinct_releases_in_value_order(
+    db_session, client, planner_user,
+):
+    for number in range(1, 27):
+        add_source(
+            db_session, rel_num=number, order_date=date(2026, 1, 5),
+            void_line=False, release_price_gbp=Decimal(number),
+        )
+    extract = save_va05_extract(planner_user.id)
+    extract.captured_at = datetime(2026, 1, 12, tzinfo=timezone.utc)
+    db_session.commit()
+    login(client, planner_user.email, "Planner!Pass1234")
+    path = f"{PAGE}/extracts/{extract.id}/weeks/1?scope=included"
+    first = client.get(path).get_data(as_text=True)
+    second = client.get(path + "&page=2").get_data(as_text=True)
+    assert "Page 1 of 2" in first and "Page 2 of 2" in second
+    assert "Order 12 / line 1 / release 26" in first
+    assert "Order 12 / line 1 / release 1</h3>" not in first
+    assert "Order 12 / line 1 / release 1</h3>" in second
+    assert "26 matching releases" in second
+    assert "351.00" in first and "351.00" in second
 
 
 def test_release_mix_reconciles_without_assigning_conflicting_labels(
@@ -251,6 +579,7 @@ def test_weekly_intake_page_reads_saved_capture_and_handles_legacy_extract(
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "SOI 2026" in html
+    assert "21/12/2026 to 27/12/2026" in html
     assert "Outlined bars: partial or flagged" in html
     assert "120.00 GBP" in html
     assert "999.00" not in html
@@ -264,6 +593,7 @@ def test_weekly_intake_page_reads_saved_capture_and_handles_legacy_extract(
     assert unavailable.status_code == 200
     assert "including the void flag" in unavailable.get_data(as_text=True)
     assert "120.00 GBP" not in unavailable.get_data(as_text=True)
+    assert client.get(f"{PAGE}/extracts/{legacy.id}/weeks/1").status_code == 400
 
 
 def test_weekly_intake_mix_uses_capture_metadata_and_excludes_partial_week(
@@ -826,7 +1156,16 @@ def test_browser_capture_review_and_read_only_permissions(
     assert client.post(PAGE + "/capture").status_code == 302
     assert client.get(PAGE + "/extracts/1").status_code == 302
     login(client, planner_user.email, "Planner!Pass1234")
-    response = client.post(PAGE + "/capture", follow_redirects=True)
+    assert "Enter both extract dates" in client.post(
+        PAGE + "/capture", follow_redirects=True,
+    ).get_data(as_text=True)
+    assert "ordered date range" in client.post(PAGE + "/capture", data={
+        "order_date_from": "04/01/2026", "order_date_to": "02/01/2026",
+    }, follow_redirects=True).get_data(as_text=True)
+    assert ForecastDataExtract.query.count() == 0
+    response = client.post(PAGE + "/capture", data={
+        "order_date_from": "01/01/2026", "order_date_to": "04/01/2026",
+    }, follow_redirects=True)
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "Missing main-row release quantity" in html
@@ -845,6 +1184,8 @@ def test_browser_capture_review_and_read_only_permissions(
     )
     assert response.status_code == 200
     assert "Check the BAQ expression." in response.get_data(as_text=True)
+    prefilled = client.get(f"{PAGE}?copy_from={extract.id}").get_data(as_text=True)
+    assert 'value="01/01/2026"' in prefilled and 'value="04/01/2026"' in prefilled
     assert (
         client.get(
             f"{PAGE}/extracts/{extract.id}?scope=unreviewed",
@@ -861,6 +1202,7 @@ def test_browser_capture_review_and_read_only_permissions(
     assert "Check the BAQ expression." in html
     assert "textarea" not in html
     assert client.post(PAGE + "/capture").status_code == 403
+    assert client.get(f"{PAGE}/extracts/{extract.id}/source-corrections.csv").status_code == 403
     assert (
         client.post(
             review_url,
@@ -873,6 +1215,415 @@ def test_browser_capture_review_and_read_only_permissions(
     )
     assert ForecastDataExtract.query.count() == 1
     assert ForecastDataDecision.query.count() == 1
+
+
+def test_source_correction_export_uses_only_latest_decisions(db_session, client, planner_user):
+    add_source(db_session, release_qty=None)
+    add_source(db_session, rel_num=2, release_qty=None)
+    extract = save_va05_extract(planner_user.id, period=(date(2026, 1, 1), date(2026, 1, 4)))
+    first, second = ForecastDataRecord.query.order_by(ForecastDataRecord.id).all()
+    for record, status, reason in (
+        (first, "source_correction", "Superseded correction"),
+        (first, "accepted", "Validated in source"),
+        (second, "source_correction", "=Check the source, then confirm."),
+    ):
+        save_data_decision(record.id, status, reason, planner_user.id, capture_identity=extract.capture_identity)
+    path = f"{PAGE}/extracts/{extract.id}/source-corrections.csv"
+    assert client.get(path).status_code == 302
+    login(client, planner_user.email, "Planner!Pass1234")
+    response = client.get(path)
+    assert response.status_code == 200 and response.mimetype == "text/csv"
+    assert response.headers["Content-Disposition"] == f'attachment; filename="{extract.reference}-source-corrections.csv"'
+    row, = csv.DictReader(StringIO(response.get_data(as_text=True)))
+    assert (row["Extract"], row["Saved record ID"], row["Order"], row["Line"], row["Release"]) == (
+        extract.reference, str(second.id), "12", "1", "2",
+    )
+    assert row["Reason"] == "'=Check the source, then confirm."
+    assert ForecastDataDecision.query.count() == 3
+
+
+def test_nonpositive_gbp_groups_reconcile_and_show_saved_release_evidence(
+    db_session, client, planner_user, viewer_user,
+):
+    for line, amount, voided, assembly in (
+        (1, "0", True, 0), (2, "0", False, 0), (3, "-25", False, 0),
+        (4, "0", True, 0), (4, "927.90", False, 0),
+        (5, "0", None, 0), (6, "0", False, 2), (2, "123", True, 2),
+    ):
+        add_source(
+            db_session, order_line=line, assembly_seq=assembly,
+            release_price_gbp=Decimal(amount), void_line=voided,
+        )
+    extract = save_va05_extract(planner_user.id)
+    review_url = f"{PAGE}/extracts/{extract.id}"
+    url = f"{review_url}/nonpositive-gbp"
+    assert client.get(url).status_code == 302
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    finding = client.get(f"{review_url}?finding=nonpositive_value").get_data(as_text=True)
+    assert "Nonpositive GBP breakdown" in finding
+    for key, label, count in (
+        ("all", "All groups", 5),
+        ("void_zero", "Zero GBP, consistently void", 1),
+        ("nonvoid_zero", "Zero GBP, consistently not void", 1),
+        ("uncertain", "Conflicting or incomplete main observations", 2),
+        ("negative", "Negative GBP", 1),
+    ):
+        summary_row = finding.split(f'data-gbp-review-group="{key}"', 1)[1].split("</tr>", 1)[0]
+        assert label in summary_row
+        assert f'data-gbp-review-status="unreviewed">{count}</span>' in summary_row
+    overview = " ".join(client.get(url).get_data(as_text=True).split())
+    assert extract.summary["counts"]["nonpositive_value"] == 5
+    for label, count in (
+        ("Zero GBP, consistently void", 1), ("Zero GBP, consistently not void", 1),
+        ("Conflicting or incomplete main observations", 2), ("Negative GBP", 1),
+    ):
+        assert f"{label}: {count}" in overview
+    conflict = next(
+        row for row in ForecastDataRecord.query.filter_by(extract_id=extract.id).all()
+        if row.data["order_line"] == 4 and "nonpositive_value" in row.findings
+    )
+    grouped_url = f"{review_url}?scope=unreviewed&finding=nonpositive_value&gbp_group=uncertain"
+    response = client.get(grouped_url)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "2 matching saved records" in html
+    assert "Order 12 / line 4 / release 1" in html
+    assert "Order 12 / line 5 / release 1" in html
+    assert "Order 12 / line 1 / release 1" not in html
+    collapsed = html.split("Order 12 / line 4 / release 1", 1)[1].split("</summary>", 1)[0]
+    assert "Order date <strong>02/01/2026</strong>" in collapsed
+    assert "Ship by <strong>01/02/2026</strong>" in collapsed
+    assert "Void <strong>Yes</strong>" in collapsed and "GBP <strong>0" in collapsed
+    assert f"release={conflict.id}&amp;scope=unreviewed#release-evidence" in html
+    assert client.get(f"{review_url}?finding=nonpositive_value&gbp_group=unknown").status_code == 400
+    for group, lines in (
+        ("void_zero", (1,)), ("nonvoid_zero", (2,)), ("negative", (3,)), ("uncertain", (4, 5)),
+    ):
+        response = client.get(f"{url}?group={group}")
+        assert response.status_code == 200
+        group_table = response.get_data(as_text=True).split('<tbody>', 1)[1].split('</tbody>', 1)[0]
+        assert tuple(line for line in range(1, 7) if f">12 / {line} / 1</a>" in group_table) == lines
+    response = client.get(f"{url}?group=uncertain&release={conflict.id}")
+    assert response.status_code == 200
+    evidence = response.get_data(as_text=True).split('id="release-evidence"', 1)[1]
+    assert "927.90" in evidence and "<td>Yes</td>" in evidence and "<td>No</td>" in evidence
+    assert client.get(f"{url}?group=void_zero&release={conflict.id}").status_code == 404
+    assert client.get(f"{url}?group=unknown").status_code == 400
+    assert ForecastDataDecision.query.count() == 0
+    client.get("/auth/logout")
+    login(client, planner_user.email, "Planner!Pass1234")
+    manager_view = client.get(grouped_url).get_data(as_text=True)
+    assert "Set review outcome for 2 matching rows" in manager_view
+    assert "Download a worklist by current status for this group" in manager_view
+    for status in ("unreviewed", "investigate"):
+        assert f"{review_url}/review-worklist/{status}.csv?finding=nonpositive_value&amp;gbp_group=uncertain" in manager_view
+    response = client.post(f"{PAGE}/records/{conflict.id}/review", data={
+        "capture_identity": extract.capture_identity, "scope": "unreviewed",
+        "finding": "nonpositive_value", "gbp_group": "uncertain",
+        "status": "investigate", "rationale": "Compare the main observations.",
+    }, follow_redirects=True)
+    assert response.status_code == 200 and "gbp_group=uncertain" in response.request.url
+    assert "1 matching saved records" in response.get_data(as_text=True)
+
+
+def test_gbp_group_bulk_review_and_export_stay_in_selected_group(db_session, client, planner_user):
+    for order_num in range(1, 29):
+        add_source(db_session, order_num=order_num, release_price_gbp=0, void_line=order_num < 28)
+    extract = save_va05_extract(planner_user.id)
+    url = f"{PAGE}/extracts/{extract.id}"
+    bulk = f"{url}/finding-reviews"
+    csv_url = f"{url}/source-corrections.csv?finding=nonpositive_value"
+    login(client, planner_user.email, "Planner!Pass1234")
+    payload = {
+        "capture_identity": extract.capture_identity, "finding": "nonpositive_value",
+        "gbp_group": "void_zero", "scope": "unreviewed", "expected_count": 27,
+        "expected_revision": 0, "confirm": "yes", "status": "source_correction",
+        "rationale": "Check the saved voids.",
+    }
+    response = client.post(bulk, data=payload, follow_redirects=True)
+    assert "gbp_group=void_zero" in response.request.url
+    assert "for 27 rows." in response.get_data(as_text=True)
+    assert ForecastDataDecision.query.count() == 27
+
+    def exported_orders(group=""):
+        response = client.get(csv_url + (f"&gbp_group={group}" if group else ""))
+        assert response.status_code == 200
+        return {int(row["Order"]) for row in csv.DictReader(StringIO(response.get_data(as_text=True)))}
+
+    assert exported_orders("void_zero") == set(range(1, 28))
+    assert exported_orders("nonvoid_zero") == set()
+    assert exported_orders() == set(range(1, 28))
+    latest = ForecastDataDecision.query.order_by(ForecastDataDecision.id.desc()).first().id
+    response = client.post(bulk, data={
+        **payload, "scope": "findings", "expected_revision": latest,
+        "status": "accepted", "rationale": "Verified the reason for the voids.",
+    }, follow_redirects=True)
+    assert "for 27 rows." in response.get_data(as_text=True)
+    assert ForecastDataDecision.query.count() == 54
+    assert not exported_orders()
+    accepted_html = response.get_data(as_text=True)
+    void_summary = accepted_html.split('data-gbp-review-group="void_zero"', 1)[1].split("</tr>", 1)[0]
+    assert 'data-gbp-review-status="accepted">27</span>' in void_summary
+    assert 'data-gbp-review-status="source_correction">0</span>' in void_summary
+    assert "scope=accepted&amp;finding=nonpositive_value&amp;gbp_group=void_zero" in void_summary
+    record = ForecastDataRecord.query.filter_by(extract_id=extract.id).order_by(ForecastDataRecord.id).first()
+    response = client.post(f"{url}/reviews?finding=nonpositive_value", json={
+        "capture_identity": extract.capture_identity,
+        "reviews": [{"record_id": record.id, "status": "investigate", "rationale": "Check again."}],
+    })
+    assert response.status_code == 200
+    assert response.json["gbp_counts"] == {
+        "all": {"accepted": 26, "investigate": 1, "unreviewed": 1},
+        "void_zero": {"accepted": 26, "investigate": 1},
+        "nonvoid_zero": {"unreviewed": 1}, "negative": {}, "uncertain": {},
+    }
+    assert client.post(bulk, data={**payload, "gbp_group": "unknown"}).status_code == 400
+    assert client.get(csv_url + "&gbp_group=unknown").status_code == 400
+
+
+def test_review_worklists_export_flagged_rows_by_current_status(
+    db_session, client, planner_user, viewer_user,
+):
+    for order_num, amount, voided in (
+        (1, 0, True), (2, 0, True), (3, 0, False), (4, 0, True), (5, 120, False),
+    ):
+        add_source(db_session, order_num=order_num, release_price_gbp=amount, void_line=voided)
+    extract = save_va05_extract(planner_user.id)
+    records = {r.data["order_num"]: r for r in ForecastDataRecord.query.filter_by(extract_id=extract.id)}
+    for order, outcome, reason in (
+        (2, "investigate", "Superseded"), (2, "accepted", "Verified"),
+        (3, "investigate", "Check value"), (4, "investigate", "Check void"),
+    ):
+        save_data_decision(
+            records[order].id, outcome, reason, planner_user.id, capture_identity=extract.capture_identity,
+        )
+    url = f"{PAGE}/extracts/{extract.id}/review-worklist"
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    assert client.get(f"{url}/unreviewed.csv").status_code == 403
+    client.get("/auth/logout")
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    def worklist(status, **filters):
+        response = client.get(f"{url}/{status}.csv", query_string=filters)
+        assert response.status_code == 200 and response.mimetype == "text/csv"
+        return list(csv.DictReader(StringIO(response.get_data(as_text=True))))
+
+    pending, = worklist("unreviewed")
+    assert pending["Order"] == "1"
+    assert pending["Decision"] == "Not reviewed"
+    assert pending["Reason"] == pending["Reviewed at (ISO)"] == ""
+    assert [row["Order"] for row in worklist("investigate")] == ["3", "4"]
+    scoped, = worklist("investigate", finding="nonpositive_value", gbp_group="void_zero")
+    assert (scoped["Order"], scoped["Decision"], scoped["Reason"]) == ("4", "Needs investigation", "Check void")
+    assert not worklist("unreviewed", finding="nonpositive_value", gbp_group="nonvoid_zero")
+    assert client.get(f"{url}/invalid.csv").status_code == 400
+
+
+def test_ai_tools_workflow_header_tracks_stage_and_preserves_extract(
+    db_session, client, planner_user,
+):
+    add_source(db_session, order_date=date(2026, 1, 5), release_qty=None)
+    extract = save_va05_extract(planner_user.id)
+    login(client, planner_user.email, "Planner!Pass1234")
+    saved = f"{PAGE}/extracts/{extract.id}"
+    eda = f"/ai-tools/eda/{extract.id}"
+    for path, current, has_context in (
+        ("/ai-tools/dashboard", "Workflow overview", False),
+        (PAGE, "1. Data Readiness", False),
+        ("/ai-tools/models", "1. Data Readiness", False),
+        (saved, "1. Data Readiness", True),
+        (saved + "/history", "1. Data Readiness", True),
+        (eda, "2. EDA", True),
+        (saved + "/weekly-intake", "2. EDA", True),
+        (saved + "/distribution", "2. EDA", True),
+        (saved + "/weeks/1", "2. EDA", True),
+        (f"/ai-tools/workflow/time-patterns?extract_id={extract.id}", "2. EDA", True),
+        (f"/ai-tools/workflow/experiments?extract_id={extract.id}", "3. Model Experiments", True),
+        ("/ai-tools/workflow/forecasts", "4. Forecasts", False),
+        ("/ai-tools/workflow/monitoring", "5. Monitoring", False),
+    ):
+        response = client.get(path)
+        assert response.status_code == 200
+        header = " ".join(response.get_data(as_text=True).split(
+            'aria-label="Project 1 workflow">', 1,
+        )[1].split("</nav>", 1)[0].split())
+        if current == "Workflow overview":
+            assert 'aria-current="location">Workflow overview' in header
+            assert 'aria-current="step"' not in header
+        else:
+            assert header.count('aria-current="step"') == 1
+            assert f'aria-current="step"> {current}' in header
+        if has_context:
+            assert f'href="{saved}"' in header and f'href="{eda}"' in header
+
+
+def test_bulk_finding_outcome_across_pages_drives_correction_export(
+    db_session, client, planner_user, viewer_user,
+):
+    ship_by = date(2026, 1, 1)
+    for order_num in range(1, 82):
+        add_source(db_session, order_num=order_num, req_date=ship_by)
+    add_source(db_session, order_num=82, release_qty=None)
+    extract = save_va05_extract(planner_user.id)
+    records = ForecastDataRecord.query.order_by(ForecastDataRecord.id).all()
+    for record, status in (
+        (records[0], "accepted"), (records[1], "investigate"), (records[-1], "source_correction"),
+    ):
+        save_data_decision(record.id, status, "Existing evidence.", planner_user.id, capture_identity=extract.capture_identity)
+    url = f"{PAGE}/extracts/{extract.id}"
+    finding = "ship_by_before_order"
+    revision = records[1].decisions[0].id
+    payload = {
+        "capture_identity": extract.capture_identity, "finding": finding,
+        "scope": "findings", "status": "source_correction", "expected_count": 81,
+        "expected_revision": revision, "confirm": "yes",
+        "rationale": "Verify the ship-by date in Epicor.",
+    }
+    bulk_url = f"{url}/finding-reviews"
+    csv_url = f"{url}/source-corrections.csv?finding={finding}"
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    assert client.post(bulk_url, data=payload).status_code == 403
+    client.get("/auth/logout")
+    login(client, planner_user.email, "Planner!Pass1234")
+    response = client.get(url, query_string={"scope": "findings", "finding": finding})
+    html = response.get_data(as_text=True)
+    assert "81 matching saved records" in html
+    assert "Set review outcome for 81 matching rows" in html
+    assert "replaces the current outcome on 2 previously reviewed rows" in html
+    assert f'id="record-{records[80].id}"' not in html
+    unreviewed = client.get(url, query_string={"scope": "unreviewed", "finding": finding}).get_data(as_text=True)
+    assert "Set review outcome for 79 matching rows" in unreviewed
+    assert not list(csv.DictReader(StringIO(client.get(csv_url).get_data(as_text=True))))
+    for invalid in (
+        {**payload, "confirm": ""},
+        {**payload, "expected_revision": revision - 1},
+        {**payload, "expected_count": 79},
+        {**payload, "capture_identity": "stale"},
+        {**payload, "rationale": " "},
+        {**payload, "status": "invalid"},
+    ):
+        assert client.post(bulk_url, data=invalid).status_code == 302
+        assert ForecastDataDecision.query.count() == 3
+    result = client.post(bulk_url, data=payload, follow_redirects=True)
+    assert "for 81 rows. No Epicor data was changed." in result.get_data(as_text=True)
+    assert ForecastDataDecision.query.filter_by(status="source_correction").count() == 82
+    assert [decision.status for decision in records[0].decisions] == ["source_correction", "accepted"]
+    assert [decision.status for decision in records[1].decisions] == ["source_correction", "investigate"]
+    assert AuditLog.query.filter_by(action="forecast_data_decision_saved").count() == 84
+    assert ForecastDataExtract.query.one().summary["counts"][finding] == 81
+
+    response = client.get(csv_url)
+    exported = list(csv.DictReader(StringIO(response.get_data(as_text=True))))
+    assert {int(row["Order"]) for row in exported} == set(range(1, 82))
+    assert {row["Order date (ISO)"] for row in exported} == {"2026-01-02"}
+    assert {row["Required ship-by date (ISO)"] for row in exported} == {ship_by.isoformat()}
+    assert {row["Reason"] for row in exported} == {payload["rationale"]}
+    assert client.post(bulk_url, data=payload).status_code == 302
+    assert ForecastDataDecision.query.count() == 84
+    latest = max(record.decisions[0].id for record in records[:-1])
+    assert client.post(bulk_url, data={
+        **payload, "status": "accepted", "rationale": "Verified with source owner.",
+        "expected_revision": latest,
+    }).status_code == 302
+    assert ForecastDataDecision.query.count() == 165
+    assert not list(csv.DictReader(StringIO(client.get(csv_url).get_data(as_text=True))))
+
+
+def test_batch_review_updates_distinct_rows_and_returns_latest_counts(
+    db_session, client, planner_user, viewer_user,
+):
+    add_source(db_session, release_qty=None)
+    add_source(db_session, rel_num=2, release_qty=None, release_price_gbp=None)
+    extract = save_va05_extract(planner_user.id)
+    records = ForecastDataRecord.query.order_by(ForecastDataRecord.id).all()
+    save_data_decision(
+        records[0].id, "investigate", "Check original order.", planner_user.id,
+        capture_identity=extract.capture_identity,
+    )
+    before = [(record.data, record.findings) for record in records]
+    url = f"{PAGE}/extracts/{extract.id}"
+    payload = {"capture_identity": extract.capture_identity, "reviews": [
+        {"record_id": records[0].id, "status": "accepted", "rationale": "Checked original order."},
+        {"record_id": records[1].id, "status": "source_correction", "rationale": "Check <quantity>."},
+    ]}
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    assert client.post(f"{url}/reviews", json=payload).status_code == 403
+    client.get("/auth/logout")
+    login(client, planner_user.email, "Planner!Pass1234")
+    html = client.get(url).get_data(as_text=True)
+    assert f'data-save-url="{url}/reviews"' in html
+    assert f'<details class="border rounded mb-1" id="record-{records[0].id}">' in html
+
+    response = client.post(f"{url}/reviews", json=payload)
+    assert response.status_code == 200 and response.is_json
+    assert response.json["counts"] == {"accepted": 1, "source_correction": 1}
+    assert response.json["finding_counts"] == {"missing_qty": 2, "missing_value": 1}
+    assert [entry["record_id"] for entry in response.json["reviews"]] == [record.id for record in records]
+    assert response.json["reviews"][0]["badge"] == "text-bg-success"
+    assert response.json["reviews"][1]["badge"] == "text-bg-danger"
+    assert "Check &lt;quantity&gt;." in response.json["reviews"][1]["history_entry"]
+    assert [(record.data, record.findings) for record in records] == before
+    assert ForecastDataDecision.query.count() == 3
+    assert AuditLog.query.filter_by(action="forecast_data_decision_saved").count() == 3
+    html = client.get(url).get_data(as_text=True)
+    assert '<span data-reviewed>2</span> of 2 reviewed' in html
+    assert f'data-unreviewed href="{url}?scope=unreviewed&amp;finding=missing_qty#saved-records" hidden' in html
+
+
+def test_review_status_filters_use_latest_outcome(db_session, client, planner_user):
+    for order_num in range(1, 5):
+        add_source(db_session, order_num=order_num, release_qty=None)
+    extract = save_va05_extract(planner_user.id)
+    first, second, third, fourth = ForecastDataRecord.query.order_by(ForecastDataRecord.id).all()
+    for record, status in (
+        (first, "source_correction"), (first, "accepted"),
+        (second, "source_correction"), (third, "investigate"),
+    ):
+        save_data_decision(record.id, status, "Reviewed.", planner_user.id, capture_identity=extract.capture_identity)
+    login(client, planner_user.email, "Planner!Pass1234")
+    url = f"{PAGE}/extracts/{extract.id}"
+    for scope, record, badge, label in (
+        ("accepted", first, "success", "Accepted with evidence"),
+        ("source_correction", second, "danger", "Source correction required"),
+        ("investigate", third, "warning", "Needs investigation"),
+        ("unreviewed", fourth, "secondary", "Not reviewed"),
+    ):
+        response = client.get(url, query_string={"scope": scope, "finding": "missing_qty"})
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert f'href="{url}?scope={scope}#saved-records"' in html
+        assert f'id="record-{record.id}"' in html
+        assert f'text-bg-{badge} me-2" data-latest-review>{label}</span>' in html
+        assert all(
+            f'id="record-{other.id}"' not in html
+            for other in (first, second, third, fourth) if other != record
+        )
+
+
+def test_batch_review_does_not_save_valid_row_when_another_is_invalid(
+    db_session, client, planner_user,
+):
+    add_source(db_session, release_qty=None)
+    extract = save_va05_extract(planner_user.id)
+    first = ForecastDataRecord.query.filter_by(extract_id=extract.id).one()
+    other = save_va05_extract(planner_user.id)
+    foreign = ForecastDataRecord.query.filter_by(extract_id=other.id).one()
+    login(client, planner_user.email, "Planner!Pass1234")
+    url = f"{PAGE}/extracts/{extract.id}/reviews"
+    first_review = {"record_id": first.id, "status": "accepted", "rationale": "Confirmed."}
+    for rejected, identity in (
+        ({**first_review, "record_id": foreign.id}, extract.capture_identity),
+        (first_review, extract.capture_identity),
+        (None, other.capture_identity),
+    ):
+        response = client.post(url, json={
+            "capture_identity": identity,
+            "reviews": [first_review, rejected] if rejected is not None else [first_review],
+        })
+        assert response.status_code == 400
+        assert response.json["error"]
+        assert ForecastDataDecision.query.count() == 0
+    assert AuditLog.query.filter_by(action="forecast_data_decision_saved").count() == 0
 
 
 def test_finding_filter_combines_with_scope_and_preserves_review(
@@ -904,7 +1655,8 @@ def test_finding_filter_combines_with_scope_and_preserves_review(
     assert "Findings summary" in summary
     assert "Missing main-row release quantity" in summary
     assert "Missing main-row GBP release value" in summary
-    assert summary.count("<strong>2</strong>") == 2
+    assert summary.count("<span data-reviewed>0</span> of 2 reviewed") == 2
+    assert "No affected rows" in summary
     assert "affected rows across the full extract" in summary.lower()
     assert html.index('id="finding-summary"') < html.index(
         'id="review-finding"',
@@ -923,6 +1675,7 @@ def test_finding_filter_combines_with_scope_and_preserves_review(
     )
     html = response.get_data(as_text=True)
     assert "1 matching saved records" in html
+    assert "<span data-reviewed>1</span> of 2 reviewed" in html
     assert "Order 1 / line 1" not in html
     assert "Order 3 / line 1" in html
     assert "scope=unreviewed" in response.request.url
@@ -1052,6 +1805,8 @@ def test_extract_notes_are_append_only_and_protect_evidence(
     before_hash = extract.content_hash
     login(client, planner_user.email, "Planner!Pass1234")
 
+    html = client.get(path).get_data(as_text=True)
+    assert '<details class="small mt-2">\n        <summary>Comments / Notes (0)</summary>' in html
     note_form = {"capture_identity": identity}
     for body in ("  ", "x" * 2001):
         response = client.post(
@@ -1067,7 +1822,9 @@ def test_extract_notes_are_append_only_and_protect_evidence(
         )
     html = response.get_data(as_text=True)
     assert "First observation &lt;detail&gt;" in html
+    assert "<summary>Comments / Notes (2)</summary>" in html
     assert html.index("Follow-up") < html.index("First observation")
+    assert html.index("Provenance and content hash") < html.index('id="extract-notes"') < html.index('id="review-progress"')
     assert planner_user.username in html
     assert "Delete entire saved extract" not in html
     first = ForecastDataNote.query.order_by(ForecastDataNote.id).first()
@@ -1181,7 +1938,7 @@ def test_capture_review_notes_and_deletion_require_csrf(
         app.config["WTF_CSRF_ENABLED"] = True
         try:
             assert client.post(PAGE + "/capture").status_code == 400
-            for action in ("notes", "delete"):
+            for action in ("notes", "delete", "reviews", "finding-reviews"):
                 assert client.post(
                     f"{PAGE}/extracts/{extract.id}/{action}",
                 ).status_code == 400

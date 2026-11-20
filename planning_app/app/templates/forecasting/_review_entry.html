@@ -1,0 +1,6 @@
+<li class="mb-2">
+  <strong>{{ decision_statuses[decision.status] }}</strong>
+  - {{ decision.reviewed_at | utcfmt('uk-datetime') }}
+  - reviewer ID {{ decision.reviewed_by_id if decision.reviewed_by_id is not none else "unavailable" }}
+  <div class="text-break">{{ decision.rationale }}</div>
+</li>

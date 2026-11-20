@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from statistics import correlation, mean, median, quantiles
+from statistics import correlation, mean
 
 from app.forecasting.weekly_intake import (
     CALENDAR,
@@ -22,6 +22,7 @@ from app.forecasting.weekly_intake import (
     available_mix_axes,
     explore_weekly_intake,
     summarize_mix,
+    summarize_weekly_distribution,
 )
 
 
@@ -76,9 +77,10 @@ def describe_mix(profile: WeeklyIntake) -> list[str]:
 
 def describe_weekly_intake(weeks: list[IntakeWeek]) -> list[str]:
     """Describe completed weeks without filling gaps or using flagged totals."""
+    distribution = summarize_weekly_distribution(weeks)
     completed = [week for week in weeks if not week.partial]
-    missing = [week.number for week in completed if week.net_gbp is None]
-    flagged = [week.number for week in completed if week.exceptions]
+    missing = list(distribution.missing_weeks)
+    flagged = [week.number for week in distribution.quality_flagged_weeks]
     shutdown = [week.number for week in completed if week.possible_shutdown]
     observed = {
         week.number: week.net_gbp for week in completed
@@ -93,22 +95,28 @@ def describe_weekly_intake(weeks: list[IntakeWeek]) -> list[str]:
         f"Unavailable weeks: {labels(missing)}; exception weeks: {labels(flagged)}; "
         f"possible shutdown weeks: {labels(shutdown)}",
     ]
-    values = list(observed.values())
-    if not values:
+    summary = distribution.unflagged_statistics
+    if summary is None:
         return lines + ["No unflagged weekly values to describe."]
     lines.append(
-        f"Net GBP: mean {mean(values):,.2f}; median {median(values):,.2f}; "
-        f"range {min(values):,.2f} to {max(values):,.2f}; "
-        f"zero weeks {sum(value == 0 for value in values)}"
+        f"Net GBP: mean {summary.mean:,.2f}; median {summary.median:,.2f}; "
+        f"range {summary.minimum:,.2f} to {summary.maximum:,.2f}; "
+        f"zero weeks {summary.zero_weeks}"
     )
-    outliers = []
-    if len(values) >= 4:
-        low, _, high = quantiles(values, n=4, method="inclusive")
-        fence = Decimal("1.5") * (high - low)
-        outliers = [
-            week for week, value in observed.items() if not low - fence <= value <= high + fence
-        ]
+    outliers = list(distribution.outlier_weeks)
+    if summary.count >= 4:
         lines.append(f"IQR outlier candidates: {labels(outliers)}")
+    lines.append("Distribution sensitivity (completed observed weeks):")
+    for comparison in distribution.comparisons:
+        statistics = comparison.statistics
+        if statistics is None:
+            lines.append(f"  {comparison.label}: no observations")
+        else:
+            lines.append(
+                f"  {comparison.label}: {statistics.count} weeks; mean {statistics.mean:,.2f}; "
+                f"median {statistics.median:,.2f}; range {statistics.minimum:,.2f} "
+                f"to {statistics.maximum:,.2f}; zero weeks {statistics.zero_weeks}"
+            )
 
     if completed:
         midpoint = completed[len(completed) // 2].number
@@ -204,6 +212,7 @@ def verify_weeks(db: sqlite3.Connection, extract_id: int, weeks: list[IntakeWeek
     sql_rows = {row[0]: tuple(row[1:]) for row in db.execute(
         SQL_PATH.read_text(encoding="utf-8"),
         {"extract_id": extract_id, "first_week": FIRST_WEEK.isoformat(),
+         "start": weeks[0].start.isoformat(),
          "end": (weeks[-1].end + timedelta(days=1)).isoformat()},
     )}
     for week in weeks:
@@ -244,8 +253,14 @@ def review(database: Path, extract_id: int, output: Path, *, mix: bool = False) 
         if len(records) != count:
             raise ValueError("Saved row count does not match the capture metadata.")
         axes = available_mix_axes(settings["fields"]) if mix else ()
+        period = None
+        if "order_date_from" in settings:
+            period = (
+                datetime.fromisoformat(settings["order_date_from"]).date(),
+                datetime.fromisoformat(settings["order_date_to"]).date(),
+            )
         profile = explore_weekly_intake(
-            (json.loads(raw) for (raw,) in records), captured.date(), mix_axes=axes,
+            (json.loads(raw) for (raw,) in records), captured.date(), mix_axes=axes, period=period,
         )
         weeks = [week for week in profile.weeks if not week.partial]
         if not weeks:

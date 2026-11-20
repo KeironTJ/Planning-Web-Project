@@ -39,6 +39,6 @@ SELECT 1 + CAST((julianday(order_date) - julianday(:first_week)) / 7 AS INTEGER)
        SUM(CASE WHEN usable THEN CASE WHEN void_flag = 0 THEN price ELSE 0 END END) AS net_units,
        SUM(CASE WHEN usable AND void_flag = 1 THEN price ELSE 0 END) AS void_units
 FROM releases
-WHERE has_date AND order_date >= :first_week AND order_date < :end
+WHERE has_date AND order_date >= :start AND order_date < :end
 GROUP BY week
 ORDER BY week;

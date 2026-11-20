@@ -1,0 +1,77 @@
+{% extends "forecasting/_base.html" %}
+{% macro coverage(weeks) %}
+  {% set complete = weeks | rejectattr('partial') | list %}
+  {% set observed = complete | rejectattr('net_gbp', 'none') | list %}
+  {% set flagged = complete | selectattr('exceptions') | list %}
+  <span>{{ observed | length }} of {{ complete | length }} completed weeks with GBP</span>
+  &middot; {{ (complete | length) - (observed | length) }} unavailable
+  &middot; {{ flagged | length }} with release exceptions
+  {% set partial = weeks | selectattr('partial') | list | length %}
+  {% if partial %}&middot; {{ partial }} partial excluded{% endif %}
+{% endmacro %}
+{% block title %}{{ title }}{% endblock %}
+{% block tool_page_header %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom pb-2 mb-3">
+  <h1 class="h3 mb-0">{{ title }}</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">Back to saved data review</a>
+</div>
+{% endblock %}
+{% block content %}
+<div class="container-fluid pb-4">
+  <p>Saved extract <strong>{{ extract.reference }}</strong> &middot; Captured {{ extract.captured_at | utcfmt('uk-datetime') }}</p>
+  <p>Financial years start on the first Monday of January. Financial months follow 4-4-5, with week 53 in month 12. Periods are assigned by Epicor order date. The extract shows records available at capture, not historical coverage verified against Finance.</p>
+  {% if unassigned_dates or future_dates %}
+  <p class="text-muted">{{ unassigned_dates }} releases could not be assigned because their order date was missing or conflicting; {{ future_dates }} were dated after capture.</p>
+  {% endif %}
+  {% set period = extract.order_period %}
+  {% if period %}<p><strong>{{ period[0] | uk_date }} to {{ period[1] | uk_date }}</strong> (inclusive)</p>
+  {% else %}<p>Legacy capture: coverage starts in the first observed financial year; no period was selected.</p>{% endif %}
+  <p>{{ coverage(weeks) }}.</p>
+
+  <h2 class="h5">Explore financial years, months and weeks</h2>
+  <p class="small text-muted">Open a year, then a financial month, to see individual weeks. Coverage counts are through capture only. A gap means no usable observation, not zero. Flagged weeks may also lack a GBP value.</p>
+  {% for year, months in years | dictsort(reverse=true) %}
+  {% set weeks = months.values() | sum(start=[]) %}
+  <details class="card mb-2">
+    <summary class="card-header">
+      <strong>SOI {{ year }}</strong>
+      &middot; {{ coverage(weeks) }}
+    </summary>
+    <div class="card-body">
+      {% for month, month_weeks in months.items() %}
+      <details class="border rounded p-2 mb-2">
+        <summary><strong>Month {{ month }}</strong> &middot; {{ coverage(month_weeks) }}</summary>
+        <div class="table-responsive mt-2">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr>
+              <th scope="col">Week</th><th scope="col">Dates</th><th scope="col">Coverage</th>
+              <th scope="col" class="text-end">Net GBP</th><th scope="col" class="text-end">Included releases</th>
+              <th scope="col" class="text-end">Exception releases</th>
+            </tr></thead>
+            <tbody>
+              {% for week in month_weeks %}
+              <tr>
+                <th scope="row">{% if week.releases %}<a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number, year=year) }}">{{ week.number }}</a>{% else %}{{ week.number }}{% endif %}</th>
+                <td>{{ week.start | uk_date }} to {{ week.end | uk_date }}</td>
+                <td>
+                  {% if week.partial %}Partial{% elif week.net_gbp is none %}Unavailable{% else %}Observed{% endif %}
+                  {% if week.exceptions %}&middot; flagged{% endif %}
+                  {% if week.possible_shutdown %}&middot; possible shutdown{% endif %}
+                </td>
+                <td class="text-end">{% if week.net_gbp is not none %}{{ '{:,.2f}'.format(week.net_gbp) }}{% else %}&mdash;{% endif %}</td>
+                <td class="text-end">{{ week.included }}</td>
+                <td class="text-end">{{ week.exceptions }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+  </details>
+  {% else %}
+  <p>No saved releases have a usable order date on or before capture.</p>
+  {% endfor %}
+</div>
+{% endblock %}

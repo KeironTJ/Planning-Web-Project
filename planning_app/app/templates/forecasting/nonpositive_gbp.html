@@ -1,0 +1,69 @@
+{% extends "forecasting/_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block tool_page_header %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom pb-2 mb-3">
+  <h1 class="h3 mb-0">{{ title }}</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id, finding='nonpositive_value', gbp_group=group, scope=request.args.get('scope'), _anchor='saved-records') }}">Back to finding</a>
+</div>
+{% endblock %}
+{% macro observations(record) %}
+  <td>{{ record.data.order_date | default(none) | uk_date or 'Missing' }}</td>
+  <td>{{ record.data.job_num or 'Not supplied' }}</td>
+  <td>{{ record.data.assembly_seq if record.data.assembly_seq is not none else 'No assembly' }}</td>
+  <td>{{ record.data.release_price_gbp if record.data.release_price_gbp is not none else 'Missing' }}</td>
+  <td>{% if record.data.void_line is sameas true %}Yes{% elif record.data.void_line is sameas false %}No{% else %}Missing{% endif %}</td>
+{% endmacro %}
+{% block content %}
+<p>Grouped across the full saved extract. Counts are flagged rows, not distinct releases, and include all review outcomes. Subassembly zeroes are not flagged here.</p>
+<p class="text-muted">When main observations disagree or are incomplete, the row is shown separately rather than treated as a routine zero or negative value. These groups describe the saved values; they do not accept, change, or approve them.</p>
+<nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Nonpositive GBP groups">
+  {% for key, label in labels.items() %}
+  <a class="btn btn-sm {{ 'btn-primary' if group == key else 'btn-outline-primary' }}"
+     href="{{ url_for('forecasting.nonpositive_gbp', extract_id=extract.id, group=key, _anchor='group-rows') }}"{% if group == key %} aria-current="true"{% endif %}>
+    {{ label }}: {{ '{:,}'.format(groups[key] | length) }}
+  </a>
+  {% endfor %}
+</nav>
+{% if group %}
+<h2 class="h5" id="group-rows">{{ labels[group] }}</h2>
+{% if rows %}
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead><tr><th scope="col">Release</th><th scope="col">Order date</th><th scope="col">Job</th><th scope="col">Assembly</th><th scope="col">Saved GBP</th><th scope="col">Void</th></tr></thead>
+    <tbody>
+      {% for record in rows %}
+      <tr>
+        <th scope="row"><a href="{{ url_for('forecasting.nonpositive_gbp', extract_id=extract.id, group=group, page=page, release=record.id, _anchor='release-evidence') }}">{{ record.data.order_num }} / {{ record.data.order_line }} / {{ record.data.rel_num }}</a></th>
+        {{ observations(record) }}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p>No flagged rows in this group.</p>
+{% endif %}
+{% if pages > 1 %}
+<nav class="d-flex justify-content-between mb-3" aria-label="Group pages">
+  <span>{% if page > 1 %}<a href="{{ url_for('forecasting.nonpositive_gbp', extract_id=extract.id, group=group, page=page - 1, _anchor='group-rows') }}">Previous</a>{% endif %}</span>
+  <span>Page {{ page }} of {{ pages }}</span>
+  <span>{% if page < pages %}<a href="{{ url_for('forecasting.nonpositive_gbp', extract_id=extract.id, group=group, page=page + 1, _anchor='group-rows') }}">Next</a>{% endif %}</span>
+</nav>
+{% endif %}
+{% endif %}
+{% if evidence %}
+<h2 class="h5" id="release-evidence">Saved release evidence</h2>
+<p>Order {{ evidence[0].data.order_num }} / line {{ evidence[0].data.order_line }} / release {{ evidence[0].data.rel_num }}. Subassembly rows are context only.</p>
+<div class="table-responsive">
+  <table class="table table-sm">
+    <thead><tr><th scope="col">Source row</th><th scope="col">Order date</th><th scope="col">Job</th><th scope="col">Assembly</th><th scope="col">Saved GBP</th><th scope="col">Void</th></tr></thead>
+    <tbody>
+      {% for record in evidence %}
+      <tr{% if record.id == anchor_id %} class="table-active"{% endif %}><th scope="row">{{ record.source_row_id }}</th>{{ observations(record) }}</tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p><a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope='all', release=anchor_id, _anchor='saved-records') }}">Open this release in Data Review</a></p>
+{% endif %}
+{% endblock %}

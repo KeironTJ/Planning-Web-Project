@@ -40,6 +40,13 @@ Save versioned datasets separately from operational tables, retaining source
 parameters, extraction details, mappings, quality results, and calculation
 settings.
 
+Choose the inclusive order-date window when saving a VA05 extract. Review
+its coverage and investigate discrepancies in Data Readiness before using
+the saved observations for EDA. Send source corrections to authorised owners
+as a worklist; save a separate extract for the same dates once corrections are
+available in Planning. Choose training and evaluation windows later, not
+when reviewing coverage.
+
 **Output:** a reconciled dataset and data-quality report for the first target.
 
 ### 3. Explore demand
@@ -255,12 +262,36 @@ shutdown affecting order entry, but the exact historical closure dates
 are not verified. Keep those weeks separate from confirmed zero-intake
 weeks.
 
-## Next milestone: make the EDA evidence visible
+## Current milestone: make the EDA evidence visible
 
 The initial analytical review is complete for the one-week-ahead GBP
-prototype. Before fitting, bring the evidence into the browser EDA workflow:
-distribution and unusual weeks first, then time patterns and lags, then
-feature decisions. Use `DEV-7` throughout; no new capture is needed.
+prototype. The browser now shows the `DEV-7` weekly-net distribution and
+summaries using the same calculation as the `--eda` command. It identifies
+week 1 as an IQR outlier candidate while keeping it in the extract, and
+separately marks week 34 as a data-quality exception. Its sensitivity table
+compares all observed completed weeks, outlier-excluded weeks, quality-flag
+excluded weeks, and both exclusions. Partial weeks and unavailable values are
+not filled with zero; no saved data is changed.
+
+Completed weeks now link to a saved-release investigation. This shows the
+same inclusion/exclusion decisions as the weekly aggregation, conflicting
+main observations, latest record reviews and the largest captured mix
+contributors. Review outcomes stay at record level; business explanations
+use week-labelled extract notes. Neither clears a calculation exception or
+changes the frozen values. Any reconciled calculation needs a separate,
+evidenced preparation step. An explained shutdown-related spike is not
+automatically removed or redistributed.
+
+Browser checks against `DEV-7` confirmed that the retained totals for weeks 1
+and 34 were unchanged. Week 34's single excluded release showed both conflicting
+main observations and existing review evidence without clearing the weekly flag.
+The CLI still matched all 45 completed weeks to independent SQL and the
+existing CSV. Focused tests cover release grain, filters and pagination,
+record-review return links, note permissions and persistence, and unchanged
+weekly exclusions after acceptance.
+
+The next two EDA steps are **Time patterns and lags**, followed by
+**Feature decisions**. Continue using `DEV-7`; no new capture is needed.
 
 ### Following milestone: first learned forecast
 

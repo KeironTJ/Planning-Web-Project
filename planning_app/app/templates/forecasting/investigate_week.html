@@ -1,0 +1,140 @@
+{% extends "forecasting/_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block tool_page_header %}
+<div class="d-flex justify-content-between flex-wrap align-items-center gap-2 pt-2 pb-1 mb-3 border-bottom">
+  <h1 class="h3 mb-0">{{ title }}</h1>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.intake_history', extract_id=extract.id) }}">Coverage review</a>
+    {% if calendar == 'SOI 2026' %}
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.weekly_distribution', extract_id=extract.id) }}">Distribution and unusual weeks</a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor='coverage-heading') }}">Weekly intake and coverage</a>
+    {% endif %}
+    <a class="btn btn-sm btn-outline-secondary" href="#extract-notes">{{ 'Record an explanation' if can_manage else 'View explanations' }}</a>
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="container-fluid pb-4">
+  <p>{{ extract.reference }} &middot; {{ calendar }} week {{ week.number }} &middot; {{ week.start | uk_date }} to {{ week.end | uk_date }} &middot; Analysis rules: {{ rules }}</p>
+  <p class="text-muted">Saved observations only, using the same release-level calculation as the weekly chart and CLI. Multiple jobs or assemblies are not additional demand. Neither review evidence nor notes change this frozen extract.</p>
+  {% if week.partial %}<p class="alert alert-warning">Partial week: review the saved releases, but do not use this as a completed week.</p>{% endif %}
+  {% if is_outlier %}
+  <div class="alert alert-warning">Statistical outlier candidate, not a record error. Investigate contributors and record business context, such as a verified closure or order-entry delay. Keep the recorded order dates and values unless a separate, evidenced preparation rule is agreed.</div>
+  {% endif %}
+  {% if week.exceptions %}
+  <div class="alert alert-warning">
+    <strong>Incomplete: {{ week.exceptions }} release{{ 's' if week.exceptions != 1 else '' }} excluded.</strong>
+    Start with the excluded releases below. Review their saved observations and record an outcome.
+    Accepted evidence does not choose between conflicting GBP values or void flags, reinstate a release, or clear this weekly flag.
+    A reconciled calculation would be a separate preparation step, not an edit to these saved observations.
+  </div>
+  {% endif %}
+  <section class="card mb-3" aria-labelledby="week-summary">
+    <div class="card-body">
+      <h2 class="h5" id="week-summary">What makes up this week?</h2>
+      <div class="row g-2">
+        <div class="col-sm-6 col-lg-3"><strong>Net GBP retained</strong><div>{{ '{:,.2f}'.format(week.net_gbp) if week.net_gbp is not none else 'Unavailable (not zero)' }}</div></div>
+        <div class="col-sm-6 col-lg-3"><strong>Included releases</strong><div>{{ week.included }} of {{ week.releases }}</div></div>
+        <div class="col-sm-6 col-lg-3"><strong>Voided releases</strong><div>{{ week.voided }} &middot; {{ '{:,.2f}'.format(week.void_gbp) }} GBP excluded</div></div>
+        <div class="col-sm-6 col-lg-3"><strong>Exception releases</strong><div>{{ week.exceptions }}{% if week.exceptions %} &middot; unresolved contribution{% endif %}</div></div>
+      </div>
+      <p class="small text-muted mt-2 mb-0">Releases without a consistent, usable order date cannot be assigned to this or any other week; review extract-wide date issues separately.</p>
+    </div>
+  </section>
+
+  <section class="mb-3" aria-labelledby="week-releases">
+    <h2 class="h5" id="week-releases">Saved releases and review evidence</h2>
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-center mb-2" action="#week-releases">
+      {% if week_year is not none %}<input type="hidden" name="year" value="{{ week_year }}">{% endif %}
+      <label for="release-scope" class="form-label mb-0">Show releases</label>
+      <select id="release-scope" name="scope" class="form-select w-auto">
+        {% for value, label in [('excluded', 'Excluded: weekly GBP exceptions'), ('included', 'Included in net GBP'), ('voided', 'Voided'), ('all', 'All releases in this week')] %}
+        <option value="{{ value }}" {% if scope == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-outline-primary" type="submit">Apply</button>
+    </form>
+    <p class="small text-muted">{{ matching_count }} matching release{{ 's' if matching_count != 1 else '' }}, ordered by consistent saved GBP, highest first. Review outcomes below are evidence, not proof that the weekly exception is resolved.</p>
+    {% for detail in details %}
+    {% set rows = saved_records[detail.key] %}
+    <article class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+          <div>
+            <h3 class="h6 mb-1">Order {{ detail.key[0] }} / line {{ detail.key[1] }} / release {{ detail.key[2] }}</h3>
+            <span class="badge {{ 'text-bg-warning' if detail.status == 'excluded' else ('text-bg-secondary' if detail.status == 'voided' else 'text-bg-primary') }}">{{ detail.status | capitalize }}</span>
+            {% if detail.status != 'excluded' %}<span class="small">{{ '{:,.2f}'.format(detail.gbp) }} GBP{% if detail.status == 'voided' %} excluded as void{% endif %}</span>{% endif %}
+          </div>
+          <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope='all', release=rows[0].id, week=week.number, year=week_year) }}">Review all saved rows for this release</a>
+        </div>
+        {% if detail.reasons %}
+        <ul class="small mb-2">{% for reason in detail.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+        {% endif %}
+        <details {% if detail.status == 'excluded' %}open{% endif %}>
+          <summary class="small">Saved observations and latest row review ({{ rows | length }} rows)</summary>
+          <div class="table-responsive mt-2">
+            <table class="table table-sm align-middle mb-0">
+              <thead><tr><th scope="col">Source row</th><th scope="col">Job / assembly</th><th scope="col">Order date</th><th scope="col">Main GBP observation</th><th scope="col">Void line</th><th scope="col">Latest review evidence</th></tr></thead>
+              <tbody>
+                {% for record in rows %}
+                {% set main = record.data.assembly_seq in (none, 0) %}
+                <tr>
+                  <td>{{ record.source_row_id }}</td>
+                  <td>{{ record.data.job_num or 'Not supplied' }} / {{ record.data.assembly_seq if record.data.assembly_seq is not none else 'No assembly' }}</td>
+                  <td>{{ record.data.order_date | default(none) | uk_date or 'Missing' }}</td>
+                  <td>{% if main %}{{ record.data.release_price_gbp if record.data.release_price_gbp is not none else 'Missing' }}{% else %}Subassembly: not counted{% endif %}</td>
+                  <td>{% if record.data.void_line is sameas true %}Yes{% elif record.data.void_line is sameas false %}No{% else %}Missing{% endif %}</td>
+                  <td>
+                    {% if record.decisions %}
+                    {{ decision_statuses[record.decisions[0].status] }}
+                    <div class="small text-break">{{ record.decisions[0].rationale }}</div>
+                    {% elif record.has_findings %}No review evidence{% else %}No saved row finding{% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+    </article>
+    {% else %}
+    <p class="text-muted">No saved releases match this filter. A week without usable observations remains unavailable, not zero.</p>
+    {% endfor %}
+    {% if pages > 1 %}
+    <nav class="d-flex justify-content-between mb-3" aria-label="Week release pages">
+      <span>{% if page_number > 1 %}<a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number, scope=scope, page=page_number - 1, year=week_year, _anchor='week-releases') }}">Previous</a>{% endif %}</span>
+      <span>Page {{ page_number }} of {{ pages }}</span>
+      <span>{% if page_number < pages %}<a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number, scope=scope, page=page_number + 1, year=week_year, _anchor='week-releases') }}">Next</a>{% endif %}</span>
+    </nav>
+    {% endif %}
+  </section>
+
+  <section class="card mb-3" aria-labelledby="week-contributors">
+    <div class="card-body">
+      <h2 class="h5" id="week-contributors">Largest product and customer-group contributors</h2>
+      <p class="text-muted small">Top five assigned categories per captured dimension, using included releases only. Missing and conflicting labels retain their GBP but are not assigned to a category. Dimensions are separate breakdowns; do not add them together.</p>
+      <div class="row g-3">
+        {% for axis in mix_axes %}
+        {% set summary = mix_summaries.get(axis) %}
+        <div class="col-12 col-xl-6">
+          <h3 class="h6">{{ axis }}</h3>
+          {% if summary is none %}<p class="small text-muted">Not captured</p>
+          {% elif week.net_gbp is none %}<p class="small text-muted">No usable observations</p>
+          {% else %}
+          <ul class="small">
+            {% for label, value, active_weeks in summary.leaders %}
+            <li>{{ label | join(' / ') }}: {{ '{:,.2f}'.format(value.gbp) }} GBP &middot; {{ value.releases }} releases</li>
+            {% endfor %}
+            <li>Missing labels: {{ '{:,.2f}'.format(summary.missing.gbp) }} GBP &middot; {{ summary.missing.releases }} releases</li>
+            <li>Conflicting labels: {{ '{:,.2f}'.format(summary.conflicting.gbp) }} GBP &middot; {{ summary.conflicting.releases }} releases</li>
+          </ul>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  {% include "forecasting/_extract_notes.html" %}
+</div>
+{% endblock %}

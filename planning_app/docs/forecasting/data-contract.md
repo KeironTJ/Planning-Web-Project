@@ -75,10 +75,10 @@ observations are exceptions; subassembly values cannot substitute for them.
 Project 1 uses the SOI financial calendar. Epicor order date assigns each order
 to a Monday-start financial week, and the SOI calendar assigns that week to a
 financial month. Financial months consist of whole weeks and may cross
-calendar-month boundaries. The verified 2026 calendar follows a 4-4-5
-pattern in each quarter. Use the reporting calendar for the relevant year
-rather than deriving month from the order date or assuming the same pattern
-in other years.
+calendar-month boundaries. The financial year starts on the first Monday of
+January. Financial months follow 4-4-5 in each quarter; a 53rd week belongs
+to month 12. Applying this calendar to a saved extract does not verify its
+historical coverage or reconcile its GBP totals against Finance.
 
 The proposed Project 2 output calendar uses Monday-start ISO weeks, identified
 by week-start date, across the 12-16-week horizon. Interpret business dates in
@@ -401,12 +401,22 @@ observations, source limitations, a content hash, and versioned quality results.
 Capture does not call Epicor and cannot recover discarded raw duplicates,
 parse failures or extraction parameters.
 
+Browser captures from `va05-local-v5` hash the inclusive Epicor order-date
+bounds as part of the source settings. Membership is decided per release:
+use a single consistent main/no-assembly order date, or check all rows if
+there is no main row. Retain every observation for a matching release.
+Releases with missing or conflicting dates are saved for separate review
+even if their observed dates fall outside the selected bounds. Do not assign
+them by received date. A financial week cut by either boundary or still
+open at capture is not a completed week. Earlier all-row captures keep their
+original scope and findings.
+
 Saved checks use main/no-assembly rows for missing/nonpositive quantities and
 GBP values. From `va05-local-v2`, sharing a release key is not itself a
 finding; conflicting main-row quantities/values still are. Reviewers can
 open all saved rows for a release to compare jobs and assemblies without
 aggregating them. Earlier extracts retain their original checks and evidence.
-Order-level received-date conflicts span releases.
+Order-level received-date conflicts span saved releases.
 Review outcomes append evidence without altering findings or source values.
 New saved reviews include the observed VA05 model and display its current
 classification for context; older reviews without a captured model are not

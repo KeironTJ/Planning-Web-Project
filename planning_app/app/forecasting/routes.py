@@ -4,8 +4,16 @@ Existing planning permissions provide read access and a separate write gate.
 All writes are POST requests covered by the application's CSRF protection.
 """
 
-from flask import abort, flash, redirect, render_template, request, url_for
+import csv
+from dataclasses import replace
+from datetime import datetime, timedelta
+from decimal import Decimal
+from io import StringIO
+
+from flask import Response, abort, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
+from sqlalchemy import func, true, tuple_
+from sqlalchemy.orm import lazyload
 
 from app.core.decorators import permission_required
 from app.core.exceptions import NotFoundError, ValidationError
@@ -13,14 +21,21 @@ from app.core.exceptions import NotFoundError, ValidationError
 from . import forecasting_bp
 from .data_quality import (
     DECISION_STATUSES,
+    NONPOSITIVE_GBP_GROUPS,
     delete_unreviewed_extract,
     extract_has_reviews,
+    finding_elements,
     finding_matches,
+    group_nonpositive_gbp,
+    matching_record_ids,
+    preview_finding_reviews,
     save_data_decision,
+    save_data_decisions,
+    save_finding_reviews,
     save_extract_note,
     save_va05_extract,
 )
-from .models import ForecastDataExtract, ForecastDataNote, ForecastDataRecord
+from .models import ForecastDataDecision, ForecastDataExtract, ForecastDataNote, ForecastDataRecord
 from .services import (
     get_intake_data_readiness,
     get_model_category_names,
@@ -34,8 +49,10 @@ from .services import (
     save_model_classification_updates,
 )
 from .weekly_intake import (
-    CALENDAR, MIX_AXES, REQUIRED_FIELDS, RULES, available_mix_axes, explore_weekly_intake,
-    summarize_mix,
+    CALENDAR, END, FIRST_WEEK, MIX_AXES, REQUIRED_FIELDS, RULES, WEEK,
+    IntakeWeek, available_mix_axes, explore_intake_history, explore_weekly_intake,
+    financial_month, financial_year, financial_year_start, summarize_mix,
+    summarize_weekly_distribution,
 )
 
 
@@ -79,6 +96,24 @@ WORKFLOW_TODO = {
 }
 
 
+def _week_in_extract(extract: ForecastDataExtract, number: int | None, year: int | None) -> bool:
+    if year is None or not 1 <= year <= extract.captured_at.year or number is None:
+        return False
+    first = financial_year_start(year)
+    if not 1 <= number <= (financial_year_start(year + 1) - first) // WEEK:
+        return False
+    start = first + (number - 1) * WEEK
+    end = start + WEEK
+    period = extract.order_period
+    return start <= extract.captured_at.date() and (
+        period is None or (start <= period[1] and end > period[0])
+    )
+
+
+def _week_year(values) -> int | None:
+    return values.get("year", type=int) if "year" in values else 2026
+
+
 @forecasting_bp.route("/")
 @forecasting_bp.route("/dashboard")
 @login_required
@@ -106,6 +141,34 @@ def eda(extract_id: int | None = None):
     )
 
 
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/history")
+@login_required
+@permission_required("view_planning")
+def intake_history(extract_id: int):
+    """Review financial coverage of the immutable saved extract."""
+    extract = ForecastDataExtract.query.get_or_404(extract_id)
+    if not REQUIRED_FIELDS.issubset(extract.source_settings.get("fields", ())):
+        abort(400, description="This saved extract lacks required weekly GBP fields.")
+    records = ForecastDataRecord.query.with_entities(ForecastDataRecord.data)
+    records = records.filter_by(extract_id=extract.id).yield_per(500)
+    captured_on = extract.captured_at.date()
+    profile = explore_intake_history(
+        (data for (data,) in records), captured_on, period=extract.order_period,
+    )
+    years: dict[int, dict[int, list[IntakeWeek]]] = {}
+    for week in profile.weeks:
+        years.setdefault(financial_year(week.start), {}).setdefault(
+            financial_month(week.number), [],
+        ).append(week)
+
+    return render_template(
+        "forecasting/intake_history.html", title=f"Coverage review {extract.reference}",
+        extract=extract, years=years, weeks=profile.weeks,
+        unassigned_dates=profile.issues["Releases with missing or conflicting order dates"],
+        future_dates=profile.issues["Releases dated after the capture"],
+    )
+
+
 @forecasting_bp.route("/workflow/<stage>")
 @login_required
 @permission_required("view_planning")
@@ -126,14 +189,20 @@ def workflow_todo(stage: str):
 @permission_required("view_planning")
 def data_readiness():
     """Show local order data signals and unresolved source requirements."""
+    copy_from = request.args.get("copy_from", type=int)
+    copy_period = ForecastDataExtract.query.get_or_404(copy_from).order_period if copy_from else None
     return render_template(
         "forecasting/data_readiness.html",
         title="Forecasting Data Readiness",
         readiness=get_intake_data_readiness(),
+        calendar=CALENDAR,
+        calendar_start=FIRST_WEEK,
+        calendar_end=END - timedelta(days=1),
         extracts=ForecastDataExtract.query.order_by(
             ForecastDataExtract.id.desc(),
         ).paginate(page=request.args.get("page", 1, type=int), per_page=10),
         can_manage=current_user.has_permission("manage_planning"),
+        copy_period=copy_period,
     )
 
 
@@ -144,13 +213,185 @@ def data_readiness():
 def data_extract_capture():
     """Save local VA05 observations and their quality results."""
     try:
-        extract = save_va05_extract(current_user.id)
+        try:
+            period = (
+                datetime.strptime(request.form.get("order_date_from", "").strip(), "%d/%m/%Y").date(),
+                datetime.strptime(request.form.get("order_date_to", "").strip(), "%d/%m/%Y").date(),
+            )
+        except ValueError:
+            raise ValidationError("Enter both extract dates in DD/MM/YYYY format.") from None
+        extract = save_va05_extract(current_user.id, period=period)
     except ValidationError as exc:
         flash(str(exc), "danger")
-        return redirect(url_for("forecasting.data_readiness"))
+        return redirect(url_for("forecasting.data_readiness", _anchor="saved-extracts"))
     flash("Local VA05 extract saved. Operational data is unchanged.", "success")
     return redirect(url_for(
         "forecasting.data_extract", extract_id=extract.id,
+    ))
+
+
+_REVIEW_BADGES = {
+    "accepted": "text-bg-success",
+    "unreviewed": "text-bg-secondary",
+    "investigate": "text-bg-warning",
+    "source_correction": "text-bg-danger",
+    "no_findings": "text-bg-light",
+}
+_REVIEW_SCOPES = ("findings", "unreviewed", "all", *DECISION_STATUSES)
+_BULK_FINDING_SCOPES = ("findings", "unreviewed", "all")
+_WORKLISTS = {
+    "unreviewed": ("Not reviewed", "not-reviewed"),
+    "investigate": (DECISION_STATUSES["investigate"], "needs-investigation"),
+    "source_correction": (DECISION_STATUSES["source_correction"], "source-corrections"),
+}
+
+
+def _latest_extract_reviews(extract_id: int):
+    latest = (
+        ForecastDataDecision.query.with_entities(func.max(ForecastDataDecision.id).label("id"))
+        .join(ForecastDataRecord, ForecastDataRecord.id == ForecastDataDecision.record_id)
+        .filter(ForecastDataRecord.extract_id == extract_id)
+        .group_by(ForecastDataDecision.record_id).subquery()
+    )
+    return ForecastDataDecision.query.join(latest, latest.c.id == ForecastDataDecision.id)
+
+
+def _extract_review_counts(extract_id: int) -> dict[str, int]:
+    return dict(_latest_extract_reviews(extract_id).with_entities(
+        ForecastDataDecision.status, func.count(),
+    ).group_by(ForecastDataDecision.status).all())
+
+
+def _finding_review_counts(extract_id: int) -> dict[str, int]:
+    elements = finding_elements()
+    return dict(
+        _latest_extract_reviews(extract_id).with_entities(
+            elements.c.value, func.count(),
+        ).join(ForecastDataRecord, ForecastDataRecord.id == ForecastDataDecision.record_id)
+        .join(elements, true()).group_by(elements.c.value).all()
+    )
+
+
+def _gbp_review_counts(extract_id: int, groups: dict[str, list[int]]) -> dict[str, dict[str, int]]:
+    counts = {"all": {}}
+    latest = dict(_latest_extract_reviews(extract_id).with_entities(
+        ForecastDataDecision.record_id, ForecastDataDecision.status,
+    ))
+    for group, ids in groups.items():
+        counts[group] = {}
+        for record_id in ids:
+            status = latest.get(record_id, "unreviewed")
+            counts[group][status] = counts[group].get(status, 0) + 1
+            counts["all"][status] = counts["all"].get(status, 0) + 1
+    return counts
+
+
+@forecasting_bp.route(
+    "/data-readiness/extracts/<int:extract_id>/source-corrections.csv",
+    defaults={"status": "source_correction"},
+)
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/review-worklist/<status>.csv")
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def source_correction_worklist(extract_id: int, status: str):
+    """Download flagged rows by their latest review outcome, or lack of one."""
+    if status not in _WORKLISTS:
+        abort(400, description="Choose an available worklist status.")
+    label, filename = _WORKLISTS[status]
+    extract = ForecastDataExtract.query.get_or_404(extract_id)
+    finding = request.args.get("finding", "")
+    if finding and finding not in extract.summary["rules"]:
+        abort(400, description="Choose an available finding type.")
+    gbp_group = _gbp_review_group(finding, request.args, strict=True)
+    filters = []
+    if finding:
+        filters.append(finding_matches(finding))
+    if gbp_group is not None:
+        filters.append(matching_record_ids(_nonpositive_gbp_groups(extract.id)[gbp_group]))
+    if status == "unreviewed":
+        records = ForecastDataRecord.query.filter_by(extract_id=extract.id, has_findings=True).filter(
+            ~ForecastDataRecord.decisions.any(), *filters,
+        )
+        entries = ((None, record) for record in records.options(
+            lazyload(ForecastDataRecord.decisions),
+        ).order_by(ForecastDataRecord.id).yield_per(500))
+    else:
+        entries = (
+            _latest_extract_reviews(extract.id)
+            .add_entity(ForecastDataRecord)
+            .join(ForecastDataRecord, ForecastDataRecord.id == ForecastDataDecision.record_id)
+            .filter(ForecastDataDecision.status == status, *filters)
+            .options(lazyload(ForecastDataRecord.decisions))
+            .order_by(ForecastDataRecord.id).yield_per(500)
+        )
+    output = StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow((
+        "Extract", "Saved record ID", "Order", "Line", "Release", "Job", "Assembly",
+        "Order date (ISO)", "Findings", "Decision", "Reason", "Reviewed at (ISO)",
+        "Required ship-by date (ISO)",
+    ))
+
+    def safe_cell(value):
+        if isinstance(value, str) and (
+            value.startswith(("\t", "\r", "\n")) or value.lstrip().startswith(("=", "+", "-", "@"))
+        ):
+            return "'" + value
+        return value
+
+    for decision, record in entries:
+        writer.writerow(map(safe_cell, (
+            extract.reference, record.id,
+            *(record.data.get(key) for key in ("order_num", "order_line", "rel_num", "job_num", "assembly_seq", "order_date")),
+            "; ".join(extract.summary["rules"][rule] for rule in record.findings),
+            label, decision.rationale if decision else "", decision.reviewed_at.isoformat() if decision else "",
+            record.data.get("req_date"),
+        )))
+    return Response(
+        output.getvalue(), mimetype="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{extract.reference}-{filename}.csv"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@forecasting_bp.post("/data-readiness/extracts/<int:extract_id>/finding-reviews")
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def data_extract_finding_reviews(extract_id: int):
+    extract = ForecastDataExtract.query.get_or_404(extract_id)
+    finding = request.form.get("finding", "")
+    if not finding or finding not in extract.summary["rules"]:
+        abort(400, description="Choose one saved finding type.")
+    gbp_group = _gbp_review_group(finding, request.form, strict=True)
+    scope = request.form.get("scope")
+    if scope not in _BULK_FINDING_SCOPES:
+        abort(400, description="Choose an available bulk review filter.")
+    status = request.form.get("status", "")
+    expected_count = request.form.get("expected_count", type=int)
+    expected_revision = request.form.get("expected_revision", type=int)
+    try:
+        if expected_count is None or expected_count < 1 or expected_revision is None or request.form.get("confirm") != "yes":
+            raise ValidationError("Confirm which rows will receive the shared outcome before saving.")
+        count = save_finding_reviews(
+            extract.id, finding, status, request.form.get("rationale", ""), current_user.id,
+            capture_identity=request.form.get("capture_identity", ""), expected_count=expected_count,
+            expected_revision=expected_revision, unreviewed_only=scope == "unreviewed",
+            record_ids=_nonpositive_gbp_groups(extract.id)[gbp_group] if gbp_group is not None else None,
+        )
+    except NotFoundError:
+        abort(404)
+    except ValidationError as exc:
+        flash(str(exc), "danger")
+    else:
+        flash(f"Saved '{DECISION_STATUSES[status]}' for {count} rows. No Epicor data was changed.", "success")
+        scope = status
+    return redirect(url_for(
+        "forecasting.data_extract", extract_id=extract.id, finding=finding, scope=scope,
+        gbp_group=gbp_group, _anchor="saved-records",
     ))
 
 
@@ -160,8 +401,12 @@ def data_extract_capture():
 def data_extract(extract_id: int):
     """Inspect saved observations rather than mutable operational rows."""
     extract = ForecastDataExtract.query.get_or_404(extract_id)
+    investigation_week = request.args.get("week", type=int)
+    year = _week_year(request.args)
+    if "week" in request.args and not _week_in_extract(extract, investigation_week, year):
+        abort(400, description="Choose a week covered by the saved extract.")
     scope = request.args.get("scope", "findings")
-    if scope not in ("findings", "unreviewed", "all"):
+    if scope not in _REVIEW_SCOPES:
         abort(400, description="Choose an available record filter.")
     finding = request.args.get("finding", "")
     if finding and finding not in extract.summary["rules"]:
@@ -185,8 +430,21 @@ def data_extract(extract_id: int):
         records = records.filter_by(has_findings=True)
     if scope == "unreviewed":
         records = records.filter(~ForecastDataRecord.decisions.any())
+    elif scope in DECISION_STATUSES:
+        matching = _latest_extract_reviews(extract.id).with_entities(
+            ForecastDataDecision.record_id,
+        ).filter(ForecastDataDecision.status == scope)
+        records = records.filter(ForecastDataRecord.id.in_(matching.statement))
     if finding:
         records = records.filter(finding_matches(finding))
+    gbp_group = _gbp_review_group(finding, request.args)
+    gbp_groups = None
+    group_ids = None
+    if finding == "nonpositive_value" and not release:
+        gbp_groups = _nonpositive_gbp_groups(extract.id)
+        if gbp_group is not None:
+            group_ids = gbp_groups[gbp_group]
+            records = records.filter(matching_record_ids(group_ids))
     pagination = records.order_by(ForecastDataRecord.id).paginate(
         page=request.args.get("page", 1, type=int), per_page=25,
         error_out=False,
@@ -195,7 +453,8 @@ def data_extract(extract_id: int):
         return redirect(url_for(
             "forecasting.data_extract", extract_id=extract.id,
             scope=scope, finding=finding, page=max(pagination.pages, 1),
-            release=release_anchor,
+            release=release_anchor, gbp_group=gbp_group,
+            week=investigation_week, year=request.args.get("year", type=int),
         ))
     models = {
         (record.data["model"] or "").strip()
@@ -206,6 +465,14 @@ def data_extract(extract_id: int):
         ForecastDataNote.id.desc(),
     ).all()
     can_manage = current_user.has_permission("manage_planning")
+    bulk_preview = (
+        preview_finding_reviews(
+            extract.id, finding, unreviewed_only=scope == "unreviewed", record_ids=group_ids,
+        )
+        if can_manage and finding and not release and investigation_week is None
+        and scope in _BULK_FINDING_SCOPES
+        else None
+    )
     return render_template(
         "forecasting/data_extract.html",
         title=f"VA05 Data Review {extract.reference}",
@@ -213,13 +480,84 @@ def data_extract(extract_id: int):
         records=pagination,
         scope=scope,
         finding=finding,
+        gbp_group=gbp_group,
+        gbp_group_counts={key: len(ids) for key, ids in gbp_groups.items()} if gbp_groups is not None else None,
+        gbp_review_counts=_gbp_review_counts(extract.id, gbp_groups) if gbp_groups is not None else None,
+        gbp_group_labels=NONPOSITIVE_GBP_GROUPS,
         release=release,
         release_anchor=release_anchor,
+        investigation_week=investigation_week,
+        investigation_year=request.args.get("year", type=int),
+        order_period=extract.order_period,
+        has_coverage=REQUIRED_FIELDS.issubset(extract.source_settings.get("fields", ())),
         model_categories=get_model_category_names(models),
         decision_statuses=DECISION_STATUSES,
+        review_badges=_REVIEW_BADGES,
         notes=notes,
         can_manage=can_manage,
+        review_counts=_extract_review_counts(extract.id),
+        finding_review_counts=_finding_review_counts(extract.id),
+        bulk_preview=bulk_preview,
         can_delete=can_manage and not notes and not extract_has_reviews(extract.id),
+    )
+
+
+def _gbp_review_group(finding: str, values, *, strict: bool = False) -> str | None:
+    group = values.get("gbp_group")
+    if finding != "nonpositive_value" or "release" in values:
+        if strict and group is not None:
+            abort(400, description="A GBP group can only filter the nonpositive GBP finding.")
+        return None
+    if group is not None and group not in NONPOSITIVE_GBP_GROUPS:
+        abort(400, description="Choose an available GBP group.")
+    return group
+
+
+def _nonpositive_gbp_groups(extract_id: int) -> dict[str, list[int]]:
+    return group_nonpositive_gbp(ForecastDataRecord.query.filter_by(extract_id=extract_id).with_entities(
+        ForecastDataRecord.id, ForecastDataRecord.data, ForecastDataRecord.findings,
+    ).order_by(ForecastDataRecord.id).yield_per(500))
+
+
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/nonpositive-gbp")
+@login_required
+@permission_required("view_planning")
+def nonpositive_gbp(extract_id: int):
+    """Explore a saved finding without changing its review outcomes."""
+    extract = ForecastDataExtract.query.get_or_404(extract_id)
+    if "nonpositive_value" not in extract.summary["rules"]:
+        abort(404)
+    group = request.args.get("group")
+    if group is not None and group not in NONPOSITIVE_GBP_GROUPS:
+        abort(400, description="Choose an available GBP group.")
+    records = ForecastDataRecord.query.filter_by(extract_id=extract.id)
+    groups = _nonpositive_gbp_groups(extract.id)
+    per_page = 25
+    ids = groups[group] if group is not None else []
+    pages = max(1, (len(ids) + per_page - 1) // per_page)
+    page = request.args.get("page", type=int) if "page" in request.args else 1
+    if page is None or not 1 <= page <= pages:
+        abort(404)
+    rows = records.filter(ForecastDataRecord.id.in_(ids[(page - 1) * per_page:page * per_page]))
+    anchor_id = request.args.get("release", type=int)
+    evidence = []
+    if "release" in request.args:
+        if anchor_id is None or anchor_id not in ids:
+            abort(404)
+        anchor = records.filter_by(id=anchor_id).first_or_404()
+        key_fields = ("order_num", "order_line", "rel_num")
+        if all(anchor.data.get(key) is not None for key in key_fields):
+            evidence = records.filter(*(
+                ForecastDataRecord.data[key].as_integer() == anchor.data[key]
+                for key in key_fields
+            )).order_by(ForecastDataRecord.id).all()
+        else:
+            evidence = [anchor]
+    return render_template(
+        "forecasting/nonpositive_gbp.html", title=f"Explore nonpositive GBP {extract.reference}",
+        extract=extract, labels=NONPOSITIVE_GBP_GROUPS, groups=groups, group=group,
+        rows=rows.order_by(ForecastDataRecord.id).all() if ids else [],
+        page=page, pages=pages, evidence=evidence, anchor_id=anchor_id,
     )
 
 
@@ -237,6 +575,7 @@ def weekly_intake(extract_id: int):
         profile = explore_weekly_intake(
             (data for (data,) in records), extract.captured_at.date(),
             mix_axes=available_mix_axes(fields),
+            period=extract.order_period,
         )
     chart_scale = None
     if profile is not None:
@@ -258,15 +597,160 @@ def weekly_intake(extract_id: int):
     )
 
 
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/distribution")
+@login_required
+@permission_required("view_planning")
+def weekly_distribution(extract_id: int):
+    """Render distribution and unusual-week sensitivity from a saved extract."""
+    extract = ForecastDataExtract.query.get_or_404(extract_id)
+    profile = None
+    fields = extract.source_settings.get("fields", ())
+    if REQUIRED_FIELDS.issubset(fields):
+        records = ForecastDataRecord.query.with_entities(ForecastDataRecord.data)
+        records = records.filter_by(extract_id=extract.id).yield_per(500)
+        profile = explore_weekly_intake(
+            (data for (data,) in records), extract.captured_at.date(),
+            period=extract.order_period,
+        )
+
+    distribution = None
+    chart_points = []
+    chart_min = chart_midpoint = chart_max = median_y = None
+    if profile is not None:
+        distribution = summarize_weekly_distribution(profile.weeks)
+        if distribution.chart_weeks:
+            values = [week.net_gbp for week in distribution.chart_weeks]
+            chart_min, chart_max = min(values), max(values)
+            chart_midpoint = (chart_min + chart_max) / 2
+            span = chart_max - chart_min
+            for index, week in enumerate(distribution.chart_weeks):
+                position = index / max(len(distribution.chart_weeks) - 1, 1)
+                relative_value = (week.net_gbp - chart_min) / span if span else Decimal("0.5")
+                chart_points.append({
+                    "x": round(76 + float(position) * 536, 1),
+                    "y": round(172 - float(relative_value) * 136, 1),
+                    "week": week.number,
+                    "value": week.net_gbp,
+                    "outlier": week.number in distribution.outlier_weeks,
+                    "quality_flagged": bool(week.exceptions),
+                })
+            summary = distribution.unflagged_statistics
+            if summary is not None:
+                relative_median = (
+                    (summary.median - chart_min) / span if span else Decimal("0.5")
+                )
+                median_y = round(172 - float(relative_median) * 136, 1)
+
+    return render_template(
+        "forecasting/distribution.html",
+        title=f"Distribution and unusual weeks {extract.reference}",
+        extract=extract,
+        profile=profile,
+        distribution=distribution,
+        chart_points=chart_points,
+        chart_min=chart_min,
+        chart_midpoint=chart_midpoint,
+        chart_max=chart_max,
+        median_y=median_y,
+        calendar=CALENDAR,
+        rules=RULES,
+    )
+
+
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/weeks/<int:week_number>")
+@login_required
+@permission_required("view_planning")
+def investigate_week(extract_id: int, week_number: int):
+    """Trace a completed weekly total to saved releases and their review evidence."""
+    extract = ForecastDataExtract.query.get_or_404(extract_id)
+    fields = extract.source_settings.get("fields", ())
+    if not REQUIRED_FIELDS.issubset(fields):
+        abort(400, description="This saved extract lacks required weekly GBP fields.")
+    year = _week_year(request.args)
+    if year is None or not _week_in_extract(extract, week_number, year):
+        abort(404, description="Choose a week covered by the saved extract.")
+    calendar = f"SOI {year}"
+    scope = request.args.get("scope")
+    if scope is not None and scope not in ("all", "included", "voided", "excluded"):
+        abort(400, description="Choose an available release filter.")
+    page_number = request.args.get("page", type=int) if "page" in request.args else 1
+    if page_number is None or page_number < 1:
+        abort(400, description="Choose a valid release page.")
+    records = ForecastDataRecord.query.with_entities(ForecastDataRecord.data)
+    records = records.filter_by(extract_id=extract.id).yield_per(500)
+    profile = explore_weekly_intake(
+        (data for (data,) in records), extract.captured_at.date(),
+        mix_axes=available_mix_axes(fields), detail_week=week_number,
+        year=year, period=extract.order_period,
+    )
+    week = next(week for week in profile.weeks if week.number == week_number)
+    distribution = summarize_weekly_distribution(profile.weeks)
+    if week.partial and "year" not in request.args:
+        abort(404, description="Review partial weeks from the coverage page.")
+    scope = scope or ("excluded" if week.exceptions else ("all" if "year" in request.args else "included"))
+    details = [
+        detail for detail in profile.release_details
+        if scope == "all" or detail.status == scope
+    ]
+    details.sort(key=lambda detail: (
+        -(detail.gbp if detail.gbp is not None else Decimal(0)), detail.key,
+    ))
+    pages = max(1, (len(details) + 24) // 25)
+    if page_number > pages:
+        return redirect(url_for(
+            "forecasting.investigate_week", extract_id=extract.id, week_number=week_number,
+            scope=scope, page=pages, _anchor="week-releases",
+            year=request.args.get("year", type=int),
+        ))
+    page_details = details[(page_number - 1) * 25:page_number * 25]
+    saved_records = {}
+    if page_details:
+        release_keys = tuple_(*(
+            ForecastDataRecord.data[key].as_integer()
+            for key in ("order_num", "order_line", "rel_num")
+        ))
+        for record in ForecastDataRecord.query.filter(
+            ForecastDataRecord.extract_id == extract.id,
+            release_keys.in_([detail.key for detail in page_details]),
+        ).order_by(ForecastDataRecord.id):
+            key = tuple(record.data[name] for name in ("order_num", "order_line", "rel_num"))
+            saved_records.setdefault(key, []).append(record)
+    return render_template(
+        "forecasting/investigate_week.html",
+        title=f"Investigate week {week_number} {extract.reference}",
+        extract=extract, week=week, scope=scope,
+        is_outlier=week_number in distribution.outlier_weeks,
+        details=page_details, saved_records=saved_records,
+        page_number=page_number, pages=pages, matching_count=len(details),
+        mix_summaries=summarize_mix(replace(profile, weeks=[week])),
+        mix_axes=MIX_AXES, decision_statuses=DECISION_STATUSES,
+        notes=ForecastDataNote.query.filter_by(extract_id=extract.id).order_by(
+            ForecastDataNote.id.desc(),
+        ).all(),
+        can_manage=current_user.has_permission("manage_planning"),
+        note_week=week_number, note_prefix=f"{calendar} week {week_number}: ",
+        week_year=request.args.get("year", type=int), calendar=calendar, rules=RULES,
+    )
+
+
 @forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/notes", methods=["POST"])
 @login_required
 @permission_required("view_planning")
 @permission_required("manage_planning")
 def data_extract_note(extract_id: int):
     """Append a note without editing the saved observation."""
+    note_week = request.form.get("week", type=int)
+    year = _week_year(request.form)
+    if "week" in request.form:
+        extract = ForecastDataExtract.query.get_or_404(extract_id)
+        if not _week_in_extract(extract, note_week, year):
+            abort(400, description="Choose a week covered by the saved extract.")
+    body = request.form.get("body", "").strip()
+    if note_week is not None and body:
+        body = f"SOI {year} week {note_week}: {body}"
     try:
         save_extract_note(
-            extract_id, request.form.get("body", ""), current_user.id,
+            extract_id, body, current_user.id,
             request.form.get("capture_identity", ""),
         )
     except NotFoundError:
@@ -275,6 +759,11 @@ def data_extract_note(extract_id: int):
         flash(str(exc), "danger")
     else:
         flash("Extract note added.", "success")
+    if note_week is not None:
+        return redirect(url_for(
+            "forecasting.investigate_week", extract_id=extract_id,
+            week_number=note_week, year=request.form.get("year", type=int), _anchor="extract-notes",
+        ))
     return redirect(url_for(
         "forecasting.data_extract", extract_id=extract_id, _anchor="extract-notes",
     ))
@@ -311,12 +800,16 @@ def data_record_review(record_id: int):
     """Append review evidence for a saved record."""
     record = ForecastDataRecord.query.get_or_404(record_id)
     extract = ForecastDataExtract.query.get_or_404(record.extract_id)
+    investigation_week = request.form.get("week", type=int)
+    if "week" in request.form and not _week_in_extract(extract, investigation_week, _week_year(request.form)):
+        abort(400, description="Choose a week covered by the saved extract.")
     scope = request.form.get("scope", "findings")
-    if scope not in ("findings", "unreviewed", "all"):
+    if scope not in _REVIEW_SCOPES:
         abort(400, description="Choose an available record filter.")
     finding = request.form.get("finding", "")
     if finding and finding not in extract.summary["rules"]:
         abort(400, description="Choose an available finding type.")
+    gbp_group = _gbp_review_group(finding, request.form)
     try:
         save_data_decision(
             record.id, request.form.get("status", ""),
@@ -332,11 +825,62 @@ def data_record_review(record_id: int):
         page=request.form.get("page", 1, type=int),
         scope=scope,
         finding=finding,
+        gbp_group=gbp_group,
+        week=investigation_week,
+        year=request.form.get("year", type=int),
         release=(
             record.id if request.form.get("release_context") == "1" else None
         ),
         _anchor=f"record-{record.id}",
     ))
+
+
+@forecasting_bp.post("/data-readiness/extracts/<int:extract_id>/reviews")
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def data_extract_reviews(extract_id: int):
+    payload = request.get_json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("capture_identity"), str):
+        return jsonify(error="Reopen the saved extract before reviewing."), 400
+    items = payload.get("reviews")
+    if not isinstance(items, list) or not 1 <= len(items) <= 25:
+        return jsonify(error="Submit 1 to 25 saved rows."), 400
+    reviews = []
+    for item in items:
+        if (
+            not isinstance(item, dict)
+            or type(item.get("record_id")) is not int
+            or not 0 < item["record_id"] <= 2**63 - 1
+            or not isinstance(item.get("status"), str)
+            or not isinstance(item.get("rationale"), str)
+        ):
+            return jsonify(error="Each review must specify a saved row, outcome and evidence."), 400
+        reviews.append((item["record_id"], item["status"], item["rationale"]))
+    try:
+        decisions = save_data_decisions(
+            extract_id, reviews, current_user.id, capture_identity=payload["capture_identity"],
+        )
+    except NotFoundError as exc:
+        return jsonify(error=str(exc)), 404
+    except ValidationError as exc:
+        return jsonify(error=str(exc)), 400
+    gbp_counts = (
+        _gbp_review_counts(extract_id, _nonpositive_gbp_groups(extract_id))
+        if request.args.get("finding") == "nonpositive_value" else None
+    )
+    return jsonify(counts=_extract_review_counts(extract_id), finding_counts=_finding_review_counts(extract_id), gbp_counts=gbp_counts, reviews=[
+        {
+            "record_id": decision.record_id,
+            "label": DECISION_STATUSES[decision.status],
+            "badge": _REVIEW_BADGES[decision.status],
+            "status": decision.status,
+            "history_entry": render_template(
+                "forecasting/_review_entry.html", decision=decision, decision_statuses=DECISION_STATUSES,
+            ),
+        }
+        for decision in decisions
+    ])
 
 
 @forecasting_bp.route("/models")

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block page_header %}
+{% set endpoint = request.endpoint %}
+{% set active_stage = 'overview' %}
+{% if endpoint in ('forecasting.data_readiness', 'forecasting.data_extract', 'forecasting.intake_history', 'forecasting.model_classifications', 'forecasting.nonpositive_gbp') %}
+  {% set active_stage = 'readiness' %}
+{% elif endpoint in ('forecasting.eda', 'forecasting.weekly_intake', 'forecasting.weekly_distribution', 'forecasting.investigate_week') %}
+  {% set active_stage = 'eda' %}
+{% elif endpoint == 'forecasting.workflow_todo' %}
+  {% set active_stage = 'eda' if eda_stage else request.view_args.stage %}
+{% endif %}
+{% set selected_id = extract.id if extract is defined and extract else extract_id | default(none) %}
+{% set stages = [
+  ('readiness', 'Data Readiness', url_for('forecasting.data_extract', extract_id=selected_id) if selected_id is not none else url_for('forecasting.data_readiness')),
+  ('eda', 'EDA', url_for('forecasting.eda', extract_id=selected_id)),
+  ('experiments', 'Model Experiments', url_for('forecasting.workflow_todo', stage='experiments', extract_id=selected_id)),
+  ('forecasts', 'Forecasts', url_for('forecasting.workflow_todo', stage='forecasts', extract_id=selected_id)),
+  ('monitoring', 'Monitoring', url_for('forecasting.workflow_todo', stage='monitoring', extract_id=selected_id)),
+] %}
+<nav class="border-bottom py-2 mb-2" aria-label="Project 1 workflow">
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-2 small">
+    <strong>Project 1</strong>
+    {% if active_stage == 'overview' %}
+    <span aria-current="location">Workflow overview</span>
+    {% else %}
+    <a href="{{ url_for('forecasting.dashboard') }}">Workflow overview</a>
+    {% endif %}
+    {% if extract is defined and extract %}<span class="text-muted">Saved extract {{ extract.reference }}</span>{% endif %}
+  </div>
+  <ol class="d-flex flex-wrap gap-2 list-unstyled small mb-0">
+    {% for key, label, href in stages %}
+    <li>
+      <a class="btn btn-sm {{ 'btn-primary' if active_stage == key else 'btn-outline-secondary' }}"
+         href="{{ href }}"{% if active_stage == key %} aria-current="step"{% endif %}>
+        {{ loop.index }}. {{ label }}{% if loop.index >= 3 %} <span class="small">(planned)</span>{% endif %}
+      </a>
+    </li>
+    {% endfor %}
+  </ol>
+</nav>
+{% block tool_page_header %}{% endblock %}
+{% endblock %}

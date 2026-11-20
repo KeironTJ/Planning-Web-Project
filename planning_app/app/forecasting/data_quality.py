@@ -2,13 +2,15 @@
 
 import hashlib
 import json
-from collections import Counter
-from datetime import date, datetime
+from collections import Counter, defaultdict
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from itertools import groupby
 
 from flask import current_app
-from sqlalchemy import cast, delete, exists, func, insert, select, update
+from sqlalchemy import Integer, cast, delete, exists, func, insert, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.auth.models import AuditLog
@@ -22,6 +24,7 @@ from .models import (
     ForecastDataNote,
     ForecastDataRecord,
 )
+from .weekly_intake import main_release_value, release_order_date
 
 
 RULES_VERSION = "va05-local-v4"
@@ -48,6 +51,41 @@ DECISION_STATUSES = {
     "accepted": "Accepted with evidence",
     "source_correction": "Source correction required",
 }
+NONPOSITIVE_GBP_GROUPS = {
+    "void_zero": "Zero GBP, consistently void",
+    "nonvoid_zero": "Zero GBP, consistently not void",
+    "uncertain": "Conflicting or incomplete main observations",
+    "negative": "Negative GBP",
+}
+
+
+def group_nonpositive_gbp(
+    rows: Iterable[tuple[int, dict, list[str]]],
+) -> dict[str, list[int]]:
+    """Group flagged row IDs using every main observation for their release."""
+    observations: dict[tuple[int, ...], list[tuple[object, object]]] = defaultdict(list)
+    flagged: list[tuple[int, tuple[int, ...] | None]] = []
+    for record_id, data, findings in rows:
+        if data.get("assembly_seq") not in (0, None):
+            continue
+        key = tuple(data.get(field) for field in ("order_num", "order_line", "rel_num"))
+        complete_key = key if None not in key else None
+        if complete_key is not None:
+            observations[complete_key].append((data.get("release_price_gbp"), data.get("void_line")))
+        if "nonpositive_value" in findings:
+            flagged.append((record_id, complete_key))
+
+    groups: dict[str, list[int]] = {key: [] for key in NONPOSITIVE_GBP_GROUPS}
+    for record_id, key in flagged:
+        amount, voided = main_release_value(observations[key]) if key is not None else (None, None)
+        if amount is None or voided is None or amount > 0:
+            group = "uncertain"
+        elif amount < 0:
+            group = "negative"
+        else:
+            group = "void_zero" if voided else "nonvoid_zero"
+        groups[group].append(record_id)
+    return groups
 SNAPSHOT_FIELDS = (
     "id",
     "order_num",
@@ -73,19 +111,32 @@ SNAPSHOT_FIELDS = (
 )
 
 
-def finding_matches(finding: str):
-    """Match an exact saved JSON-array element on supported databases."""
+def json_array_elements(array):
+    """Expose a JSON array as rows on supported databases."""
     dialect = db.session.get_bind().dialect.name
     if dialect == "sqlite":
-        elements = func.json_each(ForecastDataRecord.findings).table_valued(
-            "value"
-        )
+        elements = func.json_each(array).table_valued("value")
     elif dialect == "postgresql":
         elements = func.jsonb_array_elements_text(
-            cast(ForecastDataRecord.findings, JSONB)
+            cast(array, JSONB)
         ).table_valued("value").render_derived()
     else:
         raise RuntimeError(f"Finding filter is unsupported on {dialect}.")
+    return elements
+
+
+def finding_elements():
+    return json_array_elements(ForecastDataRecord.findings)
+
+
+def matching_record_ids(record_ids: list[int]):
+    ids = json_array_elements(json.dumps(record_ids))
+    return ForecastDataRecord.id.in_(select(cast(ids.c.value, Integer)))
+
+
+def finding_matches(finding: str):
+    """Match an exact saved JSON-array element on supported databases."""
+    elements = finding_elements()
     return exists(
         select(1).select_from(elements).where(elements.c.value == finding)
     )
@@ -138,12 +189,24 @@ def _row_findings(row: dict) -> list[str]:
     return findings
 
 
-def save_va05_extract(user_id: int) -> ForecastDataExtract:
+def save_va05_extract(
+    user_id: int, *, period: tuple[date, date] | None = None,
+) -> ForecastDataExtract:
     """Capture parsed local values atomically, without running an import."""
+    captured_at = datetime.now(timezone.utc)
+    if period and not date(2, 1, 1) <= period[0] <= period[1] <= captured_at.date():
+        raise ValidationError("Choose an ordered date range ending no later than today.")
+    rules = RULES if period is None else {
+        **RULES,
+        "unassigned_order_date": "Release has no consistent order date; outside period totals",
+        "invalid_weekly_gbp": "Main rows have missing or conflicting GBP for weekly intake",
+        "invalid_weekly_void": "Main rows have missing or conflicting void status for weekly intake",
+    }
     extract = ForecastDataExtract(
+        captured_at=captured_at,
         captured_by_id=user_id,
         source="bskyVA05v1",
-        rules_version=RULES_VERSION,
+        rules_version=RULES_VERSION if period is None else "va05-local-v5",
         row_count=0,
         content_hash="",
         source_settings={
@@ -156,6 +219,12 @@ def save_va05_extract(user_id: int) -> ForecastDataExtract:
         },
         summary={},
     )
+    if period:
+        extract.source_settings.update(
+            selection="Inclusive Epicor order-date period plus unassignable releases for review",
+            order_date_from=period[0].isoformat(),
+            order_date_to=period[1].isoformat(),
+        )
     db.session.add(extract)
     db.session.flush()
     query = (
@@ -175,7 +244,7 @@ def save_va05_extract(user_id: int) -> ForecastDataExtract:
         json.dumps(
             {
                 "source": extract.source,
-                "rules_version": RULES_VERSION,
+                "rules_version": extract.rules_version,
                 "source_settings": extract.source_settings,
             },
             sort_keys=True,
@@ -183,24 +252,43 @@ def save_va05_extract(user_id: int) -> ForecastDataExtract:
         ).encode("utf-8")
     )
     counts = Counter()
-    row_count = flagged_count = release_count = order_count = 0
+    row_count = flagged_count = release_count = order_count = unassigned = 0
     pending = []
     for _, order_rows in groupby(query, key=lambda row: row.order_num):
-        order_count += 1
-        # Check order-level dates across every release, not just each row.
         order_data = [dict(row._mapping) for row in order_rows]
+        selected = []
+        for _, release_rows in groupby(order_data, key=lambda row: (row["order_line"], row["rel_num"])):
+            rows = list(release_rows)
+            ordered = release_order_date([
+                (row["order_date"], row["assembly_seq"] in (None, 0)) for row in rows
+            ]) if period else None
+            if period and ordered is not None and not period[0] <= ordered <= period[1]:
+                continue
+            selected.append((rows, ordered))
+        if not selected:
+            continue
+        order_count += 1
         received_dates = {
             row["order_received_date"]
-            for row in order_data
+            for rows, _ in selected for row in rows
             if row["order_received_date"] is not None
         }
-        for _, release_rows in groupby(
-            order_data,
-            key=lambda row: (row["order_line"], row["rel_num"]),
-        ):
+        for rows, ordered in selected:
             release_count += 1
-            rows = list(release_rows)
             common = _release_findings(rows)
+            if period:
+                if ordered is None:
+                    unassigned += 1
+                    common.append("unassigned_order_date")
+                main = [row for row in rows if row["assembly_seq"] in (None, 0)]
+                if main:
+                    for field, rule in (
+                        ("release_price_gbp", "invalid_weekly_gbp"),
+                        ("void_line", "invalid_weekly_void"),
+                    ):
+                        values = {row[field] for row in main}
+                        if None in values or len(values) != 1:
+                            common.append(rule)
             if len(received_dates) > 1:
                 common.append("conflicting_received")
             for row in rows:
@@ -234,7 +322,8 @@ def save_va05_extract(user_id: int) -> ForecastDataExtract:
     if not row_count:
         db.session.rollback()
         raise ValidationError(
-            "No local VA05 rows to capture. Import sales orders first."
+            "No local VA05 rows match the requested period." if period
+            else "No local VA05 rows to capture. Import sales orders first."
         )
     if pending:
         db.session.execute(insert(ForecastDataRecord), pending)
@@ -244,9 +333,11 @@ def save_va05_extract(user_id: int) -> ForecastDataExtract:
         "flagged_rows": flagged_count,
         "release_count": release_count,
         "order_count": order_count,
-        "rules": RULES,
+        "rules": rules,
         "counts": dict(counts),
     }
+    if period:
+        extract.summary["unassigned_releases"] = unassigned
     db.session.add(
         AuditLog(
             user_id=user_id,
@@ -257,7 +348,7 @@ def save_va05_extract(user_id: int) -> ForecastDataExtract:
                     "extract_id": extract.id,
                     "row_count": row_count,
                     "content_hash": extract.content_hash,
-                    "rules_version": RULES_VERSION,
+                    "rules_version": extract.rules_version,
                 }
             ),
         )
@@ -356,15 +447,7 @@ def delete_unreviewed_extract(
     db.session.commit()
 
 
-def save_data_decision(
-    record_id: int,
-    status: str,
-    rationale: str,
-    user_id: int,
-    *,
-    capture_identity: str | None = None,
-) -> ForecastDataDecision:
-    """Append evidence without changing the saved values or findings."""
+def _review_rationale(status: str, rationale: str) -> str:
     if status not in DECISION_STATUSES:
         raise ValidationError("Choose an available review outcome.")
     rationale = rationale.strip()
@@ -372,14 +455,15 @@ def save_data_decision(
         raise ValidationError(
             "Provide review evidence between 1 and 2,000 characters."
         )
-    record = db.session.get(ForecastDataRecord, record_id)
-    if record is None:
-        raise NotFoundError("The saved data record does not exist.")
-    if not record.has_findings:
-        raise ValidationError("This saved record has no findings to review.")
-    _lock_extract(record.extract_id, capture_identity)
+    return rationale
+
+
+def _append_data_decision(
+    extract_id: int, record_id: int, status: str, rationale: str, user_id: int,
+    *, finding: str | None = None,
+) -> ForecastDataDecision:
     decision = ForecastDataDecision(
-        record_id=record.id,
+        record_id=record_id,
         status=status,
         rationale=rationale,
         reviewed_by_id=user_id,
@@ -392,13 +476,125 @@ def save_data_decision(
             resource="forecast_data_record",
             details=json.dumps(
                 {
-                    "extract_id": record.extract_id,
-                    "record_id": record.id,
+                    "extract_id": extract_id,
+                    "record_id": record_id,
                     "status": status,
                     "rationale": rationale,
+                    **({"finding": finding} if finding else {}),
                 }
             ),
         )
     )
+    return decision
+
+
+def save_data_decision(
+    record_id: int, status: str, rationale: str, user_id: int, *,
+    capture_identity: str | None = None,
+) -> ForecastDataDecision:
+    """Append evidence without changing the saved values or findings."""
+    rationale = _review_rationale(status, rationale)
+    record = db.session.get(ForecastDataRecord, record_id)
+    if record is None:
+        raise NotFoundError("The saved data record does not exist.")
+    if not record.has_findings:
+        raise ValidationError("This saved record has no findings to review.")
+    _lock_extract(record.extract_id, capture_identity)
+    decision = _append_data_decision(record.extract_id, record.id, status, rationale, user_id)
     db.session.commit()
     return decision
+
+
+def save_data_decisions(
+    extract_id: int, reviews: list[tuple[int, str, str]], user_id: int, *,
+    capture_identity: str,
+) -> list[ForecastDataDecision]:
+    """Validate all reviews and append them in one transaction."""
+    record_ids = {record_id for record_id, _, _ in reviews}
+    if not 1 <= len(reviews) <= 25 or len(record_ids) != len(reviews):
+        raise ValidationError("Submit 1 to 25 distinct saved rows.")
+    cleaned = []
+    for record_id, status, rationale in reviews:
+        try:
+            cleaned.append((record_id, status, _review_rationale(status, rationale)))
+        except ValidationError as exc:
+            raise ValidationError(f"Saved row {record_id}: {exc}") from exc
+    _lock_extract(extract_id, capture_identity)
+    records = {record.id: record for record in db.session.scalars(
+        select(ForecastDataRecord).where(
+            ForecastDataRecord.extract_id == extract_id,
+            ForecastDataRecord.id.in_(record_ids),
+            ForecastDataRecord.has_findings.is_(True),
+        )
+    )}
+    if records.keys() != record_ids:
+        db.session.rollback()
+        raise ValidationError("Every reviewed row must belong to this extract and have findings.")
+    decisions = [
+        _append_data_decision(extract_id, record_id, status, rationale, user_id)
+        for record_id, status, rationale in cleaned
+    ]
+    db.session.commit()
+    return decisions
+
+
+@dataclass(frozen=True)
+class FindingReviewPreview:
+    count: int
+    reviewed: int
+    revision: int
+
+
+def _finding_review_targets(
+    extract_id: int, finding: str, *, unreviewed_only: bool, record_ids: list[int] | None,
+):
+    targets = select(
+        ForecastDataRecord.id, func.max(ForecastDataDecision.id).label("latest_decision"),
+    ).outerjoin(ForecastDataDecision, ForecastDataDecision.record_id == ForecastDataRecord.id).where(
+        ForecastDataRecord.extract_id == extract_id,
+        ForecastDataRecord.has_findings.is_(True),
+        finding_matches(finding),
+    ).group_by(ForecastDataRecord.id)
+    if record_ids is not None:
+        targets = targets.where(matching_record_ids(record_ids))
+    if unreviewed_only:
+        targets = targets.having(func.count(ForecastDataDecision.id) == 0)
+    return targets
+
+
+def preview_finding_reviews(
+    extract_id: int, finding: str, *, unreviewed_only: bool, record_ids: list[int] | None = None,
+) -> FindingReviewPreview:
+    targets = _finding_review_targets(
+        extract_id, finding, unreviewed_only=unreviewed_only, record_ids=record_ids,
+    ).subquery()
+    return FindingReviewPreview(*db.session.execute(select(
+        func.count(), func.count(targets.c.latest_decision),
+        func.coalesce(func.max(targets.c.latest_decision), 0),
+    ).select_from(targets)).one())
+
+
+def save_finding_reviews(
+    extract_id: int, finding: str, status: str, rationale: str, user_id: int, *,
+    capture_identity: str, unreviewed_only: bool, expected_count: int, expected_revision: int,
+    record_ids: list[int] | None = None,
+) -> int:
+    """Append a shared outcome to all matching rows in one transaction."""
+    rationale = _review_rationale(status, rationale)
+    extract = _lock_extract(extract_id, capture_identity)
+    if finding not in extract.summary["rules"]:
+        db.session.rollback()
+        raise ValidationError("Choose one saved finding type.")
+    targets = db.session.execute(
+        _finding_review_targets(
+            extract_id, finding, unreviewed_only=unreviewed_only, record_ids=record_ids,
+        ),
+    ).all()
+    revision = max((latest or 0 for _, latest in targets), default=0)
+    if not targets or len(targets) != expected_count or revision != expected_revision:
+        db.session.rollback()
+        raise ValidationError("The review list changed. Check the current outcomes before confirming again.")
+    for record_id, _ in targets:
+        _append_data_decision(extract_id, record_id, status, rationale, user_id, finding=finding)
+    db.session.commit()
+    return len(targets)

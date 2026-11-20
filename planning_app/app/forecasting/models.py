@@ -1,6 +1,6 @@
 """Forecast preparation records, separate from operational refreshes."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from app.extensions import db
 
@@ -92,6 +92,15 @@ class ForecastDataExtract(db.Model):
     @property
     def capture_identity(self) -> str:
         return f"{self.id}:{self.captured_at.isoformat()}"
+
+    @property
+    def order_period(self) -> tuple[date, date] | None:
+        if "order_date_from" not in self.source_settings:
+            return None
+        return (
+            date.fromisoformat(self.source_settings["order_date_from"]),
+            date.fromisoformat(self.source_settings["order_date_to"]),
+        )
 
 
 class ForecastDataNote(db.Model):

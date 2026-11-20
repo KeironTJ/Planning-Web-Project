@@ -32,6 +32,10 @@ scatters, and other work can place different demands on production.
 
 ## Planned workflow
 
+The Project 1 header shows the current stage on AI Tools pages, including
+saved reviews and EDA detail pages. Its links keep the selected extract
+when one is in use. The header indicates location, not sign-off.
+
 The browser will support:
 
 1. Selecting sources, history windows, customer groups, and product categories.
@@ -55,7 +59,8 @@ Forecasts will not automatically change live planning.
 ## Current progress
 
 **Available:** AI Tools overview, Data Readiness with saved VA05 observations
-and record-level quality review, and Model Classification.
+and record-level quality review, Model Classification, weekly-intake review,
+and the first browser EDA distribution page.
 
 **Investigated:** existing importers, a local sales-order extract, and a bounded
 live `bskyVA05v1` response on 12 November 2026. The checks found repeated release
@@ -69,7 +74,7 @@ Project 2 will also need amendment/cancellation history and dated shipments.
 Saved quality reviews preserve observed local values, not verified historical
 intake or an approved training dataset.
 
-No historical training dataset, EDA, or forecasting model has been produced.
+No historical training dataset or forecasting model has been produced.
 
 ## Browser EDA workflow
 
@@ -78,10 +83,38 @@ an extract card in Data Readiness. Click **Review findings** on the card
 to inspect flagged records instead. The live-source diagnostics sit separately
 under **Current VA05 import**. Start the extract analysis with
 coverage and exclusions, then review the weekly GBP chart and product and
-customer mix. Select anywhere on a navigation card to open it. Cards with no
-available destination are informational only. The EDA workspace links to
-planned distribution, time-pattern and feature-decision pages. These are
-checklists, not analysis results.
+customer mix. **Distribution and unusual weeks** uses the same saved-extract
+EDA calculations as `--eda`: it plots completed observed weeks, marks
+statistical outliers separately from data-quality exceptions, and compares
+summaries with each flagged-week type excluded. Partial and unavailable weeks
+are not treated as zero, and the page does not change the extract. For DEV-7,
+week 1 is the IQR outlier candidate and week 34 is a data-quality exception.
+Select a distribution point, **Investigate week**, or a completed week number
+in the coverage table to trace the total to its saved releases. The week view
+shows included, voided and exception-excluded releases, the conflicting main
+GBP/void observations, latest row-review evidence, and the largest captured
+product/customer-group contributors. Weeks with exceptions open on excluded
+releases; other weeks open on included releases, largest GBP first.
+
+Use **Review all saved rows for this release** to record or revisit the
+existing row-level decision. A return link preserves the week investigation
+context; that context does not filter the record-review page by week.
+Record business explanations, such as a closure delaying order entry, through
+**Record an explanation**. Notes added from a week investigation are labelled
+with its SOI week and saved in the existing append-only extract notes, visible
+to everyone with planning view access. There is no separate week-decision
+status or automatic modelling treatment.
+
+Resolving an underlying source conflict can make a later reconciled weekly
+calculation usable. Merely marking a saved row **Accepted with evidence**
+cannot select a value or void status, restore an excluded release, or clear
+the current extract's weekly flag. The saved observations and CLI totals remain
+unchanged. An explained statistical spike likewise remains recorded; do not
+automatically split or remove it.
+
+The next EDA steps are **Time patterns and lags**, then **Feature decisions**;
+those remain planned.
+Select anywhere on a navigation card to open it.
 Model experiments, forecasting and monitoring are separate planned stages.
 
 ## Reproduce the weekly GBP review
@@ -89,15 +122,16 @@ Model experiments, forecasting and monitoring are separate planned stages.
 From `planning_app`, with the project's Python environment active:
 
 ```powershell
-python -m scripts.weekly_intake_review --db .\instance\planning_dev.db --extract-id 6 --output .\data\va05-weekly-net-gbp-dev-6.csv
+python -m scripts.weekly_intake_review --db .\instance\planning_dev.db --extract-id 7 --output .\data\va05-weekly-net-gbp-dev-7.csv
 ```
 
-Use the local SQLite database containing the saved extract. `DEV-6` is the
-development capture used for the initial benchmark; extract IDs differ by
-environment. The command opens SQLite read-only, compares the Python result
-with independent SQL over the saved observations, and writes a CSV only if
-the totals agree. It verifies an existing identical CSV without overwriting it.
-Keep the CSV in the ignored `data` directory or another approved local location.
+Use the local SQLite database containing the saved extract. `DEV-7` is the
+development capture used by the current browser EDA; the initial benchmark was
+first run against `DEV-6`. Extract IDs differ by environment. The command opens
+SQLite read-only, compares the Python result with independent SQL over the
+saved observations, and writes a CSV only if the totals agree. It verifies an
+existing identical CSV without overwriting it. Keep the CSV in the ignored
+`data` directory or another approved local location.
 
 The command reports previous-week MAE, WAPE and bias with and without
 flagged weeks. Partial weeks are not exported, and missing weeks are not
@@ -111,10 +145,12 @@ omits any target or lookback window containing a flagged week. This is a
 development comparison, not a held-out evaluation.
 
 Append `--eda` for weekly coverage, distribution, outlier candidates,
-early-versus-late mean, and lag correlations. The statistics exclude partial,
-unavailable, and exception weeks, but report those observed coverage gaps.
-Lag pairs use financial week numbers rather than closing gaps by shifting
-rows. A possible shutdown is a label, not a reason to discard a recorded total.
+early-versus-late mean, lag correlations, and the same four inclusion
+sensitivities shown in the browser. The clean reference excludes partial,
+unavailable, and exception weeks; comparison rows show the effect of retaining
+or excluding each flagged-week type. Lag pairs use financial week numbers
+rather than closing gaps by shifting rows. A possible shutdown is a label, not
+a reason to discard a recorded total.
 
 Append `--mix` for model, size within model, production size within model,
 and Epicor customer-group profiles. The command checks each breakdown against
@@ -129,24 +165,78 @@ Partial weeks are excluded; dimensions absent from the capture are marked
 
 ## Data Readiness
 
+AI Tools displays dates as `DD/MM/YYYY` and timestamps in the same format
+with a local 24-hour time. Saved extracts and CSV exports keep their ISO dates.
+
 Open **AI Tools > Data Readiness** at `/ai-tools/data-readiness`.
 Viewing requires `view_planning`; capture and review also require
 `manage_planning`.
 
-1. Use **Save local VA05 extract and check** to preserve the currently imported
-   `bskyVA05v1` observations. This does not fetch Epicor or run an importer.
-2. Inspect findings and their affected records. Switch between all records,
+The current-import readiness section uses **Epicor order date** for Project 1.
+It counts releases with missing or inconsistent order dates separately from
+releases with consistent dates inside or outside the verified SOI calendar.
+This checks date coverage, not complete weeks or usable GBP. Customer received
+date remains a timing diagnostic and is never substituted for order date.
+These checks do not change saved extracts or their findings.
+
+1. Choose inclusive Epicor order dates when you **Save local VA05 extract and
+   check**. This saves observations from the current `bskyVA05v1` import and
+   does not fetch Epicor. Releases with missing or conflicting order dates
+   are saved separately for review, not counted in the period.
+2. In **VA05 Data Review**, open **Review coverage by year, month and week**
+   to check the whole saved period and drill into releases. Partial boundary
+   weeks can be inspected but are excluded from completed-week summaries;
+   gaps are unavailable, not zero. Older captures have no selected range
+   and show coverage inferred from the saved dates and capture time.
+   Inspect findings and their affected records. Switch between all records,
    records with findings, and findings without review evidence. Select a
    finding type, or click an item in the visible findings summary, to focus
    on that kind of issue. To see the job and assembly rows together, select
    **View all rows for this release** on a saved row. Use **All saved rows**
    to browse releases that don't have findings.
+   The findings summary shows how many affected rows have a saved review
+   outcome for each finding. Select **not reviewed** to open the remaining
+   rows. Reviewed does not mean accepted or corrected.
+   Selecting the nonpositive GBP finding shows a breakdown directly above the
+   saved rows. It splits
+   flagged rows into consistently void zeroes, consistently non-void zeroes,
+   negative GBP, and conflicting or incomplete main observations. Select
+   a group to filter the saved review list, or open a release to compare
+   saved GBP and void observations. Bulk review and worklist exports apply
+   to the selected group across all pages. Choose **All groups** for the
+   whole finding. The breakdown also shows the latest review outcome
+   counts for each group across all pages; select a count to filter the
+   rows by that outcome. Collapsed review rows show order and ship-by dates,
+   GBP, quantity, assembly and void status.
+   Managers can download CSV worklists for **Not reviewed**, **Needs
+   investigation**, and **Source correction required**. The links at the
+   top cover the whole extract; the finding links cover that finding or
+   selected GBP group. Worklists use the current outcome, not the history.
+   Once source corrections are available
+   in Planning, prefill the same dates and explicitly save a new extract.
+   The previous extract and its review evidence are preserved.
+   To set a review outcome across all pages, select one finding without a
+   release filter, expand **Set review outcome for … matching rows**, select
+   an outcome, enter a shared reason and confirm the count. To leave prior
+   outcomes untouched, filter to **Not reviewed** first. Otherwise the new
+   outcome becomes current, and earlier decisions remain in the history.
+
 3. Use the model name and its current Model Classification category as context
    where captured. Verify whether the VA05 model identifies the individual
    assembly; a category does not decide which work to count.
 4. Record an outcome and supporting evidence. Later reviews append to the
-   history; they do not overwrite earlier decisions.
-5. Use **Comments / Notes** for observations about the whole extract. Notes
+   history; they do not overwrite earlier decisions. Use the status counts
+   on **VA05 Data Review** to filter by the latest outcome. Accepted with
+   evidence is a review decision, not approval for training. On this page,
+   expand only the rows you need. Draft different outcomes and evidence for
+   multiple rows on the current page, then choose **Save drafted reviews**.
+   The batch saves together without reloading. Save drafts before changing
+   filters or moving to another page.
+5. On **VA05 Data Review**, expand **Useful information** for guidance on
+   assembly checks and model categories. Expand **Comments / Notes** directly below
+   **Provenance and content hash**. Its label shows the number of saved notes.
+   Use it for observations about the extract or a named
+   financial week. Notes added from a week investigation receive its week label. Notes
    are timestamped, attributed to the author, and append-only. They do not
    change the saved observations, hash, findings, or row decisions. Do not
    include customer or personal details.
@@ -156,6 +246,11 @@ Viewing requires `view_planning`; capture and review also require
    possible Christmas shutdown weeks, and unavailable values are labelled.
    Extracts without the captured void field cannot run this analysis.
    The view does not fetch Epicor, read live order values, or save a dataset.
+
+EDA uses the immutable extract and does not select training dates. The
+existing browser charts and CLI review still use SOI 2026 within the saved
+scope; the coverage drilldown works across financial years. Training and
+evaluation windows will be chosen at the modelling stage.
 
 Checks distinguish main/no-assembly quantities and values from subassemblies
 and report conflicts, missing fields, and date exceptions. New captures

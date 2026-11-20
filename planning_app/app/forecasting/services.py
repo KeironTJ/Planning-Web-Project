@@ -14,6 +14,7 @@ from app.operations.models import WorksOrder
 from app.sales.orders.models import SalesOrder
 
 from .models import ModelCategory, ModelClassification
+from .weekly_intake import END, FIRST_WEEK
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,12 @@ class IntakeDataReadiness:
     order_count: int
     release_count: int
     repeated_release_count: int
+    missing_order_date_release_count: int
+    inconsistent_order_date_release_count: int
+    in_calendar_order_date_release_count: int
+    outside_calendar_order_date_release_count: int
+    order_date_min: date | None
+    order_date_max: date | None
     missing_received_date_count: int
     missing_required_ship_by_count: int
     ship_by_before_order_count: int
@@ -54,12 +61,17 @@ class ModelReview:
 
 def get_intake_data_readiness() -> IntakeDataReadiness:
     """Summarize local data without treating it as historical."""
-    repeated_releases = (
+    main = SalesOrder.assembly_seq.is_(None) | (SalesOrder.assembly_seq == 0)
+    has_main = func.count(case((main, 1))) > 0
+    main_date = case((main, SalesOrder.order_date))
+    releases = (
         db.session.query(
-            SalesOrder.order_num.label("order_num"),
-            SalesOrder.order_line.label("order_line"),
-            SalesOrder.rel_num.label("rel_num"),
             func.count(SalesOrder.id).label("row_count"),
+            # Match EDA: prefer main observations; use all rows only if there are no main rows.
+            case((has_main, func.count(case((main, 1)))), else_=func.count()).label("date_rows"),
+            case((has_main, func.count(main_date)), else_=func.count(SalesOrder.order_date)).label("dated_rows"),
+            case((has_main, func.min(main_date)), else_=func.min(SalesOrder.order_date)).label("first_date"),
+            case((has_main, func.max(main_date)), else_=func.max(SalesOrder.order_date)).label("last_date"),
         )
         .group_by(
             SalesOrder.order_num,
@@ -68,18 +80,19 @@ def get_intake_data_readiness() -> IntakeDataReadiness:
         )
         .subquery()
     )
-    repeated_release_count = (
-        db.session.query(func.count())
-        .select_from(repeated_releases)
-        .filter(repeated_releases.c.row_count > 1)
-        .scalar()
-    ) or 0
-    release_count = (
-        db.session.query(func.count())
-        .select_from(repeated_releases)
-        .scalar()
-        or 0
-    )
+    release = releases.c
+    consistent_date = (release.dated_rows == release.date_rows) & (release.first_date == release.last_date)
+    in_calendar = (release.first_date >= FIRST_WEEK) & (release.first_date < END)
+    date_summary = db.session.query(
+        func.count().label("release_count"),
+        func.count(case((release.row_count > 1, 1))).label("repeated_count"),
+        func.count(case((release.dated_rows == 0, 1))).label("missing_count"),
+        func.count(case(((release.dated_rows > 0) & ~consistent_date, 1))).label("inconsistent_count"),
+        func.count(case((consistent_date & in_calendar, 1))).label("in_calendar_count"),
+        func.count(case((consistent_date & ~in_calendar, 1))).label("outside_calendar_count"),
+        func.min(case((consistent_date, release.first_date))).label("first_date"),
+        func.max(case((consistent_date, release.last_date))).label("last_date"),
+    ).select_from(releases).one()
 
     values = db.session.query(
         func.count(SalesOrder.id),
@@ -151,8 +164,14 @@ def get_intake_data_readiness() -> IntakeDataReadiness:
     return IntakeDataReadiness(
         row_count=count(values[0]),
         order_count=count(values[1]),
-        release_count=count(release_count),
-        repeated_release_count=count(repeated_release_count),
+        release_count=date_summary.release_count,
+        repeated_release_count=date_summary.repeated_count,
+        missing_order_date_release_count=date_summary.missing_count,
+        inconsistent_order_date_release_count=date_summary.inconsistent_count,
+        in_calendar_order_date_release_count=date_summary.in_calendar_count,
+        outside_calendar_order_date_release_count=date_summary.outside_calendar_count,
+        order_date_min=date_summary.first_date,
+        order_date_max=date_summary.last_date,
         missing_received_date_count=count(values[2]),
         missing_required_ship_by_count=count(values[3]),
         ship_by_before_order_count=count(values[4]),

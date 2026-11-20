@@ -1,0 +1,159 @@
+{% extends "forecasting/_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block tool_page_header %}
+<div class="d-flex justify-content-between flex-wrap align-items-center gap-2 pt-2 pb-1 mb-3 border-bottom">
+  <h1 class="h3 mb-0">{{ title }}</h1>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.eda', extract_id=extract.id) }}">EDA workspace</a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor='coverage-heading') }}">Weekly intake and coverage</a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">Review extract</a>
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="container-fluid pb-4">
+  <p>
+    Saved extract: <strong>{{ extract.reference }}</strong> &middot;
+    Captured {{ extract.captured_at | utcfmt('uk-datetime') }} &middot;
+    Calendar: {{ calendar }} &middot; Analysis rules: {{ rules }}
+  </p>
+  <p class="text-muted">
+    Read-only analysis of the saved VA05 extract. Only completed financial weeks with observed net GBP are plotted;
+    partial weeks are excluded and unavailable weeks are left out, never replaced with zero.
+    Exception-week totals appear only in comparisons that retain data-quality flagged weeks.
+    Select a chart point or an unusual-week link to investigate its saved releases.
+  </p>
+  {% if profile is none %}
+  <div class="alert alert-warning">Distribution analysis is unavailable because this saved extract does not contain all required weekly GBP fields, including the void flag. Choose a compatible saved extract; live values are never used to fill the gap.</div>
+  {% elif not profile.weeks %}
+  <div class="alert alert-warning">This capture predates the supported financial calendar.</div>
+  {% else %}
+  <div class="row g-3 mb-3">
+    <div class="col-12 col-xl-7">
+      <section class="card h-100" aria-labelledby="distribution-chart-heading">
+        <div class="card-body">
+          <h2 class="h5" id="distribution-chart-heading">Weekly net GBP distribution</h2>
+          {% if chart_points %}
+          <svg class="w-100 d-block" viewBox="0 0 640 224" role="img" aria-labelledby="distribution-chart-title distribution-chart-desc">
+            <title id="distribution-chart-title">Sorted completed-week net GBP values</title>
+            <desc id="distribution-chart-desc">Each point is a completed week sorted by net GBP. Week 1 is marked as a statistical outlier candidate when present; exception weeks are outlined. Missing and partial weeks are not plotted.</desc>
+            <g fill="currentColor" font-size="10">
+              <path d="M76 36H612M76 104H612M76 172H612" stroke="currentColor" opacity=".18"/>
+              <text x="68" y="39" text-anchor="end">{{ '{:,.0f}'.format(chart_max) }}</text>
+              <text x="68" y="107" text-anchor="end">{{ '{:,.0f}'.format(chart_midpoint) }}</text>
+              <text x="68" y="175" text-anchor="end">{{ '{:,.0f}'.format(chart_min) }}</text>
+              <text x="76" y="198">Lower weekly GBP</text>
+              <text x="612" y="198" text-anchor="end">Higher weekly GBP</text>
+            </g>
+            {% if median_y is not none %}
+            <path d="M76 {{ median_y }}H612" stroke="currentColor" stroke-dasharray="4 3" opacity=".7"/>
+            <text x="608" y="{{ median_y - 4 }}" fill="currentColor" font-size="10" text-anchor="end">Unflagged median</text>
+            {% endif %}
+            {% for point in chart_points %}
+            <a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=point.week) }}" aria-label="Investigate week {{ point.week }}">
+            <circle cx="{{ point.x }}" cy="{{ point.y }}" r="4"
+                    class="{{ 'text-danger' if point.quality_flagged else ('text-warning' if point.outlier else 'text-primary') }}"
+                    fill="{{ 'none' if point.quality_flagged else 'currentColor' }}"
+                    stroke="{{ 'currentColor' if point.quality_flagged else 'none' }}">
+              <title>Week {{ point.week }}: {{ '{:,.2f}'.format(point.value) }} GBP{% if point.outlier %}; IQR outlier candidate{% endif %}{% if point.quality_flagged %}; data-quality exception{% endif %}</title>
+            </circle>
+            </a>
+            {% endfor %}
+          </svg>
+          <div class="d-flex flex-wrap gap-3 small" aria-label="Chart legend">
+            <span><span class="text-primary" aria-hidden="true">●</span> Unflagged week</span>
+            <span><span class="text-warning" aria-hidden="true">●</span> Statistical outlier candidate</span>
+            <span><span class="text-danger" aria-hidden="true">◯</span> Data-quality flagged week</span>
+          </div>
+          {% else %}
+          <p class="mb-0">No completed observed net GBP weeks to plot.</p>
+          {% endif %}
+        </div>
+      </section>
+    </div>
+    <div class="col-12 col-xl-5">
+      <section class="card h-100" aria-labelledby="unusual-weeks-heading">
+        <div class="card-body">
+          <h2 class="h5" id="unusual-weeks-heading">Unusual weeks are not interchangeable</h2>
+          {% if distribution.outlier_weeks %}
+          <p><strong>Statistical outlier candidate:</strong>
+            week{{ 's' if distribution.outlier_weeks | length != 1 else '' }}
+            {{ distribution.outlier_weeks | join(', ') }} by the 1.5x IQR rule, calculated from unflagged complete weeks.
+            This is a statistical signal, not a data-quality failure; it remains in the extract.
+          </p>
+          <p>{% for number in distribution.outlier_weeks %}<a class="btn btn-sm btn-outline-primary me-1" href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=number) }}">Investigate week {{ number }}</a>{% endfor %}</p>
+          {% else %}
+          <p>No IQR outlier candidates were found among unflagged complete weeks.</p>
+          {% endif %}
+          {% if distribution.quality_flagged_weeks %}
+          <p class="mb-2"><strong>Data-quality flags:</strong> exception weeks are reported separately and are not classified as statistical outliers by that rule.</p>
+          <ul class="mb-0">
+            {% for week in distribution.quality_flagged_weeks %}
+            <li>
+              Week {{ week.number }}: {{ week.exceptions }} exception{{ 's' if week.exceptions != 1 else '' }};
+              retained net GBP
+              {{ '{:,.2f}'.format(week.net_gbp) if week.net_gbp is not none else 'unavailable' }}.
+              The total may be incomplete because affected releases are excluded.
+              <a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number) }}">Investigate week {{ week.number }}</a>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="mb-0">No data-quality exception weeks in the completed period.</p>
+          {% endif %}
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <section class="card mb-3" aria-labelledby="distribution-summary-heading">
+    <div class="card-body">
+      <h2 class="h5" id="distribution-summary-heading">Compare distribution summaries</h2>
+      <p class="text-muted">
+        The clean reference excludes weeks with data-quality exceptions but keeps statistical outliers.
+        Sensitivity rows remove week types independently and together; they do not alter the saved extract.
+      </p>
+      <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle mb-0">
+          <caption>Weekly net GBP summaries under four inclusion rules</caption>
+          <thead><tr>
+            <th scope="col">Weeks included</th>
+            <th scope="col" class="text-end">Weeks</th>
+            <th scope="col" class="text-end">Mean GBP</th>
+            <th scope="col" class="text-end">Median GBP</th>
+            <th scope="col" class="text-end">Minimum GBP</th>
+            <th scope="col" class="text-end">Maximum GBP</th>
+            <th scope="col" class="text-end">Zero weeks</th>
+          </tr></thead>
+          <tbody>
+            {% for comparison in distribution.comparisons %}
+            {% set summary = comparison.statistics %}
+            <tr class="{{ 'table-primary' if comparison.label == 'Without data-quality flagged weeks' else '' }}">
+              <th scope="row">{{ comparison.label }}{% if comparison.label == 'Without data-quality flagged weeks' %} <span class="small fw-normal">(clean reference)</span>{% endif %}</th>
+              {% if summary is none %}
+              <td colspan="6" class="text-muted text-end">No usable observations</td>
+              {% else %}
+              <td class="text-end">{{ summary.count }}</td>
+              <td class="text-end">{{ '{:,.2f}'.format(summary.mean) }}</td>
+              <td class="text-end">{{ '{:,.2f}'.format(summary.median) }}</td>
+              <td class="text-end">{{ '{:,.2f}'.format(summary.minimum) }}</td>
+              <td class="text-end">{{ '{:,.2f}'.format(summary.maximum) }}</td>
+              <td class="text-end">{{ summary.zero_weeks }}</td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="small text-muted mt-2 mb-0">
+        Coverage: {{ distribution.completed_weeks }} completed weeks;
+        {{ distribution.chart_weeks | length }} with observed net GBP;
+        {{ distribution.missing_weeks | length }} unavailable week{{ 's' if distribution.missing_weeks | length != 1 else '' }};
+        {{ distribution.partial_weeks | length }} partial week{{ 's' if distribution.partial_weeks | length != 1 else '' }} excluded.
+        Possible shutdown weeks remain observed unless their data are unavailable.
+      </p>
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

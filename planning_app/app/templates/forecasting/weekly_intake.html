@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "forecasting/_base.html" %}
 {% block title %}{{ title }}{% endblock %}
-{% block page_header %}
+{% block tool_page_header %}
 <div class="d-flex justify-content-between flex-wrap align-items-center gap-2 pt-2 pb-1 mb-3 border-bottom">
   <h1 class="h3 mb-0">{{ title }}</h1>
   <div class="d-flex flex-wrap gap-2">
@@ -12,7 +12,7 @@
 {% block content %}
 <div class="container-fluid pb-3">
   <p>
-    Captured {{ extract.captured_at | utcfmt('datetime-year') }} |
+    Captured {{ extract.captured_at | utcfmt('uk-datetime') }} |
     Extract rules: {{ extract.rules_version }} |
     Calendar: {{ calendar }} |
     Analysis rules: {{ rules }}
@@ -158,7 +158,7 @@
         <tbody>
           {% for week in profile.weeks %}
           <tr>
-            <th scope="row">{{ week.number }}</th><td>{{ week.start }} to {{ week.end }}</td>
+            <th scope="row">{% if not week.partial %}<a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number) }}" aria-label="Investigate week {{ week.number }}">{{ week.number }}</a>{% else %}{{ week.number }}{% endif %}</th><td>{{ week.start | uk_date }} to {{ week.end | uk_date }}</td>
             <td>
               {% if week.partial %}<div>Partial week</div>{% endif %}
               {% if week.possible_shutdown %}<div>Possible shutdown</div>{% endif %}

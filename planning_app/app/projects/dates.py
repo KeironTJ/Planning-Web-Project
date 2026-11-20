@@ -5,13 +5,7 @@ import re
 
 from werkzeug.exceptions import BadRequest
 
-
-def uk_date(value):
-    if not value:
-        return ""
-    if isinstance(value, str):
-        value = date.fromisoformat(value)
-    return f"{value.day:02}/{value.month:02}/{value.year:04}"
+from app.core.dates import uk_date as uk_date
 
 
 def form_date(value, field):

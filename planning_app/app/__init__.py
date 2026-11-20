@@ -220,6 +220,10 @@ def _register_template_globals(app: Flask) -> None:
 
     from markupsafe import Markup
 
+    from .core.dates import uk_date
+
+    app.add_template_filter(uk_date)
+
     @app.template_filter("utcfmt")
     def utcfmt_filter(dt, fmt: str = "datetime") -> str:
         """

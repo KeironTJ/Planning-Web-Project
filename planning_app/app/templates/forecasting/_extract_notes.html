@@ -1,0 +1,32 @@
+{% if notes_embedded | default(false) %}
+<div class="mt-2" id="extract-notes">
+{% else %}
+<section class="card mb-3" aria-labelledby="extract-notes">
+  <div class="card-body">
+    <h2 id="extract-notes" class="h5">Comments / Notes</h2>
+{% endif %}
+    <p class="small text-muted">Notes apply to the saved extract. Include the financial week when explaining an unusual week, the evidence and whether further investigation is needed. Notes are separate from row reviews and cannot be edited or deleted. They do not change totals, exclusions or statistical flags.</p>
+    {% for note in notes %}
+    <div class="border-top py-2">
+      <div class="small text-muted">{{ note.author.username if note.author else "Author unavailable" }} &middot; {{ note.created_at | utcfmt('uk-datetime') }}</div>
+      <div class="text-break" style="white-space: pre-wrap">{{ note.body }}</div>
+    </div>
+    {% else %}
+    <p class="small text-muted">No notes yet.</p>
+    {% endfor %}
+    {% if can_manage %}
+    <form method="post" action="{{ url_for('forecasting.data_extract_note', extract_id=extract.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="capture_identity" value="{{ extract.capture_identity }}">
+      {% if note_week is defined %}<input type="hidden" name="week" value="{{ note_week }}">{% endif %}
+      {% if week_year is defined and week_year is not none %}<input type="hidden" name="year" value="{{ week_year }}">{% endif %}
+      <label for="extract-note-body" class="form-label">Add a note (no customer or personal details)</label>
+      {% if note_week is defined %}<p class="small text-muted mb-1">This note will be labelled {{ calendar }} week {{ note_week }} and remain visible with the extract notes.</p>{% endif %}
+      <textarea id="extract-note-body" name="body" class="form-control mb-2" rows="2" maxlength="{{ 2000 - (note_prefix | default('') | length) }}" required></textarea>
+      <button type="submit" class="btn btn-sm btn-outline-primary">Add note</button>
+    </form>
+    {% endif %}
+</div>
+{% if not (notes_embedded | default(false)) %}
+</section>
+{% endif %}

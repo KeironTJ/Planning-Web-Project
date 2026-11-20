@@ -1,9 +1,20 @@
-{% extends "base.html" %}
+{% extends "forecasting/_base.html" %}
+{% macro worklist_links(extract_id, finding=none, gbp_group=none) %}
+<div class="d-flex flex-wrap gap-2" role="group" aria-label="CSV worklists">
+  {% for status, label in [('unreviewed', 'Not reviewed'), ('investigate', 'Needs investigation'), ('source_correction', 'Source correction required')] %}
+  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.source_correction_worklist', extract_id=extract_id, status=status, finding=finding, gbp_group=gbp_group) }}">{{ label }} (CSV)</a>
+  {% endfor %}
+</div>
+{% endmacro %}
 {% block title %}{{ title }}{% endblock %}
-{% block page_header %}
+{% block tool_page_header %}
 <div class="d-flex justify-content-between flex-wrap align-items-center gap-2 pt-2 pb-1 mb-3 border-bottom">
   <h1 class="h3 mb-0">{{ title }}</h1>
   <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-sm btn-outline-primary" href="#saved-records">Jump to saved rows</a>
+    {% if investigation_week is not none %}
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=investigation_week, year=investigation_year) }}">Back to week {{ investigation_week }} investigation</a>
+    {% endif %}
     <a class="btn btn-sm btn-primary" href="{{ url_for('forecasting.eda', extract_id=extract.id) }}">EDA workspace</a>
     <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.weekly_intake', extract_id=extract.id) }}">Explore weekly intake</a>
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_readiness') }}">Data Readiness</a>
@@ -22,57 +33,76 @@
       <h2 id="extract-details" class="h5">Extract details</h2>
       <p class="mb-1">
         <strong>{{ extract.source }}</strong> |
-        Captured {{ extract.captured_at | utcfmt('datetime-year') }} |
+        Captured {{ extract.captured_at | utcfmt('uk-datetime') }} |
         {{ extract.row_count }} rows |
         {{ extract.summary.order_count }} distinct local order numbers |
         {{ extract.summary.release_count }} local release keys
       </p>
-      <p class="small text-muted mb-1">
-        Main-row quantity/value checks use assembly zero or no assembly. Subassembly zeroes
-        are not treated as invalid main quantities.
-        {% if 'repeated_release' in extract.summary.rules %}
-        This extract retains its original findings, including releases with multiple rows.
-        {% else %}
-        Multiple job/assembly rows for a release are context, not a finding on their own.
-        {% endif %}
+      <p class="mb-2"><strong>Extract period:</strong>
+        {% if order_period %}{{ order_period[0] | uk_date }} to {{ order_period[1] | uk_date }} inclusive, by Epicor order date.
+        {% else %}Legacy capture of all locally retained rows; no period was selected.{% endif %}
       </p>
-      <p class="small text-muted mb-1">
-        Model categories are current labels for review, not historical assignments or
-        rules for counting work. Verify whether the VA05 model identifies each assembly.
-      </p>
+      {% if order_period and extract.summary.unassigned_releases %}
+      <p><a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, finding='unassigned_order_date', _anchor='finding-summary') }}">Review {{ extract.summary.unassigned_releases }} unassigned release(s)</a>. Their saved rows are not counted in any period.</p>
+      {% endif %}
+      {% if has_coverage %}
+      <p><a class="btn btn-outline-primary btn-sm" href="{{ url_for('forecasting.intake_history', extract_id=extract.id) }}">Review coverage by year, month and week</a></p>
+      {% endif %}
+      <details class="small mt-2">
+        <summary>Useful information</summary>
+        <p class="text-muted mt-2 mb-1">
+          Main-row quantity/value checks use assembly zero or no assembly. Subassembly zeroes
+          are not treated as invalid main quantities.
+          {% if 'repeated_release' in extract.summary.rules %}
+          This extract retains its original findings, including releases with multiple rows.
+          {% else %}
+          Multiple job/assembly rows for a release are context, not a finding on their own.
+          {% endif %}
+        </p>
+        <p class="text-muted mb-0">
+          Model categories are current labels for review, not historical assignments or
+          rules for counting work. Verify whether the VA05 model identifies each assembly.
+        </p>
+      </details>
       <details class="small mt-2">
         <summary>Provenance and content hash</summary>
         <dl class="row mt-2 mb-0">
-          {% for key, value in extract.source_settings.items() if key != 'company_scope' %}
+          {% for key, value in extract.source_settings.items() if key not in ('company_scope', 'order_date_from', 'order_date_to') %}
           <dt class="col-sm-3">{{ key }}</dt><dd class="col-sm-9 text-break">{{ value }}</dd>
           {% endfor %}
           <dt class="col-sm-3">Rules version</dt><dd class="col-sm-9">{{ extract.rules_version }}</dd>
           <dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9 text-break"><code>{{ extract.content_hash }}</code></dd>
         </dl>
       </details>
+      <details class="small mt-2">
+        <summary>Comments / Notes ({{ notes | length }})</summary>
+        {% with notes_embedded=true %}
+          {% include "forecasting/_extract_notes.html" %}
+        {% endwith %}
+      </details>
     </div>
   </section>
 
-  <section class="card mb-3" aria-labelledby="extract-notes">
+  <section class="card mb-3" aria-labelledby="review-progress">
     <div class="card-body">
-      <h2 id="extract-notes" class="h5">Comments / Notes</h2>
-      <p class="small text-muted">Use notes for observations about the whole extract. Notes are separate from row reviews and cannot be edited or deleted.</p>
-      {% for note in notes %}
-      <div class="border-top py-2">
-        <div class="small text-muted">{{ note.author.username if note.author else "Author unavailable" }} &middot; {{ note.created_at | utcfmt('datetime-year') }}</div>
-        <div class="text-break" style="white-space: pre-wrap">{{ note.body }}</div>
-      </div>
-      {% else %}
-      <p class="small text-muted">No notes yet.</p>
-      {% endfor %}
+      <h2 class="h5" id="review-progress">Record review and source corrections</h2>
+      <p class="small text-muted mb-2">Latest outcomes across all flagged rows in this extract. Select a status to see its rows. Accepted means the reviewer recorded evidence for the finding; it does not change the extract or approve it for training.</p>
+      <nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Filter by latest review status">
+        {% for status, label in [('accepted', decision_statuses.accepted), ('unreviewed', 'Not reviewed'), ('investigate', decision_statuses.investigate), ('source_correction', decision_statuses.source_correction)] %}
+        <a class="btn btn-sm {{ review_badges[status] }}" href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=status, _anchor='saved-records') }}">
+          {{ label }}:
+          {% if status == 'unreviewed' %}
+          <strong id="unreviewed-count" data-flagged="{{ extract.summary.flagged_rows }}">{{ extract.summary.flagged_rows - (review_counts.values() | sum) }}</strong>
+          {% else %}
+          <strong data-review-count="{{ status }}">{{ review_counts.get(status, 0) }}</strong>
+          {% endif %}
+        </a>
+        {% endfor %}
+      </nav>
       {% if can_manage %}
-      <form method="post" action="{{ url_for('forecasting.data_extract_note', extract_id=extract.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="capture_identity" value="{{ extract.capture_identity }}">
-        <label for="extract-note-body" class="form-label">Add a note (no customer or personal details)</label>
-        <textarea id="extract-note-body" name="body" class="form-control mb-2" rows="2" maxlength="2000" required></textarea>
-        <button type="submit" class="btn btn-sm btn-outline-primary">Add note</button>
-      </form>
+      <p class="small text-muted mb-2">Download a worklist by current status for the whole extract. If source corrections are made, save a new extract for the same dates after they reach Planning; this review remains unchanged.</p>
+      {{ worklist_links(extract.id) }}
+      {% if order_period %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_readiness', copy_from=extract.id, _anchor='saved-extracts') }}">Prefill dates for a new extract</a>{% endif %}
       {% endif %}
     </div>
   </section>
@@ -81,17 +111,28 @@
     <div class="card-body">
       <h2 id="finding-summary" class="h5">Findings summary</h2>
       <p class="small text-muted">
-        Affected rows across the full extract, not units or review progress.
-        A row can appear under more than one finding. Select a finding below
-        or use the filter to review its records.
+        Review progress for affected rows across the full extract. A row counts as reviewed
+        once it has a saved outcome, even if it still needs investigation or correction.
+        A row can appear under more than one finding.
       </p>
       <ul class="row g-2 list-unstyled mb-0">
         {% for rule, label in extract.summary.rules.items() %}
+        {% set total = extract.summary.counts.get(rule, 0) %}
+        {% set reviewed = finding_review_counts.get(rule, 0) %}
         <li class="col-12 col-lg-6">
-          <div class="d-flex justify-content-between align-items-start gap-2 border rounded px-3 py-2 h-100">
-            <a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=rule, release=release_anchor) }}"
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 border rounded px-3 py-2 h-100">
+            <a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=rule, release=release_anchor, week=investigation_week, year=investigation_year, _anchor='saved-records') }}"
                {% if finding == rule %}aria-current="true"{% endif %}>{{ label }}</a>
-            <strong>{{ extract.summary.counts.get(rule, 0) }}</strong>
+            {% if total %}
+            <div class="small" data-finding-progress="{{ rule }}" data-total="{{ total }}">
+              <strong><span data-reviewed>{{ reviewed }}</span> of {{ total }} reviewed</strong>
+              <a class="ms-2" data-unreviewed href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope='unreviewed', finding=rule, _anchor='saved-records') }}"{% if reviewed == total %} hidden{% endif %}>
+                <span data-remaining>{{ total - reviewed }}</span> not reviewed<span class="visually-hidden">: {{ label }}</span>
+              </a>
+            </div>
+            {% else %}
+            <span class="small text-muted">No affected rows</span>
+            {% endif %}
           </div>
         </li>
         {% endfor %}
@@ -102,15 +143,22 @@
   {% if release %}
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
     <strong>Release context: order {{ release.order_num }} / line {{ release.order_line }} / release {{ release.rel_num }}</strong>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=finding) }}">Clear release filter</a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=finding, week=investigation_week, year=investigation_year) }}">Clear release filter</a>
   </div>
   {% endif %}
-  <form method="get" class="d-flex flex-wrap gap-2 align-items-center mb-3">
+  <h2 class="h5" id="saved-records">Saved rows</h2>
+  <form method="get" action="#saved-records" class="d-flex flex-wrap gap-2 align-items-center mb-3">
     {% if release %}<input type="hidden" name="release" value="{{ release_anchor }}">{% endif %}
+    {% if gbp_group %}<input type="hidden" name="gbp_group" value="{{ gbp_group }}">{% endif %}
+    {% if investigation_week is not none %}<input type="hidden" name="week" value="{{ investigation_week }}">{% endif %}
+    {% if investigation_year is not none %}<input type="hidden" name="year" value="{{ investigation_year }}">{% endif %}
     <label for="review-scope" class="form-label mb-0">Show</label>
     <select name="scope" id="review-scope" class="form-select w-auto">
       <option value="findings" {% if scope == 'findings' %}selected{% endif %}>Rows with findings</option>
-      <option value="unreviewed" {% if scope == 'unreviewed' %}selected{% endif %}>Findings without review evidence</option>
+      <option value="unreviewed" {% if scope == 'unreviewed' %}selected{% endif %}>Not reviewed</option>
+      {% for status, label in decision_statuses.items() %}
+      <option value="{{ status }}" {% if scope == status %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
       <option value="all" {% if scope == 'all' %}selected{% endif %}>All saved rows</option>
     </select>
     <label for="review-finding" class="form-label mb-0">Finding type</label>
@@ -124,30 +172,124 @@
     </select>
     <button class="btn btn-outline-primary" type="submit">Apply</button>
   </form>
-  <p class="small text-muted">{{ records.total }} matching saved records. Each review applies to all findings shown for that row.</p>
+  {% if gbp_group_counts is not none %}
+  <section class="border rounded p-3 mb-3" aria-labelledby="gbp-group-heading">
+    <h3 class="h6" id="gbp-group-heading">Nonpositive GBP breakdown</h3>
+    <p class="small text-muted mb-2">Latest outcomes across all pages, before the review-status filter. Select a group or a status count to filter the rows below.</p>
+    {% set gbp_statuses = [('unreviewed', 'Not reviewed'), ('accepted', 'Accepted with evidence'), ('investigate', 'Needs investigation'), ('source_correction', 'Source correction required')] %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" aria-labelledby="gbp-group-heading">
+        <thead><tr>
+          <th scope="col">Group</th>
+          <th scope="col" class="text-end">Total</th>
+          {% for status, label in gbp_statuses %}<th scope="col" class="text-end">{{ label }}</th>{% endfor %}
+        </tr></thead>
+        <tbody>
+      {% for key, label in [(none, 'All groups')] + (gbp_group_labels.items() | list) %}
+      {% set total = gbp_group_counts[key] if key else gbp_group_counts.values() | sum %}
+      <tr{% if gbp_group == key %} class="table-active"{% endif %} data-gbp-review-group="{{ key or 'all' }}">
+        <th scope="row"><a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=finding, gbp_group=key, week=investigation_week, year=investigation_year, _anchor='saved-records') }}"{% if gbp_group == key %} aria-current="true"{% endif %}>{{ label }}</a></th>
+        <td class="text-end">{{ '{:,}'.format(total) }}</td>
+        {% for status, status_label in gbp_statuses %}
+        <td class="text-end"><a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=status, finding=finding, gbp_group=key, week=investigation_week, year=investigation_year, _anchor='saved-records') }}">
+          <span class="visually-hidden">{{ label }}: {{ status_label }}, </span><span data-gbp-review-status="{{ status }}">{{ '{:,}'.format(gbp_review_counts[key or 'all'].get(status, 0)) }}</span>
+        </a></td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+  <p class="small text-muted">{{ records.total }} matching saved records{% if scope not in ('findings', 'all') %} when this page was opened{% endif %}. Each review applies to all findings shown for that row.</p>
+  {% if can_manage and finding and not release and investigation_week is none %}
+  <section class="border rounded p-3 mb-3" aria-label="Bulk review and export for this finding">
+    {% if bulk_preview and bulk_preview.count %}
+    <details>
+      <summary class="fw-semibold">Set review outcome for {{ bulk_preview.count }} matching rows</summary>
+      <p class="small mt-2">This applies to <strong>{{ gbp_group_labels[gbp_group] if gbp_group else extract.summary.rules[finding] }}</strong> across all pages. Nothing is written to Epicor.</p>
+      {% if scope == 'unreviewed' %}<p class="small">Only unreviewed rows are included.</p>{% endif %}
+      {% if bulk_preview.reviewed %}
+      <p class="small">This replaces the current outcome on {{ bulk_preview.reviewed }} previously reviewed rows. Their earlier decisions remain in the history.</p>
+      {% endif %}
+      <form method="post" action="{{ url_for('forecasting.data_extract_finding_reviews', extract_id=extract.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="capture_identity" value="{{ extract.capture_identity }}">
+        <input type="hidden" name="finding" value="{{ finding }}">
+        {% if gbp_group %}<input type="hidden" name="gbp_group" value="{{ gbp_group }}">{% endif %}
+        <input type="hidden" name="scope" value="{{ scope }}">
+        <input type="hidden" name="expected_count" value="{{ bulk_preview.count }}">
+        <input type="hidden" name="expected_revision" value="{{ bulk_preview.revision }}">
+        <label for="finding-review-outcome" class="form-label">Review outcome</label>
+        <select id="finding-review-outcome" name="status" class="form-select w-auto mb-2" required>
+          <option value="">Choose outcome</option>
+          {% for value, label in decision_statuses.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+        <label for="finding-review-reason" class="form-label">Shared reason and supporting evidence</label>
+        <textarea id="finding-review-reason" name="rationale" class="form-control mb-2" rows="2" maxlength="2000" required></textarea>
+        <div class="form-check mb-2">
+          <input type="checkbox" class="form-check-input" id="confirm-finding-correction" name="confirm" value="yes" required>
+          <label class="form-check-label" for="confirm-finding-correction">Apply this outcome and reason to all {{ bulk_preview.count }} matching rows, including rows not on this page.</label>
+        </div>
+        <button type="submit" class="btn btn-sm btn-primary">Save outcome for {{ bulk_preview.count }} rows</button>
+      </form>
+    </details>
+    {% endif %}
+    <p class="small text-muted mb-2 mt-2">Download a worklist by current status for this {{ 'group' if gbp_group else 'finding' }}, across all pages.</p>
+    {{ worklist_links(extract.id, finding, gbp_group) }}
+  </section>
+  {% endif %}
+  <div id="review-list" data-scope="{{ scope }}"{% if can_manage %} data-save-url="{{ url_for('forecasting.data_extract_reviews', extract_id=extract.id, finding=finding if gbp_group_counts is not none else none) }}"{% endif %}>
+  {% if can_manage %}
+  <div id="review-toolbar" class="sticky-top bg-body border rounded p-2 mb-2" hidden>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <button type="button" class="btn btn-sm btn-primary" id="save-review-batch" disabled>Save drafted reviews</button>
+      <span class="small text-muted" id="review-draft-count" tabindex="-1">No drafts on this page.</span>
+    </div>
+    <div class="small text-muted">Open rows to enter an outcome and evidence, then save them together.</div>
+    <div id="review-feedback" role="status" aria-atomic="true"></div>
+  </div>
+  {% endif %}
 
   {% for record in records.items %}
-  <article class="card mb-3" id="record-{{ record.id }}">
-    <div class="card-body">
-      <h2 class="h6">
-        Order {{ record.data.order_num }} / line {{ record.data.order_line }} / release {{ record.data.rel_num }}
-        <span class="text-muted fw-normal">
-          - Job {{ record.data.job_num if record.data.job_num else "not supplied" }},
-          assembly {{ record.data.assembly_seq if record.data.assembly_seq is not none else "not supplied" }}
-          (source row {{ record.source_row_id }})
-        </span>
-      </h2>
+  {% set status = record.decisions[0].status if record.decisions else ('unreviewed' if record.has_findings else 'no_findings') %}
+  <details class="border rounded mb-1" id="record-{{ record.id }}">
+    <summary class="px-2 py-2 small">
+      <span class="badge {{ review_badges[status] }} me-2" data-latest-review>{{ decision_statuses.get(status, 'Not reviewed' if record.has_findings else 'No findings') }}</span>
+      <strong>Order {{ record.data.order_num }} / line {{ record.data.order_line }} / release {{ record.data.rel_num }}</strong>
+      {% set shown_finding = finding if finding in record.findings else record.findings | first | default(none) %}
+      {% if shown_finding %}<span class="ms-2 d-inline-block">{{ extract.summary.rules[shown_finding] }}{% if record.findings | length > 1 %} (+{{ record.findings | length - 1 }}){% endif %}</span>{% endif %}
+      <span class="badge text-bg-warning ms-1" data-draft-badge hidden>Draft</span>
+      <span class="d-flex flex-wrap gap-2 ps-3 mt-1 text-body-secondary">
+        <span>Order date <strong>{{ record.data.order_date | default(none) | uk_date or "Missing" }}</strong></span>
+        <span>Ship by <strong>{{ record.data.req_date | default(none) | uk_date or "Missing" }}</strong></span>
+        <span>GBP <strong>{{ record.data.release_price_gbp if record.data.release_price_gbp is not none else "Missing" }}</strong></span>
+        <span>Qty <strong>{{ record.data.release_qty if record.data.release_qty is not none else "Missing" }}</strong></span>
+        <span>Assembly <strong>{{ record.data.assembly_seq if record.data.assembly_seq is not none else "None" }}</strong></span>
+        <span>Void <strong>{{ 'Yes' if record.data.void_line is sameas true else ('No' if record.data.void_line is sameas false else 'Unknown') }}</strong></span>
+      </span>
+    </summary>
+    <div class="border-top p-3">
+      <p class="small text-muted mb-2">Job {{ record.data.job_num or "not supplied" }},
+        assembly {{ record.data.assembly_seq if record.data.assembly_seq is not none else "not supplied" }}
+        (source row {{ record.source_row_id }})</p>
       {% if not release or finding or scope != 'all' %}
       <a class="small d-inline-block mb-2"
-         href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope='all', release=record.id) }}">View all rows for this release</a>
+         href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope='all', release=record.id, week=investigation_week, year=investigation_year) }}">View all rows for this release</a>
+      {% endif %}
+      {% if gbp_group %}
+      <a class="small d-inline-block mb-2 ms-2"
+         href="{{ url_for('forecasting.nonpositive_gbp', extract_id=extract.id, group=gbp_group, release=record.id, scope=scope, _anchor='release-evidence') }}">Compare saved GBP and void observations</a>
       {% endif %}
       <div class="row small mb-2">
-        <div class="col-md-4">Received: {{ record.data.order_received_date or "Missing" }}</div>
-        <div class="col-md-4">Order date: {{ record.data.order_date or "Missing" }}</div>
-        <div class="col-md-4">Required ship-by: {{ record.data.req_date or "Missing" }}</div>
+        <div class="col-md-4">Received: {{ record.data.order_received_date | default(none) | uk_date or "Missing" }}</div>
+        <div class="col-md-4">Order date: {{ record.data.order_date | default(none) | uk_date or "Missing" }}</div>
+        <div class="col-md-4">Required ship-by: {{ record.data.req_date | default(none) | uk_date or "Missing" }}</div>
         <div class="col-md-4">Release qty: {{ record.data.release_qty if record.data.release_qty is not none else "Missing" }}</div>
         <div class="col-md-4">Inventory UOM: {{ record.data.ium or "Missing" }}</div>
         <div class="col-md-4">GBP release value: {{ record.data.release_price_gbp if record.data.release_price_gbp is not none else "Missing" }}</div>
+        <div class="col-md-4">Void line: {% if record.data.void_line is sameas true %}Yes{% elif record.data.void_line is sameas false %}No{% else %}Not captured or missing{% endif %}</div>
         {% if 'model' in record.data %}
         {% set model_name = (record.data.model or '')|trim %}
         <div class="col-md-4">Model: {{ model_name if model_name else "Blank" }}</div>
@@ -163,29 +305,25 @@
         <li>No findings under {{ extract.rules_version }}. This does not establish training readiness.</li>
         {% endfor %}
       </ul>
-      {% if record.decisions %}
-      <details class="small mb-3">
-        <summary>Review history (latest: {{ decision_statuses[record.decisions[0].status] }})</summary>
+      <details class="small mb-3" data-review-history{% if not record.decisions %} hidden{% endif %}>
+        <summary>Review history</summary>
         <ol class="mt-2 mb-0">
           {% for decision in record.decisions %}
-          <li class="mb-2">
-            <strong>{{ decision_statuses[decision.status] }}</strong>
-            - {{ decision.reviewed_at | utcfmt('datetime-year') }}
-            - reviewer ID {{ decision.reviewed_by_id if decision.reviewed_by_id is not none else "unavailable" }}
-            <div class="text-break">{{ decision.rationale }}</div>
-          </li>
+          {% include "forecasting/_review_entry.html" %}
           {% endfor %}
         </ol>
       </details>
-      {% endif %}
       {% if can_manage and record.has_findings %}
-      <form method="post" action="{{ url_for('forecasting.data_record_review', record_id=record.id) }}" class="border-top pt-2">
+      <form method="post" action="{{ url_for('forecasting.data_record_review', record_id=record.id) }}" class="border-top pt-2" data-record-id="{{ record.id }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="capture_identity" value="{{ extract.capture_identity }}">
         <input type="hidden" name="page" value="{{ records.page }}">
         <input type="hidden" name="scope" value="{{ scope }}">
         <input type="hidden" name="finding" value="{{ finding }}">
+        {% if gbp_group %}<input type="hidden" name="gbp_group" value="{{ gbp_group }}">{% endif %}
         {% if release %}<input type="hidden" name="release_context" value="1">{% endif %}
+        {% if investigation_week is not none %}<input type="hidden" name="week" value="{{ investigation_week }}">{% endif %}
+        {% if investigation_year is not none %}<input type="hidden" name="year" value="{{ investigation_year }}">{% endif %}
         <div class="row g-2 align-items-end">
           <div class="col-md-4">
             <label for="outcome-{{ record.id }}" class="form-label small">Review outcome</label>
@@ -205,21 +343,22 @@
       </form>
       {% endif %}
     </div>
-  </article>
+  </details>
   {% else %}
   <div class="card p-3 text-muted">No saved rows match this filter. Source coverage and measure definitions still require verification.</div>
   {% endfor %}
+  </div>
 
   {% if records.pages > 1 %}
   <nav class="d-flex justify-content-between mt-3" aria-label="Saved record pages">
-    <span>{% if records.has_prev %}<a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=finding, release=release_anchor, page=records.prev_num) }}">Previous</a>{% endif %}</span>
+    <span>{% if records.has_prev %}<a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=finding, gbp_group=gbp_group, release=release_anchor, page=records.prev_num, week=investigation_week, year=investigation_year, _anchor='saved-records') }}">Previous</a>{% endif %}</span>
     <span>Page {{ records.page }} of {{ records.pages }}</span>
-    <span>{% if records.has_next %}<a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=finding, release=release_anchor, page=records.next_num) }}">Next</a>{% endif %}</span>
+    <span>{% if records.has_next %}<a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=finding, gbp_group=gbp_group, release=release_anchor, page=records.next_num, week=investigation_week, year=investigation_year, _anchor='saved-records') }}">Next</a>{% endif %}</span>
   </nav>
   {% endif %}
 
   {% if can_delete %}
-  <details class="border rounded p-3 mt-4">
+  <details class="border rounded p-3 mt-4" id="extract-delete">
     <summary class="text-danger">Delete entire saved extract</summary>
     <p class="small mt-2">Permanently remove extract {{ extract.reference }} and all {{ extract.row_count }} of its saved rows, including rows hidden by filters. This does not change Epicor or live planning data.</p>
     <form method="post" action="{{ url_for('forecasting.data_extract_delete', extract_id=extract.id) }}">
@@ -236,4 +375,7 @@
   <p class="small text-muted mt-4">This extract cannot be deleted because it has notes or row reviews.</p>
   {% endif %}
 </div>
+{% endblock %}
+{% block scripts %}
+{% if can_manage %}<script src="{{ url_for('static', filename='js/modules/forecast_data_review.js') }}" defer></script>{% endif %}
 {% endblock %}
