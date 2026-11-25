@@ -692,7 +692,7 @@ def test_ai_tools_landing_and_home_link(client, viewer_user):
     login(client, viewer_user.email, "Viewer!Pass1234")
     response = client.get("/ai-tools/")
     assert response.status_code == 200
-    assert '<h1 class="h2">AI Tools</h1>' in response.get_data(
+    assert '<h1 class="h3 mb-1">AI Tools</h1>' in response.get_data(
         as_text=True
     )
     parser = LandingLinksParser()
@@ -727,25 +727,26 @@ def test_ai_workflow_distinguishes_available_tools_from_planned_stages(
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     for text in (
-        "Project 1",
-        "Project 2",
-        "12&ndash;16 weeks",
-        "Weekly unit demand",
-        "Shipment date determines output timing",
-        "From data to a useful forecast",
-        "Current focus",
-        "Open EDA workspace",
-        "Data Readiness",
-        "Model Classification",
+        "Next action",
+        "Your workflow",
+        "Prepare data",
+        "Explore intake",
+        "Compare models",
+        "Manage product categories",
+        "Coming later",
     ):
         assert text in html
     assert 'href="' + PAGE + '"' in html
-    for stage in ("experiments", "forecasts", "monitoring"):
+    for stage in ("forecasts", "monitoring"):
         path = f"/ai-tools/workflow/{stage}"
         assert f'href="{path}"' in html
         planned = client.get(path)
         assert planned.status_code == 200
         assert "This browser step is not available yet" in planned.get_data(as_text=True)
+    experiment = client.get("/ai-tools/workflow/experiments")
+    assert experiment.status_code == 200
+    assert "Development evidence only" in experiment.get_data(as_text=True)
+    assert "Prepare data" in experiment.get_data(as_text=True)
     assert client.get("/ai-tools/workflow/unknown").status_code == 404
 
 
@@ -756,7 +757,7 @@ def test_category_editor_and_model_select_use_database_categories(client, planne
     html = client.get(PAGE).get_data(as_text=True)
     assert "Edit categories" in html
     assert 'data-category-dialog aria-labelledby="category-dialog-title"' in html
-    assert "Different work content can have different demand" in html
+    assert "Labels organise product review; they do not set forecasting rules." in html
     assert "Manage model categories" not in html
     assert "Covers &amp; Accessories" in html
     assert f'value="{category.id}" selected>' in html
@@ -769,14 +770,14 @@ def test_category_editor_and_model_select_use_database_categories(client, planne
         < html.index('id="model-review-title"')
     )
     assert (
-        "Define categories around the work content, then review model assignments."
+        "Group product models by work content."
         in html
     )
     assert "table table-sm table-hover align-middle mb-0" in html
     assert "Saved assignments" in html
     assert "Current snapshot records" in html
     assert "Saved assignments can include model names or the blank-name group" in html
-    assert "Different work content can have different demand" in html
+    assert "These labels do not train forecasting models." in html
     assert "full_unit" not in html
     assert "cover_only" not in html
 

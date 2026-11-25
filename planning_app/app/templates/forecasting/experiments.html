@@ -2,23 +2,25 @@
 {% block title %}{{ title }}{% endblock %}
 {% block tool_page_header %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom pt-2 pb-2 mb-3">
-  <h1 class="h3 mb-0">Model Experiments</h1>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_readiness', _anchor='saved-extracts') }}">Choose a saved extract</a>
+  <h1 class="h3 mb-0">Compare models</h1>
+  <span class="badge text-bg-warning">Development only</span>
 </div>
 {% endblock %}
 {% block content %}
 <div class="container-fluid pb-4">
   <div class="alert alert-warning">
-    <strong>Development evidence only.</strong> One-week-ahead net GBP, reconstructed from a single saved extract.
-    These are not issued forecasts, an untouched holdout, or a historical as-of backtest.
+    <strong>Development evidence only.</strong> Compare next-week net GBP predictions. These results are not issued forecasts or proof of future performance.
   </div>
   {% if not extract %}
-  <p>No saved extract is available. Save an extract in Data Readiness first.</p>
+  <section class="card"><div class="card-body">
+    <p>No saved extract is available. Save data before comparing models.</p>
+    <a class="btn btn-primary" href="{{ url_for('forecasting.data_readiness') }}">Prepare data</a>
+  </div></section>
   {% else %}
-  <section class="card mb-3"><div class="card-body">
-    <h2 class="h5">Saved extract {{ extract.reference }}</h2>
-    <p class="mb-1">Captured {{ extract.captured_at | utcfmt('uk-datetime') }} &middot; {{ '{:,}'.format(extract.row_count) }} rows</p>
-    <p class="small text-muted">The extract remains unchanged. Missing and partial weeks are not treated as zero.</p>
+  <details class="card mb-3"{% if not run or run.status != 'completed' %} open{% endif %}>
+  <summary class="card-header fw-semibold">{{ 'Run another comparison' if run and run.status == 'completed' else 'Run a comparison' }}</summary>
+  <div class="card-body">
+    <p class="small text-muted">Compare all methods on the same target weeks. The saved extract remains unchanged.</p>
     {% if not can_run %}
     <p class="text-muted mb-0">Starting development experiments is disabled in production.</p>
     {% elif not dependencies %}
@@ -27,13 +29,13 @@
     <form method="post" action="{{ url_for('forecasting.experiment_start', extract_id=extract.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="capture_identity" value="{{ extract.capture_identity }}">
-      <button class="btn btn-primary btn-sm" type="submit">Run development comparison</button>
+      <button class="btn btn-primary btn-sm" type="submit">Run comparison</button>
       <span class="small text-muted">Runs in the background; only one experiment can run at a time.</span>
     </form>
     {% else %}
     <p class="text-muted mb-0">Starting an experiment requires manage planning permission.</p>
     {% endif %}
-  </div></section>
+  </div></details>
   {% if runs %}
   <form method="get" action="{{ url_for('forecasting.workflow_todo', stage='experiments') }}" class="d-flex flex-wrap align-items-end gap-2 mb-3">
     <input type="hidden" name="extract_id" value="{{ extract.id }}">
@@ -46,7 +48,7 @@
   </form>
   {% endif %}
   {% if not run %}
-  <p>No saved experiment for this extract. The earlier command-line comparison is separate and is not shown as a saved browser run.</p>
+  <p class="text-muted">No saved comparison for this extract yet.</p>
   {% elif run.status in ('queued', 'running') %}
   <div class="alert alert-info" role="status">Run {{ run.id }} is {{ run.status }}. Reload to check progress. If interrupted, a run can be replaced after six hours.</div>
   {% elif run.status == 'failed' %}
@@ -56,8 +58,8 @@
   <section class="card mb-3"><div class="card-body">
     <h2 class="h5">Run {{ run.id }} &middot; {{ extract.reference }}</h2>
     <p class="mb-1">Completed {{ run.finished_at | utcfmt('uk-datetime') }} &middot; {{ result.completed_weeks }} completed weeks &middot; {{ result.unavailable_weeks | length }} unavailable &middot; {{ result.quality_flagged_weeks | length }} quality-flagged</p>
-    <p class="small text-muted mb-1">IQR outliers are identified retrospectively within each financial year; removing them is sensitivity analysis, not a source correction.</p>
-    <details><summary>Provenance and model settings</summary>
+    <details><summary>Calculation details and model settings</summary>
+      <p class="small mt-2">Results are reconstructed from one extract, not a historical as-of backtest or untouched holdout. Missing and partial weeks are not zero. IQR outliers are identified retrospectively; excluding them tests sensitivity, not source corrections.</p>
       <p class="small mt-2 mb-1">Extract SHA-256: <code class="text-break">{{ run.extract_hash }}</code></p>
       <p class="small mb-1">{{ result.analysis_rules }} &middot; Python {{ result.python }} &middot; scikit-learn {{ result.scikit_learn }} &middot; statsmodels {{ result.statsmodels }}</p>
       <ul class="small">{% for name, value in result.settings.items() %}<li>{{ name }}: {{ value }}</li>{% endfor %}</ul>
@@ -73,20 +75,23 @@
     <div><label class="form-label small" for="year">Financial year</label><select class="form-select form-select-sm" id="year" name="year">
       <option value="">All years</option>{% for year in years %}<option value="{{ year }}" {% if selected_year == year %}selected{% endif %}>{{ year }}</option>{% endfor %}
     </select></div>
-    <div><label class="form-label small" for="model">Chart and errors</label><select class="form-select form-select-sm" id="model" name="model">
+    <div><label class="form-label small" for="model">Model to inspect</label><select class="form-select form-select-sm" id="model" name="model">
       {% for key, label in models.items() %}<option value="{{ key }}" {% if selected_model == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select></div>
     <button class="btn btn-outline-primary btn-sm" type="submit">Apply</button>
   </form>
   <section class="card mb-3"><div class="card-body">
-    <h2 class="h5">Compare model scores</h2>
-    <p class="small text-muted">Same {{ rows | length }} target weeks for every method in this selection. Positive bias means overforecast. Different sensitivity selections may have different targets.</p>
+    <h2 class="h5">Accuracy comparison</h2>
+    <p class="small text-muted">Same {{ rows | length }} target weeks for every method. Lower error is better; positive bias means overforecast.</p>
     <div class="table-responsive"><table class="table table-sm table-striped">
-      <thead><tr><th>Method</th><th class="text-end">Forecasts</th><th class="text-end">MAE GBP</th><th class="text-end">WAPE</th><th class="text-end">Bias GBP</th></tr></thead>
+      <thead><tr><th>Method</th><th class="text-end">Weeks compared</th><th class="text-end">Average error GBP</th><th class="text-end">Error % (WAPE)</th><th class="text-end">Bias GBP</th></tr></thead>
       <tbody>{% for key, label in models.items() %}{% set score = scores.get(key) %}
       <tr><th scope="row">{{ label }}</th>{% if score %}<td class="text-end">{{ score.pairs }}</td><td class="text-end">{{ '{:,.2f}'.format(score.mae) }}</td><td class="text-end">{{ '{:.2f}%'.format(score.wape) if score.wape is not none else 'Unavailable' }}</td><td class="text-end">{{ '{:+,.2f}'.format(score.bias) }}</td>{% else %}<td colspan="4">No forecasts</td>{% endif %}</tr>
       {% endfor %}</tbody>
     </table></div>
+    <details class="small mt-2"><summary>How to read the scores</summary>
+      <p class="mt-2 mb-0">Average error (MAE) is the average absolute GBP difference. WAPE is total absolute error as a percentage of total absolute actual value. Bias is the average signed error. Sensitivity selections may compare different weeks.</p>
+    </details>
   </div></section>
   <section class="card mb-3"><div class="card-body">
     <h2 class="h5">Actual versus {{ models[selected_model] }}</h2>

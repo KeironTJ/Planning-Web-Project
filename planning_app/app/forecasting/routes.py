@@ -121,7 +121,17 @@ def _week_year(values) -> int | None:
 @permission_required("view_planning")
 def dashboard():
     """Open the dedicated AI Tools section."""
-    return render_template("forecasting/dashboard.html", title="AI Tools")
+    extract_id = request.args.get("extract_id", type=int)
+    extract = (
+        ForecastDataExtract.query.get_or_404(extract_id) if extract_id is not None
+        else ForecastDataExtract.query.order_by(ForecastDataExtract.id.desc()).first()
+    )
+    counts = _extract_review_counts(extract.id) if extract else {}
+    unreviewed = extract.summary.get("flagged_rows", 0) - sum(counts.values()) if extract else 0
+    return render_template(
+        "forecasting/dashboard.html", title="AI Tools", extract=extract,
+        review_counts=counts, unreviewed=unreviewed,
+    )
 
 
 @forecasting_bp.route("/eda")
@@ -136,7 +146,7 @@ def eda(extract_id: int | None = None):
     )
     fields = extract.source_settings.get("fields", ()) if extract is not None else ()
     return render_template(
-        "forecasting/eda.html", title="Exploratory Data Analysis",
+        "forecasting/eda.html", title="Explore intake",
         extract=extract, has_weekly=REQUIRED_FIELDS.issubset(fields),
         captured_mix=available_mix_axes(fields), mix_axes=MIX_AXES,
     )
@@ -180,10 +190,12 @@ def workflow_todo(stage: str):
     if stage == "experiments":
         return _experiment_page()
     title, purpose, tasks = WORKFLOW_TODO[stage]
+    extract_id = request.args.get("extract_id", type=int)
     return render_template(
         "forecasting/workflow_todo.html", title=title, purpose=purpose, tasks=tasks,
         eda_stage=stage in {"distribution", "time-patterns", "feature-decisions"},
-        extract_id=request.args.get("extract_id", type=int),
+        extract=ForecastDataExtract.query.get_or_404(extract_id) if extract_id is not None else None,
+        extract_id=extract_id,
     )
 
 
@@ -266,7 +278,7 @@ def _experiment_page():
                 segments[key].append(" ".join(current_segments[key]))
             chart = {"segments": segments, "dots": dots, "first": first, "last": last, "low": low, "high": high}
     return render_template(
-        "forecasting/experiments.html", title="Model Experiments", extract=extract, runs=runs, run=run,
+        "forecasting/experiments.html", title="Compare models", extract=extract, runs=runs, run=run,
         models=_EXPERIMENT_MODELS, selected_model=model, scenario=scenario, selected_year=year,
         years=years, rows=rows, scores=scores, chart=chart, largest=largest,
         can_manage=current_user.has_permission("manage_planning"),
@@ -313,7 +325,7 @@ def data_readiness():
     copy_period = ForecastDataExtract.query.get_or_404(copy_from).order_period if copy_from else None
     return render_template(
         "forecasting/data_readiness.html",
-        title="Forecasting Data Readiness",
+        title="Prepare data",
         readiness=get_intake_data_readiness(),
         calendar=CALENDAR,
         calendar_start=FIRST_WEEK,
@@ -595,7 +607,7 @@ def data_extract(extract_id: int):
     )
     return render_template(
         "forecasting/data_extract.html",
-        title=f"VA05 Data Review {extract.reference}",
+        title="Review data",
         extract=extract,
         records=pagination,
         scope=scope,
@@ -675,7 +687,7 @@ def nonpositive_gbp(extract_id: int):
         else:
             evidence = [anchor]
     return render_template(
-        "forecasting/nonpositive_gbp.html", title=f"Explore nonpositive GBP {extract.reference}",
+        "forecasting/nonpositive_gbp.html", title="Zero and negative values",
         extract=extract, labels=NONPOSITIVE_GBP_GROUPS, groups=groups, group=group,
         rows=rows.order_by(ForecastDataRecord.id).all() if ids else [],
         page=page, pages=pages, evidence=evidence, anchor_id=anchor_id,
@@ -707,7 +719,7 @@ def weekly_intake(extract_id: int):
             chart_scale = max(magnitudes) or 1
     return render_template(
         "forecasting/weekly_intake.html",
-        title=f"Explore weekly intake {extract.reference}",
+        title="Weekly intake",
         extract=extract,
         profile=profile,
         mix_axes=MIX_AXES,
@@ -764,7 +776,7 @@ def weekly_distribution(extract_id: int):
 
     return render_template(
         "forecasting/distribution.html",
-        title=f"Distribution and unusual weeks {extract.reference}",
+        title="Unusual weeks",
         extract=extract,
         profile=profile,
         distribution=distribution,
@@ -838,7 +850,7 @@ def investigate_week(extract_id: int, week_number: int):
             saved_records.setdefault(key, []).append(record)
     return render_template(
         "forecasting/investigate_week.html",
-        title=f"Investigate week {week_number} {extract.reference}",
+        title=f"Investigate week {week_number}",
         extract=extract, week=week, scope=scope,
         is_outlier=week_number in distribution.outlier_weeks,
         details=page_details, saved_records=saved_records,
@@ -1022,7 +1034,7 @@ def model_classifications():
             model_counts[item.category_id] += 1
     return render_template(
         "forecasting/models.html",
-        title="Forecasting Model Classification",
+        title="Product categories",
         items=items,
         categories=categories,
         counts=counts,

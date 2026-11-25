@@ -11,13 +11,11 @@
 <div class="d-flex justify-content-between flex-wrap align-items-center gap-2 pt-2 pb-1 mb-3 border-bottom">
   <h1 class="h3 mb-0">{{ title }}</h1>
   <div class="d-flex flex-wrap gap-2">
-    <a class="btn btn-sm btn-outline-primary" href="#saved-records">Jump to saved rows</a>
     {% if investigation_week is not none %}
     <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=investigation_week, year=investigation_year) }}">Back to week {{ investigation_week }} investigation</a>
+    {% else %}
+    {% if has_coverage %}<a class="btn btn-sm btn-primary" href="{{ url_for('forecasting.intake_history', extract_id=extract.id) }}">Check coverage</a>{% endif %}
     {% endif %}
-    <a class="btn btn-sm btn-primary" href="{{ url_for('forecasting.eda', extract_id=extract.id) }}">EDA workspace</a>
-    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.weekly_intake', extract_id=extract.id) }}">Explore weekly intake</a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_readiness') }}">Data Readiness</a>
   </div>
 </div>
 {% endblock %}
@@ -25,70 +23,15 @@
 {% block content %}
 <div class="container-fluid pb-3">
   <div class="alert alert-warning" role="status">
-    Saved local observation, not an approved training dataset. Acceptance records a review
-    judgement; it does not correct, exclude, deduplicate, or certify any value.
+    Reviews record evidence. They do not change saved values or approve this extract for forecasting.
   </div>
-  <section class="card mb-3" aria-labelledby="extract-details">
-    <div class="card-body">
-      <h2 id="extract-details" class="h5">Extract details</h2>
-      <p class="mb-1">
-        <strong>{{ extract.source }}</strong> |
-        Captured {{ extract.captured_at | utcfmt('uk-datetime') }} |
-        {{ extract.row_count }} rows |
-        {{ extract.summary.order_count }} distinct local order numbers |
-        {{ extract.summary.release_count }} local release keys
-      </p>
-      <p class="mb-2"><strong>Extract period:</strong>
-        {% if order_period %}{{ order_period[0] | uk_date }} to {{ order_period[1] | uk_date }} inclusive, by Epicor order date.
-        {% else %}Legacy capture of all locally retained rows; no period was selected.{% endif %}
-      </p>
-      {% if order_period and extract.summary.unassigned_releases %}
-      <p><a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, finding='unassigned_order_date', _anchor='finding-summary') }}">Review {{ extract.summary.unassigned_releases }} unassigned release(s)</a>. Their saved rows are not counted in any period.</p>
-      {% endif %}
-      {% if has_coverage %}
-      <p><a class="btn btn-outline-primary btn-sm" href="{{ url_for('forecasting.intake_history', extract_id=extract.id) }}">Review coverage by year, month and week</a></p>
-      {% endif %}
-      <details class="small mt-2">
-        <summary>Useful information</summary>
-        <p class="text-muted mt-2 mb-1">
-          Main-row quantity/value checks use assembly zero or no assembly. Subassembly zeroes
-          are not treated as invalid main quantities.
-          {% if 'repeated_release' in extract.summary.rules %}
-          This extract retains its original findings, including releases with multiple rows.
-          {% else %}
-          Multiple job/assembly rows for a release are context, not a finding on their own.
-          {% endif %}
-        </p>
-        <p class="text-muted mb-0">
-          Model categories are current labels for review, not historical assignments or
-          rules for counting work. Verify whether the VA05 model identifies each assembly.
-        </p>
-      </details>
-      <details class="small mt-2">
-        <summary>Provenance and content hash</summary>
-        <dl class="row mt-2 mb-0">
-          {% for key, value in extract.source_settings.items() if key not in ('company_scope', 'order_date_from', 'order_date_to') %}
-          <dt class="col-sm-3">{{ key }}</dt><dd class="col-sm-9 text-break">{{ value }}</dd>
-          {% endfor %}
-          <dt class="col-sm-3">Rules version</dt><dd class="col-sm-9">{{ extract.rules_version }}</dd>
-          <dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9 text-break"><code>{{ extract.content_hash }}</code></dd>
-        </dl>
-      </details>
-      <details class="small mt-2">
-        <summary>Comments / Notes ({{ notes | length }})</summary>
-        {% with notes_embedded=true %}
-          {% include "forecasting/_extract_notes.html" %}
-        {% endwith %}
-      </details>
-    </div>
-  </section>
 
   <section class="card mb-3" aria-labelledby="review-progress">
     <div class="card-body">
-      <h2 class="h5" id="review-progress">Record review and source corrections</h2>
-      <p class="small text-muted mb-2">Latest outcomes across all flagged rows in this extract. Select a status to see its rows. Accepted means the reviewer recorded evidence for the finding; it does not change the extract or approve it for training.</p>
+      <h2 class="h5" id="review-progress">Review progress</h2>
+      <p class="small text-muted mb-2">Select an outcome to see its rows. Counts cover all flagged rows in this extract.</p>
       <nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Filter by latest review status">
-        {% for status, label in [('accepted', decision_statuses.accepted), ('unreviewed', 'Not reviewed'), ('investigate', decision_statuses.investigate), ('source_correction', decision_statuses.source_correction)] %}
+        {% for status, label in [('unreviewed', 'Not reviewed'), ('investigate', decision_statuses.investigate), ('source_correction', decision_statuses.source_correction), ('accepted', decision_statuses.accepted)] %}
         <a class="btn btn-sm {{ review_badges[status] }}" href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=status, _anchor='saved-records') }}">
           {{ label }}:
           {% if status == 'unreviewed' %}
@@ -100,21 +43,20 @@
         {% endfor %}
       </nav>
       {% if can_manage %}
-      <p class="small text-muted mb-2">Download a worklist by current status for the whole extract. If source corrections are made, save a new extract for the same dates after they reach Planning; this review remains unchanged.</p>
+      <details>
+      <summary class="small fw-semibold">Correction worklists and new capture</summary>
+      <p class="small text-muted mt-2 mb-2">Export rows for follow-up. After source corrections reach Planning, save a new extract for the same dates; this review remains unchanged.</p>
       {{ worklist_links(extract.id) }}
       {% if order_period %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_readiness', copy_from=extract.id, _anchor='saved-extracts') }}">Prefill dates for a new extract</a>{% endif %}
+      </details>
       {% endif %}
     </div>
   </section>
 
-  <section class="card mb-3" aria-labelledby="finding-summary">
+  <details class="card mb-3"{% if not release and not finding %} open{% endif %}>
+    <summary class="card-header fw-semibold" id="finding-summary">Findings by type</summary>
     <div class="card-body">
-      <h2 id="finding-summary" class="h5">Findings summary</h2>
-      <p class="small text-muted">
-        Review progress for affected rows across the full extract. A row counts as reviewed
-        once it has a saved outcome, even if it still needs investigation or correction.
-        A row can appear under more than one finding.
-      </p>
+      <p class="small text-muted">A saved outcome counts as reviewed, not resolved. A row can have more than one finding.</p>
       <ul class="row g-2 list-unstyled mb-0">
         {% for rule, label in extract.summary.rules.items() %}
         {% set total = extract.summary.counts.get(rule, 0) %}
@@ -138,7 +80,7 @@
         {% endfor %}
       </ul>
     </div>
-  </section>
+  </details>
 
   {% if release %}
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
@@ -356,6 +298,35 @@
     <span>{% if records.has_next %}<a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope=scope, finding=finding, gbp_group=gbp_group, release=release_anchor, page=records.next_num, week=investigation_week, year=investigation_year, _anchor='saved-records') }}">Next</a>{% endif %}</span>
   </nav>
   {% endif %}
+
+  <details class="card mt-4 mb-3">
+    <summary class="card-header" id="extract-details">Extract details and calculation rules</summary>
+    <div class="card-body">
+      <p class="small">{{ extract.source }} &middot; Captured {{ extract.captured_at | utcfmt('uk-datetime') }} &middot; {{ extract.row_count }} rows &middot; {{ extract.summary.order_count }} orders &middot; {{ extract.summary.release_count }} releases</p>
+      <p class="small"><strong>Extract period:</strong>
+        {% if order_period %}{{ order_period[0] | uk_date }} to {{ order_period[1] | uk_date }} inclusive, by Epicor order date.
+        {% else %}Legacy capture of all locally retained rows; no period was selected.{% endif %}
+      </p>
+      {% if order_period and extract.summary.unassigned_releases %}
+      <p><a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, finding='unassigned_order_date', _anchor='finding-summary') }}">Review {{ extract.summary.unassigned_releases }} unassigned release(s)</a>. Their saved rows are not counted in any period.</p>
+      {% endif %}
+      <p class="small text-muted">Main-row checks use assembly zero or no assembly. Subassembly zeroes are not invalid main quantities. Multiple job/assembly rows are context, not additional demand.
+        {% if 'repeated_release' in extract.summary.rules %}This legacy extract retains its original multiple-row findings.{% endif %}
+      </p>
+      <p class="small text-muted">Product categories are current review labels, not historical assignments or counting rules.</p>
+      <details class="small">
+        <summary>Provenance and content hash</summary>
+        <dl class="row mt-2 mb-0">
+          {% for key, value in extract.source_settings.items() if key not in ('company_scope', 'order_date_from', 'order_date_to') %}
+          <dt class="col-sm-3">{{ key }}</dt><dd class="col-sm-9 text-break">{{ value }}</dd>
+          {% endfor %}
+          <dt class="col-sm-3">Rules version</dt><dd class="col-sm-9">{{ extract.rules_version }}</dd>
+          <dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9 text-break"><code>{{ extract.content_hash }}</code></dd>
+        </dl>
+      </details>
+    </div>
+  </details>
+  {% include "forecasting/_extract_notes.html" %}
 
   {% if can_delete %}
   <details class="border rounded p-3 mt-4" id="extract-delete">

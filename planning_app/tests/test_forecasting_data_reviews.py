@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import json
+import re
 import runpy
 import sqlite3
 from contextlib import closing
@@ -450,7 +451,7 @@ def test_distribution_page_renders_read_only_saved_extract_comparisons(
 
     assert response.status_code == 200
     html = " ".join(response.get_data(as_text=True).split())
-    assert "Distribution and unusual weeks" in html
+    assert "Unusual weeks" in html
     assert 'data-fmt="uk-datetime">19/11/2026 00:00:00</time>' in html
     workspace_html = client.get(f"/ai-tools/eda/{extract.id}").get_data(as_text=True)
     assert 'data-fmt="uk-datetime">19/11/2026 00:00:00</time>' in workspace_html
@@ -458,13 +459,13 @@ def test_distribution_page_renders_read_only_saved_extract_comparisons(
     assert "Week 34: 1 exception" in html
     assert "200.00" in html
     assert "Without outlier or data-quality flagged weeks" in html
-    assert "partial weeks are excluded and unavailable weeks are left out, never replaced with zero" in html
+    assert "Partial weeks are excluded; missing weeks are never replaced with zero." in html
     assert ForecastDataRecord.query.filter_by(extract_id=extract.id).count() == record_count
     assert f"/extracts/{extract.id}/weeks/1" in html
     assert f"/extracts/{extract.id}/weeks/34" in html
     outlier = client.get(f"{PAGE}/extracts/{extract.id}/weeks/1")
     assert outlier.status_code == 200
-    assert "Statistical outlier candidate, not a record error" in outlier.get_data(as_text=True)
+    assert "Unusual weekly value, not a confirmed data error" in outlier.get_data(as_text=True)
     gap = client.get(f"{PAGE}/extracts/{extract.id}/weeks/6")
     assert gap.status_code == 200
     assert "Unavailable (not zero)" in gap.get_data(as_text=True)
@@ -494,7 +495,7 @@ def test_intake_history_reviews_fixed_period_across_years_and_keeps_gaps(
     assert "Month 12</strong>" in html
     assert "/weeks/53?year=2024" in html
     assert "240.00" in html
-    assert "30/12/2024 to 21/01/2025</strong> (inclusive)" in html
+    assert "30/12/2024 to 21/01/2025" in html
     assert "2 of 3 completed weeks with GBP</span> &middot; 1 unavailable &middot; 1 with release exceptions" in html
     assert "20/01/2025 to 26/01/2025" in html
     assert "23/12/2024" not in html and "27/01/2025" not in html
@@ -586,6 +587,10 @@ def test_week_investigation_traces_saved_releases_and_preserves_flags_after_revi
     for number in (0, 2, 53):
         assert client.get(f"{PAGE}/extracts/{extract.id}/weeks/{number}").status_code == 404
     all_html = client.get(path + "?scope=all").get_data(as_text=True)
+    assert 'class="card ai-release-list"' in all_html
+    assert all_html.index('id="week-summary"') < all_html.index('id="week-contributors"') < all_html.index('id="week-releases"')
+    assert '<details open>\n      <summary class="ai-release-summary">' in all_html
+    assert '<details>\n      <summary class="ai-release-summary">' in all_html
     assert "300.00" in all_html and "50.00 GBP excluded as void" in all_html
     assert "Trade: 300.00 GBP" in all_html
     assert "Subassembly: not counted" in all_html
@@ -661,8 +666,8 @@ def test_week_investigation_paginates_distinct_releases_in_value_order(
     second = client.get(path + "&page=2").get_data(as_text=True)
     assert "Page 1 of 2" in first and "Page 2 of 2" in second
     assert "Order 12 / line 1 / release 26" in first
-    assert "Order 12 / line 1 / release 1</h3>" not in first
-    assert "Order 12 / line 1 / release 1</h3>" in second
+    assert "Order 12 / line 1 / release 1</strong>" not in first
+    assert "Order 12 / line 1 / release 1</strong>" in second
     assert "26 matching releases" in second
     assert "351.00" in first and "351.00" in second
 
@@ -727,9 +732,9 @@ def test_weekly_intake_page_reads_saved_capture_and_handles_legacy_extract(
     assert "Partial week" in html and "Possible shutdown" in html
     assert "No usable completed weeks" in html
     assert "No usable observations" in html
-    assert client.get(f"{PAGE}/extracts/{extract.id}").get_data(as_text=True).count(
-        path,
-    ) == 1
+    review = client.get(f"{PAGE}/extracts/{extract.id}").get_data(as_text=True)
+    assert f'href="/ai-tools/eda/{extract.id}"' in review
+    assert f'href="{PAGE}/extracts/{extract.id}/history"' in review
     unavailable = client.get(f"{PAGE}/extracts/{legacy.id}/weekly-intake")
     assert unavailable.status_code == 200
     assert "including the void flag" in unavailable.get_data(as_text=True)
@@ -766,8 +771,9 @@ def test_weekly_intake_mix_uses_capture_metadata_and_excludes_partial_week(
 
     hub = client.get(f"/ai-tools/eda/{current.id}").get_data(as_text=True)
     assert current.reference in hub and "4 of 4 dimensions captured" in hub
-    for anchor in ("coverage-heading", "weekly-net-heading", "mix-heading"):
-        assert f'{PAGE}/extracts/{current.id}/weekly-intake#{anchor}' in hub
+    assert f'{PAGE}/extracts/{current.id}/history' in hub
+    assert f'{PAGE}/extracts/{current.id}/weekly-intake"' in hub
+    assert f'{PAGE}/extracts/{current.id}/weekly-intake#mix-heading' in hub
     plan = client.get(f"/ai-tools/workflow/feature-decisions?extract_id={current.id}").get_data(as_text=True)
     assert "Check what is known at forecast issue time" in plan
     assert f'href="/ai-tools/eda/{current.id}"' in plan
@@ -924,7 +930,7 @@ def test_extract_reference_uses_saved_environment_not_current_config(
         reference = f"{prefix}-{extract.id}"
         assert f"Extract {reference}" in html
         review = client.get(f"{PAGE}/extracts/{extract.id}")
-        assert f"VA05 Data Review {reference}" in review.get_data(as_text=True)
+        assert f"<strong>{reference}</strong>" in review.get_data(as_text=True)
 
 
 def test_consistent_main_repeats_are_not_quantity_conflicts(
@@ -1569,33 +1575,72 @@ def test_ai_tools_workflow_header_tracks_stage_and_preserves_extract(
     saved = f"{PAGE}/extracts/{extract.id}"
     eda = f"/ai-tools/eda/{extract.id}"
     for path, current, has_context in (
-        ("/ai-tools/dashboard", "Workflow overview", False),
-        (PAGE, "1. Data Readiness", False),
-        ("/ai-tools/models", "1. Data Readiness", False),
-        (saved, "1. Data Readiness", True),
-        (saved + "/history", "1. Data Readiness", True),
-        (eda, "2. EDA", True),
-        (saved + "/weekly-intake", "2. EDA", True),
-        (saved + "/distribution", "2. EDA", True),
-        (saved + "/weeks/1", "2. EDA", True),
-        (f"/ai-tools/workflow/time-patterns?extract_id={extract.id}", "2. EDA", True),
-        (f"/ai-tools/workflow/experiments?extract_id={extract.id}", "3. Model Experiments", True),
-        ("/ai-tools/workflow/forecasts", "4. Forecasts", False),
-        ("/ai-tools/workflow/monitoring", "5. Monitoring", False),
+        ("/ai-tools/dashboard", "Overview", True),
+        (PAGE, "Prepare data", False),
+        ("/ai-tools/models", "Product categories", False),
+        (saved, "Prepare data", True),
+        (saved + "/history", "Prepare data", True),
+        (eda, "Explore intake", True),
+        (saved + "/weekly-intake", "Explore intake", True),
+        (saved + "/distribution", "Explore intake", True),
+        (saved + "/weeks/1", "Explore intake", True),
+        (f"/ai-tools/workflow/time-patterns?extract_id={extract.id}", "Explore intake", True),
+        (f"/ai-tools/workflow/experiments?extract_id={extract.id}", "Compare models", True),
+        ("/ai-tools/workflow/forecasts", None, False),
+        ("/ai-tools/workflow/monitoring", None, False),
     ):
         response = client.get(path)
         assert response.status_code == 200
-        header = " ".join(response.get_data(as_text=True).split(
-            'aria-label="Project 1 workflow">', 1,
-        )[1].split("</nav>", 1)[0].split())
-        if current == "Workflow overview":
-            assert 'aria-current="location">Workflow overview' in header
-            assert 'aria-current="step"' not in header
-        else:
-            assert header.count('aria-current="step"') == 1
-            assert f'aria-current="step"> {current}' in header
+        html = response.get_data(as_text=True)
+        sidebar = html.split('id="aiToolsMenu">', 1)[1].split("</ul>", 1)[0]
+        active = re.findall(
+            r'<a class="nav-link active"\s+href="[^"]+">\s*<i[^>]*></i>([^<]+)',
+            sidebar,
+        )
+        assert [label.strip() for label in active] == ([current] if current else [])
+        assert html.count('aria-label="Breadcrumb"') == 1
+        assert 'aria-current="step"' not in html
+        mobile_menu = html.split('aria-label="AI Tools navigation">', 1)[1].split("</nav>", 1)[0]
+        assert "Prepare data" in mobile_menu and "Compare models" in mobile_menu
         if has_context:
-            assert f'href="{saved}"' in header and f'href="{eda}"' in header
+            assert 'aria-label="Selected data"' in html
+            assert f"<strong>{extract.reference}</strong>" in html
+            assert f'href="{saved}"' in sidebar and f'href="{eda}"' in sidebar
+            assert f'extract_id={extract.id}' in sidebar
+            assert f'href="{saved}"' in mobile_menu and f'href="{eda}"' in mobile_menu
+
+
+def test_overview_recommends_evidence_follow_up_and_keeps_selected_extract(
+    db_session, client, planner_user,
+):
+    add_source(db_session, release_qty=None)
+    extract = save_va05_extract(planner_user.id)
+    newer = save_va05_extract(planner_user.id)
+    record = ForecastDataRecord.query.filter_by(extract_id=extract.id).first()
+    login(client, planner_user.email, "Planner!Pass1234")
+    path = f"/ai-tools/dashboard?extract_id={extract.id}"
+    html = client.get(path).get_data(as_text=True)
+    assert "Review outstanding findings" in html
+    assert f'href="{PAGE}/extracts/{extract.id}?scope=unreviewed#saved-records"' in html
+    assert f"<strong>{newer.reference}</strong>" not in html
+
+    save_data_decision(
+        record.id, "source_correction", "Correct at source.", planner_user.id,
+        capture_identity=extract.capture_identity,
+    )
+    html = client.get(path).get_data(as_text=True)
+    assert "Follow up findings" in html
+    assert "scope=source_correction#saved-records" in html
+
+    save_data_decision(
+        record.id, "accepted", "Evidence recorded.", planner_user.id,
+        capture_identity=extract.capture_identity,
+    )
+    html = client.get(path).get_data(as_text=True)
+    assert "Completed reviews do not certify the data" in html
+    assert f'href="/ai-tools/eda/{extract.id}"' in html
+    assert client.get("/ai-tools/dashboard?extract_id=999").status_code == 404
+    assert client.get("/ai-tools/workflow/forecasts?extract_id=999").status_code == 404
 
 
 def test_bulk_finding_outcome_across_pages_drives_correction_export(
@@ -1789,16 +1834,13 @@ def test_finding_filter_combines_with_scope_and_preserves_review(
     assert "Order 2 / line 1" not in html
     assert "Order 3 / line 1" in html
     assert 'name="finding" value="missing_qty"' in html
-    summary = html.split(
-        '<section class="card mb-3" aria-labelledby="finding-summary">', 1,
-    )[1]
-    summary = summary.split("</section>", 1)[0]
-    assert "Findings summary" in summary
+    summary = html.split('id="finding-summary">', 1)[1].split("</details>", 1)[0]
+    assert "Findings by type" in summary
     assert "Missing main-row release quantity" in summary
     assert "Missing main-row GBP release value" in summary
     assert summary.count("<span data-reviewed>0</span> of 2 reviewed") == 2
     assert "No affected rows" in summary
-    assert "affected rows across the full extract" in summary.lower()
+    assert "A saved outcome counts as reviewed, not resolved." in summary
     assert html.index('id="finding-summary"') < html.index(
         'id="review-finding"',
     )
@@ -1947,7 +1989,7 @@ def test_extract_notes_are_append_only_and_protect_evidence(
     login(client, planner_user.email, "Planner!Pass1234")
 
     html = client.get(path).get_data(as_text=True)
-    assert '<details class="small mt-2">\n        <summary>Comments / Notes (0)</summary>' in html
+    assert '<h2 id="extract-notes" class="h5">Business notes</h2>' in html
     note_form = {"capture_identity": identity}
     for body in ("  ", "x" * 2001):
         response = client.post(
@@ -1963,9 +2005,9 @@ def test_extract_notes_are_append_only_and_protect_evidence(
         )
     html = response.get_data(as_text=True)
     assert "First observation &lt;detail&gt;" in html
-    assert "<summary>Comments / Notes (2)</summary>" in html
+    assert '<h2 id="extract-notes" class="h5">Business notes</h2>' in html
     assert html.index("Follow-up") < html.index("First observation")
-    assert html.index("Provenance and content hash") < html.index('id="extract-notes"') < html.index('id="review-progress"')
+    assert html.index('id="review-progress"') < html.index("Provenance and content hash") < html.index('id="extract-notes"')
     assert planner_user.username in html
     assert "Delete entire saved extract" not in html
     first = ForecastDataNote.query.order_by(ForecastDataNote.id).first()

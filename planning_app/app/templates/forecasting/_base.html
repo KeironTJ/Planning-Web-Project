@@ -1,43 +1,73 @@
 {% extends "base.html" %}
 
+{% block head_layout %}
+{{ super() }}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ai_tools.css') }}">
+{% endblock %}
+
+{% block body_attrs %} class="ai-workspace"{% endblock %}
+
 {% block page_header %}
 {% set endpoint = request.endpoint %}
 {% set active_stage = 'overview' %}
-{% if endpoint in ('forecasting.data_readiness', 'forecasting.data_extract', 'forecasting.intake_history', 'forecasting.model_classifications', 'forecasting.nonpositive_gbp') %}
+{% if endpoint in ('forecasting.data_readiness', 'forecasting.data_extract', 'forecasting.intake_history', 'forecasting.nonpositive_gbp') %}
   {% set active_stage = 'readiness' %}
+{% elif endpoint == 'forecasting.model_classifications' %}
+  {% set active_stage = 'categories' %}
 {% elif endpoint in ('forecasting.eda', 'forecasting.weekly_intake', 'forecasting.weekly_distribution', 'forecasting.investigate_week') %}
   {% set active_stage = 'eda' %}
 {% elif endpoint == 'forecasting.workflow_todo' %}
   {% set active_stage = 'eda' if eda_stage else request.view_args.stage %}
 {% endif %}
 {% set selected_id = extract.id if extract is defined and extract else extract_id | default(none) %}
-{% set stages = [
-  ('readiness', 'Data Readiness', url_for('forecasting.data_extract', extract_id=selected_id) if selected_id is not none else url_for('forecasting.data_readiness')),
-  ('eda', 'EDA', url_for('forecasting.eda', extract_id=selected_id)),
-  ('experiments', 'Model Experiments', url_for('forecasting.workflow_todo', stage='experiments', extract_id=selected_id)),
-  ('forecasts', 'Forecasts', url_for('forecasting.workflow_todo', stage='forecasts', extract_id=selected_id)),
-  ('monitoring', 'Monitoring', url_for('forecasting.workflow_todo', stage='monitoring', extract_id=selected_id)),
-] %}
-<nav class="border-bottom py-2 mb-2" aria-label="Project 1 workflow">
-  <div class="d-flex flex-wrap align-items-center gap-2 mb-2 small">
-    <strong>Project 1</strong>
-    {% if active_stage == 'overview' %}
-    <span aria-current="location">Workflow overview</span>
-    {% else %}
-    <a href="{{ url_for('forecasting.dashboard') }}">Workflow overview</a>
-    {% endif %}
-    {% if extract is defined and extract %}<span class="text-muted">Saved extract {{ extract.reference }}</span>{% endif %}
-  </div>
-  <ol class="d-flex flex-wrap gap-2 list-unstyled small mb-0">
-    {% for key, label, href in stages %}
-    <li>
-      <a class="btn btn-sm {{ 'btn-primary' if active_stage == key else 'btn-outline-secondary' }}"
-         href="{{ href }}"{% if active_stage == key %} aria-current="step"{% endif %}>
-        {{ loop.index }}. {{ label }}{% if loop.index >= 4 %} <span class="small">(planned)</span>{% endif %}
-      </a>
-    </li>
+{% set stage_labels = {'readiness': 'Prepare data', 'eda': 'Explore intake', 'experiments': 'Compare models', 'categories': 'Product categories', 'forecasts': 'Forecasts', 'monitoring': 'Monitoring'} %}
+{% set stage_home = url_for('forecasting.data_readiness') if active_stage == 'readiness' else url_for('forecasting.eda', extract_id=selected_id) if active_stage == 'eda' else none %}
+<details class="d-md-none mb-3">
+  <summary class="small fw-semibold">AI Tools menu</summary>
+  <nav class="ai-section-nav mt-2" aria-label="AI Tools navigation">
+    {% for key, label, href in [
+      ('overview', 'Overview', url_for('forecasting.dashboard', extract_id=selected_id)),
+      ('readiness', 'Prepare data', url_for('forecasting.data_extract', extract_id=selected_id) if selected_id is not none else url_for('forecasting.data_readiness')),
+      ('eda', 'Explore intake', url_for('forecasting.eda', extract_id=selected_id)),
+      ('experiments', 'Compare models', url_for('forecasting.workflow_todo', stage='experiments', extract_id=selected_id)),
+      ('categories', 'Product categories', url_for('forecasting.model_classifications'))
+    ] %}
+    <a class="btn btn-sm {{ 'btn-primary' if active_stage == key else 'btn-outline-secondary' }}"
+       href="{{ href }}"{% if active_stage == key %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
+  </nav>
+</details>
+<nav class="ai-breadcrumb small" aria-label="Breadcrumb">
+  <ol class="breadcrumb mb-0">
+    <li class="breadcrumb-item">
+    {% if active_stage == 'overview' %}
+    <span aria-current="page">AI Tools</span>
+    {% else %}
+    <a href="{{ url_for('forecasting.dashboard', extract_id=selected_id) }}">AI Tools</a>
+    {% endif %}
+    </li>
+    {% if active_stage != 'overview' %}
+    <li class="breadcrumb-item">
+      {% if stage_home and endpoint not in ('forecasting.data_readiness', 'forecasting.eda') %}
+      <a href="{{ stage_home }}">{{ stage_labels[active_stage] }}</a>
+      {% else %}<span aria-current="page">{{ stage_labels[active_stage] }}</span>{% endif %}
+    </li>
+    {% if stage_home and endpoint not in ('forecasting.data_readiness', 'forecasting.eda') %}
+    <li class="breadcrumb-item active" aria-current="page">{{ title }}</li>
+    {% endif %}
+    {% endif %}
   </ol>
 </nav>
+{% if extract is defined and extract %}
+{% set period = extract.order_period %}
+<div class="ai-extract-context mb-3" aria-label="Selected data">
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <span class="badge text-bg-secondary">Saved data</span>
+    <strong>{{ extract.reference }}</strong>
+    <span class="small text-muted">{% if period %}{{ period[0] | uk_date }} to {{ period[1] | uk_date }}{% else %}All retained order dates{% endif %}</span>
+  </div>
+  <a class="small fw-semibold" href="{{ url_for('forecasting.data_readiness', _anchor='saved-extracts') }}">Change extract</a>
+</div>
+{% endif %}
 {% block tool_page_header %}{% endblock %}
 {% endblock %}

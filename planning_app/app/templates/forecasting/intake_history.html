@@ -13,26 +13,22 @@
 {% block tool_page_header %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom pb-2 mb-3">
   <h1 class="h3 mb-0">{{ title }}</h1>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">Back to saved data review</a>
+  <a class="btn btn-sm btn-primary" href="{{ url_for('forecasting.eda', extract_id=extract.id) }}">Next: explore intake</a>
 </div>
 {% endblock %}
 {% block content %}
 <div class="container-fluid pb-4">
-  <p>Saved extract <strong>{{ extract.reference }}</strong> &middot; Captured {{ extract.captured_at | utcfmt('uk-datetime') }}</p>
-  <p>Financial years start on the first Monday of January. Financial months follow 4-4-5, with week 53 in month 12. Periods are assigned by Epicor order date. The extract shows records available at capture, not historical coverage verified against Finance.</p>
+  {% include "forecasting/_analysis_nav.html" %}
   {% if unassigned_dates or future_dates %}
   <p class="text-muted">{{ unassigned_dates }} releases could not be assigned because their order date was missing or conflicting; {{ future_dates }} were dated after capture.</p>
   {% endif %}
-  {% set period = extract.order_period %}
-  {% if period %}<p><strong>{{ period[0] | uk_date }} to {{ period[1] | uk_date }}</strong> (inclusive)</p>
-  {% else %}<p>Legacy capture: coverage starts in the first observed financial year; no period was selected.</p>{% endif %}
-  <p>{{ coverage(weeks) }}.</p>
+  <div class="card mb-3"><div class="card-body">{{ coverage(weeks) }}.</div></div>
 
-  <h2 class="h5">Explore financial years, months and weeks</h2>
-  <p class="small text-muted">Open a year, then a financial month, to see individual weeks. Coverage counts are through capture only. A gap means no usable observation, not zero. Flagged weeks may also lack a GBP value.</p>
+  <h2 class="h5">Coverage by period</h2>
+  <p class="small text-muted">Open a year and month to inspect weeks. Gaps mean no usable data, not zero.</p>
   {% for year, months in years | dictsort(reverse=true) %}
   {% set weeks = months.values() | sum(start=[]) %}
-  <details class="card mb-2">
+  <details class="card mb-2"{% if loop.first %} open{% endif %}>
     <summary class="card-header">
       <strong>SOI {{ year }}</strong>
       &middot; {{ coverage(weeks) }}
@@ -63,6 +59,15 @@
                 <td class="text-end">{{ week.exceptions }}</td>
               </tr>
               {% endfor %}
+              <details class="card mt-3">
+                <summary class="card-header">Calendar and coverage details</summary>
+                <div class="card-body small text-muted">
+                  Captured {{ extract.captured_at | utcfmt('uk-datetime') }}.
+                  Financial years start on the first Monday of January. Financial months follow 4-4-5, with week 53 in month 12.
+                  Periods use Epicor order date. Coverage describes saved observations through capture, not historical coverage verified against Finance.
+                  Flagged weeks may also lack a GBP value.
+                </div>
+              </details>
             </tbody>
           </table>
         </div>

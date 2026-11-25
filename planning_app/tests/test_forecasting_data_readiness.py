@@ -70,7 +70,8 @@ def test_data_readiness_reports_local_order_quality_without_claiming_history(
 
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert "Choose the data you want to explore" in html
+    assert "Choose saved data, check coverage and review outstanding findings." in html
+    assert '<details class="card mb-4" id="live-checks">' in html
     assert "No saved extracts yet" in html
     assert "mutable local sales-order table" in html
     assert '<div class="fs-4 fw-semibold">3</div>' in html

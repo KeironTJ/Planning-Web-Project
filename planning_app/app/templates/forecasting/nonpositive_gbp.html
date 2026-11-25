@@ -14,8 +14,7 @@
   <td>{% if record.data.void_line is sameas true %}Yes{% elif record.data.void_line is sameas false %}No{% else %}Missing{% endif %}</td>
 {% endmacro %}
 {% block content %}
-<p>Grouped across the full saved extract. Counts are flagged rows, not distinct releases, and include all review outcomes. Subassembly zeroes are not flagged here.</p>
-<p class="text-muted">When main observations disagree or are incomplete, the row is shown separately rather than treated as a routine zero or negative value. These groups describe the saved values; they do not accept, change, or approve them.</p>
+<p class="small text-muted">Compare zero, negative and conflicting values across this extract. Counts are flagged rows, not releases; subassembly zeroes are not flagged.</p>
 <nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Nonpositive GBP groups">
   {% for key, label in labels.items() %}
   <a class="btn btn-sm {{ 'btn-primary' if group == key else 'btn-outline-primary' }}"
@@ -66,4 +65,7 @@
 </div>
 <p><a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope='all', release=anchor_id, _anchor='saved-records') }}">Open this release in Data Review</a></p>
 {% endif %}
+<details class="card mt-3"><summary class="card-header">Grouping details</summary><div class="card-body small text-muted">
+  Counts include all review outcomes. Incomplete or conflicting main observations are grouped separately, not treated as routine zero or negative values. These groups do not accept, change or approve saved values.
+</div></details>
 {% endblock %}

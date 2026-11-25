@@ -2,32 +2,23 @@
 {% block title %}{{ title }}{% endblock %}
 
 {% block tool_page_header %}
-<div class="d-flex justify-content-between flex-wrap gap-2 align-items-center pt-2 pb-2 mb-3 border-bottom">
+<header class="mb-4">
   <h1 class="h3 mb-0">{{ title }}</h1>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.dashboard') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> AI Tools workflow</a>
-</div>
+  <p class="text-muted mb-0 mt-1">Choose saved data, check coverage and review outstanding findings.</p>
+</header>
 {% endblock %}
 
 {% block content %}
 <div class="container-fluid pt-0 pb-3">
-  <section class="card border-primary mb-4" aria-labelledby="readiness-guide">
-    <div class="card-body p-4">
-      <h2 id="readiness-guide" class="h4">Choose the data you want to explore</h2>
-      <p>Use a saved VA05 extract for repeatable analysis. Use the live checks to diagnose the current import, not to infer historical intake.</p>
-      <div class="d-flex flex-wrap gap-2">
-        <a class="btn btn-outline-primary" href="#saved-extracts"><i class="bi bi-archive" aria-hidden="true"></i> Browse saved extracts</a>
-        <a class="btn btn-outline-secondary" href="#snapshot-summary"><i class="bi bi-activity" aria-hidden="true"></i> View live checks</a>
-      </div>
-    </div>
-  </section>
-
   <section class="mb-4" aria-labelledby="saved-extracts">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
       <div>
         <h2 id="saved-extracts" class="h5 fw-semibold">Saved VA05 extracts</h2>
-        <p class="small text-muted mb-0">Choose the order-date period when you save. Then review coverage and resolve findings before moving to EDA.</p>
+        <p class="small text-muted mb-0">Use a saved extract for repeatable analysis of order intake.</p>
       </div>
       {% if can_manage %}
+      <details class="card p-3"{% if not extracts.items or copy_period %} open{% endif %}>
+      <summary class="fw-semibold">Save a new extract</summary>
       <form method="post" class="d-flex flex-wrap gap-2 align-items-end" action="{{ url_for('forecasting.data_extract_capture') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         {% for index, name, label in [(0, 'order_date_from', 'First order date'), (1, 'order_date_to', 'Last order date')] %}
@@ -37,13 +28,13 @@
                  value="{{ copy_period[index] | uk_date if copy_period else '' }}">
         </div>
         {% endfor %}
-        <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Save local VA05 extract and check</button>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Save extract and check</button>
       </form>
+      <p class="small text-muted mt-2 mb-0">Both dates are inclusive, by Epicor order date. Missing or conflicting dates are saved separately for review. This copies the local import; it does not refresh Epicor or change orders.</p>
+      </details>
       {% endif %}
     </div>
-    {% if can_manage %}
-    <p class="small text-muted">Both dates are inclusive. Releases with missing or conflicting order dates are saved separately for review, not counted in the period. Saving copies local observations only; it does not refresh Epicor or change orders.</p>
-    {% else %}
+    {% if not can_manage %}
     <p class="small text-muted">Read-only access. A planning manager can save extracts.</p>
     {% endif %}
     {% if extracts.items %}
@@ -82,6 +73,10 @@
     {% endif %}
   </section>
 
+  <details class="card mb-4" id="live-checks">
+    <summary class="card-header">Live import checks and source limitations</summary>
+    <div class="card-body">
+    <p class="small text-muted">For diagnosing the current import, not assessing a saved extract.</p>
   <section class="card border-0 shadow-sm mb-4" aria-labelledby="snapshot-summary">
     <div class="card-body p-4">
       <p class="text-primary text-uppercase fw-semibold small mb-1">Live source checks</p>
@@ -256,8 +251,8 @@
     </div>
   </section>
 
-  <a class="btn btn-outline-primary" href="{{ url_for('forecasting.model_classifications') }}">
-    Review model classifications
-  </a>
+    </div>
+  </details>
+  <a href="{{ url_for('forecasting.model_classifications') }}">Manage product categories</a>
 </div>
 {% endblock %}

@@ -3,35 +3,17 @@
 {% block tool_page_header %}
 <div class="d-flex justify-content-between flex-wrap align-items-center gap-2 pt-2 pb-1 mb-3 border-bottom">
   <h1 class="h3 mb-0">{{ title }}</h1>
-  <div class="d-flex flex-wrap gap-2">
-    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.eda', extract_id=extract.id) }}">EDA workspace</a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">Back to saved extract</a>
-  </div>
 </div>
 {% endblock %}
 {% block content %}
 <div class="container-fluid pb-3">
-  <p>
-    Captured {{ extract.captured_at | utcfmt('uk-datetime') }} |
-    Extract rules: {{ extract.rules_version }} |
-    Calendar: {{ calendar }} |
-    Analysis rules: {{ rules }}
-  </p>
+  {% include "forecasting/_analysis_nav.html" %}
   {% if profile is none %}
   <div class="alert alert-warning">Weekly net GBP is unavailable for this extract because it does not contain all required fields, including the void flag. Use a newer saved extract; live values are never used to fill the gap.</div>
   {% elif not profile.weeks %}
   <div class="alert alert-warning">This capture predates the supported financial calendar.</div>
   {% else %}
-  <p class="text-muted">
-    One consistent main observation per release, assigned by Epicor order date.
-    Void lines are excluded from net GBP. Weeks without usable observations are not plotted as zero.
-    The capture week is partial. Figures describe this extract, not a month-end snapshot or an approved training dataset.
-  </p>
-  <nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Weekly intake sections">
-    <a class="btn btn-sm btn-outline-secondary" href="#weekly-net-heading"><i class="bi bi-bar-chart" aria-hidden="true"></i> Weekly chart</a>
-    <a class="btn btn-sm btn-outline-secondary" href="#mix-heading"><i class="bi bi-pie-chart" aria-hidden="true"></i> Product and customer mix</a>
-    <a class="btn btn-sm btn-outline-secondary" href="#coverage-heading"><i class="bi bi-clipboard-data" aria-hidden="true"></i> Coverage and exclusions</a>
-  </nav>
+  <p class="small text-muted">{{ calendar }} &middot; Net GBP by Epicor order date, excluding voided releases. Gaps are not zero; the capture week is partial.</p>
   <section class="card mb-3" aria-labelledby="weekly-net-heading">
     <div class="card-body">
       <h2 class="h5" id="weekly-net-heading">Weekly net GBP</h2>
@@ -177,5 +159,12 @@
     </div>
   </section>
   {% endif %}
+  <details class="card mt-3">
+    <summary class="card-header">Calculation details</summary>
+    <div class="card-body small text-muted">
+      Captured {{ extract.captured_at | utcfmt('uk-datetime') }} &middot; Extract rules: {{ extract.rules_version }} &middot; Analysis rules: {{ rules }}.
+      One consistent main observation is counted per release. These are saved observations, not historical month-end snapshots or an approved training dataset.
+    </div>
+  </details>
 </div>
 {% endblock %}

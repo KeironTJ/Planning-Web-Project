@@ -3,24 +3,23 @@
 {% block tool_page_header %}
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 border-bottom pt-2 pb-2 mb-3">
   <h1 class="h3 mb-0">{{ title }}</h1>
-  {% if eda_stage %}
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.eda', extract_id=extract_id) if extract_id is not none else url_for('forecasting.eda') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back to EDA workspace</a>
-  {% else %}
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.dashboard') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back to AI Tools workflow</a>
-  {% endif %}
+  <span class="badge text-bg-secondary">Coming later</span>
 </div>
 {% endblock %}
 {% block content %}
 <div class="container-fluid pb-4">
   <section class="card" aria-labelledby="planned-work">
     <div class="card-body p-4">
-      <span class="badge text-bg-secondary mb-2">To do</span>
-      <h2 class="h5" id="planned-work">Planned work</h2>
+      <h2 class="h5" id="planned-work">Not available yet</h2>
       <p>{{ purpose }}</p>
+      <details class="mb-3">
+      <summary>Planned capabilities</summary>
       <ol class="list-group list-group-numbered mb-3">
         {% for task in tasks %}<li class="list-group-item">{{ task }}</li>{% endfor %}
       </ol>
-      <p class="text-muted small mb-0">This browser step is not available yet. No example results are shown as evidence.</p>
+      </details>
+      <p class="text-muted small">This browser step is not available yet. No example results are shown as evidence.</p>
+      <a class="btn btn-primary" href="{{ url_for('forecasting.eda', extract_id=extract_id) if eda_stage else url_for('forecasting.dashboard', extract_id=extract_id) }}">{{ 'Back to explore intake' if eda_stage else 'Back to overview' }}</a>
     </div>
   </section>
 </div>

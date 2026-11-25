@@ -3,26 +3,12 @@
 {% block tool_page_header %}
 <div class="d-flex justify-content-between flex-wrap align-items-center gap-2 pt-2 pb-1 mb-3 border-bottom">
   <h1 class="h3 mb-0">{{ title }}</h1>
-  <div class="d-flex flex-wrap gap-2">
-    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.eda', extract_id=extract.id) }}">EDA workspace</a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor='coverage-heading') }}">Weekly intake and coverage</a>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">Review extract</a>
-  </div>
 </div>
 {% endblock %}
 {% block content %}
 <div class="container-fluid pb-4">
-  <p>
-    Saved extract: <strong>{{ extract.reference }}</strong> &middot;
-    Captured {{ extract.captured_at | utcfmt('uk-datetime') }} &middot;
-    Calendar: {{ calendar }} &middot; Analysis rules: {{ rules }}
-  </p>
-  <p class="text-muted">
-    Read-only analysis of the saved VA05 extract. Only completed financial weeks with observed net GBP are plotted;
-    partial weeks are excluded and unavailable weeks are left out, never replaced with zero.
-    Exception-week totals appear only in comparisons that retain data-quality flagged weeks.
-    Select a chart point or an unusual-week link to investigate its saved releases.
-  </p>
+  {% include "forecasting/_analysis_nav.html" %}
+  <p class="small text-muted">{{ calendar }} &middot; Select a week to investigate. An unusual value is not necessarily a data error.</p>
   {% if profile is none %}
   <div class="alert alert-warning">Distribution analysis is unavailable because this saved extract does not contain all required weekly GBP fields, including the void flag. Choose a compatible saved extract; live values are never used to fill the gap.</div>
   {% elif not profile.weeks %}
@@ -74,7 +60,7 @@
     <div class="col-12 col-xl-5">
       <section class="card h-100" aria-labelledby="unusual-weeks-heading">
         <div class="card-body">
-          <h2 class="h5" id="unusual-weeks-heading">Unusual weeks are not interchangeable</h2>
+          <h2 class="h5" id="unusual-weeks-heading">Weeks to investigate</h2>
           {% if distribution.outlier_weeks %}
           <p><strong>Statistical outlier candidate:</strong>
             week{{ 's' if distribution.outlier_weeks | length != 1 else '' }}
@@ -106,9 +92,9 @@
     </div>
   </div>
 
-  <section class="card mb-3" aria-labelledby="distribution-summary-heading">
+  <details class="card mb-3" open>
+    <summary class="card-header fw-semibold" id="distribution-summary-heading">Impact of exclusions</summary>
     <div class="card-body">
-      <h2 class="h5" id="distribution-summary-heading">Compare distribution summaries</h2>
       <p class="text-muted">
         The clean reference excludes weeks with data-quality exceptions but keeps statistical outliers.
         Sensitivity rows remove week types independently and together; they do not alter the saved extract.
@@ -153,7 +139,15 @@
         Possible shutdown weeks remain observed unless their data are unavailable.
       </p>
     </div>
-  </section>
+  </details>
   {% endif %}
+  <details class="card">
+    <summary class="card-header">Calculation details</summary>
+    <div class="card-body small text-muted">
+      Captured {{ extract.captured_at | utcfmt('uk-datetime') }} &middot; Analysis rules: {{ rules }}.
+      Only completed weeks with observed GBP are plotted. Partial weeks are excluded; missing weeks are never replaced with zero.
+      Data-quality exception weeks are retained only in the comparisons that include them. Comparisons do not change the saved extract.
+    </div>
+  </details>
 </div>
 {% endblock %}

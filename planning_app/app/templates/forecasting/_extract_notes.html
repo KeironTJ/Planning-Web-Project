@@ -3,9 +3,9 @@
 {% else %}
 <section class="card mb-3" aria-labelledby="extract-notes">
   <div class="card-body">
-    <h2 id="extract-notes" class="h5">Comments / Notes</h2>
+    <h2 id="extract-notes" class="h5">Business notes</h2>
 {% endif %}
-    <p class="small text-muted">Notes apply to the saved extract. Include the financial week when explaining an unusual week, the evidence and whether further investigation is needed. Notes are separate from row reviews and cannot be edited or deleted. They do not change totals, exclusions or statistical flags.</p>
+    <p class="small text-muted">Record the explanation, financial week and supporting evidence. Notes apply to this extract, cannot be edited or deleted, and do not change totals or flags.</p>
     {% for note in notes %}
     <div class="border-top py-2">
       <div class="small text-muted">{{ note.author.username if note.author else "Author unavailable" }} &middot; {{ note.created_at | utcfmt('uk-datetime') }}</div>

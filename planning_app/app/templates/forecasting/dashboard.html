@@ -1,62 +1,73 @@
 {% extends "forecasting/_base.html" %}
 {% block title %}{{ title }}{% endblock %}
-{% block tool_page_header %}{% endblock %}
+{% block tool_page_header %}
+<header class="mb-4">
+  <h1 class="h3 mb-1">AI Tools</h1>
+  <p class="text-muted mb-0">Understand order intake and compare forecasting approaches.</p>
+</header>
+{% endblock %}
 
 {% block content %}
-<div class="container-fluid py-3">
-  <header class="card border-primary mb-4">
+<div class="container-fluid pb-4">
+  <section class="card border-primary mb-4" aria-labelledby="next-action">
     <div class="card-body p-4">
-      <p class="text-primary text-uppercase fw-semibold small mb-1">Forecasting workspace</p>
-      <h1 class="h2">AI Tools</h1>
-      <p class="mb-3">Project 1 starts with next week's net GBP order intake from Planning's VA05, grouped by Epicor order date.</p>
-      <a class="btn btn-primary" href="{{ url_for('forecasting.eda') }}">Open EDA workspace</a>
+      <h2 class="h5" id="next-action">Next action</h2>
+      {% if not extract %}
+      <p>Save a VA05 extract to start reviewing order intake.</p>
+      <a class="btn btn-primary" href="{{ url_for('forecasting.data_readiness', _anchor='saved-extracts') }}">Prepare data</a>
+      {% elif unreviewed %}
+      <p><strong>{{ '{:,}'.format(unreviewed) }} rows still need a review.</strong> Start with the outstanding findings in {{ extract.reference }}.</p>
+      <a class="btn btn-primary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope='unreviewed', _anchor='saved-records') }}">Review outstanding findings</a>
+      {% elif review_counts.get('source_correction', 0) or review_counts.get('investigate', 0) %}
+      <p>Follow up the investigation and source-correction outcomes before drawing conclusions from this data.</p>
+      <a class="btn btn-primary" href="{{ url_for('forecasting.data_extract', extract_id=extract.id, scope='source_correction' if review_counts.get('source_correction', 0) else 'investigate', _anchor='saved-records') }}">Follow up findings</a>
+      {% else %}
+      <p>Check coverage and weekly patterns in {{ extract.reference }}. Completed reviews do not certify the data for forecasting.</p>
+      <a class="btn btn-primary" href="{{ url_for('forecasting.eda', extract_id=extract.id) }}">Explore intake</a>
+      {% endif %}
     </div>
-  </header>
+  </section>
+
+  {% if extract %}
+  <section class="row g-3 mb-4" aria-label="Data review summary">
+    {% for label, count in [('Saved rows', extract.row_count), ('Not reviewed', unreviewed), ('Needs investigation', review_counts.get('investigate', 0)), ('Source correction required', review_counts.get('source_correction', 0))] %}
+    <div class="col-6 col-xl-3"><div class="card h-100"><div class="card-body">
+      <div class="text-muted small">{{ label }}</div>
+      <div class="h3 mb-0">{{ '{:,}'.format(count) }}</div>
+    </div></div></div>
+    {% endfor %}
+  </section>
+  {% endif %}
 
   <section aria-labelledby="ai-workflow" class="mb-4">
-    <h2 id="ai-workflow" class="h5">From data to a useful forecast</h2>
-    <p class="text-muted">See what is available now and what evidence is needed for the next stage.</p>
+    <h2 id="ai-workflow" class="h5 mb-3">Your workflow</h2>
     {% set stages = [
-      ('Prepare data', 'Available', 'Save VA05 extracts and review quality, coverage and source limitations.', url_for('forecasting.data_readiness'), 'Data Readiness'),
-      ('Explore data', 'Current focus', 'Review the weekly series, mix and limitations before choosing model inputs.', url_for('forecasting.eda'), 'EDA workspace'),
-      ('Compare models', 'Development', 'Benchmark and test learned models using the same rolling targets.', url_for('forecasting.workflow_todo', stage='experiments'), 'Model experiments'),
-      ('Issue forecasts', 'To do', 'Choose an evaluated model, review uncertainty and save forecasts.', url_for('forecasting.workflow_todo', stage='forecasts'), 'Forecasts'),
-      ('Monitor performance', 'To do', 'Compare issued forecasts with actuals and review when a model should change.', url_for('forecasting.workflow_todo', stage='monitoring'), 'Monitoring')
+      ('Prepare data', 'Save data, check coverage and review findings.', url_for('forecasting.data_extract', extract_id=extract.id) if extract else url_for('forecasting.data_readiness'), 'Review data' if extract else 'Get started'),
+      ('Explore intake', 'Understand weekly value, customer mix and unusual weeks.', url_for('forecasting.eda', extract_id=extract.id if extract else none), 'Explore intake'),
+      ('Compare models', 'Compare accuracy and inspect forecast errors. Development only.', url_for('forecasting.workflow_todo', stage='experiments', extract_id=extract.id if extract else none), 'Compare models')
     ] %}
-    <ol class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3 list-unstyled" role="list">
-      {% for name, status, description, href, action in stages %}
-      <li class="col">
-        <a href="{{ href }}" class="card ai-nav-card h-100 text-decoration-none {% if status == 'Current focus' %}border-primary{% endif %}">
-          <div class="card-body d-flex flex-column">
-            <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
-              <span class="text-muted small">Step {{ loop.index }}</span>
-              <span class="badge {% if status == 'To do' %}text-bg-secondary{% else %}text-bg-primary{% endif %}">{{ status }}</span>
-            </div>
-            <h3 class="h6">{{ name }}</h3>
-            <p class="small text-muted">{{ description }}</p>
-            <span class="mt-auto align-self-start text-primary">{{ action }} <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
-          </div>
-        </a>
-      </li>
+    <ol class="row row-cols-1 row-cols-lg-3 g-3 list-unstyled">
+      {% for name, description, href, action in stages %}
+      <li class="col"><a href="{{ href }}" class="card ai-nav-card h-100 text-decoration-none"><div class="card-body d-flex flex-column">
+        <span class="text-muted small mb-2">Step {{ loop.index }}</span>
+        <h3 class="h5">{{ name }}</h3>
+        <p class="small text-muted">{{ description }}</p>
+        <span class="text-primary mt-auto">{{ action }} <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
+      </div></a></li>
       {% endfor %}
     </ol>
   </section>
 
-  <div class="row g-3">
-    <section class="col-md-6" aria-labelledby="ai-tools">
-      <a href="{{ url_for('forecasting.model_classifications') }}" class="card ai-nav-card h-100 text-decoration-none"><div class="card-body">
-        <h2 id="ai-tools" class="h5">Supporting tools</h2>
-        <span class="text-primary">Model Classification <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
-        <p class="small text-muted mb-0 mt-2">Maintain descriptive product categories. This does not train a forecasting model.</p>
-      </div></a>
-    </section>
-    <section class="col-md-6" aria-labelledby="ai-output">
-      <div class="card h-100"><div class="card-body">
-        <h2 id="ai-output" class="h5">Project 2: shipped output</h2>
-        <p class="small mb-2">Planned: use forecast intake and backlog to predict shipped value and verified volume over 12&ndash;16 weeks.</p>
-        <p class="small text-muted mb-0">Shipment date determines output timing. Weekly unit demand by required ship date is a separate planning measure.</p>
-      </div></div>
-    </section>
-  </div>
+  <a class="d-inline-block mb-4" href="{{ url_for('forecasting.model_classifications') }}">Manage product categories <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+  <details class="card">
+    <summary class="card-header">Coming later</summary>
+    <div class="card-body">
+      <ul class="mb-3">
+        <li><a href="{{ url_for('forecasting.workflow_todo', stage='forecasts', extract_id=extract.id if extract else none) }}">Issued forecasts</a></li>
+        <li><a href="{{ url_for('forecasting.workflow_todo', stage='monitoring', extract_id=extract.id if extract else none) }}">Performance monitoring</a></li>
+      </ul>
+      <p class="small text-muted mb-0">Shipped-output forecasting is also planned. No issued forecasts are available here yet.</p>
+    </div>
+  </details>
 </div>
 {% endblock %}

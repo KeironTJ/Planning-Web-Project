@@ -32,9 +32,19 @@ scatters, and other work can place different demands on production.
 
 ## Planned workflow
 
-The Project 1 header shows the current stage on AI Tools pages, including
-saved reviews and EDA detail pages. Its links keep the selected extract
-when one is in use. The header indicates location, not sign-off.
+AI Tools uses one sidebar workflow: **Overview > Prepare data > Explore
+intake > Compare models**. Product categories are a separate supporting tool.
+Breadcrumbs show the current page; the saved-data bar shows the selected
+extract and order-date period. Workflow links keep that extract in context.
+These indicators show location, not sign-off or forecasting readiness.
+On small screens, expand **AI Tools menu** for the same workflow links.
+
+The overview opens the latest extract by default and recommends reviewing
+unreviewed findings, following up investigation/correction outcomes, or
+checking coverage. Completed reviews are not a data approval. Change extract
+opens the saved-extract library. Live import diagnostics, calculation rules,
+provenance and future capabilities are secondary, expandable sections.
+Issued forecasts and monitoring are under **Coming later**, not active steps.
 
 The browser will support:
 
@@ -58,9 +68,9 @@ Forecasts will not automatically change live planning.
 
 ## Current progress
 
-**Available:** AI Tools overview, Data Readiness with saved VA05 observations
-and record-level quality review, Model Classification, weekly-intake review,
-the browser EDA distribution page, and development model experiments.
+**Available:** AI Tools overview, Prepare data with saved VA05 observations
+and record-level quality review, Product categories, weekly-intake review,
+unusual-week analysis, and development model comparisons.
 
 **Investigated:** existing importers, a local sales-order extract, and a bounded
 live `bskyVA05v1` response on 12 November 2026. The checks found repeated release
@@ -78,10 +88,10 @@ Development comparisons are not approved training datasets or issued forecasts.
 
 ## Browser EDA workflow
 
-Open **AI Tools > EDA workspace** to explore the latest saved extract, or use
-an extract card in Data Readiness. Click **Review findings** on the card
-to inspect flagged records instead. The live-source diagnostics sit separately
-under **Current VA05 import**. Start the extract analysis with
+Open **AI Tools > Explore intake** to explore saved data, or select
+**Review data** on an extract card in **Prepare data** to inspect findings.
+The live-source diagnostics sit separately under **Live import checks and
+source limitations**. Start the extract analysis with
 coverage and exclusions, then review the weekly GBP chart and product and
 customer mix. **Distribution and unusual weeks** uses the same saved-extract
 EDA calculations as `--eda`: it plots completed observed weeks, marks
@@ -237,17 +247,17 @@ weekly GBP and release counts, then reports unresolved labels, concentration,
 category activity and the main contributors to the peak week. Save a new
 VA05 capture for size and customer group. Older captures report unavailable
 dimensions without reading live rows. Keep detailed category results local.
-The **Product and customer mix** table in **Explore weekly intake** shows
+The **Product and customer mix** table in **Weekly intake** shows
 the same coverage, activity and concentration metrics for the saved extract.
 Partial weeks are excluded; dimensions absent from the capture are marked
 **Not captured**.
 
-## Data Readiness
+## Prepare data
 
 AI Tools displays dates as `DD/MM/YYYY` and timestamps in the same format
 with a local 24-hour time. Saved extracts and CSV exports keep their ISO dates.
 
-Open **AI Tools > Data Readiness** at `/ai-tools/data-readiness`.
+Open **AI Tools > Prepare data** at `/ai-tools/data-readiness`.
 Viewing requires `view_planning`; capture and review also require
 `manage_planning`.
 
@@ -258,18 +268,18 @@ This checks date coverage, not complete weeks or usable GBP. Customer received
 date remains a timing diagnostic and is never substituted for order date.
 These checks do not change saved extracts or their findings.
 
-1. Choose inclusive Epicor order dates when you **Save local VA05 extract and
-   check**. This saves observations from the current `bskyVA05v1` import and
+1. Expand **Save a new extract**, choose inclusive Epicor order dates and
+   select **Save extract and check**. This saves observations from the current `bskyVA05v1` import and
    does not fetch Epicor. Releases with missing or conflicting order dates
    are saved separately for review, not counted in the period.
-2. In **VA05 Data Review**, open **Review coverage by year, month and week**
+2. In **Review data**, open **Check coverage**
    to check the whole saved period and drill into releases. Partial boundary
    weeks can be inspected but are excluded from completed-week summaries;
    gaps are unavailable, not zero. Older captures have no selected range
    and show coverage inferred from the saved dates and capture time.
    Inspect findings and their affected records. Switch between all records,
    records with findings, and findings without review evidence. Select a
-   finding type, or click an item in the visible findings summary, to focus
+   finding type, or click an item in **Findings by type**, to focus
    on that kind of issue. To see the job and assembly rows together, select
    **View all rows for this release** on a saved row. Use **All saved rows**
    to browse releases that don't have findings.
@@ -289,7 +299,7 @@ These checks do not change saved extracts or their findings.
    GBP, quantity, assembly and void status.
    Managers can download CSV worklists for **Not reviewed**, **Needs
    investigation**, and **Source correction required**. The links at the
-   top cover the whole extract; the finding links cover that finding or
+   top under **Correction worklists and new capture** cover the whole extract; the finding links cover that finding or
    selected GBP group. Worklists use the current outcome, not the history.
    Once source corrections are available
    in Planning, prefill the same dates and explicitly save a new extract.
@@ -300,26 +310,25 @@ These checks do not change saved extracts or their findings.
    outcomes untouched, filter to **Not reviewed** first. Otherwise the new
    outcome becomes current, and earlier decisions remain in the history.
 
-3. Use the model name and its current Model Classification category as context
+3. Use the model name and its current Product categories assignment as context
    where captured. Verify whether the VA05 model identifies the individual
    assembly; a category does not decide which work to count.
 4. Record an outcome and supporting evidence. Later reviews append to the
    history; they do not overwrite earlier decisions. Use the status counts
-   on **VA05 Data Review** to filter by the latest outcome. Accepted with
+   on **Review data** to filter by the latest outcome. Accepted with
    evidence is a review decision, not approval for training. On this page,
    expand only the rows you need. Draft different outcomes and evidence for
    multiple rows on the current page, then choose **Save drafted reviews**.
    The batch saves together without reloading. Save drafts before changing
    filters or moving to another page.
-5. On **VA05 Data Review**, expand **Useful information** for guidance on
-   assembly checks and model categories. Expand **Comments / Notes** directly below
-   **Provenance and content hash**. Its label shows the number of saved notes.
-   Use it for observations about the extract or a named
+5. On **Review data**, expand **Extract details and calculation rules** below
+   the review list for assembly guidance and provenance. **Business notes**
+   follow these details. Use notes for observations about the extract or a named
    financial week. Notes added from a week investigation receive its week label. Notes
    are timestamped, attributed to the author, and append-only. They do not
    change the saved observations, hash, findings, or row decisions. Do not
    include customer or personal details.
-6. Open **Explore weekly intake** from a saved extract. The chart and table
+6. Open **Explore intake > Weekly intake** for the selected extract. The chart and table
    use the verified 2026 SOI calendar, show one consistent main value per
    release, and report void GBP separately from net GBP. Partial weeks,
    possible Christmas shutdown weeks, and unavailable values are labelled.
@@ -356,7 +365,7 @@ personal details.
 The category shown beside a saved model is the **current** assignment and can
 change after capture. It is not evidence of historical membership. Models
 are matched using the same trimmed, case-sensitive names and blank-name
-assignment as Model Classification. Category labels do not change checks,
+assignment as Product categories. Category labels do not change checks,
 quantities, or forecast inclusion.
 
 Acceptance means a recorded judgement, **not training approval**. No review
@@ -376,9 +385,9 @@ extract, regardless of filters. Extracts with notes or row reviews are protected
 Deletion is audited and does not change Epicor or operational data. There is
 no automatic expiry; agree a retention policy before production capture.
 
-## Model Classification
+## Product categories
 
-Open **AI Tools > Model Classification** at `/ai-tools/models`.
+Open **AI Tools > Product categories** at `/ai-tools/models`.
 Viewing requires `view_planning`; editing also requires `manage_planning`.
 
 Create categories around work content, then assign exact model names using
@@ -411,7 +420,7 @@ flask --app wsgi db upgrade
 
 Migrations preserve model assignments and add separate extract, observation,
 row review, and extract note tables. Apply them to the intended environment
-before opening Data Readiness. They do not capture operational records
+before opening Prepare data. They do not capture operational records
 automatically.
 
 ## Documentation
