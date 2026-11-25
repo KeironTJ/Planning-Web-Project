@@ -1,4 +1,6 @@
 (() => {
+    const anchored = document.getElementById(window.location.hash.slice(1));
+    if (anchored?.matches('#review-list > details')) anchored.open = true;
     const list = document.querySelector('#review-list[data-save-url]');
     const forms = [...(list?.querySelectorAll('form[data-record-id]') ?? [])];
     if (!forms.length) return;
@@ -43,11 +45,12 @@
                 record_id: Number(form.dataset.recordId),
                 status: form.elements.status.value,
                 rationale: form.elements.rationale.value.trim(),
+                remember: form.elements.remember.checked,
             })),
         };
         saving = true;
         updateDrafts();
-        const controls = drafts.flatMap(form => [...form.querySelectorAll('select, textarea, button')]);
+        const controls = drafts.flatMap(form => [...form.querySelectorAll('select, textarea, input[type=checkbox], button')]);
         controls.forEach(control => { control.disabled = true; });
         setFeedback('Saving reviews...');
         try {
@@ -74,6 +77,8 @@
                 const time = entries.firstElementChild.querySelector('time[data-utc]');
                 if (time && window.fmtIso) time.textContent = window.fmtIso(time.dataset.utc, time.dataset.fmt);
                 history.hidden = false;
+                row.querySelector('[data-suggestion]')?.remove();
+                row.querySelector('[data-suggestion-badge]')?.remove();
                 form.reset();
                 if (form.contains(document.activeElement)) row.querySelector('summary').focus();
                 row.open = false;
@@ -103,6 +108,12 @@
                 link.hidden = remaining === 0;
             }
             document.getElementById('extract-delete')?.remove();
+            const suggestionForm = document.getElementById('confirm-suggestions');
+            if (suggestionForm) {
+                const remaining = document.querySelectorAll('input[name=suggestion][form=confirm-suggestions]').length;
+                if (!remaining) suggestionForm.remove();
+                else suggestionForm.querySelector('strong').textContent = `Previously reviewed: ${remaining} suggestion(s) on this page.`;
+            }
             const count = result.reviews.length;
             const scope = list.dataset.scope;
             const filterHint = !['all', 'findings'].includes(scope) && result.reviews.some(review => review.status !== scope)
@@ -134,8 +145,6 @@
         event.preventDefault();
         event.returnValue = '';
     });
-    const anchored = document.getElementById(window.location.hash.slice(1));
-    if (anchored?.matches('#review-list > details')) anchored.open = true;
     document.getElementById('review-toolbar').hidden = false;
     updateDrafts();
 })();

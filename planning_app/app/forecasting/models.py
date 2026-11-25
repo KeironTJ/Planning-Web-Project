@@ -126,6 +126,36 @@ class ForecastDataNote(db.Model):
     author = db.relationship("User", lazy="joined")
 
 
+class ForecastFeatureDecision(db.Model):
+    """Append-only feature assessment tied to a saved extract."""
+
+    __tablename__ = "forecast_feature_decisions"
+    __table_args__ = (
+        db.CheckConstraint("decision IN ('test', 'defer', 'reject')", name="ck_forecast_feature_decision"),
+        db.CheckConstraint(
+            "availability IN ('known', 'unknown', 'unavailable')",
+            name="ck_forecast_feature_availability",
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    extract_id = db.Column(
+        db.Integer, db.ForeignKey("forecast_data_extracts.id", ondelete="RESTRICT"),
+        nullable=False, index=True,
+    )
+    feature = db.Column(db.String(120), nullable=False)
+    feature_key = db.Column(db.String(480), nullable=False)
+    decision = db.Column(db.String(20), nullable=False)
+    availability = db.Column(db.String(20), nullable=False)
+    coverage = db.Column(db.Text, nullable=False)
+    evidence = db.Column(db.Text, nullable=False)
+    cutoff_details = db.Column(db.Text, nullable=False)
+    rationale = db.Column(db.Text, nullable=False)
+    author_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    author = db.relationship("User", lazy="joined")
+
+
 class ForecastDataRecord(db.Model):
     """Whitelisted observed values and findings, preserved across refreshes."""
 
@@ -173,6 +203,11 @@ class ForecastDataDecision(db.Model):
     )
     status = db.Column(db.String(30), nullable=False)
     rationale = db.Column(db.Text, nullable=False)
+    remember = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    reused_from_id = db.Column(
+        db.Integer, db.ForeignKey("forecast_data_decisions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     reviewed_by_id = db.Column(
         db.Integer,
         db.ForeignKey("users.id", ondelete="SET NULL"),
@@ -182,6 +217,7 @@ class ForecastDataDecision(db.Model):
         db.DateTime(timezone=True), nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+    reused_from = db.relationship("ForecastDataDecision", remote_side=[id], foreign_keys=[reused_from_id])
 
 
 class ForecastExperiment(db.Model):

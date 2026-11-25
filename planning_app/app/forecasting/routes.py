@@ -21,7 +21,10 @@ from app.core.exceptions import NotFoundError, ValidationError
 from . import forecasting_bp
 from .data_quality import (
     DECISION_STATUSES,
+    FEATURE_AVAILABILITY,
+    FEATURE_DECISIONS,
     NONPOSITIVE_GBP_GROUPS,
+    confirm_review_suggestions,
     delete_unreviewed_extract,
     extract_has_reviews,
     finding_elements,
@@ -29,13 +32,18 @@ from .data_quality import (
     group_nonpositive_gbp,
     matching_record_ids,
     preview_finding_reviews,
+    review_suggestions,
     save_data_decision,
     save_data_decisions,
     save_finding_reviews,
     save_extract_note,
+    save_feature_decision,
     save_va05_extract,
 )
-from .models import ForecastDataDecision, ForecastDataExtract, ForecastDataNote, ForecastDataRecord, ForecastExperiment
+from .models import (
+    ForecastDataDecision, ForecastDataExtract, ForecastDataNote, ForecastDataRecord,
+    ForecastExperiment, ForecastFeatureDecision,
+)
 from .experiments import dependencies_available, launch_experiment, start_experiment
 from .services import (
     get_intake_data_readiness,
@@ -191,6 +199,8 @@ def workflow_todo(stage: str):
         return _experiment_page()
     if stage == "time-patterns" and request.args.get("extract_id", type=int) is not None:
         return redirect(url_for("forecasting.time_patterns", extract_id=request.args.get("extract_id", type=int)))
+    if stage == "feature-decisions" and request.args.get("extract_id", type=int) is not None:
+        return redirect(url_for("forecasting.feature_decisions", extract_id=request.args.get("extract_id", type=int)))
     title, purpose, tasks = WORKFLOW_TODO[stage]
     extract_id = request.args.get("extract_id", type=int)
     return render_template(
@@ -199,6 +209,59 @@ def workflow_todo(stage: str):
         extract=ForecastDataExtract.query.get_or_404(extract_id) if extract_id is not None else None,
         extract_id=extract_id,
     )
+
+
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/features")
+@login_required
+@permission_required("view_planning")
+def feature_decisions(extract_id: int):
+    """Review append-only feature assessments for one saved extract."""
+    return _feature_decisions_page(extract_id)
+
+
+def _feature_decisions_page(extract_id: int, draft=None):
+    extract = ForecastDataExtract.query.get_or_404(extract_id)
+    entries = ForecastFeatureDecision.query.filter_by(extract_id=extract.id).order_by(
+        ForecastFeatureDecision.id.desc(),
+    ).all()
+    features = {}
+    for entry in entries:
+        features.setdefault(entry.feature_key, []).append(entry)
+    return render_template(
+        "forecasting/feature_decisions.html", title="Feature decisions",
+        extract=extract, features=features, decisions=FEATURE_DECISIONS,
+        availability=FEATURE_AVAILABILITY,
+        can_manage=current_user.has_permission("manage_planning"),
+        has_weekly=REQUIRED_FIELDS.issubset(extract.source_settings.get("fields", ())),
+        draft=draft,
+    )
+
+
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/features", methods=["POST"])
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def feature_decision_save(extract_id: int):
+    try:
+        save_feature_decision(
+            extract_id, current_user.id, request.form.get("capture_identity", ""),
+            request.form.get("expected_id", type=int),
+            feature=request.form.get("feature", ""),
+            decision=request.form.get("decision", ""),
+            availability=request.form.get("availability", ""),
+            coverage=request.form.get("coverage", ""),
+            evidence=request.form.get("evidence", ""),
+            cutoff_details=request.form.get("cutoff_details", ""),
+            rationale=request.form.get("rationale", ""),
+        )
+    except NotFoundError:
+        abort(404)
+    except ValidationError as exc:
+        flash(str(exc), "danger")
+        return _feature_decisions_page(extract_id, request.form), 400
+    else:
+        flash("Feature decision recorded.", "success")
+    return redirect(url_for("forecasting.feature_decisions", extract_id=extract_id))
 
 
 @forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/time-patterns")
@@ -289,7 +352,10 @@ def _experiment_page():
     scenario = request.args.get("scenario", default=0, type=int)
     model = request.args.get("model", "arima")
     year = request.args.get("year", type=int)
-    if scenario is None or not 0 <= scenario < 4 or model not in _EXPERIMENT_MODELS:
+    models = dict(_EXPERIMENT_MODELS)
+    if run and run.status == "completed" and "boosting_week" in run.result["settings"]:
+        models["gradient_boosting_week"] = "Gradient boosting + financial week"
+    if scenario is None or not 0 <= scenario < 4 or model not in models:
         abort(400, description="Choose a valid model and sensitivity.")
     rows = []
     scores = {}
@@ -303,7 +369,7 @@ def _experiment_page():
         if request.args.get("year") and year not in years:
             abort(400, description="Choose an available financial year.")
         rows = [dict(row) for row in all_rows if year is None or financial_year(date.fromisoformat(row["week_start"])) == year]
-        for key in _EXPERIMENT_MODELS:
+        for key in models:
             scores[key] = score_forecasts([
                 (Decimal(row[key]), Decimal(row["actual"])) for row in rows
             ])
@@ -339,7 +405,7 @@ def _experiment_page():
             chart = {"segments": segments, "dots": dots, "first": first, "last": last, "low": low, "high": high}
     return render_template(
         "forecasting/experiments.html", title="Compare models", extract=extract, runs=runs, run=run,
-        models=_EXPERIMENT_MODELS, selected_model=model, scenario=scenario, selected_year=year,
+        models=models, selected_model=model, scenario=scenario, selected_year=year,
         years=years, rows=rows, scores=scores, chart=chart, largest=largest,
         can_manage=current_user.has_permission("manage_planning"),
         can_run=current_app.config.get("APP_ENVIRONMENT") != "production",
@@ -573,6 +639,7 @@ def data_extract_finding_reviews(extract_id: int):
             capture_identity=request.form.get("capture_identity", ""), expected_count=expected_count,
             expected_revision=expected_revision, unreviewed_only=scope == "unreviewed",
             record_ids=_nonpositive_gbp_groups(extract.id)[gbp_group] if gbp_group is not None else None,
+            remember=request.form.get("remember") == "yes",
         )
     except NotFoundError:
         abort(404)
@@ -690,8 +757,10 @@ def data_extract(extract_id: int):
         review_counts=_extract_review_counts(extract.id),
         finding_review_counts=_finding_review_counts(extract.id),
         bulk_preview=bulk_preview,
+        suggestions=review_suggestions(extract, pagination.items),
         can_delete=can_manage and not notes and not extract_has_reviews(extract.id)
-        and not ForecastExperiment.query.filter_by(extract_id=extract.id).first(),
+        and not ForecastExperiment.query.filter_by(extract_id=extract.id).first()
+        and not ForecastFeatureDecision.query.filter_by(extract_id=extract.id).first(),
     )
 
 
@@ -1008,6 +1077,7 @@ def data_record_review(record_id: int):
             record.id, request.form.get("status", ""),
             request.form.get("rationale", ""), current_user.id,
             capture_identity=request.form.get("capture_identity", ""),
+            remember=request.form.get("remember") == "yes",
         )
     except (NotFoundError, ValidationError) as exc:
         flash(str(exc), "danger")
@@ -1047,9 +1117,10 @@ def data_extract_reviews(extract_id: int):
             or not 0 < item["record_id"] <= 2**63 - 1
             or not isinstance(item.get("status"), str)
             or not isinstance(item.get("rationale"), str)
+            or type(item.get("remember", False)) is not bool
         ):
             return jsonify(error="Each review must specify a saved row, outcome and evidence."), 400
-        reviews.append((item["record_id"], item["status"], item["rationale"]))
+        reviews.append((item["record_id"], item["status"], item["rationale"], item.get("remember", False)))
     try:
         decisions = save_data_decisions(
             extract_id, reviews, current_user.id, capture_identity=payload["capture_identity"],
@@ -1074,6 +1145,56 @@ def data_extract_reviews(extract_id: int):
         }
         for decision in decisions
     ])
+
+
+@forecasting_bp.post("/data-readiness/extracts/<int:extract_id>/confirm-suggestions")
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def data_extract_confirm_suggestions(extract_id: int):
+    selections = []
+    try:
+        for value in request.form.getlist("suggestion"):
+            parts = value.split(":")
+            if len(parts) != 2 or not all(part.isascii() and part.isdecimal() for part in parts):
+                raise ValidationError("Select valid suggested reviews.")
+            record_id, decision_id = map(int, parts)
+            if not (0 < record_id <= 2**63 - 1 and 0 < decision_id <= 2**63 - 1):
+                raise ValidationError("Select valid suggested reviews.")
+            selections.append((record_id, decision_id))
+        if request.form.get("confirm") != "yes":
+            raise ValidationError("Confirm the selected reviews before saving.")
+        count = confirm_review_suggestions(
+            extract_id, selections, current_user.id,
+            capture_identity=request.form.get("capture_identity", ""),
+        )
+    except NotFoundError:
+        abort(404)
+    except ValidationError as exc:
+        flash(str(exc), "danger")
+    else:
+        flash(f"Confirmed {count} previously reviewed row(s). No source values were changed.", "success")
+    return redirect(url_for(
+        "forecasting.data_extract", extract_id=extract_id, scope="unreviewed",
+        page=request.form.get("page", 1, type=int), _anchor="saved-records",
+    ))
+
+
+@forecasting_bp.get("/data-readiness/records/<int:record_id>/evidence")
+@login_required
+@permission_required("view_planning")
+def data_record_evidence(record_id: int):
+    record = ForecastDataRecord.query.get_or_404(record_id)
+    preceding = ForecastDataRecord.query.filter(
+        ForecastDataRecord.extract_id == record.extract_id,
+        ForecastDataRecord.id < record.id,
+        *(ForecastDataRecord.data[key].as_integer() == record.data.get(key)
+          for key in ("order_num", "order_line", "rel_num")),
+    ).count()
+    return redirect(url_for(
+        "forecasting.data_extract", extract_id=record.extract_id, scope="all",
+        release=record.id, page=preceding // 25 + 1, _anchor=f"record-{record.id}",
+    ))
 
 
 @forecasting_bp.route("/models")

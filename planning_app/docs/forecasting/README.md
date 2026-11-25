@@ -70,7 +70,8 @@ Forecasts will not automatically change live planning.
 
 **Available:** AI Tools overview, Prepare data with saved VA05 observations
 and record-level quality review, Product categories, weekly-intake review,
-unusual-week analysis, multi-year time patterns and lags, and development model comparisons.
+unusual-week analysis, multi-year time patterns and lags, feature decisions,
+and development model comparisons.
 
 **Investigated:** existing importers, a local sales-order extract, and a bounded
 live `bskyVA05v1` response on 12 November 2026. The checks found repeated release
@@ -136,8 +137,17 @@ identical eligible targets. It matches financial week numbers, not a fixed
 require complete, observed, unflagged target and predictor weeks. Scores are
 development evidence from the current capture, not historical as-of or holdout
 results. The shutdown labels are not a complete historical closure calendar.
-Record broader findings and candidate feature ideas in the extract's
-append-only business notes. **Feature decisions** remains planned.
+Use **Feature decisions** to record candidate inputs for the selected extract.
+For each, choose test, defer or reject and record coverage and stability,
+supporting evidence, availability at the forecast cutoff, cutoff details and
+rationale. Candidate names are trimmed and matched case-insensitively within
+the extract. Updates append a new decision and retain previous evidence; a
+stale update must be reviewed again. Links lead to saved evidence, but text
+references are not automatically verified. Users with `view_planning` can
+read decisions; `manage_planning` is also required to record them. Do not
+include customer or personal details. Decisions are manual documentation:
+they do not approve data, add features to experiments or configure models.
+Apply the feature-decisions migration before opening the updated workflow.
 Select anywhere on a navigation card to open it.
 Forecasting and monitoring are separate planned stages.
 
@@ -153,6 +163,12 @@ The comparison uses all completed financial weeks in the saved extract and
 the same modelling calculations as the CLI history comparison below. Choose a
 saved run, sensitivity, financial year and method to inspect scores, predictions
 and the largest errors; those weeks link back to the saved release investigation.
+New comparisons include two otherwise identical gradient-boosting models: four
+prior weekly values alone, and those values plus the target's financial week
+number (1-53). The calendar value is known before the target week. Compare the
+two on the same target weeks overall and by financial year; no tuning or
+seasonal transformation is performed. Earlier saved runs remain viewable but
+do not contain the new comparison.
 Results, extract hash, settings, package versions and hashes of the source
 files observed during execution are saved. These hashes are not a code revision,
 and no fitted model is saved. Earlier CLI results are not imported.
@@ -221,7 +237,8 @@ python -m scripts.weekly_model_comparison --db .\instance\planning_dev.db --extr
 ```
 
 This compares the previous-week and four-week benchmarks, one-lag linear
-regression, ARIMA(1,1,0) without drift, and gradient boosting using four lags.
+regression, ARIMA(1,1,0) without drift, and gradient boosting using four lags,
+both without and with the target financial week number.
 For numerical stability, ARIMA is scaled by the largest absolute available
 prior value (with a minimum scale of one) and converted back to GBP for scoring.
 Its fixed optimizer is Powell, with at most 500 iterations.
@@ -335,6 +352,24 @@ These checks do not change saved extracts or their findings.
    multiple rows on the current page, then choose **Save drafted reviews**.
    The batch saves together without reloading. Save drafts before changing
    filters or moving to another page.
+   To reuse a decision, tick **Remember this decision for matching future
+   extracts** when saving it (also available for a shared finding review).
+   Existing decisions can be saved again with this option. On a later extract,
+   **Previously reviewed** highlights unreviewed rows with matching evidence.
+   Open the rows, check the earlier outcome and reason, select the suggestions,
+   and confirm them together on the current page. Each confirmation appends a
+   new review linked to its source; it also remains eligible for future
+   suggestions. To stop remembering a review in that extract, save a new review
+   for that row without the checkbox. More recent matching reviews in other
+   extracts remain independent.
+
+   Matching is deliberately strict: the source and rule version must match,
+   and capture environment must match, as must every captured row and its findings for the whole order, apart from
+   local row IDs and import timestamps. Incomplete release keys and indistinguishable
+   duplicate rows are not matched. Changed values, additional findings, different
+   capture fields or a different selection of order rows require a fresh review.
+   A suggestion is not a review until confirmed; a row's outcome still covers
+   all its findings. No source data or forecast inclusion is changed.
 5. On **Review data**, expand **Extract details and calculation rules** below
    the review list for assembly guidance and provenance. **Business notes**
    follow these details. Use notes for observations about the extract or a named
@@ -362,12 +397,16 @@ updated checks. The findings summary shows affected rows across the full
 extract, not units, money, or review progress. Rows can appear under multiple
 findings. The matching-record count reflects the selected filters.
 
-New extracts retain selected keys, job/assembly links, model names, dates,
+New extracts retain selected keys, customer ID and group, job/assembly links, model names, dates,
 quantities, inventory UOM, release values, currency fields, and row import
 timestamps. Older extracts without model names remain unchanged and show
 that the model was not captured.
-Customer names, personal fields, and operational free-text comments are not
-copied. Extraction parameters cannot be recovered from the current local table
+Customer names, other personal fields, and operational free-text comments are
+not copied. Customer IDs may still identify individuals; use the existing
+planning permissions and follow company access and retention policy. Earlier
+extracts without customer ID show **Not captured** and are not backfilled.
+The saved-row review shows customer ID and group alongside model and both
+size fields. Extraction parameters cannot be recovered from the current local table
 and are recorded as unverified, not guessed.
 
 Each extract records its capture time/user, selection, fields, rule version,
@@ -395,7 +434,8 @@ environment appear as `UNLABELLED`; their provenance is not inferred.
 
 Users with `manage_planning` can use **Delete entire saved extract** at the
 bottom of the review page. Confirmation deletes all saved rows for that
-extract, regardless of filters. Extracts with notes or row reviews are protected.
+extract, regardless of filters. Extracts with notes, row reviews, model
+experiments or feature decisions are protected.
 Deletion is audited and does not change Epicor or operational data. There is
 no automatic expiry; agree a retention policy before production capture.
 
@@ -433,7 +473,7 @@ flask --app wsgi db upgrade
 ```
 
 Migrations preserve model assignments and add separate extract, observation,
-row review, and extract note tables. Apply them to the intended environment
+row review, extract note, experiment, feature-decision and reusable-review changes. Apply them to the intended environment
 before opening Prepare data. They do not capture operational records
 automatically.
 

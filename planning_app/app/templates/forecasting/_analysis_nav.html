@@ -4,7 +4,8 @@
     ('forecasting.weekly_intake', 'Weekly intake', none),
     ('forecasting.weekly_intake', 'Product and customer mix', 'mix-heading'),
     ('forecasting.weekly_distribution', 'Unusual weeks', none),
-    ('forecasting.time_patterns', 'Time patterns and lags', none)
+    ('forecasting.time_patterns', 'Time patterns and lags', none),
+    ('forecasting.feature_decisions', 'Feature decisions', none)
   ] %}
   <a class="btn btn-sm {{ 'btn-primary' if request.endpoint == endpoint and not anchor else 'btn-outline-secondary' }}"
      href="{{ url_for(endpoint, extract_id=extract.id, _anchor=anchor) }}"{% if request.endpoint == endpoint and not anchor %} aria-current="page"{% endif %}>{{ label }}</a>

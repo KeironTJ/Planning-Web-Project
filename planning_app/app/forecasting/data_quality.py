@@ -23,6 +23,7 @@ from .models import (
     ForecastDataExtract,
     ForecastDataNote,
     ForecastDataRecord,
+    ForecastFeatureDecision,
 )
 from .weekly_intake import main_release_value, release_order_date
 
@@ -96,6 +97,7 @@ SNAPSHOT_FIELDS = (
     "model",
     "size_desc",
     "prod_size",
+    "customer_id",
     "customer_group",
     "order_date",
     "order_received_date",
@@ -417,6 +419,59 @@ def save_extract_note(
     db.session.commit()
 
 
+FEATURE_DECISIONS = {"test": "Test", "defer": "Defer", "reject": "Reject"}
+FEATURE_AVAILABILITY = {
+    "known": "Known at cutoff", "unknown": "Not yet established", "unavailable": "Not available at cutoff",
+}
+
+
+def save_feature_decision(
+    extract_id: int, user_id: int, capture_identity: str, expected_id: int | None,
+    *, feature: str, decision: str, availability: str, coverage: str, evidence: str,
+    cutoff_details: str, rationale: str,
+) -> None:
+    """Append an assessment only if the displayed revision is still current."""
+    feature = feature.strip()
+    fields = {
+        "Coverage": coverage.strip(), "Evidence": evidence.strip(),
+        "Cutoff details": cutoff_details.strip(), "Rationale": rationale.strip(),
+    }
+    if not feature or len(feature) > 120:
+        raise ValidationError("Enter a feature name between 1 and 120 characters.")
+    if decision not in FEATURE_DECISIONS or availability not in FEATURE_AVAILABILITY:
+        raise ValidationError("Choose a valid decision and cutoff availability.")
+    for label, value in fields.items():
+        if not value or len(value) > 2000:
+            raise ValidationError(f"{label} must be between 1 and 2,000 characters.")
+    if expected_id is None or expected_id < 0:
+        raise ValidationError("Reopen the feature decisions page before saving.")
+    _lock_extract(extract_id, capture_identity)
+    key = feature.casefold()
+    latest = db.session.scalar(
+        select(ForecastFeatureDecision.id).where(
+            ForecastFeatureDecision.extract_id == extract_id,
+            ForecastFeatureDecision.feature_key == key,
+        ).order_by(ForecastFeatureDecision.id.desc()).limit(1)
+    )
+    if (latest or 0) != expected_id:
+        db.session.rollback()
+        raise ValidationError("This feature has changed or already exists. Review its latest decision before saving.")
+    entry = ForecastFeatureDecision(
+        extract_id=extract_id, feature=feature, feature_key=key,
+        decision=decision, availability=availability, coverage=fields["Coverage"],
+        evidence=fields["Evidence"], cutoff_details=fields["Cutoff details"],
+        rationale=fields["Rationale"], author_id=user_id,
+    )
+    db.session.add(entry)
+    db.session.flush()
+    db.session.add(AuditLog(
+        user_id=user_id, action="forecast_feature_decision_saved",
+        resource="forecast_data_extract",
+        details=json.dumps({"extract_id": extract_id, "feature_decision_id": entry.id}),
+    ))
+    db.session.commit()
+
+
 def delete_unreviewed_extract(
     extract_id: int, user_id: int, capture_identity: str,
 ) -> None:
@@ -431,6 +486,9 @@ def delete_unreviewed_extract(
     if has_experiments:
         db.session.rollback()
         raise ValidationError("Extracts with model experiments cannot be deleted.")
+    if db.session.scalar(select(exists().where(ForecastFeatureDecision.extract_id == extract_id))):
+        db.session.rollback()
+        raise ValidationError("Extracts with feature decisions cannot be deleted.")
     if has_notes or extract_has_reviews(extract_id):
         db.session.rollback()
         raise ValidationError(
@@ -467,13 +525,15 @@ def _review_rationale(status: str, rationale: str) -> str:
 
 def _append_data_decision(
     extract_id: int, record_id: int, status: str, rationale: str, user_id: int,
-    *, finding: str | None = None,
+    *, finding: str | None = None, remember: bool = False, reused_from_id: int | None = None,
 ) -> ForecastDataDecision:
     decision = ForecastDataDecision(
         record_id=record_id,
         status=status,
         rationale=rationale,
         reviewed_by_id=user_id,
+        remember=remember,
+        reused_from_id=reused_from_id,
     )
     db.session.add(decision)
     db.session.add(
@@ -487,6 +547,8 @@ def _append_data_decision(
                     "record_id": record_id,
                     "status": status,
                     "rationale": rationale,
+                    "remember": remember,
+                    "reused_from_id": reused_from_id,
                     **({"finding": finding} if finding else {}),
                 }
             ),
@@ -497,7 +559,7 @@ def _append_data_decision(
 
 def save_data_decision(
     record_id: int, status: str, rationale: str, user_id: int, *,
-    capture_identity: str | None = None,
+    capture_identity: str | None = None, remember: bool = False,
 ) -> ForecastDataDecision:
     """Append evidence without changing the saved values or findings."""
     rationale = _review_rationale(status, rationale)
@@ -507,23 +569,23 @@ def save_data_decision(
     if not record.has_findings:
         raise ValidationError("This saved record has no findings to review.")
     _lock_extract(record.extract_id, capture_identity)
-    decision = _append_data_decision(record.extract_id, record.id, status, rationale, user_id)
+    decision = _append_data_decision(record.extract_id, record.id, status, rationale, user_id, remember=remember)
     db.session.commit()
     return decision
 
 
 def save_data_decisions(
-    extract_id: int, reviews: list[tuple[int, str, str]], user_id: int, *,
+    extract_id: int, reviews: list[tuple[int, str, str, bool]], user_id: int, *,
     capture_identity: str,
 ) -> list[ForecastDataDecision]:
     """Validate all reviews and append them in one transaction."""
-    record_ids = {record_id for record_id, _, _ in reviews}
+    record_ids = {record_id for record_id, _, _, _ in reviews}
     if not 1 <= len(reviews) <= 25 or len(record_ids) != len(reviews):
         raise ValidationError("Submit 1 to 25 distinct saved rows.")
     cleaned = []
-    for record_id, status, rationale in reviews:
+    for record_id, status, rationale, remember in reviews:
         try:
-            cleaned.append((record_id, status, _review_rationale(status, rationale)))
+            cleaned.append((record_id, status, _review_rationale(status, rationale), remember))
         except ValidationError as exc:
             raise ValidationError(f"Saved row {record_id}: {exc}") from exc
     _lock_extract(extract_id, capture_identity)
@@ -538,11 +600,134 @@ def save_data_decisions(
         db.session.rollback()
         raise ValidationError("Every reviewed row must belong to this extract and have findings.")
     decisions = [
-        _append_data_decision(extract_id, record_id, status, rationale, user_id)
-        for record_id, status, rationale in cleaned
+        _append_data_decision(extract_id, record_id, status, rationale, user_id, remember=remember)
+        for record_id, status, rationale, remember in cleaned
     ]
     db.session.commit()
     return decisions
+
+
+def review_suggestions(extract: ForecastDataExtract, records: list[ForecastDataRecord]) -> dict[int, tuple[ForecastDataDecision, ForecastDataExtract]]:
+    """Find explicit prior decisions only when the entire captured order is unchanged."""
+    targets = [
+        record for record in records
+        if record.has_findings and not record.decisions
+        and all(record.data.get(key) is not None for key in ("order_num", "order_line", "rel_num"))
+    ]
+    if not targets:
+        return {}
+    orders = {record.data["order_num"] for record in targets}
+    latest = select(
+        ForecastDataDecision.record_id, func.max(ForecastDataDecision.id).label("decision_id"),
+    ).group_by(ForecastDataDecision.record_id).subquery()
+    reviewed = db.session.execute(
+        select(ForecastDataRecord, ForecastDataExtract, ForecastDataDecision)
+        .join(ForecastDataExtract, ForecastDataRecord.extract_id == ForecastDataExtract.id)
+        .join(latest, latest.c.record_id == ForecastDataRecord.id)
+        .join(ForecastDataDecision, ForecastDataDecision.id == latest.c.decision_id)
+        .where(
+            ForecastDataExtract.id < extract.id,
+            ForecastDataExtract.source == extract.source,
+            ForecastDataExtract.rules_version == extract.rules_version,
+            ForecastDataRecord.data["order_num"].as_integer().in_(orders),
+        )
+    ).all()
+    reviewed = [
+        (record, previous, decision) for record, previous, decision in reviewed
+        if previous.source_settings.get("capture_environment") == extract.source_settings.get("capture_environment")
+    ]
+    if not any(decision.remember for _, _, decision in reviewed):
+        return {}
+    previous_ids = {previous.id for _, previous, _ in reviewed}
+    rows = db.session.execute(
+        select(ForecastDataRecord, ForecastDataExtract)
+        .join(ForecastDataExtract, ForecastDataRecord.extract_id == ForecastDataExtract.id)
+        .where(
+            ForecastDataExtract.id.in_(previous_ids | {extract.id}),
+            ForecastDataRecord.data["order_num"].as_integer().in_(orders),
+        ).order_by(ForecastDataExtract.id.desc(), ForecastDataRecord.id)
+    ).all()
+    grouped = defaultdict(list)
+    extracts = {}
+    for record, previous in rows:
+        if previous.source_settings.get("capture_environment") != extract.source_settings.get("capture_environment"):
+            continue
+        grouped[(previous.id, record.data.get("order_num"))].append(record)
+        extracts[previous.id] = previous
+
+    def signature(record):
+        return json.dumps(
+            {"data": {key: value for key, value in record.data.items() if key not in ("id", "imported_at")},
+             "findings": sorted(record.findings)},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        )
+
+    signatures = {
+        key: sorted(signature(record) for record in group)
+        for key, group in grouped.items()
+    }
+    suggestions = {}
+    for target in targets:
+        order = target.data["order_num"]
+        current = signatures.get((extract.id, order))
+        target_signature = signature(target)
+        if not current or current.count(target_signature) != 1:
+            continue
+        for previous_id in sorted((key[0] for key in grouped if key[1] == order and key[0] < extract.id), reverse=True):
+            previous_signatures = signatures[(previous_id, order)]
+            if previous_signatures != current:
+                continue
+            previous = next(record for record in grouped[(previous_id, order)] if signature(record) == target_signature)
+            if previous.decisions:
+                decision = previous.decisions[0]
+                if decision.remember:
+                    suggestions[target.id] = (decision, extracts[previous_id])
+                break
+    return suggestions
+
+
+def confirm_review_suggestions(
+    extract_id: int, selections: list[tuple[int, int]], user_id: int, *, capture_identity: str,
+) -> int:
+    """Confirm current suggestions atomically; never overwrite existing reviews."""
+    record_ids = {record_id for record_id, _ in selections}
+    if not 1 <= len(selections) <= 25 or len(record_ids) != len(selections):
+        raise ValidationError("Select 1 to 25 distinct suggested reviews.")
+    records = list(db.session.scalars(select(ForecastDataRecord).where(
+        ForecastDataRecord.extract_id == extract_id, ForecastDataRecord.id.in_(record_ids),
+    )))
+    extract = db.session.get(ForecastDataExtract, extract_id)
+    if extract is None:
+        raise NotFoundError("The saved VA05 extract does not exist.")
+    orders = {record.data.get("order_num") for record in records if record.data.get("order_num") is not None}
+    previous_ids = db.session.scalars(
+        select(ForecastDataExtract.id).join(ForecastDataRecord).where(
+            ForecastDataExtract.id < extract_id,
+            ForecastDataExtract.source == extract.source,
+            ForecastDataExtract.rules_version == extract.rules_version,
+            ForecastDataRecord.data["order_num"].as_integer().in_(orders),
+        ).distinct().order_by(ForecastDataExtract.id)
+    )
+    for previous_id in previous_ids:
+        _lock_extract(previous_id, None)
+    extract = _lock_extract(extract_id, capture_identity)
+    db.session.expire_all()
+    extract = db.session.get(ForecastDataExtract, extract_id)
+    suggestions = review_suggestions(extract, records)
+    if len(records) != len(record_ids) or any(
+        record_id not in suggestions or suggestions[record_id][0].id != decision_id
+        for record_id, decision_id in selections
+    ):
+        db.session.rollback()
+        raise ValidationError("A suggestion or review has changed. Check the current suggestions before confirming.")
+    for record_id, decision_id in selections:
+        decision = suggestions[record_id][0]
+        _append_data_decision(
+            extract.id, record_id, decision.status, decision.rationale, user_id,
+            remember=True, reused_from_id=decision_id,
+        )
+    db.session.commit()
+    return len(selections)
 
 
 @dataclass(frozen=True)
@@ -584,7 +769,7 @@ def preview_finding_reviews(
 def save_finding_reviews(
     extract_id: int, finding: str, status: str, rationale: str, user_id: int, *,
     capture_identity: str, unreviewed_only: bool, expected_count: int, expected_revision: int,
-    record_ids: list[int] | None = None,
+    record_ids: list[int] | None = None, remember: bool = False,
 ) -> int:
     """Append a shared outcome to all matching rows in one transaction."""
     rationale = _review_rationale(status, rationale)
@@ -602,6 +787,6 @@ def save_finding_reviews(
         db.session.rollback()
         raise ValidationError("The review list changed. Check the current outcomes before confirming again.")
     for record_id, _ in targets:
-        _append_data_decision(extract_id, record_id, status, rationale, user_id, finding=finding)
+        _append_data_decision(extract_id, record_id, status, rationale, user_id, finding=finding, remember=remember)
     db.session.commit()
     return len(targets)

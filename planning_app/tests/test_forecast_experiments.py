@@ -91,6 +91,21 @@ def test_run_is_recorded_once_across_requests_and_completion_is_viewable(
     assert "<circle " in html
     assert f"/ai-tools/data-readiness/extracts/{extract.id}/weeks/1?year=2022" in html
     assert "test.py" in html and extract.content_hash in html
+    assert "Gradient boosting + financial week" not in html
+    assert client.get(
+        f"/ai-tools/workflow/experiments?extract_id={extract.id}&model=gradient_boosting_week"
+    ).status_code == 400
+    result_data = sample_result()
+    result_data["settings"]["boosting_week"] = "four lags plus financial week"
+    for row in result_data["scenarios"][0]["forecasts"]:
+        row["gradient_boosting_week"] = row["gradient_boosting"]
+    run.result = result_data
+    db_session.commit()
+    new_result = client.get(
+        f"/ai-tools/workflow/experiments?extract_id={extract.id}&model=gradient_boosting_week"
+    )
+    assert new_result.status_code == 200
+    assert b"Gradient boosting + financial week" in new_result.data
     filtered = client.get(f"/ai-tools/workflow/experiments?extract_id={extract.id}&run_id={run.id}&year=2021")
     assert b"20.00%" in filtered.data and b"03/01/2022" not in filtered.data
     assert client.get(f"/ai-tools/workflow/experiments?extract_id={extract.id}&run_id={run.id}&year=").status_code == 200
@@ -155,6 +170,7 @@ def test_real_model_run_saves_the_same_predictions_as_cli(app, db_session, plann
     assert len(saved) == len(expected.forecasts) > 0
     assert saved[0]["week_start"] == expected.forecasts[0].week_start.isoformat()
     assert saved[0]["arima"] == str(expected.forecasts[0].arima)
+    assert saved[0]["gradient_boosting_week"] == str(expected.forecasts[0].gradient_boosting_week)
     assert run.result["code_sha256"]["weekly_model_comparison.py"]
 
 

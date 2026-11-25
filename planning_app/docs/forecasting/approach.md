@@ -295,7 +295,9 @@ browser, including gap-aware lag correlations, retrospective outlier
 sensitivity and a same-financial-week-last-year benchmark on the same eligible
 targets as previous week. The current capture does not establish historical
 as-of accuracy or a complete closure calendar. Record findings in the extract
-notes; structured **Feature decisions** remain planned. Continue source
+notes and use **Feature decisions** to record candidate inputs, evidence,
+coverage, cutoff availability and rationale. These decisions do not configure
+models or approve data. Continue source
 reconciliation separately; no new capture is required for this analysis.
 
 On `DEV-9`, the browser calculation was checked against independent SQL for
@@ -303,6 +305,30 @@ On `DEV-9`, the browser calculation was checked against independent SQL for
 21.96% and same-financial-week-last-year WAPE was 27.61%. These are
 development scores on this capture, not historical as-of or holdout results;
 they use different target weeks from the multi-model comparison below.
+
+### Financial-week feature comparison
+
+On `DEV-9`, a read-only development run verified 307 completed weekly totals
+against independent SQL, then compared gradient boosting with four prior-week
+values against the same model with the target financial-week number added.
+Both used identical settings and 267 common targets after excluding
+quality-flagged weeks from training and target/lookback windows.
+
+| Financial year | Targets | Four lags WAPE | Four lags + financial week WAPE |
+| --- | ---: | ---: | ---: |
+| 2021 | 28 | 22.95% | 24.64% |
+| 2022 | 52 | 27.18% | 27.21% |
+| 2023 | 52 | 19.92% | 19.74% |
+| 2024 | 51 | 20.19% | 20.81% |
+| 2025 | 47 | 14.44% | 14.22% |
+| 2026 | 37 | 17.92% | 17.93% |
+| Overall | 267 | 20.57% | 20.82% |
+
+The calendar feature did not improve overall WAPE in this comparison. This
+does not rule out other calendar representations or establish a final feature
+choice: the run is untuned, uses the current capture rather than historical
+as-of observations, and is not a holdout. The browser comparison can save new
+runs with this additional method; older runs do not acquire predictions.
 
 ### First learned forecast: development comparison
 

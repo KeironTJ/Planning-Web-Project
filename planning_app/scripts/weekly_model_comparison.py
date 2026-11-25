@@ -20,6 +20,10 @@ from scripts.weekly_intake_review import _show_benchmark, review, score_forecast
 
 LOOKBACK = 4
 MIN_TRAINING_ROWS = 20
+BOOSTING_SETTINGS = {
+    "n_estimators": 30, "learning_rate": 0.05, "max_depth": 2,
+    "min_samples_leaf": 3, "random_state": 42,
+}
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,7 @@ class ModelForecast:
     regression: Decimal
     arima: Decimal
     gradient_boosting: Decimal
+    gradient_boosting_week: Decimal
     training_rows: int
 
 
@@ -97,11 +102,13 @@ def compare_models(
 
         linear = LinearRegression().fit([[row[-1]] for row in features], outcomes)
         linear_prediction = float(linear.predict([[last_four[-1]]])[0])
-        boosted = GradientBoostingRegressor(
-            n_estimators=30, learning_rate=0.05, max_depth=2,
-            min_samples_leaf=3, random_state=42,
-        ).fit(features, outcomes)
+        boosted = GradientBoostingRegressor(**BOOSTING_SETTINGS).fit(features, outcomes)
         boosted_prediction = float(boosted.predict([last_four])[0])
+        calendar_boosted = GradientBoostingRegressor(**BOOSTING_SETTINGS).fit(
+            [row + [window[-1].number] for row, window in zip(features, training)],
+            outcomes,
+        )
+        calendar_prediction = float(calendar_boosted.predict([last_four + [target.number]])[0])
 
         scale = max(
             [abs(float(value(week))) for week in weeks if week.start < target.start and usable(week)]
@@ -122,13 +129,13 @@ def compare_models(
             raise RuntimeError(f"ARIMA did not converge for week {target.number} ({target.start}).")
         arima_prediction = float(fitted.forecast(steps=1)[0]) * scale
         if not all(math.isfinite(prediction) for prediction in (
-            linear_prediction, arima_prediction, boosted_prediction,
+            linear_prediction, arima_prediction, boosted_prediction, calendar_prediction,
         )):
             raise ValueError(f"Model returned a non-finite forecast for week {target.number}.")
         forecasts.append(ModelForecast(
             target.number, target.start, value(target), history[-1], sum(history) / LOOKBACK,
             Decimal(str(linear_prediction)), Decimal(str(arima_prediction)),
-            Decimal(str(boosted_prediction)), len(training),
+            Decimal(str(boosted_prediction)), Decimal(str(calendar_prediction)), len(training),
         ))
     return ModelComparison(forecasts, insufficient)
 
@@ -162,8 +169,8 @@ def report_comparison(weeks: list[IntakeWeek]) -> None:
         f"Expanding training; minimum {MIN_TRAINING_ROWS} complete four-lag training rows; "
         "linear regression on lag 1; ARIMA(1,1,0) without drift, scaled on prior data "
         "and fitted with Powell (max 500 iterations); "
-        "gradient boosting on lags 1-4 (30 trees, depth 2, learning rate 0.05, "
-        "minimum leaf 3, seed 42)."
+        "gradient boosting on lags 1-4, with and without target financial week number "
+        "(30 trees, depth 2, learning rate 0.05, minimum leaf 3, seed 42)."
     )
     outliers, results = calculate_comparisons(weeks)
     print("IQR outliers identified retrospectively within each financial year: "
@@ -178,6 +185,7 @@ def report_comparison(weeks: list[IntakeWeek]) -> None:
             ("Linear regression", "regression"),
             ("ARIMA(1,1,0)", "arima"),
             ("Gradient boosting", "gradient_boosting"),
+            ("Gradient boosting + financial week", "gradient_boosting_week"),
         ):
             _show_benchmark(label, score_forecasts([
                 (getattr(row, attribute), row.actual) for row in rows
@@ -194,7 +202,8 @@ def report_comparison(weeks: list[IntakeWeek]) -> None:
                 f"Week {row.week_start} (FY{financial_year(row.week_start)} week {row.week}): "
                 f"actual {row.actual:.2f}; previous {row.previous_week:.2f}; "
                 f"mean {row.four_week_mean:.2f}; linear {row.regression:.2f}; "
-                f"ARIMA {row.arima:.2f}; boosting {row.gradient_boosting:.2f} GBP "
+                f"ARIMA {row.arima:.2f}; boosting {row.gradient_boosting:.2f}; "
+                f"boosting + financial week {row.gradient_boosting_week:.2f} GBP "
                 f"({row.training_rows} training rows)"
             )
     print("\nSensitivity comparison on target weeks common to all scenarios: "

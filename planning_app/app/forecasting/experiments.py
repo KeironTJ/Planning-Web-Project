@@ -110,7 +110,10 @@ def _result_for_extract(extract: ForecastDataExtract) -> dict:
         for item in comparison.forecasts:
             row = asdict(item)
             row["week_start"] = item.week_start.isoformat()
-            for key in ("actual", "previous_week", "four_week_mean", "regression", "arima", "gradient_boosting"):
+            for key in (
+                "actual", "previous_week", "four_week_mean", "regression", "arima",
+                "gradient_boosting", "gradient_boosting_week",
+            ):
                 row[key] = str(row[key])
             forecasts.append(row)
         results.append({
@@ -131,6 +134,7 @@ def _result_for_extract(extract: ForecastDataExtract) -> dict:
             "linear": "One-lag linear regression",
             "arima": "ARIMA(1,1,0), no drift, prior-only scaling, Powell maxiter 500",
             "boosting": "Four lags, 30 trees, depth 2, learning rate 0.05, min leaf 3, seed 42",
+            "boosting_week": "Same boosting settings and four lags plus target financial week number (1-53)",
         },
         "completed_weeks": len(weeks),
         "unavailable_weeks": [week.start.isoformat() for week in weeks if week.net_gbp is None],

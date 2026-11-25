@@ -6,6 +6,9 @@
   {% endfor %}
 </div>
 {% endmacro %}
+{% macro captured_value(data, field) -%}
+  {%- if field not in data -%}Not captured{%- elif data[field] is none or not data[field]|trim -%}Missing{%- else -%}{{ data[field] }}{%- endif -%}
+{%- endmacro %}
 {% block title %}{{ title }}{% endblock %}
 {% block tool_page_header %}
 <div class="d-flex justify-content-between flex-wrap align-items-center gap-2 pt-2 pb-1 mb-3 border-bottom">
@@ -171,6 +174,10 @@
         <label for="finding-review-reason" class="form-label">Shared reason and supporting evidence</label>
         <textarea id="finding-review-reason" name="rationale" class="form-control mb-2" rows="2" maxlength="2000" required></textarea>
         <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="remember-finding" name="remember" value="yes">
+          <label class="form-check-label" for="remember-finding">Remember these decisions for matching future extracts</label>
+        </div>
+        <div class="form-check mb-2">
           <input type="checkbox" class="form-check-input" id="confirm-finding-correction" name="confirm" value="yes" required>
           <label class="form-check-label" for="confirm-finding-correction">Apply this outcome and reason to all {{ bulk_preview.count }} matching rows, including rows not on this page.</label>
         </div>
@@ -181,6 +188,20 @@
     <p class="small text-muted mb-2 mt-2">Download a worklist by current status for this {{ 'group' if gbp_group else 'finding' }}, across all pages.</p>
     {{ worklist_links(extract.id, finding, gbp_group) }}
   </section>
+  {% endif %}
+  {% if suggestions and can_manage %}
+  <form id="confirm-suggestions" method="post" action="{{ url_for('forecasting.data_extract_confirm_suggestions', extract_id=extract.id) }}" class="alert alert-info">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="capture_identity" value="{{ extract.capture_identity }}">
+    <input type="hidden" name="page" value="{{ records.page }}">
+    <strong>Previously reviewed: {{ suggestions|length }} suggestion(s) on this page.</strong>
+    <div class="small">Open the marked rows and check their earlier evidence. Select the decisions to confirm; none are applied automatically. Matching requires the entire captured order and findings to be unchanged.</div>
+    <div class="form-check my-2">
+      <input class="form-check-input" type="checkbox" id="confirm-reuse" name="confirm" value="yes" required>
+      <label class="form-check-label" for="confirm-reuse">I have checked the selected decisions and their evidence.</label>
+    </div>
+    <button class="btn btn-sm btn-primary" type="submit">Confirm selected suggestions</button>
+  </form>
   {% endif %}
   <div id="review-list" data-scope="{{ scope }}"{% if can_manage %} data-save-url="{{ url_for('forecasting.data_extract_reviews', extract_id=extract.id, finding=finding if gbp_group_counts is not none else none) }}"{% endif %}>
   {% if can_manage %}
@@ -197,20 +218,28 @@
   {% for record in records.items %}
   {% set status = record.decisions[0].status if record.decisions else ('unreviewed' if record.has_findings else 'no_findings') %}
   <details class="border rounded mb-1" id="record-{{ record.id }}">
-    <summary class="px-2 py-2 small">
-      <span class="badge {{ review_badges[status] }} me-2" data-latest-review>{{ decision_statuses.get(status, 'Not reviewed' if record.has_findings else 'No findings') }}</span>
-      <strong>Order {{ record.data.order_num }} / line {{ record.data.order_line }} / release {{ record.data.rel_num }}</strong>
-      {% set shown_finding = finding if finding in record.findings else record.findings | first | default(none) %}
-      {% if shown_finding %}<span class="ms-2 d-inline-block">{{ extract.summary.rules[shown_finding] }}{% if record.findings | length > 1 %} (+{{ record.findings | length - 1 }}){% endif %}</span>{% endif %}
-      <span class="badge text-bg-warning ms-1" data-draft-badge hidden>Draft</span>
-      <span class="d-flex flex-wrap gap-2 ps-3 mt-1 text-body-secondary">
-        <span>Order date <strong>{{ record.data.order_date | default(none) | uk_date or "Missing" }}</strong></span>
-        <span>Ship by <strong>{{ record.data.req_date | default(none) | uk_date or "Missing" }}</strong></span>
-        <span>GBP <strong>{{ record.data.release_price_gbp if record.data.release_price_gbp is not none else "Missing" }}</strong></span>
-        <span>Qty <strong>{{ record.data.release_qty if record.data.release_qty is not none else "Missing" }}</strong></span>
-        <span>Assembly <strong>{{ record.data.assembly_seq if record.data.assembly_seq is not none else "None" }}</strong></span>
-        <span>Void <strong>{{ 'Yes' if record.data.void_line is sameas true else ('No' if record.data.void_line is sameas false else 'Unknown') }}</strong></span>
+    <summary class="ai-review-summary">
+      <span class="ai-review-header">
+        <strong class="ai-review-release">Order {{ record.data.order_num }} / line {{ record.data.order_line }} / release {{ record.data.rel_num }}</strong>
+        <span class="ai-review-status"><span class="badge {{ review_badges[status] }} me-2" data-latest-review>{{ decision_statuses.get(status, 'Not reviewed' if record.has_findings else 'No findings') }}</span>{% if record.id in suggestions %}<span class="badge text-bg-info" data-suggestion-badge>Previously reviewed</span>{% endif %}<span class="badge text-bg-warning ms-1" data-draft-badge hidden>Draft</span></span>
+        <span class="ai-review-toggle" aria-hidden="true"><span class="ai-review-open">View details</span><span class="ai-review-close">Hide details</span></span>
       </span>
+      <span class="ai-review-grid">
+        <span><span class="ai-review-label">Customer ID</span><strong>{{ captured_value(record.data, 'customer_id') }}</strong></span>
+        <span><span class="ai-review-label">Customer group</span><strong>{{ captured_value(record.data, 'customer_group') }}</strong></span>
+        <span><span class="ai-review-label">Model</span><strong>{{ captured_value(record.data, 'model') }}</strong></span>
+        <span><span class="ai-review-label">Size</span><strong>{{ captured_value(record.data, 'size_desc') }}</strong></span>
+        <span><span class="ai-review-label">Production size</span><strong>{{ captured_value(record.data, 'prod_size') }}</strong></span>
+        <span><span class="ai-review-label">Release value (GBP)</span><strong>{{ record.data.release_price_gbp if record.data.release_price_gbp is not none else "Missing" }}</strong></span>
+        <span><span class="ai-review-label">Release quantity</span><strong>{{ record.data.release_qty if record.data.release_qty is not none else "Missing" }}</strong></span>
+        <span><span class="ai-review-label">Inventory UOM</span><strong>{{ record.data.ium or "Missing" }}</strong></span>
+        <span><span class="ai-review-label">Order date</span><strong>{{ record.data.order_date | default(none) | uk_date or "Missing" }}</strong></span>
+        <span><span class="ai-review-label">Required ship-by</span><strong>{{ record.data.req_date | default(none) | uk_date or "Missing" }}</strong></span>
+        <span><span class="ai-review-label">Assembly</span><strong>{{ record.data.assembly_seq if record.data.assembly_seq is not none else "None" }}</strong></span>
+        <span><span class="ai-review-label">Void line</span><strong>{{ 'Yes' if record.data.void_line is sameas true else ('No' if record.data.void_line is sameas false else 'Unknown') }}</strong></span>
+      </span>
+      {% set shown_finding = finding if finding in record.findings else record.findings | first | default(none) %}
+      {% if shown_finding %}<span class="ai-review-finding"><strong>Finding:</strong> {{ extract.summary.rules[shown_finding] }}{% if record.findings | length > 1 %} (+{{ record.findings | length - 1 }} more){% endif %}</span>{% endif %}
     </summary>
     <div class="border-top p-3">
       <p class="small text-muted mb-2">Job {{ record.data.job_num or "not supplied" }},
@@ -232,6 +261,10 @@
         <div class="col-md-4">Inventory UOM: {{ record.data.ium or "Missing" }}</div>
         <div class="col-md-4">GBP release value: {{ record.data.release_price_gbp if record.data.release_price_gbp is not none else "Missing" }}</div>
         <div class="col-md-4">Void line: {% if record.data.void_line is sameas true %}Yes{% elif record.data.void_line is sameas false %}No{% else %}Not captured or missing{% endif %}</div>
+        <div class="col-md-4">Customer ID: {{ captured_value(record.data, 'customer_id') }}</div>
+        <div class="col-md-4">Customer group: {{ captured_value(record.data, 'customer_group') }}</div>
+        <div class="col-md-4">Size: {{ captured_value(record.data, 'size_desc') }}</div>
+        <div class="col-md-4">Production size: {{ captured_value(record.data, 'prod_size') }}</div>
         {% if 'model' in record.data %}
         {% set model_name = (record.data.model or '')|trim %}
         <div class="col-md-4">Model: {{ model_name if model_name else "Blank" }}</div>
@@ -247,6 +280,22 @@
         <li>No findings under {{ extract.rules_version }}. This does not establish training readiness.</li>
         {% endfor %}
       </ul>
+      {% if record.id in suggestions %}
+      {% set prior, prior_extract = suggestions[record.id] %}
+      <div class="alert alert-info py-2 small" data-suggestion>
+        <strong>Previous outcome: {{ decision_statuses[prior.status] }}</strong>
+        <div class="text-break">{{ prior.rationale }}</div>
+        <div><a href="{{ url_for('forecasting.data_record_evidence', record_id=prior.record_id) }}">{{ prior_extract.reference }}: earlier review</a>
+          &middot; reviewer ID {{ prior.reviewed_by_id if prior.reviewed_by_id is not none else "unavailable" }}
+          &middot; {{ prior.reviewed_at | utcfmt('uk-datetime') }}</div>
+        {% if can_manage %}
+        <div class="form-check mt-2">
+          <input class="form-check-input" type="checkbox" id="suggestion-{{ record.id }}" name="suggestion" value="{{ record.id }}:{{ prior.id }}" form="confirm-suggestions">
+          <label class="form-check-label" for="suggestion-{{ record.id }}">Select this decision for confirmation</label>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
       <details class="small mb-3" data-review-history{% if not record.decisions %} hidden{% endif %}>
         <summary>Review history</summary>
         <ol class="mt-2 mb-0">
@@ -277,6 +326,10 @@
           <div class="col-md-8">
             <label for="evidence-{{ record.id }}" class="form-label small">Reason and supporting evidence (no personal details)</label>
             <textarea id="evidence-{{ record.id }}" name="rationale" class="form-control form-control-sm" rows="2" maxlength="2000" required></textarea>
+          </div>
+          <div class="col-12 form-check ms-2">
+            <input class="form-check-input" type="checkbox" id="remember-{{ record.id }}" name="remember" value="yes">
+            <label class="form-check-label small" for="remember-{{ record.id }}">Remember this decision for matching future extracts</label>
           </div>
           <div class="col-12 d-flex justify-content-end">
             <button type="submit" class="btn btn-sm btn-primary">Save review evidence</button>
@@ -343,10 +396,10 @@
     </form>
   </details>
   {% elif can_manage %}
-  <p class="small text-muted mt-4">This extract cannot be deleted because it has notes, row reviews or model experiments.</p>
+  <p class="small text-muted mt-4">This extract cannot be deleted because it has notes, row reviews, model experiments or feature decisions.</p>
   {% endif %}
 </div>
 {% endblock %}
 {% block scripts %}
-{% if can_manage %}<script src="{{ url_for('static', filename='js/modules/forecast_data_review.js') }}" defer></script>{% endif %}
+<script src="{{ url_for('static', filename='js/modules/forecast_data_review.js') }}" defer></script>
 {% endblock %}

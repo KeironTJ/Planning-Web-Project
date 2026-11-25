@@ -20,7 +20,7 @@
   <details class="card mb-3"{% if not run or run.status != 'completed' %} open{% endif %}>
   <summary class="card-header fw-semibold">{{ 'Run another comparison' if run and run.status == 'completed' else 'Run a comparison' }}</summary>
   <div class="card-body">
-    <p class="small text-muted">Compare all methods on the same target weeks. The saved extract remains unchanged.</p>
+    <p class="small text-muted">Compare all methods on the same target weeks, including gradient boosting with and without the target financial week number. The saved extract remains unchanged.</p>
     {% if not can_run %}
     <p class="text-muted mb-0">Starting development experiments is disabled in production.</p>
     {% elif not dependencies %}

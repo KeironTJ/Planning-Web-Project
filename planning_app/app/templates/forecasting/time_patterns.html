@@ -97,7 +97,7 @@
       {% else %}<p>No common eligible target weeks. More complete, unflagged history may be needed.</p>{% endif %}
     </div>
   </section>
-  <p><a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, _anchor='extract-notes') }}">View or record extract findings and feature ideas</a> &middot; <a href="{{ url_for('forecasting.workflow_todo', stage='feature-decisions', extract_id=extract.id) }}">Feature decisions (planned)</a></p>
+  <p><a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, _anchor='extract-notes') }}">View or record extract findings and feature ideas</a> &middot; <a href="{{ url_for('forecasting.feature_decisions', extract_id=extract.id) }}">Feature decisions</a></p>
   <p class="small text-muted">Analysis rules: {{ rules }}. This page does not alter saved observations or issue forecasts. Reconcile coverage and totals against Finance before relying on the history.</p>
 </div>
 {% endblock %}

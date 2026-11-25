@@ -28,7 +28,8 @@
       ('Weekly intake', 'See how net order value changes week by week.', url_for('forecasting.weekly_intake', extract_id=extract.id), true),
       ('Product and customer mix', 'See which products and customer groups contribute.', url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor='mix-heading'), captured_mix),
       ('Unusual weeks', 'Investigate high or low weeks and compare their impact.', url_for('forecasting.weekly_distribution', extract_id=extract.id), true),
-      ('Time patterns and lags', 'Compare financial years, lag relationships and seasonal benchmarks.', url_for('forecasting.time_patterns', extract_id=extract.id), true)
+      ('Time patterns and lags', 'Compare financial years, lag relationships and seasonal benchmarks.', url_for('forecasting.time_patterns', extract_id=extract.id), true),
+      ('Feature decisions', 'Record candidate inputs, evidence and cutoff availability.', url_for('forecasting.feature_decisions', extract_id=extract.id), true)
     ] %}
     {% for name, description, href, available in tools %}
     <div class="col">
@@ -52,9 +53,6 @@
       <p class="small text-muted">Captured {{ extract.captured_at | utcfmt('uk-datetime') }}. Analysis uses saved observations, not live orders or historical month-end snapshots.</p>
       <p class="small text-muted">{{ captured_mix | length }} of {{ mix_axes | length }} dimensions captured.</p>
       <a class="small d-inline-block mb-2" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">Review extract findings</a>
-      <ul class="small mb-0">
-        <li><a href="{{ url_for('forecasting.workflow_todo', stage='feature-decisions', extract_id=extract.id) }}">Feature decisions</a> &middot; planned</li>
-      </ul>
     </div>
   </details>
   {% endif %}

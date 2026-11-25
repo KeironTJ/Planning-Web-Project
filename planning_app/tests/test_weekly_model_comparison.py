@@ -34,10 +34,66 @@ def test_models_fit_only_prior_data_and_share_forecast_targets():
     changed[24] = replace(changed[24], net_gbp=Decimal(9999))
     changed[25] = replace(changed[25], net_gbp=Decimal(8888))
     new = compare_models(changed, skip_exceptions=False).forecasts[0]
-    assert (new.regression, new.arima, new.gradient_boosting) == (
-        first.regression, first.arima, first.gradient_boosting,
+    assert (new.regression, new.arima, new.gradient_boosting, new.gradient_boosting_week) == (
+        first.regression, first.arima, first.gradient_boosting, first.gradient_boosting_week,
     )
     assert new.actual == 9999
+
+
+def test_calendar_model_adds_target_week_to_same_prior_training_rows(monkeypatch):
+    models = []
+
+    class RecordingBoost:
+        def __init__(self, **settings):
+            self.settings = settings
+            models.append(self)
+
+        def fit(self, features, outcomes):
+            self.features = features
+            self.outcomes = outcomes
+            return self
+
+        def predict(self, features):
+            self.input = features[0]
+            return [100.0]
+
+    class ArimaFit:
+        mle_retvals = {"converged": True}
+
+        def forecast(self, steps):
+            return [1.0]
+
+    class Arima:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fit(self, **kwargs):
+            return ArimaFit()
+
+    monkeypatch.setattr("scripts.weekly_model_comparison.GradientBoostingRegressor", RecordingBoost)
+    monkeypatch.setattr("scripts.weekly_model_comparison.ARIMA", Arima)
+    result = compare_models(weekly_data(), skip_exceptions=False)
+    plain, calendar = models[:2]
+    assert plain.settings == calendar.settings
+    assert plain.outcomes == calendar.outcomes
+    assert [row[:-1] for row in calendar.features] == plain.features
+    assert [row[-1] for row in calendar.features] == list(range(5, 25))
+    assert calendar.input[:-1] == plain.input
+    assert calendar.input[-1] == result.forecasts[0].week == 25
+    models.clear()
+    weeks = []
+    for i in range(55):
+        start = financial_year_start(2024) + timedelta(weeks=i)
+        number = (start - financial_year_start(financial_year(start))).days // 7 + 1
+        weeks.append(IntakeWeek(
+            number=number, start=start, partial=False, possible_shutdown=False,
+            net_gbp=Decimal(100 + i),
+        ))
+    result = compare_models(weeks, skip_exceptions=False)
+    boundary_index = next(i for i, row in enumerate(result.forecasts) if row.week_start == date(2025, 1, 6))
+    boundary = models[boundary_index * 2 + 1]
+    assert boundary.input[-1] == 1
+    assert boundary.features[-1][-1] == 53
 
 
 def test_flagged_and_missing_weeks_do_not_enter_training_or_forecast_windows():

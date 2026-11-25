@@ -1,0 +1,120 @@
+{% extends "forecasting/_base.html" %}
+{% macro decision_form(entry=none, draft=none) %}
+{% set suffix = 'retry' if draft else (entry.id if entry else 'new') %}
+<form method="post" action="{{ url_for('forecasting.feature_decision_save', extract_id=extract.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="capture_identity" value="{{ draft.get('capture_identity', '') if draft else extract.capture_identity }}">
+  <input type="hidden" name="expected_id" value="{{ draft.get('expected_id', '') if draft else (entry.id if entry else 0) }}">
+  {% if entry and not draft %}
+  <input type="hidden" name="feature" value="{{ entry.feature }}">
+  {% else %}
+  <div class="mb-3">
+    <label class="form-label" for="feature-{{ suffix }}">Candidate feature</label>
+    <input class="form-control" id="feature-{{ suffix }}" name="feature" maxlength="120" value="{{ draft.get('feature', '') if draft else '' }}" required>
+    <div class="form-text">For example: previous weekly GBP, financial week, shutdowns, or customer mix.</div>
+  </div>
+  {% endif %}
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      <label class="form-label" for="decision-{{ suffix }}">Decision</label>
+      <select class="form-select" id="decision-{{ suffix }}" name="decision" required>
+        <option value="">Choose a decision</option>
+        {% for value, label in decisions.items() %}<option value="{{ value }}"{% if (draft and draft.get('decision') == value) or (not draft and entry and entry.decision == value) %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="availability-{{ suffix }}">Availability at forecast cutoff</label>
+      <select class="form-select" id="availability-{{ suffix }}" name="availability" required>
+        <option value="">Choose availability</option>
+        {% for value, label in availability.items() %}<option value="{{ value }}"{% if (draft and draft.get('availability') == value) or (not draft and entry and entry.availability == value) %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  {% for name, label, help in [
+    ('coverage', 'Coverage and stability', 'Describe gaps, history and reliability; include uncertainty.'),
+    ('evidence', 'Evidence', 'Identify the analysis, week, extract note or experiment supporting this assessment.'),
+    ('cutoff_details', 'Cutoff details', 'Explain when the input becomes available and any leakage risk.'),
+    ('rationale', 'Rationale', 'Explain why this feature should be tested, deferred or rejected.')
+  ] %}
+  <div class="mb-3">
+    <label class="form-label" for="{{ name }}-{{ suffix }}">{{ label }}</label>
+    <textarea class="form-control" id="{{ name }}-{{ suffix }}" name="{{ name }}" rows="2" maxlength="2000" required>{{ draft.get(name, '') if draft else (entry[name] if entry else '') }}</textarea>
+    <div class="form-text">{{ help }}</div>
+  </div>
+  {% endfor %}
+  <button class="btn btn-primary" type="submit">{{ 'Record updated decision' if entry else 'Record decision' }}</button>
+</form>
+{% endmacro %}
+{% block title %}{{ title }}{% endblock %}
+{% block tool_page_header %}
+<header class="mb-3">
+  <h1 class="h3 mb-1">Feature decisions</h1>
+  <p class="text-muted mb-0">Document candidate inputs and the evidence for testing, deferring or rejecting them.</p>
+</header>
+{% endblock %}
+{% block content %}
+<div class="container-fluid pb-4">
+  {% include "forecasting/_analysis_nav.html" %}
+  <div class="alert alert-warning">These are manual assessments for this extract, not data approval or model configuration. A test decision does not add a feature to an experiment. Validate availability at each forecast cutoff before modelling.</div>
+  <p class="small">
+    Evidence: <a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, _anchor='extract-notes') }}">extract findings and notes</a>
+    {% if has_weekly %}&middot; <a href="{{ url_for('forecasting.intake_history', extract_id=extract.id) }}">coverage</a>
+    &middot; <a href="{{ url_for('forecasting.time_patterns', extract_id=extract.id) }}">time patterns and lags</a>
+    &middot; <a href="{{ url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor='mix-heading') }}">product and customer mix</a>{% endif %}
+    &middot; <a href="{{ url_for('forecasting.workflow_todo', stage='experiments', extract_id=extract.id) }}">model experiments</a>
+  </p>
+  <p class="small text-muted">Assessments are visible to planning viewers, append-only and specific to {{ extract.reference }}. Do not enter customer or personal details. Updates preserve earlier decisions.</p>
+  {% if draft %}
+  <section class="card border-danger mb-3">
+    <div class="card-body">
+      <h2 class="h5">Decision not saved</h2>
+      <p>Correct the form and retry. If the extract or decision changed, copy your text and reopen the latest decision before submitting.</p>
+      {{ decision_form(draft=draft) }}
+    </div>
+  </section>
+  {% endif %}
+  {% if can_manage %}
+  <details class="card mb-3"{% if not features %} open{% endif %}>
+    <summary class="card-header fw-semibold">Record a candidate</summary>
+    <div class="card-body">{{ decision_form() }}</div>
+  </details>
+  {% endif %}
+  <h2 class="h5">Recorded candidates</h2>
+  {% for key, history in features.items() %}
+  {% set entry = history[0] %}
+  <section class="card mb-3">
+    <div class="card-body">
+      <h3 class="h5">{{ entry.feature }}</h3>
+      <p><span class="badge text-bg-primary">{{ decisions[entry.decision] }}</span> &middot; {{ availability[entry.availability] }}</p>
+      <dl>
+        {% for label, value in [('Coverage and stability', entry.coverage), ('Evidence', entry.evidence), ('Cutoff details', entry.cutoff_details), ('Rationale', entry.rationale)] %}
+        <dt>{{ label }}</dt><dd class="text-break" style="white-space: pre-wrap">{{ value }}</dd>
+        {% endfor %}
+      </dl>
+      <p class="small text-muted">Recorded by {{ entry.author.username if entry.author else 'Author unavailable' }} &middot; {{ entry.created_at | utcfmt('uk-datetime') }}</p>
+      {% if history | length > 1 %}
+      <details class="mb-3">
+        <summary>Earlier decisions ({{ history | length - 1 }})</summary>
+        {% for earlier in history[1:] %}
+        <div class="border-top mt-2 pt-2">
+          <strong>{{ decisions[earlier.decision] }}</strong> &middot; {{ availability[earlier.availability] }}
+          <span class="small text-muted">&middot; {{ earlier.author.username if earlier.author else 'Author unavailable' }} &middot; {{ earlier.created_at | utcfmt('uk-datetime') }}</span>
+          <dl class="mt-2">
+            {% for label, value in [('Coverage and stability', earlier.coverage), ('Evidence', earlier.evidence), ('Cutoff details', earlier.cutoff_details), ('Rationale', earlier.rationale)] %}
+            <dt>{{ label }}</dt><dd class="text-break" style="white-space: pre-wrap">{{ value }}</dd>
+            {% endfor %}
+          </dl>
+        </div>
+        {% endfor %}
+      </details>
+      {% endif %}
+      {% if can_manage %}
+      <details><summary>Record an updated decision</summary><div class="mt-3">{{ decision_form(entry) }}</div></details>
+      {% endif %}
+    </div>
+  </section>
+  {% else %}
+  <p>No feature decisions recorded for this extract.</p>
+  {% endfor %}
+</div>
+{% endblock %}
