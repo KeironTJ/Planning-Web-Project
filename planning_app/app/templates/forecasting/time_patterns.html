@@ -1,0 +1,103 @@
+{% extends "forecasting/_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block tool_page_header %}
+<header class="mb-3">
+  <h1 class="h3 mb-1">{{ title }}</h1>
+  <p class="text-muted mb-0">Explore the saved weekly GBP history before deciding which inputs to test.</p>
+</header>
+{% endblock %}
+{% block content %}
+<div class="container-fluid pb-4">
+  {% include "forecasting/_analysis_nav.html" %}
+  <div class="alert alert-warning">Development evidence from one capture, not verified historical as-of data or an untouched holdout. Apparent patterns do not establish seasonality or forecast readiness.</div>
+  <section class="card mb-3">
+    <div class="card-body">
+      <h2 class="h5">Weekly trends by financial year</h2>
+      <p class="small text-muted">Completed observed weeks share the same GBP scale. Gaps and partial weeks are not connected or treated as zero. Flagged totals may be incomplete. Select a point or open the table to investigate releases.</p>
+      {% for year, weeks in years | dictsort(reverse=true) %}
+      {% set points = chart_years.get(year, []) %}
+      <details class="border rounded p-3 mb-2"{% if loop.first %} open{% endif %}>
+        <summary class="fw-semibold">SOI {{ year }}</summary>
+        {% if points %}
+        <svg class="w-100 d-block" viewBox="0 0 640 200" role="img" aria-label="SOI {{ year }} completed weekly net GBP">
+          <path d="M70 40H600M70 160H600" stroke="currentColor" opacity=".2"/>
+          <g fill="currentColor" font-size="10">
+            <text x="64" y="43" text-anchor="end">{{ '{:,.0f}'.format(high) }}</text>
+            <text x="64" y="163" text-anchor="end">{{ '{:,.0f}'.format(low) }}</text>
+            <text x="70" y="183">Week 1</text><text x="600" y="183" text-anchor="end">Week 53</text>
+          </g>
+          {% for point in points %}
+          {% if not loop.first %}
+          {% set previous = points[loop.index0 - 1] %}
+          {% if point.week.number == previous.week.number + 1 %}
+          <line x1="{{ previous.x }}" y1="{{ previous.y }}" x2="{{ point.x }}" y2="{{ point.y }}" stroke="currentColor" opacity=".45"/>
+          {% endif %}
+          {% endif %}
+          <a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=point.week.number, year=year) }}" aria-label="Investigate SOI {{ year }} week {{ point.week.number }}">
+            <circle cx="{{ point.x }}" cy="{{ point.y }}" r="4" class="{{ 'text-danger' if point.week.exceptions else 'text-primary' }}" fill="{{ 'none' if point.week.exceptions else 'currentColor' }}" stroke="currentColor">
+              <title>Week {{ point.week.number }}: {{ '{:,.2f}'.format(point.week.net_gbp) }} GBP{% if point.week.exceptions %}; quality flagged{% endif %}{% if point.week.possible_shutdown %}; possible shutdown{% endif %}</title>
+            </circle>
+          </a>
+          {% endfor %}
+        </svg>
+        <p class="small text-muted"><span class="text-primary">●</span> Observed &middot; <span class="text-danger">◯</span> Quality flagged</p>
+        {% else %}<p class="small mt-2">No completed observed weeks to plot.</p>{% endif %}
+        <details>
+          <summary>Weekly values and coverage</summary>
+          <div class="table-responsive">
+            <table class="table table-sm">
+              <thead><tr><th scope="col">Week</th><th scope="col">Dates</th><th scope="col">Status</th><th scope="col" class="text-end">Net GBP</th></tr></thead>
+              <tbody>{% for week in weeks %}<tr>
+                <th scope="row">{% if week.releases %}<a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number, year=year) }}">{{ week.number }}</a>{% else %}{{ week.number }}{% endif %}</th>
+                <td>{{ week.start | uk_date }} to {{ week.end | uk_date }}</td>
+                <td>{% if week.partial %}Partial{% elif week.net_gbp is none %}Unavailable (not zero){% else %}Observed{% endif %}{% if week.exceptions %} &middot; quality flagged{% endif %}{% if week.possible_shutdown %} &middot; possible shutdown{% endif %}</td>
+                <td class="text-end">{{ '{:,.2f}'.format(week.net_gbp) if week.net_gbp is not none else '—' }}</td>
+              </tr>{% endfor %}</tbody>
+            </table>
+          </div>
+        </details>
+      </details>
+      {% else %}<p>No saved releases have a usable order date on or before capture.</p>{% endfor %}
+      <p class="small text-muted mb-0">Possible shutdown labels are limited to the currently configured 2026 dates, not a complete closure calendar. Keep observed spikes and use week investigations to record explanations.</p>
+    </div>
+  </section>
+
+  <section class="card mb-3">
+    <div class="card-body">
+      <h2 class="h5">Lag relationships</h2>
+      <p class="small text-muted">Pearson correlations use completed, unflagged observations at the exact calendar lag, including across year boundaries. Lag 52 is 52 weeks, not necessarily the same financial week in a 53-week year. The sensitivity excludes each year's retrospectively identified IQR candidates; it is not a real-time rule. At least three pairs and variation in both series are needed.</p>
+      <div class="table-responsive"><table class="table table-sm">
+        <thead><tr><th scope="col">Lag</th><th scope="col">Pairs</th><th scope="col">Correlation</th><th scope="col">Pairs without outliers</th><th scope="col">Correlation without outliers</th></tr></thead>
+        <tbody>{% for lag in lags %}{% set other = sensitivity[loop.index0] %}<tr>
+          <th scope="row">{{ lag.lag }} weeks</th><td>{{ lag.pairs }}</td><td>{{ '%+.2f' | format(lag.correlation) if lag.correlation is not none else 'Unavailable' }}</td>
+          <td>{{ other.pairs }}</td><td>{{ '%+.2f' | format(other.correlation) if other.correlation is not none else 'Unavailable' }}</td>
+        </tr>{% endfor %}</tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <section class="card mb-3">
+    <div class="card-body">
+      <h2 class="h5">Same financial week last year benchmark</h2>
+      <p class="small text-muted">One-week-ahead development comparison on identical targets: target, previous week and the same numbered financial week in the preceding year must all be complete, observed and unflagged. Week 53 has no match when the preceding year has only 52 weeks. Values come from this capture, not what was known at each historical cutoff. Positive bias means overforecast.</p>
+      {% if comparisons %}
+      <div class="table-responsive"><table class="table table-sm">
+        <thead><tr><th scope="col">Method</th><th scope="col">Targets</th><th scope="col">MAE GBP</th><th scope="col">WAPE</th><th scope="col">Bias GBP</th></tr></thead>
+        <tbody>{% for name, score in scores.items() %}<tr><th scope="row">{{ name }}</th><td>{{ score.pairs }}</td><td>{{ '{:,.2f}'.format(score.mae) }}</td><td>{{ '{:.2f}%'.format(score.wape) if score.wape is not none else 'Unavailable (zero actual total)' }}</td><td>{{ '{:+,.2f}'.format(score.bias) }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      <details><summary>Inspect {{ comparisons | length }} common target weeks</summary>
+        <div class="table-responsive"><table class="table table-sm">
+          <thead><tr><th scope="col">Target</th><th scope="col">Actual GBP</th><th scope="col">Previous week GBP</th><th scope="col">Same week last year GBP</th></tr></thead>
+          <tbody>{% for row in comparisons %}<tr>
+            <th scope="row"><a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=row.target.number, year=row.target.start.year) }}">{{ row.target.start | uk_date }}</a></th>
+            <td>{{ '{:,.2f}'.format(row.target.net_gbp) }}</td><td>{{ '{:,.2f}'.format(row.previous_week.net_gbp) }}</td><td>{{ '{:,.2f}'.format(row.previous_year.net_gbp) }} <span class="small text-muted">({{ row.previous_year.start | uk_date }})</span></td>
+          </tr>{% endfor %}</tbody>
+        </table></div>
+      </details>
+      {% else %}<p>No common eligible target weeks. More complete, unflagged history may be needed.</p>{% endif %}
+    </div>
+  </section>
+  <p><a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, _anchor='extract-notes') }}">View or record extract findings and feature ideas</a> &middot; <a href="{{ url_for('forecasting.workflow_todo', stage='feature-decisions', extract_id=extract.id) }}">Feature decisions (planned)</a></p>
+  <p class="small text-muted">Analysis rules: {{ rules }}. This page does not alter saved observations or issue forecasts. Reconcile coverage and totals against Finance before relying on the history.</p>
+</div>
+{% endblock %}

@@ -290,8 +290,19 @@ existing CSV. Focused tests cover release grain, filters and pagination,
 record-review return links, note permissions and persistence, and unchanged
 weekly exclusions after acceptance.
 
-The next two EDA steps are **Time patterns and lags**, followed by
-**Feature decisions**. Continue using `DEV-7`; no new capture is needed.
+**Time patterns and lags** now explores the saved multi-year history in the
+browser, including gap-aware lag correlations, retrospective outlier
+sensitivity and a same-financial-week-last-year benchmark on the same eligible
+targets as previous week. The current capture does not establish historical
+as-of accuracy or a complete closure calendar. Record findings in the extract
+notes; structured **Feature decisions** remain planned. Continue source
+reconciliation separately; no new capture is required for this analysis.
+
+On `DEV-9`, the browser calculation was checked against independent SQL for
+307 completed weeks. On 248 common unflagged targets, previous-week WAPE was
+21.96% and same-financial-week-last-year WAPE was 27.61%. These are
+development scores on this capture, not historical as-of or holdout results;
+they use different target weeks from the multi-model comparison below.
 
 ### First learned forecast: development comparison
 

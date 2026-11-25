@@ -70,7 +70,7 @@ Forecasts will not automatically change live planning.
 
 **Available:** AI Tools overview, Prepare data with saved VA05 observations
 and record-level quality review, Product categories, weekly-intake review,
-unusual-week analysis, and development model comparisons.
+unusual-week analysis, multi-year time patterns and lags, and development model comparisons.
 
 **Investigated:** existing importers, a local sales-order extract, and a bounded
 live `bskyVA05v1` response on 12 November 2026. The checks found repeated release
@@ -122,8 +122,22 @@ the current extract's weekly flag. The saved observations and CLI totals remain
 unchanged. An explained statistical spike likewise remains recorded; do not
 automatically split or remove it.
 
-The next EDA steps are **Time patterns and lags**, then **Feature decisions**;
-those remain planned.
+**Time patterns and lags** shows completed weekly values by financial year on
+a common scale, with gaps, quality flags and configured possible shutdowns
+visible. Select a week to investigate its releases and record an explanation.
+The lag table excludes partial, unavailable and quality-flagged weeks and pairs
+observations by exact calendar distance, including across year boundaries.
+Its outlier sensitivity uses retrospective per-year IQR candidates; neither
+view changes the saved extract.
+
+The same-financial-week-last-year benchmark compares with previous week on
+identical eligible targets. It matches financial week numbers, not a fixed
+52-week offset; week 53 has no counterpart in a 52-week year. Both methods
+require complete, observed, unflagged target and predictor weeks. Scores are
+development evidence from the current capture, not historical as-of or holdout
+results. The shutdown labels are not a complete historical closure calendar.
+Record broader findings and candidate feature ideas in the extract's
+append-only business notes. **Feature decisions** remains planned.
 Select anywhere on a navigation card to open it.
 Forecasting and monitoring are separate planned stages.
 

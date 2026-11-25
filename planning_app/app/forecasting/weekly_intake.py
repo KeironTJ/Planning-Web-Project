@@ -5,7 +5,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
-from statistics import median, quantiles
+from statistics import correlation, median, quantiles
 
 
 WEEK = timedelta(days=7)
@@ -126,6 +126,88 @@ class WeeklyDistribution:
     outlier_weeks: tuple[int, ...]
     unflagged_statistics: DistributionStatistics | None
     comparisons: tuple[DistributionComparison, ...]
+
+
+@dataclass(frozen=True)
+class LagRelationship:
+    lag: int
+    pairs: int
+    correlation: float | None
+
+
+@dataclass(frozen=True)
+class SeasonalBenchmark:
+    target: IntakeWeek
+    previous_week: IntakeWeek
+    previous_year: IntakeWeek
+
+
+@dataclass(frozen=True)
+class Benchmark:
+    pairs: int
+    mae: Decimal
+    wape: Decimal | None
+    bias: Decimal
+
+
+def score_forecasts(pairs: list[tuple[Decimal, Decimal]]) -> Benchmark | None:
+    """Score (forecast, actual) pairs with positive bias denoting overforecast."""
+    if not pairs:
+        return None
+    errors = [forecast - actual for forecast, actual in pairs]
+    actual_volume = sum(abs(actual) for _, actual in pairs)
+    absolute_error = sum(map(abs, errors))
+    return Benchmark(
+        len(errors), absolute_error / len(errors),
+        100 * absolute_error / actual_volume if actual_volume else None,
+        sum(errors) / len(errors),
+    )
+
+
+def summarize_time_patterns(
+    weeks: Sequence[IntakeWeek],
+) -> tuple[list[LagRelationship], list[LagRelationship], list[SeasonalBenchmark]]:
+    """Compare only complete, unflagged observations, preserving calendar gaps."""
+    usable = {
+        week.start: week for week in weeks
+        if not week.partial and week.net_gbp is not None and not week.exceptions
+    }
+    years: defaultdict[int, list[IntakeWeek]] = defaultdict(list)
+    for week in weeks:
+        years[financial_year(week.start)].append(week)
+    outliers = {
+        week.start for year_weeks in years.values()
+        for number in summarize_weekly_distribution(year_weeks).outlier_weeks
+        for week in year_weeks if week.number == number
+    }
+
+    def relationships(excluded: set[date]) -> list[LagRelationship]:
+        values = {
+            start: week.net_gbp for start, week in usable.items()
+            if start not in excluded and week.net_gbp is not None
+        }
+        results = []
+        for lag in (1, 2, 4, 52):
+            pairs = [
+                (float(value), float(values[start - lag * WEEK]))
+                for start, value in values.items() if start - lag * WEEK in values
+            ]
+            coefficient = None
+            if len(pairs) >= 3:
+                actual, prior = zip(*pairs)
+                if len(set(actual)) > 1 and len(set(prior)) > 1:
+                    coefficient = correlation(actual, prior)
+            results.append(LagRelationship(lag, len(pairs), coefficient))
+        return results
+
+    by_year_week = {(financial_year(week.start), week.number): week for week in usable.values()}
+    comparisons = []
+    for target in sorted(usable.values(), key=lambda week: week.start):
+        previous = usable.get(target.start - WEEK)
+        prior_year = by_year_week.get((financial_year(target.start) - 1, target.number))
+        if previous is not None and prior_year is not None and prior_year.start < target.start:
+            comparisons.append(SeasonalBenchmark(target, previous, prior_year))
+    return relationships(set()), relationships(outliers), comparisons
 
 
 def available_mix_axes(fields: Iterable[str]) -> tuple[str, ...]:

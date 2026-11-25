@@ -42,6 +42,9 @@ from app.forecasting.weekly_intake import (
     REQUIRED_FIELDS,
     IntakeWeek,
     explore_weekly_intake,
+    financial_year_start,
+    score_forecasts,
+    summarize_time_patterns,
     summarize_weekly_distribution,
 )
 from app.sales.orders.models import SalesOrder
@@ -391,6 +394,82 @@ def test_weekly_distribution_separates_outliers_flags_and_exclusions():
         (5, Decimal(220), Decimal(30)),
         (4, Decimal(25), Decimal(25)),
     ]
+
+
+def test_time_patterns_preserve_gaps_and_compare_matching_financial_weeks():
+    def week(year, number, value, *, partial=False, exceptions=0):
+        return IntakeWeek(
+            number=number, start=financial_year_start(year) + timedelta(weeks=number - 1),
+            partial=partial, possible_shutdown=False,
+            net_gbp=Decimal(value) if value is not None else None, exceptions=exceptions,
+        )
+
+    weeks = [
+        week(2024, 1, 10), week(2024, 2, 20), week(2024, 3, 30),
+        week(2024, 4, None), week(2024, 5, 50), week(2024, 52, 70), week(2024, 53, 80),
+        week(2025, 1, 100), week(2025, 2, 200), week(2025, 3, 300, exceptions=1),
+        week(2025, 4, 400, partial=True),
+    ]
+    lags, _, comparisons = summarize_time_patterns(weeks)
+
+    assert lags[0].pairs == 5
+    assert [(row.target.start, row.previous_year.start) for row in comparisons] == [
+        (date(2025, 1, 6), date(2024, 1, 1)),
+        (date(2025, 1, 13), date(2024, 1, 8)),
+    ]
+    assert not any(row.target.number == 53 for row in comparisons)
+    previous = score_forecasts([(row.previous_week.net_gbp, row.target.net_gbp) for row in comparisons])
+    seasonal = score_forecasts([(row.previous_year.net_gbp, row.target.net_gbp) for row in comparisons])
+    assert (previous.mae, previous.wape, previous.bias) == (Decimal(60), Decimal(40), Decimal(-60))
+    assert (seasonal.mae, seasonal.wape, seasonal.bias) == (Decimal(135), Decimal(90), Decimal(-135))
+
+
+def test_time_pattern_lags_report_outlier_sensitivity_and_constant_values():
+    weeks = [
+        IntakeWeek(number=index, start=date(2026, 1, 5) + timedelta(weeks=index - 1),
+                   partial=False, possible_shutdown=False, net_gbp=Decimal(value))
+        for index, value in enumerate([10, 10, 10, 1000, 10, 10, 10], start=1)
+    ]
+    lags, without_outliers, _ = summarize_time_patterns(weeks)
+    assert lags[0].pairs == 6 and lags[0].correlation is not None
+    assert without_outliers[0].pairs == 4 and without_outliers[0].correlation is None
+
+
+def test_time_patterns_page_shows_history_and_common_benchmark(client, planner_user, db_session):
+    extract = ForecastDataExtract(
+        captured_at=datetime(2026, 1, 21, tzinfo=timezone.utc),
+        captured_by_id=planner_user.id, source="bskyVA05v1", rules_version="test",
+        row_count=4, content_hash="test",
+        source_settings={"capture_environment": "testing", "fields": list(REQUIRED_FIELDS)},
+        summary={},
+    )
+    db_session.add(extract)
+    db_session.flush()
+    for index, (order_date, amount) in enumerate([
+        ("2025-01-06", "10"), ("2025-01-13", "20"),
+        ("2025-12-29", "30"), ("2026-01-05", "40"),
+    ], start=1):
+        db_session.add(ForecastDataRecord(
+            extract_id=extract.id, source_row_id=index,
+            data={"order_num": index, "order_line": 1, "rel_num": 1, "assembly_seq": 0,
+                  "order_date": order_date, "release_price_gbp": amount, "void_line": False},
+            findings=[], has_findings=False,
+        ))
+    db_session.commit()
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    response = client.get(f"{PAGE}/extracts/{extract.id}/time-patterns")
+
+    assert response.status_code == 200
+    html = " ".join(response.get_data(as_text=True).split())
+    assert "SOI 2025" in html and "SOI 2026" in html
+    assert "Unavailable (not zero)" in html
+    assert "Same financial week last year" in html
+    assert "Inspect 1 common target weeks" in html
+    assert "not what was known at each historical cutoff" in html
+    assert f"/extracts/{extract.id}/weeks/1?year=2026" in html
+    assert ForecastDataRecord.query.filter_by(extract_id=extract.id).count() == 4
+    assert ForecastDataNote.query.filter_by(extract_id=extract.id).count() == 0
 
 
 def test_distribution_page_renders_read_only_saved_extract_comparisons(
@@ -1584,7 +1663,7 @@ def test_ai_tools_workflow_header_tracks_stage_and_preserves_extract(
         (saved + "/weekly-intake", "Explore intake", True),
         (saved + "/distribution", "Explore intake", True),
         (saved + "/weeks/1", "Explore intake", True),
-        (f"/ai-tools/workflow/time-patterns?extract_id={extract.id}", "Explore intake", True),
+        (saved + "/time-patterns", "Explore intake", True),
         (f"/ai-tools/workflow/experiments?extract_id={extract.id}", "Compare models", True),
         ("/ai-tools/workflow/forecasts", None, False),
         ("/ai-tools/workflow/monitoring", None, False),

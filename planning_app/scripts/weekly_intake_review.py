@@ -17,12 +17,14 @@ from app.forecasting.weekly_intake import (
     MIX_AXES,
     REQUIRED_FIELDS,
     RULES,
+    Benchmark,
     IntakeWeek,
     WeeklyIntake,
     available_mix_axes,
     explore_intake_history,
     explore_weekly_intake,
     financial_year,
+    score_forecasts,
     summarize_mix,
     summarize_weekly_distribution,
 )
@@ -31,14 +33,6 @@ from app.forecasting.weekly_intake import (
 SQL_PATH = Path(__file__).with_name("verify_weekly_intake.sql")
 UNIT = Decimal("0.0001")
 EXPERIMENT_MIN_TRAINING_PAIRS = 8
-
-
-@dataclass(frozen=True)
-class Benchmark:
-    pairs: int
-    mae: Decimal
-    wape: Decimal | None
-    bias: Decimal
 
 
 @dataclass(frozen=True)
@@ -163,20 +157,6 @@ def describe_weekly_intake(weeks: list[IntakeWeek]) -> list[str]:
         lines.append("Lag sensitivity without IQR outlier candidates:")
         report_lags({week: value for week, value in observed.items() if week not in outliers})
     return lines
-
-
-def score_forecasts(pairs: list[tuple[Decimal, Decimal]]) -> Benchmark | None:
-    """Score (forecast, actual) pairs with positive bias denoting overforecast."""
-    if not pairs:
-        return None
-    errors = [forecast - actual for forecast, actual in pairs]
-    actual_volume = sum(abs(actual) for _, actual in pairs)
-    absolute_error = sum(map(abs, errors))
-    return Benchmark(
-        len(errors), absolute_error / len(errors),
-        100 * absolute_error / actual_volume if actual_volume else None,
-        sum(errors) / len(errors),
-    )
 
 
 def previous_week_benchmark(

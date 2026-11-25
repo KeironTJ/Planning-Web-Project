@@ -14,7 +14,7 @@
   {% set active_stage = 'readiness' %}
 {% elif endpoint == 'forecasting.model_classifications' %}
   {% set active_stage = 'categories' %}
-{% elif endpoint in ('forecasting.eda', 'forecasting.weekly_intake', 'forecasting.weekly_distribution', 'forecasting.investigate_week') %}
+{% elif endpoint in ('forecasting.eda', 'forecasting.weekly_intake', 'forecasting.weekly_distribution', 'forecasting.time_patterns', 'forecasting.investigate_week') %}
   {% set active_stage = 'eda' %}
 {% elif endpoint == 'forecasting.workflow_todo' %}
   {% set active_stage = 'eda' if eda_stage else request.view_args.stage %}

@@ -52,8 +52,8 @@ from .services import (
 from .weekly_intake import (
     CALENDAR, END, FIRST_WEEK, MIX_AXES, REQUIRED_FIELDS, RULES, WEEK,
     IntakeWeek, available_mix_axes, explore_intake_history, explore_weekly_intake,
-    financial_month, financial_year, financial_year_start, summarize_mix,
-    summarize_weekly_distribution,
+    financial_month, financial_year, financial_year_start, score_forecasts, summarize_mix,
+    summarize_time_patterns, summarize_weekly_distribution,
 )
 
 
@@ -189,6 +189,8 @@ def workflow_todo(stage: str):
         abort(404)
     if stage == "experiments":
         return _experiment_page()
+    if stage == "time-patterns" and request.args.get("extract_id", type=int) is not None:
+        return redirect(url_for("forecasting.time_patterns", extract_id=request.args.get("extract_id", type=int)))
     title, purpose, tasks = WORKFLOW_TODO[stage]
     extract_id = request.args.get("extract_id", type=int)
     return render_template(
@@ -196,6 +198,64 @@ def workflow_todo(stage: str):
         eda_stage=stage in {"distribution", "time-patterns", "feature-decisions"},
         extract=ForecastDataExtract.query.get_or_404(extract_id) if extract_id is not None else None,
         extract_id=extract_id,
+    )
+
+
+@forecasting_bp.route("/data-readiness/extracts/<int:extract_id>/time-patterns")
+@login_required
+@permission_required("view_planning")
+def time_patterns(extract_id: int):
+    """Explore the saved weekly history without changing it."""
+    extract = ForecastDataExtract.query.get_or_404(extract_id)
+    if not REQUIRED_FIELDS.issubset(extract.source_settings.get("fields", ())):
+        abort(400, description="This saved extract lacks required weekly GBP fields.")
+    records = ForecastDataRecord.query.filter_by(extract_id=extract.id).with_entities(
+        ForecastDataRecord.data,
+    ).yield_per(500)
+    profile = explore_intake_history(
+        (data for (data,) in records), extract.captured_at.date(), period=extract.order_period,
+    )
+    lags, sensitivity, comparisons = summarize_time_patterns(profile.weeks)
+    years = {}
+    for week in profile.weeks:
+        years.setdefault(financial_year(week.start), []).append(week)
+
+    chart_years = {}
+    values = [week.net_gbp for week in profile.weeks if not week.partial and week.net_gbp is not None]
+    if values:
+        low, high = min(values), max(values)
+        span = high - low
+        for year, weeks in years.items():
+            points = []
+            for week in weeks:
+                if week.partial or week.net_gbp is None:
+                    continue
+                relative = (week.net_gbp - low) / span if span else Decimal("0.5")
+                points.append({
+                    "week": week,
+                    "x": round(70 + (week.number - 1) * 10, 1),
+                    "y": round(160 - float(relative) * 120, 1),
+                })
+            chart_years[year] = points
+    else:
+        low = high = None
+
+    previous_pairs = []
+    seasonal_pairs = []
+    for row in comparisons:
+        assert row.target.net_gbp is not None
+        assert row.previous_week.net_gbp is not None
+        assert row.previous_year.net_gbp is not None
+        previous_pairs.append((row.previous_week.net_gbp, row.target.net_gbp))
+        seasonal_pairs.append((row.previous_year.net_gbp, row.target.net_gbp))
+    scores = {
+        "Previous week": score_forecasts(previous_pairs),
+        "Same financial week last year": score_forecasts(seasonal_pairs),
+    }
+    return render_template(
+        "forecasting/time_patterns.html", title="Time patterns and lags",
+        extract=extract, years=years, chart_years=chart_years, low=low, high=high,
+        lags=lags, sensitivity=sensitivity, comparisons=comparisons, scores=scores, rules=RULES,
     )
 
 

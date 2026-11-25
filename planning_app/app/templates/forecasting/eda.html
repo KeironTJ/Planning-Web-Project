@@ -27,7 +27,8 @@
     {% set tools = [
       ('Weekly intake', 'See how net order value changes week by week.', url_for('forecasting.weekly_intake', extract_id=extract.id), true),
       ('Product and customer mix', 'See which products and customer groups contribute.', url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor='mix-heading'), captured_mix),
-      ('Unusual weeks', 'Investigate high or low weeks and compare their impact.', url_for('forecasting.weekly_distribution', extract_id=extract.id), true)
+      ('Unusual weeks', 'Investigate high or low weeks and compare their impact.', url_for('forecasting.weekly_distribution', extract_id=extract.id), true),
+      ('Time patterns and lags', 'Compare financial years, lag relationships and seasonal benchmarks.', url_for('forecasting.time_patterns', extract_id=extract.id), true)
     ] %}
     {% for name, description, href, available in tools %}
     <div class="col">
@@ -41,7 +42,7 @@
     </div>
     {% endfor %}
   </div>
-  <p class="small text-muted">Charts and mix currently cover SOI 2026. Coverage review includes other years in the saved period.</p>
+  <p class="small text-muted">Weekly intake, mix and unusual weeks cover SOI 2026. Coverage and time patterns include other years in the saved period.</p>
   <a href="{{ url_for('forecasting.workflow_todo', stage='experiments', extract_id=extract.id) }}">Next: compare models <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
   {% endif %}
   {% if extract %}
@@ -52,7 +53,6 @@
       <p class="small text-muted">{{ captured_mix | length }} of {{ mix_axes | length }} dimensions captured.</p>
       <a class="small d-inline-block mb-2" href="{{ url_for('forecasting.data_extract', extract_id=extract.id) }}">Review extract findings</a>
       <ul class="small mb-0">
-        <li><a href="{{ url_for('forecasting.workflow_todo', stage='time-patterns', extract_id=extract.id) }}">Time patterns and lags</a> &middot; planned</li>
         <li><a href="{{ url_for('forecasting.workflow_todo', stage='feature-decisions', extract_id=extract.id) }}">Feature decisions</a> &middot; planned</li>
       </ul>
     </div>

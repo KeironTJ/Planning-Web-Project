@@ -175,7 +175,7 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint in ('forecasting.eda', 'forecasting.weekly_intake', 'forecasting.weekly_distribution', 'forecasting.investigate_week') or (request.endpoint == 'forecasting.workflow_todo' and request.view_args.stage in ('distribution', 'time-patterns', 'feature-decisions')) %}active{% endif %}"
+                            <a class="nav-link {% if request.endpoint in ('forecasting.eda', 'forecasting.weekly_intake', 'forecasting.weekly_distribution', 'forecasting.time_patterns', 'forecasting.investigate_week') or (request.endpoint == 'forecasting.workflow_todo' and request.view_args.stage in ('distribution', 'time-patterns', 'feature-decisions')) %}active{% endif %}"
                                href="{{ url_for('forecasting.eda', extract_id=ai_selected_id) }}">
                                 <i class="bi bi-bar-chart me-2"></i>Explore intake
                             </a>
