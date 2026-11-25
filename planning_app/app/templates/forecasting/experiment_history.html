@@ -1,0 +1,96 @@
+{% extends "forecasting/_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% macro score_cells(score) %}
+{% if score %}
+<td class="text-end">{{ score.pairs }}</td>
+<td class="text-end">{{ '{:,.2f}'.format(score.mae) }}</td>
+<td class="text-end">{{ '{:.2f}%'.format(score.wape) if score.wape is not none else 'Unavailable' }}</td>
+<td class="text-end">{{ '{:+,.2f}'.format(score.bias) }}</td>
+{% else %}<td colspan="4">No forecasts available</td>{% endif %}
+{% endmacro %}
+{% block tool_page_header %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom pt-2 pb-2 mb-3">
+  <h1 class="h3 mb-0">Performance history</h1>
+  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.workflow_todo', stage='experiments') }}">Back to model comparison</a>
+</div>
+{% endblock %}
+{% block content %}
+<div class="container-fluid pb-4">
+  <div class="alert alert-warning">Development comparisons only: these are not issued forecasts or an untouched holdout.</div>
+  {% if not entries %}
+  <p>No completed comparisons have been saved yet. Run a model comparison to start the history.</p>
+  {% else %}
+  <p>Select two saved runs and methods. They may be the same run if you want to compare two methods.</p>
+  <form method="get" class="card card-body mb-3">
+    <div class="row g-2">
+      {% for name, label, chosen, chosen_model, available_models in [
+        ('baseline', 'Earlier / baseline', baseline, baseline_model, comparison.left_models),
+        ('candidate', 'Later / candidate', candidate, candidate_model, comparison.right_models)
+      ] %}
+      <div class="col-lg-6">
+        <label class="form-label" for="{{ name }}">{{ label }} run</label>
+        <select class="form-select mb-2" id="{{ name }}" name="{{ name }}">
+          {% for item, extract in entries %}
+          <option value="{{ item.id }}"{% if chosen[0].id == item.id %} selected{% endif %}>Run {{ item.id }} · {{ extract.reference }} · {{ item.requested_at.strftime('%d/%m/%Y %H:%M:%S') }} UTC</option>
+          {% endfor %}
+        </select>
+        <label class="form-label" for="{{ name }}_model">{{ label }} method</label>
+        <select class="form-select" id="{{ name }}_model" name="{{ name }}_model">
+          {% for key, model_label in comparison.all_models.items() %}
+          <option value="{{ key }}"{% if key == chosen_model %} selected{% endif %}>{{ model_label }}{% if key not in available_models %} (not in selected run){% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+      <div class="col-lg-6">
+        <label class="form-label" for="scenario">Sensitivity for both runs</label>
+        <select class="form-select" id="scenario" name="scenario">
+          {% for label in scenarios %}<option value="{{ label }}"{% if label == selected_scenario %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">Compare</button></div>
+    </div>
+  </form>
+
+  <section class="card mb-3"><div class="card-body">
+    <h2 class="h5">Saved evidence</h2>
+    <p class="small text-muted">Open either run for its settings, source hashes, package versions, predictions and individual errors. A matching extract hash does not prove that modelling code or settings are identical.</p>
+    <ul class="mb-0">
+      {% for label, item, model in [('Baseline', baseline, baseline_model), ('Candidate', candidate, candidate_model)] %}
+      <li><strong>{{ label }}:</strong> <a href="{{ url_for('forecasting.workflow_todo', stage='experiments', extract_id=item[1].id, run_id=item[0].id) }}">Run {{ item[0].id }} · {{ item[1].reference }}</a>
+        · {{ comparison.all_models[model] }} · extract SHA-256 <code class="text-break">{{ item[0].extract_hash }}</code></li>
+      {% endfor %}
+    </ul>
+  </div></section>
+
+  <section class="card mb-3"><div class="card-body">
+    <h2 class="h5">Results on matching target weeks</h2>
+    <p class="small text-muted">Only weeks present in both runs with the same actual GBP are scored. A shared target does not guarantee identical training data, model settings or code; check the saved evidence before attributing a difference to an improvement.</p>
+    <p class="small">Shared dates: {{ comparison.shared_count }} · Different actual values: {{ comparison.changed_actuals }} excluded · Baseline-only weeks: {{ comparison.baseline_only }} · Candidate-only weeks: {{ comparison.candidate_only }}.
+      {% if comparison.same_extract %}Same saved extract hash.{% else %}Different saved extract hashes; source observations or coverage may also differ.{% endif %}</p>
+    {% if not comparison.same_rules %}
+    <div class="alert alert-warning">The saved analysis rules differ, so matched scores are not compared. Inspect the individual runs.</div>
+    {% else %}
+    <div class="table-responsive"><table class="table table-sm table-striped">
+      <thead><tr><th>Selection</th><th class="text-end">Weeks</th><th class="text-end">Average error GBP</th><th class="text-end">WAPE</th><th class="text-end">Bias GBP</th></tr></thead>
+      <tbody>
+        <tr><th>Baseline</th>{{ score_cells(comparison.baseline_common) }}</tr>
+        <tr><th>Candidate</th>{{ score_cells(comparison.candidate_common) }}</tr>
+      </tbody>
+    </table></div>
+    {% endif %}
+  </div></section>
+  <section class="card"><div class="card-body">
+    <h2 class="h5">Each run's full selected results</h2>
+    <p class="small text-muted">These may cover different weeks or actual values. Do not compare their headline scores without checking the matching-target results above.</p>
+    <div class="table-responsive"><table class="table table-sm table-striped">
+      <thead><tr><th>Selection</th><th class="text-end">Weeks</th><th class="text-end">Average error GBP</th><th class="text-end">WAPE</th><th class="text-end">Bias GBP</th></tr></thead>
+      <tbody>
+        <tr><th>Baseline</th>{{ score_cells(comparison.baseline_all) }}</tr>
+        <tr><th>Candidate</th>{{ score_cells(comparison.candidate_all) }}</tr>
+      </tbody>
+    </table></div>
+  </div></section>
+  {% endif %}
+</div>
+{% endblock %}

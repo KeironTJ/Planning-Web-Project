@@ -17,6 +17,7 @@ from sqlalchemy.orm import lazyload
 
 from app.core.decorators import permission_required
 from app.core.exceptions import NotFoundError, ValidationError
+from app.extensions import db
 
 from . import forecasting_bp
 from .data_quality import (
@@ -331,6 +332,13 @@ _EXPERIMENT_MODELS = {
 }
 
 
+def _experiment_models(run):
+    models = dict(_EXPERIMENT_MODELS)
+    if "boosting_week" in run.result["settings"]:
+        models["gradient_boosting_week"] = "Gradient boosting + financial week"
+    return models
+
+
 def _experiment_page():
     from scripts.weekly_intake_review import score_forecasts
 
@@ -352,9 +360,7 @@ def _experiment_page():
     scenario = request.args.get("scenario", default=0, type=int)
     model = request.args.get("model", "arima")
     year = request.args.get("year", type=int)
-    models = dict(_EXPERIMENT_MODELS)
-    if run and run.status == "completed" and "boosting_week" in run.result["settings"]:
-        models["gradient_boosting_week"] = "Gradient boosting + financial week"
+    models = _experiment_models(run) if run and run.status == "completed" else dict(_EXPERIMENT_MODELS)
     if scenario is None or not 0 <= scenario < 4 or model not in models:
         abort(400, description="Choose a valid model and sensitivity.")
     rows = []
@@ -413,6 +419,92 @@ def _experiment_page():
     )
 
 
+@forecasting_bp.get("/experiments/history")
+@login_required
+@permission_required("view_planning")
+def experiment_history():
+    """Compare saved development runs on their common, unchanged target actuals."""
+    entries = (
+        db.session.query(ForecastExperiment, ForecastDataExtract)
+        .join(ForecastDataExtract, ForecastExperiment.extract_id == ForecastDataExtract.id)
+        .filter(ForecastExperiment.status == "completed")
+        .order_by(ForecastExperiment.id.desc()).all()
+    )
+    by_id = {run.id: (run, extract) for run, extract in entries}
+    selections = []
+    for name, default in (("baseline", entries[1] if len(entries) > 1 else (entries[0] if entries else None)),
+                          ("candidate", entries[0] if entries else None)):
+        if name in request.args:
+            selected_id = request.args.get(name, type=int)
+            if selected_id not in by_id:
+                abort(400, description="Choose a completed saved run.")
+            selections.append(by_id[selected_id])
+        else:
+            selections.append(default)
+    baseline, candidate = selections
+    available_scenarios = []
+    comparison = None
+    selected_scenario = request.args.get("scenario")
+    baseline_model = request.args.get("baseline_model", "gradient_boosting")
+    candidate_model = request.args.get("candidate_model", "gradient_boosting")
+    if baseline and candidate:
+        left, right = baseline[0], candidate[0]
+        all_models = {**_EXPERIMENT_MODELS, "gradient_boosting_week": "Gradient boosting + financial week"}
+        left_models, right_models = _experiment_models(left), _experiment_models(right)
+        if baseline_model not in all_models or candidate_model not in all_models:
+            abort(400, description="Choose a model available in each saved run.")
+        left_scenarios = {item["label"]: item for item in left.result["scenarios"]}
+        right_scenarios = {item["label"]: item for item in right.result["scenarios"]}
+        available_scenarios = [label for label in left_scenarios if label in right_scenarios]
+        if selected_scenario is None:
+            selected_scenario = (
+                "Without quality-flagged weeks"
+                if "Without quality-flagged weeks" in available_scenarios
+                else (available_scenarios[0] if available_scenarios else None)
+            )
+        if not available_scenarios:
+            abort(400, description="These runs have no sensitivity in common.")
+        if selected_scenario not in available_scenarios:
+            abort(400, description="Choose a sensitivity available in both saved runs.")
+        left_rows = left_scenarios[selected_scenario]["forecasts"]
+        right_rows = right_scenarios[selected_scenario]["forecasts"]
+        left_by_week = {row["week_start"]: row for row in left_rows}
+        right_by_week = {row["week_start"]: row for row in right_rows}
+        if len(left_by_week) != len(left_rows) or len(right_by_week) != len(right_rows):
+            raise ValueError("A saved experiment contains duplicate target weeks.")
+        shared = sorted(left_by_week.keys() & right_by_week.keys())
+        common = [
+            week for week in shared
+            if Decimal(left_by_week[week]["actual"]) == Decimal(right_by_week[week]["actual"])
+        ]
+        same_rules = left.result["analysis_rules"] == right.result["analysis_rules"]
+        def score(rows, model, models):
+            if model not in models:
+                return None
+            return score_forecasts([(Decimal(row[model]), Decimal(row["actual"])) for row in rows])
+        comparison = {
+            "baseline_all": score(left_rows, baseline_model, left_models),
+            "candidate_all": score(right_rows, candidate_model, right_models),
+            "baseline_common": score([left_by_week[week] for week in common], baseline_model, left_models) if same_rules else None,
+            "candidate_common": score([right_by_week[week] for week in common], candidate_model, right_models) if same_rules else None,
+            "shared_count": len(shared),
+            "changed_actuals": len(shared) - len(common),
+            "baseline_only": len(left_by_week.keys() - right_by_week.keys()),
+            "candidate_only": len(right_by_week.keys() - left_by_week.keys()),
+            "same_rules": same_rules,
+            "same_extract": left.extract_hash == right.extract_hash,
+            "left_models": left_models,
+            "right_models": right_models,
+            "all_models": all_models,
+        }
+    return render_template(
+        "forecasting/experiment_history.html", title="Performance history",
+        entries=entries, baseline=baseline, candidate=candidate, comparison=comparison,
+        scenarios=available_scenarios, selected_scenario=selected_scenario,
+        baseline_model=baseline_model, candidate_model=candidate_model,
+    )
+
+
 @forecasting_bp.post("/experiments/<int:extract_id>/start")
 @login_required
 @permission_required("view_planning")
@@ -432,7 +524,6 @@ def experiment_start(extract_id: int):
         launch_experiment(current_app._get_current_object(), run.id)
     except RuntimeError:
         current_app.logger.exception("Could not start forecast experiment %s", run.id)
-        from app.extensions import db
         run.status = "failed"
         run.active_key = None
         run.error = "Could not start the background worker. Check application logs."

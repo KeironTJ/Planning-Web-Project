@@ -30,7 +30,7 @@ def dependencies_available() -> bool:
     return all(importlib.util.find_spec(name) is not None for name in ("sklearn", "statsmodels"))
 
 
-def start_experiment(extract_id: int, identity: str, user_id: int) -> ForecastExperiment:
+def start_experiment(extract_id: int, identity: str, user_id: int | None) -> ForecastExperiment:
     extract = _lock_extract(extract_id, identity)
     if not REQUIRED_FIELDS.issubset(extract.source_settings.get("fields", ())):
         db.session.rollback()

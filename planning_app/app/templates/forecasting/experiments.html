@@ -3,7 +3,10 @@
 {% block tool_page_header %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom pt-2 pb-2 mb-3">
   <h1 class="h3 mb-0">Compare models</h1>
-  <span class="badge text-bg-warning">Development only</span>
+  <div class="d-flex gap-2 align-items-center">
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('forecasting.experiment_history') }}">Performance history</a>
+    <span class="badge text-bg-warning">Development only</span>
+  </div>
 </div>
 {% endblock %}
 {% block content %}

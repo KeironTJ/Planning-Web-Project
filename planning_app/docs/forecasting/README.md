@@ -173,6 +173,19 @@ Results, extract hash, settings, package versions and hashes of the source
 files observed during execution are saved. These hashes are not a code revision,
 and no fitted model is saved. Earlier CLI results are not imported.
 
+Open **Performance history** from **Compare models** to compare two saved
+completed runs, including runs from different extracts. Choose a method for
+each side and a shared sensitivity. The matching-target table scores only
+weeks present in both runs with the same actual GBP; changed actuals and
+non-overlapping weeks are counted separately. If analysis rules differ, the
+matching-target scores are not shown. The full-run scores are also shown for
+context but may cover different weeks. Follow the run links to inspect each
+extract hash, settings, package versions and code hashes before attributing a
+difference to a model change: matching actuals do not establish that the
+training data or model configuration were identical. Runs are development
+evidence, not a prospective holdout. The page can also compare two methods in
+one run, and reports when an older run lacks a selected method.
+
 Only one experiment can be active across application workers. A background
 thread runs the comparison and may be interrupted by a worker restart; there
 is no automatic retry. After six hours, starting another run marks the old

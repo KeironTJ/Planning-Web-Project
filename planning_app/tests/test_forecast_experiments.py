@@ -137,6 +137,76 @@ def test_failed_or_interrupted_runs_release_the_cross_worker_lock(
     assert db_session.get(ForecastExperiment, third.id).status == "queued"
 
 
+def test_performance_history_scores_only_common_unchanged_actuals(
+    db_session, client, planner_user, viewer_user,
+):
+    baseline_extract = saved_extract(db_session)
+    candidate_extract = saved_extract(db_session)
+    candidate_extract.content_hash = "b" * 64
+    before = sample_result()
+    after = sample_result()
+    for scenario in after["scenarios"]:
+        scenario["forecasts"] = [
+            {**scenario["forecasts"][0], "actual": "120"},
+            {**scenario["forecasts"][1], "previous_week": "180"},
+            {**scenario["forecasts"][1], "week_start": "2023-01-02", "actual": "300"},
+        ]
+    now = datetime.now(timezone.utc)
+    first = ForecastExperiment(
+        extract_id=baseline_extract.id, extract_hash=baseline_extract.content_hash,
+        requested_at=now, finished_at=now, status="completed", result=before,
+    )
+    second = ForecastExperiment(
+        extract_id=candidate_extract.id, extract_hash=candidate_extract.content_hash,
+        requested_at=now, finished_at=now, status="completed", result=after,
+    )
+    db_session.add_all([first, second])
+    db_session.commit()
+    endpoint = "/ai-tools/experiments/history"
+    assert client.get(endpoint).status_code == 302
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    response = client.get(endpoint, query_string={
+        "baseline": first.id, "candidate": second.id, "scenario": "No flags",
+        "baseline_model": "previous_week", "candidate_model": "previous_week",
+    })
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Shared dates: 2" in html and "Different actual values: 1 excluded" in html
+    assert "Candidate-only weeks: 1" in html and "Different saved extract hashes" in html
+    matched = html.split("Results on matching target weeks", 1)[1].split("</section>", 1)[0]
+    assert "5.00%" in matched and "10.00%" in matched
+    assert f"run_id={first.id}" in html and f"run_id={second.id}" in html
+    assert client.get(endpoint, query_string={"baseline": 999999}).status_code == 400
+    assert client.get(endpoint, query_string={"baseline_model": "invalid"}).status_code == 400
+    assert client.get(endpoint, query_string={"scenario": "invalid"}).status_code == 400
+
+    unavailable = client.get(endpoint, query_string={
+        "baseline_model": "gradient_boosting_week",
+    }).get_data(as_text=True)
+    assert "not in selected run" in unavailable and "No forecasts available" in unavailable
+    after["analysis_rules"] = "different"
+    second.result = after
+    db_session.commit()
+    assert "saved analysis rules differ" in client.get(endpoint).get_data(as_text=True)
+
+
+def test_performance_history_empty_and_single_run(db_session, client, viewer_user):
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    endpoint = "/ai-tools/experiments/history"
+    assert "No completed comparisons" in client.get(endpoint).get_data(as_text=True)
+    extract = saved_extract(db_session)
+    now = datetime.now(timezone.utc)
+    run = ForecastExperiment(
+        extract_id=extract.id, extract_hash=extract.content_hash,
+        requested_at=now, finished_at=now, status="completed", result=sample_result(),
+    )
+    db_session.add(run)
+    db_session.commit()
+    response = client.get(endpoint)
+    assert response.status_code == 200
+    assert "Same saved extract hash" in response.get_data(as_text=True)
+
+
 def test_real_model_run_saves_the_same_predictions_as_cli(app, db_session, planner_user):
     pytest.importorskip("sklearn", reason="optional forecasting dependencies are not installed")
     pytest.importorskip("statsmodels", reason="optional forecasting dependencies are not installed")
