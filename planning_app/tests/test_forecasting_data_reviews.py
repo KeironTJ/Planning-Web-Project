@@ -4,8 +4,10 @@ import json
 import runpy
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from fractions import Fraction
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -44,10 +46,12 @@ from app.forecasting.weekly_intake import (
 from app.sales.orders.models import SalesOrder
 from scripts.weekly_intake_review import (
     ForecastComparison,
+    compare_lag_regression,
     compare_forecasts,
     describe_mix,
     describe_weekly_intake,
     previous_week_benchmark,
+    report_lag_experiment,
     review,
 )
 
@@ -193,6 +197,143 @@ def test_forecast_comparison_uses_prior_weeks_on_a_shared_window():
     assert compare_forecasts(weeks, lookback=4, skip_exceptions=True) == []
     with pytest.raises(ValueError, match="at least two"):
         compare_forecasts(weeks, lookback=1, skip_exceptions=False)
+
+
+def test_weekly_review_verifies_multi_year_history_with_gap_and_partial_weeks(tmp_path):
+    database = tmp_path / "capture.db"
+    output = tmp_path / "history.csv"
+    row = {
+        "order_num": 12, "order_line": 1, "rel_num": 1, "assembly_seq": 0,
+        "order_date": "2025-12-22", "release_price_gbp": "100", "void_line": False,
+    }
+    with closing(sqlite3.connect(database)) as conn:
+        conn.executescript("""
+            CREATE TABLE forecast_data_extracts (
+                id, captured_at, rules_version, content_hash, row_count, source_settings, source
+            );
+            CREATE TABLE forecast_data_records (extract_id, data);
+        """)
+        conn.execute(
+            "INSERT INTO forecast_data_extracts VALUES (1, ?, 'test', 'hash', 3, ?, 'bskyVA05v1')",
+            ("2026-01-21T00:00:00Z", json.dumps({
+                "fields": list(row), "capture_environment": "testing",
+                "order_date_from": "2025-12-22", "order_date_to": "2026-01-21",
+            })),
+        )
+        conn.executemany("INSERT INTO forecast_data_records VALUES (1, ?)", [
+            (json.dumps(row),),
+            (json.dumps({**row, "rel_num": 2, "order_date": "2026-01-05"}),),
+            (json.dumps({**row, "rel_num": 3, "order_date": "2026-01-19"}),),
+        ])
+        conn.commit()
+    weeks = review(database, 1, output, history=True)
+    assert [week.start.isoformat() for week in weeks] == [
+        "2025-12-22", "2025-12-29", "2026-01-05", "2026-01-12",
+    ]
+    assert [week.net_gbp for week in weeks] == [100, None, 100, None]
+    with output.open(newline="", encoding="utf-8") as file:
+        saved = list(csv.DictReader(file))
+    assert [row["calendar"] for row in saved] == ["SOI 2025", "SOI 2025", "SOI 2026", "SOI 2026"]
+    assert [row["financial_week"] for row in saved] == ["51", "52", "1", "2"]
+    assert review(database, 1, output, history=True) == weeks
+
+
+def test_lag_regression_uses_only_previous_training_pairs_and_common_targets():
+    weeks = [
+        IntakeWeek(
+            number=i, start=date(2026, 1, 5) + timedelta(weeks=i - 1),
+            partial=False, possible_shutdown=False, net_gbp=Decimal(i * 10),
+            exceptions=int(i == 12),
+        )
+        for i in range(1, 23)
+    ]
+    result = compare_lag_regression(weeks, skip_exceptions=False)
+    first = result.comparisons[0]
+    assert first.week == 10 and first.training_pairs == 8
+    assert (first.actual, first.previous_week, first.rolling_mean, first.regression) == (
+        Decimal(100), Decimal(90), Decimal(75), Decimal(100),
+    )
+    assert result.insufficient_training == 5
+
+    changed = weeks[:]
+    changed[9] = replace(changed[9], net_gbp=Decimal(9999))
+    changed[10] = replace(changed[10], net_gbp=Decimal(8888))
+    changed_first = compare_lag_regression(changed, skip_exceptions=False).comparisons[0]
+    assert changed_first.regression == first.regression
+    assert changed_first.actual == 9999
+
+    clean = compare_lag_regression(weeks, skip_exceptions=True)
+    assert not {12, 13, 14, 15, 16} & {row.week for row in clean.comparisons}
+    assert next(row for row in clean.comparisons if row.week == 17).training_pairs == 13
+    no_first = compare_lag_regression(weeks, skip_exceptions=False, excluded_weeks=frozenset({1}))
+    assert no_first.comparisons[0].week == 11
+    assert next(row for row in no_first.comparisons if row.week == 17).training_pairs == 14
+
+    spike = weeks[:]
+    spike[0] = replace(spike[0], net_gbp=Decimal(1000))
+    with_spike = compare_lag_regression(spike, skip_exceptions=False)
+    without_spike = compare_lag_regression(spike, skip_exceptions=False, excluded_weeks=frozenset({1}))
+    assert next(row for row in with_spike.comparisons if row.week == 17).regression != (
+        next(row for row in without_spike.comparisons if row.week == 17).regression
+    )
+
+
+def test_lag_regression_never_bridges_missing_or_partial_weeks_and_reports_singular_fit():
+    weeks = [
+        IntakeWeek(
+            number=i, start=date(2026, 1, 5) + timedelta(weeks=i - 1),
+            partial=i == 17, possible_shutdown=False,
+            net_gbp=None if i == 12 else Decimal(10),
+        )
+        for i in range(1, 23)
+    ]
+    result = compare_lag_regression(weeks, skip_exceptions=False)
+    assert result.comparisons == []
+    assert result.constant_predictor > 0
+    varying = [
+        replace(week, net_gbp=Decimal(week.number * 10) if week.net_gbp is not None else None)
+        for week in weeks
+    ]
+    result = compare_lag_regression(varying, skip_exceptions=False)
+    assert [row.week for row in result.comparisons] == [10, 11, 22]
+    assert result.comparisons[-1].training_pairs == 16
+    with pytest.raises(ValueError, match="chronological"):
+        compare_lag_regression(list(reversed(varying)), skip_exceptions=False)
+
+
+def test_lag_regression_fits_ordinary_least_squares():
+    values = (1, 2, 1, 3, 2, 5, 4, 8, 7, 9)
+    weeks = [
+        IntakeWeek(
+            number=i, start=date(2026, 1, 5) + timedelta(weeks=i - 1),
+            partial=False, possible_shutdown=False, net_gbp=Decimal(value),
+        )
+        for i, value in enumerate(values, 1)
+    ]
+    x, y = values[:8], values[1:9]
+    n = len(x)
+    slope = Fraction(n * sum(a * b for a, b in zip(x, y)) - sum(x) * sum(y),
+                     n * sum(a * a for a in x) - sum(x) ** 2)
+    expected = Fraction(sum(y), n) + slope * (values[8] - Fraction(sum(x), n))
+    result = compare_lag_regression(weeks, skip_exceptions=False)
+    assert len(result.comparisons) == 1
+    assert float(result.comparisons[0].regression) == pytest.approx(float(expected))
+
+
+def test_lag_experiment_reports_common_weeks_and_unavailable_scores(capsys):
+    weeks = [
+        IntakeWeek(
+            number=i, start=date(2026, 1, 5) + timedelta(weeks=i - 1),
+            partial=False, possible_shutdown=False, net_gbp=Decimal(10),
+        )
+        for i in range(1, 12)
+    ]
+    report_lag_experiment(weeks)
+    output = capsys.readouterr().out
+    assert "IQR outliers identified retrospectively for sensitivity: none" in output
+    assert "2 with constant training predictors" in output
+    assert "Sensitivity comparison on target weeks common to all scenarios: none" in output
+    assert "One-lag regression: no forecasts available." in output
 
 
 def test_weekly_eda_keeps_missing_and_flagged_weeks_out_of_statistics():

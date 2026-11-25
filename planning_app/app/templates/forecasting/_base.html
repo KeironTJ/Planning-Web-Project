@@ -33,7 +33,7 @@
     <li>
       <a class="btn btn-sm {{ 'btn-primary' if active_stage == key else 'btn-outline-secondary' }}"
          href="{{ href }}"{% if active_stage == key %} aria-current="step"{% endif %}>
-        {{ loop.index }}. {{ label }}{% if loop.index >= 3 %} <span class="small">(planned)</span>{% endif %}
+        {{ loop.index }}. {{ label }}{% if loop.index >= 4 %} <span class="small">(planned)</span>{% endif %}
       </a>
     </li>
     {% endfor %}

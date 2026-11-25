@@ -20,7 +20,9 @@ from app.forecasting.weekly_intake import (
     IntakeWeek,
     WeeklyIntake,
     available_mix_axes,
+    explore_intake_history,
     explore_weekly_intake,
+    financial_year,
     summarize_mix,
     summarize_weekly_distribution,
 )
@@ -28,6 +30,7 @@ from app.forecasting.weekly_intake import (
 
 SQL_PATH = Path(__file__).with_name("verify_weekly_intake.sql")
 UNIT = Decimal("0.0001")
+EXPERIMENT_MIN_TRAINING_PAIRS = 8
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,23 @@ class ForecastComparison:
     actual: Decimal
     previous_week: Decimal
     rolling_mean: Decimal
+
+
+@dataclass(frozen=True)
+class RegressionComparison:
+    week: int
+    actual: Decimal
+    previous_week: Decimal
+    rolling_mean: Decimal
+    regression: Decimal
+    training_pairs: int
+
+
+@dataclass(frozen=True)
+class RegressionExperiment:
+    comparisons: list[RegressionComparison]
+    insufficient_training: int
+    constant_predictor: int
 
 
 def describe_mix(profile: WeeklyIntake) -> list[str]:
@@ -199,19 +219,130 @@ def compare_forecasts(
     return comparisons
 
 
+def compare_lag_regression(
+    weeks: list[IntakeWeek], *, skip_exceptions: bool,
+    excluded_weeks: frozenset[int] = frozenset(),
+) -> RegressionExperiment:
+    """Refit a one-lag regression using only prior, adjacent training pairs."""
+    if any(
+        later.number <= earlier.number or later.start <= earlier.start
+        for earlier, later in zip(weeks, weeks[1:])
+    ):
+        raise ValueError("Experiment weeks must be in strictly chronological order.")
+
+    def usable(week: IntakeWeek) -> bool:
+        return (
+            not week.partial and week.net_gbp is not None
+            and week.number not in excluded_weeks
+            and (not skip_exceptions or not week.exceptions)
+        )
+
+    def adjacent(earlier: IntakeWeek, later: IntakeWeek) -> bool:
+        return later.number == earlier.number + 1 and later.start == earlier.start + timedelta(days=7)
+
+    def value(week: IntakeWeek) -> Decimal:
+        if week.net_gbp is None:
+            raise ValueError(f"Week {week.number} has no observed net GBP.")
+        return week.net_gbp
+
+    comparisons = []
+    insufficient_training = constant_predictor = 0
+    for i in range(4, len(weeks)):
+        target = weeks[i]
+        window = weeks[i - 4:i + 1]
+        if not all(usable(week) for week in window):
+            continue
+        if not all(adjacent(a, b) for a, b in zip(window, window[1:])):
+            continue
+        training = [
+            (value(earlier), value(later))
+            for earlier, later in zip(weeks[:i], weeks[1:i])
+            if usable(earlier) and usable(later) and adjacent(earlier, later)
+        ]
+        if len(training) < EXPERIMENT_MIN_TRAINING_PAIRS:
+            insufficient_training += 1
+            continue
+        x_mean = sum(x for x, _ in training) / len(training)
+        y_mean = sum(y for _, y in training) / len(training)
+        variation = sum((x - x_mean) ** 2 for x, _ in training)
+        if not variation:
+            constant_predictor += 1
+            continue
+        slope = sum((x - x_mean) * (y - y_mean) for x, y in training) / variation
+        history = [value(week) for week in window[:-1]]
+        comparisons.append(RegressionComparison(
+            target.number, value(target), history[-1], sum(history) / 4,
+            y_mean + slope * (history[-1] - x_mean), len(training),
+        ))
+    return RegressionExperiment(comparisons, insufficient_training, constant_predictor)
+
+
+def report_lag_experiment(weeks: list[IntakeWeek]) -> None:
+    outliers = frozenset(summarize_weekly_distribution(weeks).outlier_weeks)
+    print("\nDevelopment experiment: one-week-ahead net GBP")
+    print(
+        "Expanding one-lag ordinary least-squares regression; minimum "
+        f"{EXPERIMENT_MIN_TRAINING_PAIRS} prior training pairs; four-week baseline."
+    )
+    print("IQR outliers identified retrospectively for sensitivity: "
+          + (", ".join(map(str, sorted(outliers))) or "none"))
+    print("No future holdout or historical as-of snapshots; positive bias means overforecast.")
+    scenarios = [
+        ("All usable weeks", False, frozenset()),
+        ("Without quality-flagged weeks", True, frozenset()),
+        ("Without IQR outlier weeks", False, outliers),
+        ("Without quality flags or IQR outliers", True, outliers),
+    ]
+    results = [
+        (label, compare_lag_regression(weeks, skip_exceptions=skip, excluded_weeks=excluded))
+        for label, skip, excluded in scenarios
+    ]
+    common = set.intersection(*(set(row.week for row in result.comparisons) for _, result in results))
+
+    def show_scores(rows: list[RegressionComparison]) -> None:
+        for label, attribute in (
+            ("Previous week", "previous_week"),
+            ("Four-week mean", "rolling_mean"),
+            ("One-lag regression", "regression"),
+        ):
+            _show_benchmark(label, score_forecasts([
+                (getattr(row, attribute), row.actual) for row in rows
+            ]))
+
+    for label, result in results:
+        print(f"\n{label}")
+        print("Forecast target weeks: " + (", ".join(str(row.week) for row in result.comparisons) or "none"))
+        print(f"Skipped eligible windows: {result.insufficient_training} with fewer than "
+              f"{EXPERIMENT_MIN_TRAINING_PAIRS} training pairs; "
+              f"{result.constant_predictor} with constant training predictors.")
+        show_scores(result.comparisons)
+        for row in result.comparisons:
+            print(f"Week {row.week}: actual {row.actual:.2f}; previous {row.previous_week:.2f}; "
+                  f"mean {row.rolling_mean:.2f}; regression {row.regression:.2f} GBP "
+                  f"({row.training_pairs} training pairs)")
+    print("\nSensitivity comparison on target weeks common to all scenarios: "
+          + (", ".join(map(str, sorted(common))) or "none"))
+    for label, result in results:
+        print(label)
+        show_scores([row for row in result.comparisons if row.week in common])
+
+
 def _show_benchmark(label: str, result: Benchmark | None) -> None:
     if result is None:
-        print(f"{label}: no adjacent usable weeks.")
+        print(f"{label}: no forecasts available.")
         return
     wape = f"{result.wape:.2f}%" if result.wape is not None else "unavailable"
     print(f"{label}: {result.pairs} forecasts; MAE {result.mae:.2f} GBP; "
           f"WAPE {wape}; bias {result.bias:.2f} GBP")
 
 
-def verify_weeks(db: sqlite3.Connection, extract_id: int, weeks: list[IntakeWeek]) -> None:
+def verify_weeks(
+    db: sqlite3.Connection, extract_id: int, weeks: list[IntakeWeek], *, history: bool = False,
+) -> None:
+    first_week = weeks[0].start if history else FIRST_WEEK
     sql_rows = {row[0]: tuple(row[1:]) for row in db.execute(
         SQL_PATH.read_text(encoding="utf-8"),
-        {"extract_id": extract_id, "first_week": FIRST_WEEK.isoformat(),
+        {"extract_id": extract_id, "first_week": first_week.isoformat(),
          "start": weeks[0].start.isoformat(),
          "end": (weeks[-1].end + timedelta(days=1)).isoformat()},
     )}
@@ -221,13 +352,18 @@ def verify_weeks(db: sqlite3.Connection, extract_id: int, weeks: list[IntakeWeek
             week.net_gbp / UNIT if week.net_gbp is not None else None,
             week.void_gbp / UNIT,
         )
-        if actual != sql_rows.pop(week.number, (0, 0, 0, 0, None, 0)):
-            raise ValueError(f"Independent SQL disagrees for financial week {week.number}.")
+        key = 1 + (week.start - first_week).days // 7 if history else week.number
+        if actual != sql_rows.pop(key, (0, 0, 0, 0, None, 0)):
+            raise ValueError(f"Independent SQL disagrees for week starting {week.start}.")
     if sql_rows:
         raise ValueError("Independent SQL returned weeks outside the completed series.")
 
 
-def review(database: Path, extract_id: int, output: Path, *, mix: bool = False) -> list[IntakeWeek]:
+def review(
+    database: Path, extract_id: int, output: Path, *, mix: bool = False, history: bool = False,
+) -> list[IntakeWeek]:
+    if history and mix:
+        raise ValueError("Mix review is only available for the 2026 calendar.")
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         db.execute("PRAGMA query_only = ON")
         db.execute("BEGIN")
@@ -259,13 +395,17 @@ def review(database: Path, extract_id: int, output: Path, *, mix: bool = False) 
                 datetime.fromisoformat(settings["order_date_from"]).date(),
                 datetime.fromisoformat(settings["order_date_to"]).date(),
             )
-        profile = explore_weekly_intake(
-            (json.loads(raw) for (raw,) in records), captured.date(), mix_axes=axes, period=period,
-        )
+        observations = (json.loads(raw) for (raw,) in records)
+        if history:
+            profile = explore_intake_history(observations, captured.date(), period=period)
+        else:
+            profile = explore_weekly_intake(
+                observations, captured.date(), mix_axes=axes, period=period,
+            )
         weeks = [week for week in profile.weeks if not week.partial]
         if not weeks:
-            raise ValueError(f"No completed weeks in the {CALENDAR} calendar for this extract.")
-        verify_weeks(db, extract_id, weeks)
+            raise ValueError("No completed weeks in the requested calendar for this extract.")
+        verify_weeks(db, extract_id, weeks, history=history)
         mix_summary = describe_mix(profile) if mix else []
 
     prefix = {"development": "DEV", "production": "LIVE", "testing": "TEST"}.get(
@@ -274,7 +414,8 @@ def review(database: Path, extract_id: int, output: Path, *, mix: bool = False) 
     rows = [{
         "extract": f"{prefix}-{extract_id}", "captured_at_utc": captured.isoformat().replace("+00:00", "Z"),
         "extract_sha256": digest, "capture_rules": version, "analysis_rules": RULES,
-        "calendar": CALENDAR, "financial_week": str(week.number),
+        "calendar": f"SOI {financial_year(week.start)}" if history else CALENDAR,
+        "financial_week": str(week.number),
         "week_start": week.start.isoformat(), "week_end": week.end.isoformat(),
         "coverage": (
             "unavailable" if week.net_gbp is None
@@ -310,6 +451,8 @@ def main() -> None:
                         help="Also compare last week with a trailing mean of WEEKS prior weeks")
     parser.add_argument("--eda", action="store_true", help="Describe coverage, variation and lag relationships")
     parser.add_argument("--mix", action="store_true", help="Review release-level product and customer-group mix")
+    parser.add_argument("--experiment", action="store_true",
+                        help="Run the development one-lag regression and baseline comparison")
     args = parser.parse_args()
     if args.compare_lookback is not None and args.compare_lookback < 2:
         parser.error("--compare-lookback must be at least two weeks")
@@ -341,6 +484,8 @@ def main() -> None:
                 print(f"Week {row.week}: previous-week error "
                       f"{row.previous_week - row.actual:+.2f} GBP; trailing-mean error "
                       f"{row.rolling_mean - row.actual:+.2f} GBP")
+    if args.experiment:
+        report_lag_experiment(weeks)
 
 
 if __name__ == "__main__":

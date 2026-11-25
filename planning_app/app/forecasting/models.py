@@ -182,3 +182,23 @@ class ForecastDataDecision(db.Model):
         db.DateTime(timezone=True), nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+
+
+class ForecastExperiment(db.Model):
+    """Persist a development comparison and its immutable extract provenance."""
+
+    __tablename__ = "forecast_experiments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    extract_id = db.Column(
+        db.Integer, db.ForeignKey("forecast_data_extracts.id", ondelete="RESTRICT"),
+        nullable=False, index=True,
+    )
+    extract_hash = db.Column(db.String(64), nullable=False)
+    requested_by_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"))
+    requested_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    finished_at = db.Column(db.DateTime(timezone=True))
+    status = db.Column(db.String(20), nullable=False)
+    active_key = db.Column(db.String(20), unique=True)
+    error = db.Column(db.Text)
+    result = db.Column(db.JSON)

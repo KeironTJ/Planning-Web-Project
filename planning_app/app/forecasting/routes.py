@@ -6,11 +6,11 @@ All writes are POST requests covered by the application's CSRF protection.
 
 import csv
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from io import StringIO
 
-from flask import Response, abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import Response, abort, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from sqlalchemy import func, true, tuple_
 from sqlalchemy.orm import lazyload
@@ -35,7 +35,8 @@ from .data_quality import (
     save_extract_note,
     save_va05_extract,
 )
-from .models import ForecastDataDecision, ForecastDataExtract, ForecastDataNote, ForecastDataRecord
+from .models import ForecastDataDecision, ForecastDataExtract, ForecastDataNote, ForecastDataRecord, ForecastExperiment
+from .experiments import dependencies_available, launch_experiment, start_experiment
 from .services import (
     get_intake_data_readiness,
     get_model_category_names,
@@ -176,12 +177,131 @@ def workflow_todo(stage: str):
     """Show planned work without implying the analysis or models already exist."""
     if stage not in WORKFLOW_TODO:
         abort(404)
+    if stage == "experiments":
+        return _experiment_page()
     title, purpose, tasks = WORKFLOW_TODO[stage]
     return render_template(
         "forecasting/workflow_todo.html", title=title, purpose=purpose, tasks=tasks,
         eda_stage=stage in {"distribution", "time-patterns", "feature-decisions"},
         extract_id=request.args.get("extract_id", type=int),
     )
+
+
+_EXPERIMENT_MODELS = {
+    "previous_week": "Previous week",
+    "four_week_mean": "Four-week average",
+    "regression": "Linear regression",
+    "arima": "ARIMA",
+    "gradient_boosting": "Gradient boosting",
+}
+
+
+def _experiment_page():
+    from scripts.weekly_intake_review import score_forecasts
+
+    extract_id = request.args.get("extract_id", type=int)
+    extract = (
+        ForecastDataExtract.query.get_or_404(extract_id) if extract_id is not None
+        else ForecastDataExtract.query.order_by(ForecastDataExtract.id.desc()).first()
+    )
+    runs = (
+        ForecastExperiment.query.filter_by(extract_id=extract.id).order_by(ForecastExperiment.id.desc()).all()
+        if extract else []
+    )
+    run_id = request.args.get("run_id", type=int)
+    if "run_id" in request.args and (run_id is None or run_id < 1):
+        abort(400, description="Choose a valid experiment.")
+    run = next((item for item in runs if item.id == run_id), None) if run_id else (runs[0] if runs else None)
+    if run_id and run is None:
+        abort(404)
+    scenario = request.args.get("scenario", default=0, type=int)
+    model = request.args.get("model", "arima")
+    year = request.args.get("year", type=int)
+    if scenario is None or not 0 <= scenario < 4 or model not in _EXPERIMENT_MODELS:
+        abort(400, description="Choose a valid model and sensitivity.")
+    rows = []
+    scores = {}
+    years = []
+    chart = None
+    largest = []
+    if run and run.status == "completed":
+        results = run.result
+        all_rows = results["scenarios"][scenario]["forecasts"]
+        years = sorted({financial_year(date.fromisoformat(row["week_start"])) for row in all_rows})
+        if request.args.get("year") and year not in years:
+            abort(400, description="Choose an available financial year.")
+        rows = [dict(row) for row in all_rows if year is None or financial_year(date.fromisoformat(row["week_start"])) == year]
+        for key in _EXPERIMENT_MODELS:
+            scores[key] = score_forecasts([
+                (Decimal(row[key]), Decimal(row["actual"])) for row in rows
+            ])
+        for row in rows:
+            row["error"] = Decimal(row[model]) - Decimal(row["actual"])
+            row["year"] = financial_year(date.fromisoformat(row["week_start"]))
+        largest = sorted(rows, key=lambda row: abs(row["error"]), reverse=True)[:10]
+        if rows:
+            first = date.fromisoformat(rows[0]["week_start"])
+            last = date.fromisoformat(rows[-1]["week_start"])
+            values = [Decimal(row[key]) for row in rows for key in ("actual", model)]
+            low, high = min(values), max(values)
+            span = high - low or Decimal(1)
+            days = max((last - first).days, 1)
+            segments = {"actual": [], "predicted": []}
+            current_segments = {"actual": [], "predicted": []}
+            dots = {"actual": [], "predicted": []}
+            previous = None
+            for row in rows:
+                day = date.fromisoformat(row["week_start"])
+                if previous is not None and (day - previous).days != 7:
+                    for key in segments:
+                        segments[key].append(" ".join(current_segments[key]))
+                        current_segments[key] = []
+                x = 70 + 875 * (day - first).days / days
+                for key, value in (("actual", row["actual"]), ("predicted", row[model])):
+                    y = 205 - float((Decimal(value) - low) / span) * 170
+                    current_segments[key].append(f"{x:.2f},{y:.2f}")
+                    dots[key].append((round(x, 2), round(y, 2)))
+                previous = day
+            for key in segments:
+                segments[key].append(" ".join(current_segments[key]))
+            chart = {"segments": segments, "dots": dots, "first": first, "last": last, "low": low, "high": high}
+    return render_template(
+        "forecasting/experiments.html", title="Model Experiments", extract=extract, runs=runs, run=run,
+        models=_EXPERIMENT_MODELS, selected_model=model, scenario=scenario, selected_year=year,
+        years=years, rows=rows, scores=scores, chart=chart, largest=largest,
+        can_manage=current_user.has_permission("manage_planning"),
+        can_run=current_app.config.get("APP_ENVIRONMENT") != "production",
+        dependencies=dependencies_available(),
+    )
+
+
+@forecasting_bp.post("/experiments/<int:extract_id>/start")
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def experiment_start(extract_id: int):
+    if current_app.config.get("APP_ENVIRONMENT") == "production":
+        abort(403, description="Development model experiments are not enabled in production.")
+    if not dependencies_available():
+        flash("Install the optional forecasting dependencies before starting an experiment.", "warning")
+        return redirect(url_for("forecasting.workflow_todo", stage="experiments", extract_id=extract_id))
+    try:
+        run = start_experiment(extract_id, request.form.get("capture_identity", ""), current_user.id)
+    except (ValidationError, NotFoundError) as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("forecasting.workflow_todo", stage="experiments", extract_id=extract_id))
+    try:
+        launch_experiment(current_app._get_current_object(), run.id)
+    except RuntimeError:
+        current_app.logger.exception("Could not start forecast experiment %s", run.id)
+        from app.extensions import db
+        run.status = "failed"
+        run.active_key = None
+        run.error = "Could not start the background worker. Check application logs."
+        run.finished_at = datetime.now(timezone.utc)
+        db.session.commit()
+        flash(run.error, "danger")
+    return redirect(url_for("forecasting.workflow_todo", stage="experiments", extract_id=extract_id, run_id=run.id))
 
 
 @forecasting_bp.route("/data-readiness")
@@ -498,7 +618,8 @@ def data_extract(extract_id: int):
         review_counts=_extract_review_counts(extract.id),
         finding_review_counts=_finding_review_counts(extract.id),
         bulk_preview=bulk_preview,
-        can_delete=can_manage and not notes and not extract_has_reviews(extract.id),
+        can_delete=can_manage and not notes and not extract_has_reviews(extract.id)
+        and not ForecastExperiment.query.filter_by(extract_id=extract.id).first(),
     )
 
 

@@ -424,6 +424,13 @@ def delete_unreviewed_extract(
     has_notes = db.session.scalar(select(exists().where(
         ForecastDataNote.extract_id == extract_id,
     )))
+    from .models import ForecastExperiment
+    has_experiments = db.session.scalar(select(exists().where(
+        ForecastExperiment.extract_id == extract_id,
+    )))
+    if has_experiments:
+        db.session.rollback()
+        raise ValidationError("Extracts with model experiments cannot be deleted.")
     if has_notes or extract_has_reviews(extract_id):
         db.session.rollback()
         raise ValidationError(

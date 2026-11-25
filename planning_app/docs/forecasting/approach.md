@@ -293,14 +293,45 @@ weekly exclusions after acceptance.
 The next two EDA steps are **Time patterns and lags**, followed by
 **Feature decisions**. Continue using `DEV-7`; no new capture is needed.
 
-### Following milestone: first learned forecast
+### First learned forecast: development comparison
 
-Use the frozen `DEV-7` weekly series to compare a small lag-based regression
-with the previous-week and four-week-average benchmarks on common rolling
-forecast targets. Report MAE, WAPE and bias and repeat the comparison without
-windows touching the flagged week 34. The
-[review command](../../scripts/weekly_intake_review.py) reproduces the EDA
-and benchmarks with `--eda --mix --compare-lookback 4`.
+The [review command](../../scripts/weekly_intake_review.py) now supports
+`--experiment`: a one-lag regression refitted on an expanding history, with
+at least eight adjacent prior training pairs. It compares previous-week and
+four-week-mean benchmarks on the same targets, reports MAE, WAPE and bias,
+and shows each prediction. No model is saved or issued.
+
+On frozen `DEV-7`, for 36 common targets in weeks 10-45, the four-week mean
+had 16.29% WAPE, the previous-week benchmark 18.00%, and regression 20.85%.
+Excluding quality-flagged week 34 from training pairs and target/lookback
+windows left 31 common targets: WAPE was 16.36%, 18.08% and 22.34%,
+respectively. On the 30 target weeks common to all sensitivities, regression
+WAPE changed from 21.94% to 19.91% when the retrospectively identified week 1
+outlier was omitted from training; the four-week mean remained at 16.30%.
+These are development comparisons, not evidence that the regression is ready
+for use. Week 1 remains in the source, and the normal run retains it.
+
+The optional multi-model comparison uses at least 20 complete four-lag
+training rows and a common rolling set of targets. On `DEV-7` weeks 25-45
+(21 targets), WAPE was 14.10% for previous week, 14.52% for the four-week
+mean, 16.10% for linear regression, 13.76% for ARIMA(1,1,0), and 18.01% for
+gradient boosting. Excluding week 34 from training and target/lookback
+windows left 16 targets: previous week led at 12.92% and ARIMA scored 13.35%.
+This sensitivity and the short evaluation period preclude choosing a model
+from these results. The longer training minimum means these scores do not use
+the same weeks as the earlier 36-target regression experiment.
+
+The multi-year development run on `DEV-9` independently verified 307 completed
+weeks across SOI 2021-2026. On 272 common target weeks, WAPE was 21.52% for
+previous week, 21.06% for the four-week mean, 20.60% for linear regression,
+20.16% for ARIMA, and 20.42% for gradient boosting. Omitting quality-flagged
+weeks from training and target/lookback windows left 267 common targets; ARIMA
+remained lowest at 20.27%. The annual report shows the ranking varies by
+year. Per-year IQR exclusions are retrospective sensitivities, not a decision
+to remove shutdown-related observations. A larger development history is
+useful, but coverage and source values still need checking and the run is not
+an untouched holdout. The business reports that the separate received-date
+field was introduced in 2022; it is not the intake-period measure.
 
 Treat the inspected 2026 weeks as development data. Use prospective forecasts
 for an untouched check before recommending a default in AI Tools. No further

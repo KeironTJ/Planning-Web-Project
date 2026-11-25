@@ -19,7 +19,7 @@
     {% set stages = [
       ('Prepare data', 'Available', 'Save VA05 extracts and review quality, coverage and source limitations.', url_for('forecasting.data_readiness'), 'Data Readiness'),
       ('Explore data', 'Current focus', 'Review the weekly series, mix and limitations before choosing model inputs.', url_for('forecasting.eda'), 'EDA workspace'),
-      ('Compare models', 'To do', 'Benchmark and test learned models using the same rolling targets.', url_for('forecasting.workflow_todo', stage='experiments'), 'Model experiments'),
+      ('Compare models', 'Development', 'Benchmark and test learned models using the same rolling targets.', url_for('forecasting.workflow_todo', stage='experiments'), 'Model experiments'),
       ('Issue forecasts', 'To do', 'Choose an evaluated model, review uncertainty and save forecasts.', url_for('forecasting.workflow_todo', stage='forecasts'), 'Forecasts'),
       ('Monitor performance', 'To do', 'Compare issued forecasts with actuals and review when a model should change.', url_for('forecasting.workflow_todo', stage='monitoring'), 'Monitoring')
     ] %}

@@ -138,6 +138,9 @@ different period in published SOI, but does not change the Project 1 period.
 **Customer receipt date:** `OrderHed_OrderReceivedDate_c` maps through
 `SalesOrder.order_received_date` to `intake_received_date`. It records when
 the customer order arrived and does not assign the Project 1 reporting period.
+The business reports that this field was introduced in 2022, so missing
+received dates in earlier history are expected and do not by themselves make
+the order-date GBP target unusable. Review post-introduction gaps separately.
 
 **Proposed grains:** reported intake at order-line or release grain, as supported
 by the source; subsequent change event; shipment detail. Preserve

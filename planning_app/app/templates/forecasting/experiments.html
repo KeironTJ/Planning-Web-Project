@@ -1,0 +1,124 @@
+{% extends "forecasting/_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block tool_page_header %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom pt-2 pb-2 mb-3">
+  <h1 class="h3 mb-0">Model Experiments</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forecasting.data_readiness', _anchor='saved-extracts') }}">Choose a saved extract</a>
+</div>
+{% endblock %}
+{% block content %}
+<div class="container-fluid pb-4">
+  <div class="alert alert-warning">
+    <strong>Development evidence only.</strong> One-week-ahead net GBP, reconstructed from a single saved extract.
+    These are not issued forecasts, an untouched holdout, or a historical as-of backtest.
+  </div>
+  {% if not extract %}
+  <p>No saved extract is available. Save an extract in Data Readiness first.</p>
+  {% else %}
+  <section class="card mb-3"><div class="card-body">
+    <h2 class="h5">Saved extract {{ extract.reference }}</h2>
+    <p class="mb-1">Captured {{ extract.captured_at | utcfmt('uk-datetime') }} &middot; {{ '{:,}'.format(extract.row_count) }} rows</p>
+    <p class="small text-muted">The extract remains unchanged. Missing and partial weeks are not treated as zero.</p>
+    {% if not can_run %}
+    <p class="text-muted mb-0">Starting development experiments is disabled in production.</p>
+    {% elif not dependencies %}
+    <p class="text-warning mb-0">Forecasting dependencies are not installed. See the project setup instructions.</p>
+    {% elif can_manage %}
+    <form method="post" action="{{ url_for('forecasting.experiment_start', extract_id=extract.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="capture_identity" value="{{ extract.capture_identity }}">
+      <button class="btn btn-primary btn-sm" type="submit">Run development comparison</button>
+      <span class="small text-muted">Runs in the background; only one experiment can run at a time.</span>
+    </form>
+    {% else %}
+    <p class="text-muted mb-0">Starting an experiment requires manage planning permission.</p>
+    {% endif %}
+  </div></section>
+  {% if runs %}
+  <form method="get" action="{{ url_for('forecasting.workflow_todo', stage='experiments') }}" class="d-flex flex-wrap align-items-end gap-2 mb-3">
+    <input type="hidden" name="extract_id" value="{{ extract.id }}">
+    <div><label class="form-label small" for="run_id">Saved experiment</label>
+      <select class="form-select form-select-sm" id="run_id" name="run_id">
+        {% for item in runs %}<option value="{{ item.id }}" {% if item.id == run.id %}selected{% endif %}>Run {{ item.id }} — {{ item.requested_at.strftime('%d/%m/%Y %H:%M:%S') }} UTC — {{ item.status }}</option>{% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-sm btn-outline-primary" type="submit">Open</button>
+  </form>
+  {% endif %}
+  {% if not run %}
+  <p>No saved experiment for this extract. The earlier command-line comparison is separate and is not shown as a saved browser run.</p>
+  {% elif run.status in ('queued', 'running') %}
+  <div class="alert alert-info" role="status">Run {{ run.id }} is {{ run.status }}. Reload to check progress. If interrupted, a run can be replaced after six hours.</div>
+  {% elif run.status == 'failed' %}
+  <div class="alert alert-danger" role="alert">Run {{ run.id }} failed: {{ run.error }}</div>
+  {% elif run.status == 'completed' %}
+  {% set result = run.result %}
+  <section class="card mb-3"><div class="card-body">
+    <h2 class="h5">Run {{ run.id }} &middot; {{ extract.reference }}</h2>
+    <p class="mb-1">Completed {{ run.finished_at | utcfmt('uk-datetime') }} &middot; {{ result.completed_weeks }} completed weeks &middot; {{ result.unavailable_weeks | length }} unavailable &middot; {{ result.quality_flagged_weeks | length }} quality-flagged</p>
+    <p class="small text-muted mb-1">IQR outliers are identified retrospectively within each financial year; removing them is sensitivity analysis, not a source correction.</p>
+    <details><summary>Provenance and model settings</summary>
+      <p class="small mt-2 mb-1">Extract SHA-256: <code class="text-break">{{ run.extract_hash }}</code></p>
+      <p class="small mb-1">{{ result.analysis_rules }} &middot; Python {{ result.python }} &middot; scikit-learn {{ result.scikit_learn }} &middot; statsmodels {{ result.statsmodels }}</p>
+      <ul class="small">{% for name, value in result.settings.items() %}<li>{{ name }}: {{ value }}</li>{% endfor %}</ul>
+      <p class="small mb-1">Source file hashes observed during the run:</p>
+      <ul class="small">{% for name, digest in result.code_sha256.items() %}<li>{{ name }}: <code class="text-break">{{ digest }}</code></li>{% endfor %}</ul>
+    </details>
+  </div></section>
+  <form method="get" action="{{ url_for('forecasting.workflow_todo', stage='experiments') }}" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+    <input type="hidden" name="extract_id" value="{{ extract.id }}"><input type="hidden" name="run_id" value="{{ run.id }}">
+    <div><label class="form-label small" for="scenario">Sensitivity</label><select class="form-select form-select-sm" id="scenario" name="scenario">
+      {% for item in result.scenarios %}<option value="{{ loop.index0 }}" {% if scenario == loop.index0 %}selected{% endif %}>{{ item.label }}</option>{% endfor %}
+    </select></div>
+    <div><label class="form-label small" for="year">Financial year</label><select class="form-select form-select-sm" id="year" name="year">
+      <option value="">All years</option>{% for year in years %}<option value="{{ year }}" {% if selected_year == year %}selected{% endif %}>{{ year }}</option>{% endfor %}
+    </select></div>
+    <div><label class="form-label small" for="model">Chart and errors</label><select class="form-select form-select-sm" id="model" name="model">
+      {% for key, label in models.items() %}<option value="{{ key }}" {% if selected_model == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select></div>
+    <button class="btn btn-outline-primary btn-sm" type="submit">Apply</button>
+  </form>
+  <section class="card mb-3"><div class="card-body">
+    <h2 class="h5">Compare model scores</h2>
+    <p class="small text-muted">Same {{ rows | length }} target weeks for every method in this selection. Positive bias means overforecast. Different sensitivity selections may have different targets.</p>
+    <div class="table-responsive"><table class="table table-sm table-striped">
+      <thead><tr><th>Method</th><th class="text-end">Forecasts</th><th class="text-end">MAE GBP</th><th class="text-end">WAPE</th><th class="text-end">Bias GBP</th></tr></thead>
+      <tbody>{% for key, label in models.items() %}{% set score = scores.get(key) %}
+      <tr><th scope="row">{{ label }}</th>{% if score %}<td class="text-end">{{ score.pairs }}</td><td class="text-end">{{ '{:,.2f}'.format(score.mae) }}</td><td class="text-end">{{ '{:.2f}%'.format(score.wape) if score.wape is not none else 'Unavailable' }}</td><td class="text-end">{{ '{:+,.2f}'.format(score.bias) }}</td>{% else %}<td colspan="4">No forecasts</td>{% endif %}</tr>
+      {% endfor %}</tbody>
+    </table></div>
+  </div></section>
+  <section class="card mb-3"><div class="card-body">
+    <h2 class="h5">Actual versus {{ models[selected_model] }}</h2>
+    {% if chart %}
+    <svg class="w-100" viewBox="0 0 1000 245" role="img" aria-labelledby="model-chart-title model-chart-desc">
+      <title id="model-chart-title">Actual and predicted weekly net GBP</title>
+      <desc id="model-chart-desc">Blue is actual, orange is predicted. Lines break where target weeks are missing or excluded. The error table below gives individual values.</desc>
+      <path d="M70 35H945M70 205H945" stroke="currentColor" opacity=".2"/>
+      <text x="64" y="39" text-anchor="end" font-size="12">{{ '{:,.0f}'.format(chart.high) }}</text>
+      <text x="64" y="209" text-anchor="end" font-size="12">{{ '{:,.0f}'.format(chart.low) }}</text>
+      <text x="70" y="230" font-size="12">{{ chart.first | uk_date }}</text>
+      <text x="945" y="230" font-size="12" text-anchor="end">{{ chart.last | uk_date }}</text>
+      {% for points in chart.segments.actual %}<polyline points="{{ points }}" fill="none" stroke="#1261a0" stroke-width="2"/>{% endfor %}
+      {% for points in chart.segments.predicted %}<polyline points="{{ points }}" fill="none" stroke="#bf5700" stroke-width="2" stroke-dasharray="6 3"/>{% endfor %}
+      {% for x, y in chart.dots.actual %}<circle cx="{{ x }}" cy="{{ y }}" r="2" fill="#1261a0"/>{% endfor %}
+      {% for x, y in chart.dots.predicted %}<circle cx="{{ x }}" cy="{{ y }}" r="2" fill="#bf5700"/>{% endfor %}
+    </svg>
+    <p class="small mb-0"><span style="color:#1261a0">━</span> Actual &nbsp; <span style="color:#bf5700">┄</span> {{ models[selected_model] }} predicted</p>
+    {% else %}<p>No comparable forecast weeks in this selection.</p>{% endif %}
+  </div></section>
+  <section class="card"><div class="card-body">
+    <h2 class="h5">Largest errors: {{ models[selected_model] }}</h2>
+    <p class="small text-muted">Top 10 by absolute GBP error. Select a week to inspect its saved releases; this does not change the result.</p>
+    <div class="table-responsive"><table class="table table-sm table-striped">
+      <thead><tr><th>Week starting</th><th>Financial week</th><th class="text-end">Actual GBP</th><th class="text-end">Predicted GBP</th><th class="text-end">Error GBP</th></tr></thead>
+      <tbody>{% for row in largest %}<tr>
+        <td><a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=row.week, year=row.year) }}">{{ row.week_start | uk_date }}</a></td>
+        <td>{{ row.year }} / {{ row.week }}</td><td class="text-end">{{ '{:,.2f}'.format(row.actual | float) }}</td><td class="text-end">{{ '{:,.2f}'.format(row[selected_model] | float) }}</td><td class="text-end">{{ '{:+,.2f}'.format(row.error) }}</td>
+      </tr>{% else %}<tr><td colspan="5">No forecast errors available.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div></section>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

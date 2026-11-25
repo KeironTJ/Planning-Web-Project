@@ -60,21 +60,21 @@ Forecasts will not automatically change live planning.
 
 **Available:** AI Tools overview, Data Readiness with saved VA05 observations
 and record-level quality review, Model Classification, weekly-intake review,
-and the first browser EDA distribution page.
+the browser EDA distribution page, and development model experiments.
 
 **Investigated:** existing importers, a local sales-order extract, and a bounded
 live `bskyVA05v1` response on 12 November 2026. The checks found repeated release
 quantities, mixed UOM, and date exceptions. Historical demand cannot be inferred
 from snapshot record counts alone.
 
-**Next:** establish Project 1's historical intake dataset and first baseline.
-Reconcile VA05 order counts, values, and quantities in verified UOM to the
-month-end intake report before establishing historical coverage.
+**Next:** continue data cleansing and reconcile VA05 order counts, values,
+and quantities in verified UOM to the month-end intake report while developing
+and evaluating the forecasting approach.
 Project 2 will also need amendment/cancellation history and dated shipments.
 Saved quality reviews preserve observed local values, not verified historical
 intake or an approved training dataset.
 
-No historical training dataset or forecasting model has been produced.
+Development comparisons are not approved training datasets or issued forecasts.
 
 ## Browser EDA workflow
 
@@ -115,7 +115,29 @@ automatically split or remove it.
 The next EDA steps are **Time patterns and lags**, then **Feature decisions**;
 those remain planned.
 Select anywhere on a navigation card to open it.
-Model experiments, forecasting and monitoring are separate planned stages.
+Forecasting and monitoring are separate planned stages.
+
+## Browser model experiments
+
+Open **AI Tools > Model Experiments** and choose a saved extract. Users with
+`view_planning` can view saved runs; starting one also requires
+`manage_planning`. Apply the database migration and install the optional
+forecasting requirements in the development application's environment before
+starting a run. Starting experiments is disabled in production.
+
+The comparison uses all completed financial weeks in the saved extract and
+the same modelling calculations as the CLI history comparison below. Choose a
+saved run, sensitivity, financial year and method to inspect scores, predictions
+and the largest errors; those weeks link back to the saved release investigation.
+Results, extract hash, settings, package versions and hashes of the source
+files observed during execution are saved. These hashes are not a code revision,
+and no fitted model is saved. Earlier CLI results are not imported.
+
+Only one experiment can be active across application workers. A background
+thread runs the comparison and may be interrupted by a worker restart; there
+is no automatic retry. After six hours, starting another run marks the old
+active run failed. Reload the page to check status. This is development
+evidence from one capture, not a held-out evaluation or production forecast.
 
 ## Reproduce the weekly GBP review
 
@@ -143,6 +165,63 @@ using only observations before each target. The command lists the scored
 weeks and the three largest previous-week misses. The sensitivity comparison
 omits any target or lookback window containing a flagged week. This is a
 development comparison, not a held-out evaluation.
+
+Append `--experiment` to run a one-week-ahead development comparison of
+previous week, the previous-four-week mean and a one-lag ordinary least-squares
+regression. The regression is refitted at each target using adjacent prior-week
+pairs available before that target, with an expanding history and a fixed
+minimum of eight training pairs. The minimum is a starting rule, not a tuned
+parameter. No external modelling library is required.
+
+The report lists each target, forecast and training-pair count, and scores all
+three methods on identical targets. It repeats the experiment excluding
+quality-flagged weeks, IQR outlier candidates, and both. Excluded weeks cannot
+appear in a target's four-week window or either side of a regression training
+pair. Outlier candidates are identified from the full development series, so
+this is a retrospective sensitivity check, not a real-time outlier rule. The
+final section compares all scenarios on their common target weeks. Missing or
+partial weeks are never filled or bridged; an insufficient or constant training
+predictor is reported rather than silently replaced by another model.
+
+All results are development evidence from a single capture, not a final
+holdout or historical as-of backtest. The report does not save a model, issue
+forecasts, or change the extract. Preserve the output locally if needed, along
+with the code revision and verified CSV, which records the extract content hash.
+
+For the optional multi-model comparison, install
+`python -m pip install -r .\requirements-forecasting.txt` into a development
+environment, then run:
+
+```powershell
+python -m scripts.weekly_model_comparison --db .\instance\planning_dev.db --extract-id 7 --output .\data\va05-weekly-net-gbp-dev-7.csv
+```
+
+This compares the previous-week and four-week benchmarks, one-lag linear
+regression, ARIMA(1,1,0) without drift, and gradient boosting using four lags.
+For numerical stability, ARIMA is scaled by the largest absolute available
+prior value (with a minimum scale of one) and converted back to GBP for scoring.
+Its fixed optimizer is Powell, with at most 500 iterations.
+All methods use common target weeks, with at least 20 complete prior four-lag
+training rows. Each fit uses only earlier observations. ARIMA retains gaps and
+excluded weeks as missing observations, not zeroes; linear and boosting rows
+touching them are omitted. The quality and retrospectively identified outlier
+sensitivities apply to both training and target/lookback windows. Outputs include
+the target weeks, predictions, training-row counts, package versions, MAE, WAPE
+and bias. These fixed starting settings are not tuned; failed model fits stop
+the report rather than silently substituting another forecast.
+By default the comparison uses SOI 2026, as before. To compare all financial
+years in a saved extract, supply `--history` and a separate output CSV:
+
+```powershell
+python -m scripts.weekly_model_comparison --db .\instance\planning_dev.db --extract-id 9 --output .\data\va05-weekly-net-gbp-dev-9-history.csv --history
+```
+
+The history CSV is independently checked against the saved observations and
+identifies weeks by start date and financial year. Partial weeks are omitted;
+unavailable completed weeks remain missing. Each financial year's IQR outliers
+are identified retrospectively for sensitivity, not as a real-time rule.
+Compare metrics by year as well as overall. A broader saved extract does not
+establish source completeness, historical as-of accuracy, or a final holdout.
 
 Append `--eda` for weekly coverage, distribution, outlier candidates,
 early-versus-late mean, lag correlations, and the same four inclusion
