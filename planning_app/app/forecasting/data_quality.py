@@ -29,6 +29,7 @@ from .weekly_intake import main_release_value, release_order_date
 
 
 RULES_VERSION = "va05-local-v4"
+MAX_PAGE_REVIEWS = 100
 RULES = {
     "missing_main": "Release has no main/no-assembly row",
     "conflicting_qty": (
@@ -476,6 +477,14 @@ def delete_unreviewed_extract(
     extract_id: int, user_id: int, capture_identity: str,
 ) -> None:
     extract = _lock_extract(extract_id, capture_identity)
+    from .models import ForecastReleaseAdjustment, ForecastRowExclusion
+    if (db.session.scalar(select(exists().where(ForecastReleaseAdjustment.extract_id == extract_id)))
+            or db.session.scalar(select(exists().where(ForecastRowExclusion.extract_id == extract_id)))):
+        db.session.rollback()
+        raise ValidationError("Extracts with adjustment evidence cannot be deleted.")
+    if db.session.scalar(select(exists().where(ForecastDataExtract.derived_from_id == extract_id))):
+        db.session.rollback()
+        raise ValidationError("Extracts used by adjusted extracts cannot be deleted.")
     has_notes = db.session.scalar(select(exists().where(
         ForecastDataNote.extract_id == extract_id,
     )))
@@ -526,6 +535,7 @@ def _review_rationale(status: str, rationale: str) -> str:
 def _append_data_decision(
     extract_id: int, record_id: int, status: str, rationale: str, user_id: int,
     *, finding: str | None = None, remember: bool = False, reused_from_id: int | None = None,
+    carried_forward: bool = False,
 ) -> ForecastDataDecision:
     decision = ForecastDataDecision(
         record_id=record_id,
@@ -549,6 +559,7 @@ def _append_data_decision(
                     "rationale": rationale,
                     "remember": remember,
                     "reused_from_id": reused_from_id,
+                    **({"carried_forward": True} if carried_forward else {}),
                     **({"finding": finding} if finding else {}),
                 }
             ),
@@ -580,8 +591,8 @@ def save_data_decisions(
 ) -> list[ForecastDataDecision]:
     """Validate all reviews and append them in one transaction."""
     record_ids = {record_id for record_id, _, _, _ in reviews}
-    if not 1 <= len(reviews) <= 25 or len(record_ids) != len(reviews):
-        raise ValidationError("Submit 1 to 25 distinct saved rows.")
+    if not 1 <= len(reviews) <= MAX_PAGE_REVIEWS or len(record_ids) != len(reviews):
+        raise ValidationError(f"Submit 1 to {MAX_PAGE_REVIEWS} distinct saved rows.")
     cleaned = []
     for record_id, status, rationale, remember in reviews:
         try:
@@ -691,8 +702,8 @@ def confirm_review_suggestions(
 ) -> int:
     """Confirm current suggestions atomically; never overwrite existing reviews."""
     record_ids = {record_id for record_id, _ in selections}
-    if not 1 <= len(selections) <= 25 or len(record_ids) != len(selections):
-        raise ValidationError("Select 1 to 25 distinct suggested reviews.")
+    if not 1 <= len(selections) <= MAX_PAGE_REVIEWS or len(record_ids) != len(selections):
+        raise ValidationError(f"Select 1 to {MAX_PAGE_REVIEWS} distinct suggested reviews.")
     records = list(db.session.scalars(select(ForecastDataRecord).where(
         ForecastDataRecord.extract_id == extract_id, ForecastDataRecord.id.in_(record_ids),
     )))

@@ -20,10 +20,16 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.extensions import db
 
 from . import forecasting_bp
+from .adjustments import (
+    adjustment_suggestions, confirm_row_exclusion_suggestions, create_adjusted_extract,
+    finding_adjustment_counts, latest_adjustments, latest_row_exclusions,
+    row_exclusion_suggestion_ids, row_exclusion_suggestions, save_adjustment, save_row_exclusions,
+)
 from .data_quality import (
     DECISION_STATUSES,
     FEATURE_AVAILABILITY,
     FEATURE_DECISIONS,
+    MAX_PAGE_REVIEWS,
     NONPOSITIVE_GBP_GROUPS,
     confirm_review_suggestions,
     delete_unreviewed_extract,
@@ -43,7 +49,7 @@ from .data_quality import (
 )
 from .models import (
     ForecastDataDecision, ForecastDataExtract, ForecastDataNote, ForecastDataRecord,
-    ForecastExperiment, ForecastFeatureDecision,
+    ForecastExperiment, ForecastFeatureDecision, ForecastReleaseAdjustment, ForecastRowExclusion,
 )
 from .experiments import dependencies_available, launch_experiment, start_experiment
 from .services import (
@@ -586,7 +592,7 @@ _REVIEW_BADGES = {
     "source_correction": "text-bg-danger",
     "no_findings": "text-bg-light",
 }
-_REVIEW_SCOPES = ("findings", "unreviewed", "all", *DECISION_STATUSES)
+_REVIEW_SCOPES = ("findings", "unreviewed", "all", "exclusion_suggestions", *DECISION_STATUSES)
 _BULK_FINDING_SCOPES = ("findings", "unreviewed", "all")
 _WORKLISTS = {
     "unreviewed": ("Not reviewed", "not-reviewed"),
@@ -741,7 +747,8 @@ def data_extract_finding_reviews(extract_id: int):
         scope = status
     return redirect(url_for(
         "forecasting.data_extract", extract_id=extract.id, finding=finding, scope=scope,
-        gbp_group=gbp_group, _anchor="saved-records",
+        gbp_group=gbp_group, per_page=request.form.get("per_page", type=int),
+        _anchor="saved-records",
     ))
 
 
@@ -776,7 +783,13 @@ def data_extract(extract_id: int):
             ForecastDataRecord.data[key].as_integer() == value
             for key, value in release.items()
         ))
-    if scope != "all":
+    if scope == "exclusion_suggestions":
+        if not current_user.has_permission("manage_planning"):
+            abort(403)
+        records = records.filter(matching_record_ids(
+            row_exclusion_suggestion_ids(extract, latest_row_exclusions(extract.id))
+        ))
+    elif scope != "all":
         records = records.filter_by(has_findings=True)
     if scope == "unreviewed":
         records = records.filter(~ForecastDataRecord.decisions.any())
@@ -795,8 +808,12 @@ def data_extract(extract_id: int):
         if gbp_group is not None:
             group_ids = gbp_groups[gbp_group]
             records = records.filter(matching_record_ids(group_ids))
+    page_size = request.args.get("per_page", type=int) if "per_page" in request.args else 25
+    if page_size not in (25, 50, MAX_PAGE_REVIEWS):
+        abort(400, description="Choose an available page size.")
+    page_size_param = page_size if "per_page" in request.args else None
     pagination = records.order_by(ForecastDataRecord.id).paginate(
-        page=request.args.get("page", 1, type=int), per_page=25,
+        page=request.args.get("page", 1, type=int), per_page=page_size,
         error_out=False,
     )
     if pagination.page > max(pagination.pages, 1):
@@ -805,6 +822,7 @@ def data_extract(extract_id: int):
             scope=scope, finding=finding, page=max(pagination.pages, 1),
             release=release_anchor, gbp_group=gbp_group,
             week=investigation_week, year=request.args.get("year", type=int),
+            per_page=page_size_param,
         ))
     models = {
         (record.data["model"] or "").strip()
@@ -815,6 +833,36 @@ def data_extract(extract_id: int):
         ForecastDataNote.id.desc(),
     ).all()
     can_manage = current_user.has_permission("manage_planning")
+    adjustments = latest_adjustments(extract.id) if extract.derived_from_id is None else {}
+    row_exclusions = latest_row_exclusions(extract.id) if extract.derived_from_id is None else {}
+    adjustment_hints = adjustment_suggestions(extract, pagination.items, adjustments) if can_manage and extract.derived_from_id is None else {}
+    adjustment_provenance = []
+    adjustment_history = []
+    row_exclusion_provenance = []
+    row_exclusion_history = []
+    if extract.derived_from_id is not None:
+        ids = extract.source_settings.get("adjustment_ids", [])
+        adjustment_provenance = ForecastReleaseAdjustment.query.filter(
+            ForecastReleaseAdjustment.id.in_(ids),
+            ForecastReleaseAdjustment.extract_id == extract.derived_from_id,
+        ).order_by(ForecastReleaseAdjustment.id).all()
+        if len(adjustment_provenance) != len(ids):
+            abort(409, description="Adjustment provenance is incomplete; this extract requires investigation.")
+        row_ids = extract.source_settings.get("row_exclusion_ids", [])
+        row_exclusion_provenance = ForecastRowExclusion.query.filter(
+            ForecastRowExclusion.id.in_(row_ids),
+            ForecastRowExclusion.extract_id == extract.derived_from_id,
+        ).order_by(ForecastRowExclusion.id).all()
+        if len(row_exclusion_provenance) != len(row_ids):
+            abort(409, description="Row exclusion provenance is incomplete; this extract requires investigation.")
+    elif adjustments:
+        adjustment_history = ForecastReleaseAdjustment.query.filter_by(extract_id=extract.id).order_by(
+            ForecastReleaseAdjustment.id.desc()
+        ).all()
+    if row_exclusions:
+        row_exclusion_history = ForecastRowExclusion.query.filter_by(extract_id=extract.id).order_by(
+            ForecastRowExclusion.id.desc()
+        ).all()
     bulk_preview = (
         preview_finding_reviews(
             extract.id, finding, unreviewed_only=scope == "unreviewed", record_ids=group_ids,
@@ -828,6 +876,8 @@ def data_extract(extract_id: int):
         title="Review data",
         extract=extract,
         records=pagination,
+        page_size_param=page_size_param,
+        page_sizes=(25, 50, MAX_PAGE_REVIEWS),
         scope=scope,
         finding=finding,
         gbp_group=gbp_group,
@@ -847,12 +897,151 @@ def data_extract(extract_id: int):
         can_manage=can_manage,
         review_counts=_extract_review_counts(extract.id),
         finding_review_counts=_finding_review_counts(extract.id),
+        finding_adjustment_counts=finding_adjustment_counts(extract.id, adjustments, row_exclusions),
         bulk_preview=bulk_preview,
         suggestions=review_suggestions(extract, pagination.items),
+        adjustments=adjustments,
+        row_exclusions=row_exclusions,
+        row_exclusion_history=row_exclusion_history,
+        row_exclusion_provenance=row_exclusion_provenance,
+        row_exclusion_revision=max((entry.id for entry in row_exclusions.values()), default=0),
+        row_exclusion_hints=row_exclusion_suggestions(extract, pagination.items, row_exclusions) if can_manage else {},
+        adjustment_hints=adjustment_hints,
+        adjustment_provenance=adjustment_provenance,
+        adjustment_history=adjustment_history,
+        adjustment_revision=max((entry.id for entry in adjustments.values()), default=0),
         can_delete=can_manage and not notes and not extract_has_reviews(extract.id)
         and not ForecastExperiment.query.filter_by(extract_id=extract.id).first()
-        and not ForecastFeatureDecision.query.filter_by(extract_id=extract.id).first(),
+        and not ForecastFeatureDecision.query.filter_by(extract_id=extract.id).first()
+        and not ForecastReleaseAdjustment.query.filter_by(extract_id=extract.id).first()
+        and not ForecastRowExclusion.query.filter_by(extract_id=extract.id).first()
+        and not ForecastDataExtract.query.filter_by(derived_from_id=extract.id).first(),
     )
+
+
+@forecasting_bp.post("/data-readiness/records/<int:record_id>/adjustment")
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def data_record_adjustment(record_id: int):
+    record = ForecastDataRecord.query.get_or_404(record_id)
+    action = request.form.get("action", "")
+    values = request.form
+    rationale = request.form.get("rationale", "")
+    reused_from = request.form.get("reused_from_id", type=int)
+    if reused_from is not None:
+        prior = db.session.get(ForecastReleaseAdjustment, reused_from)
+        if prior is None:
+            abort(404)
+        action, rationale = prior.action, prior.rationale
+        values = {key: str(value).lower() if isinstance(value, bool) else str(value)
+                  for key, value in prior.corrections.items()}
+    try:
+        save_adjustment(
+            record.id, action, values, rationale, current_user.id,
+            request.form.get("capture_identity", ""), request.form.get("expected_id", type=int),
+            reused_from_id=reused_from,
+        )
+    except ValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+    else:
+        flash("Adjustment evidence saved. The original extract and calculations are unchanged.", "success")
+    return redirect(url_for(
+        "forecasting.data_extract", extract_id=record.extract_id, scope="all", release=record.id,
+        _anchor=f"record-{record.id}",
+    ))
+
+
+@forecasting_bp.post("/data-readiness/extracts/<int:extract_id>/adjusted")
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def data_extract_adjusted(extract_id: int):
+    try:
+        if request.form.get("confirm") != "yes":
+            raise ValidationError("Confirm the adjustments before creating an extract.")
+        extract = create_adjusted_extract(
+            extract_id, request.form.get("capture_identity", ""),
+            request.form.get("expected_revision", type=int), current_user.id,
+            expected_row_revision=request.form.get("expected_row_revision", 0, type=int),
+        )
+    except ValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+        return redirect(url_for("forecasting.data_extract", extract_id=extract_id))
+    flash("Adjusted extract created. Original saved data remains unchanged.", "success")
+    return redirect(url_for("forecasting.data_extract", extract_id=extract.id))
+
+
+@forecasting_bp.post("/data-readiness/extracts/<int:extract_id>/row-exclusions")
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def data_extract_row_exclusions(extract_id: int):
+    raw_ids = request.form.getlist("record_id")
+    try:
+        if request.form.get("confirm") != "yes":
+            raise ValidationError("Confirm the selected rows before saving.")
+        if any(not value.isascii() or not value.isdecimal() or len(value) > 19 for value in raw_ids):
+            raise ValidationError("Choose valid saved rows.")
+        record_ids = [int(value) for value in raw_ids]
+        if any(not 0 < record_id <= 2**63 - 1 for record_id in record_ids):
+            raise ValidationError("Choose valid saved rows.")
+        save_row_exclusions(
+            extract_id, record_ids, request.form.get("action", ""),
+            request.form.get("rationale", ""), current_user.id,
+            request.form.get("capture_identity", ""), request.form.get("expected_revision", type=int),
+        )
+    except ValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+    else:
+        flash("Row exclusion evidence saved. The original extract and Epicor are unchanged.", "success")
+    return _row_exclusion_redirect(extract_id)
+
+
+def _row_exclusion_redirect(extract_id):
+    return redirect(url_for(
+        "forecasting.data_extract", extract_id=extract_id, scope=request.form.get("scope", "findings"),
+        finding=request.form.get("finding") or None, page=request.form.get("page", type=int),
+        per_page=request.form.get("per_page", type=int), release=request.form.get("release", type=int),
+        gbp_group=request.form.get("gbp_group") or None, week=request.form.get("week", type=int),
+        year=request.form.get("year", type=int), _anchor="saved-records",
+    ))
+
+
+@forecasting_bp.post("/data-readiness/extracts/<int:extract_id>/confirm-row-exclusions")
+@login_required
+@permission_required("view_planning")
+@permission_required("manage_planning")
+def data_extract_confirm_row_exclusions(extract_id: int):
+    selections = []
+    try:
+        for value in request.form.getlist("suggestion"):
+            parts = value.split(":")
+            if len(parts) != 2 or not all(
+                part.isascii() and part.isdecimal() and len(part) <= 19 for part in parts
+            ):
+                raise ValidationError("Select valid suggested exclusions.")
+            record_id, prior_id = map(int, parts)
+            if not (0 < record_id <= 2**63 - 1 and 0 < prior_id <= 2**63 - 1):
+                raise ValidationError("Select valid suggested exclusions.")
+            selections.append((record_id, prior_id))
+        if request.form.get("confirm") != "yes":
+            raise ValidationError("Confirm the suggested exclusions before saving.")
+        count = confirm_row_exclusion_suggestions(
+            extract_id, selections, current_user.id, request.form.get("capture_identity", ""),
+        )
+    except NotFoundError:
+        db.session.rollback()
+        abort(404)
+    except ValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+    else:
+        flash(f"Confirmed {count} suggested row exclusion(s). Create an adjusted extract to apply them.", "success")
+    return _row_exclusion_redirect(extract_id)
 
 
 def _gbp_review_group(finding: str, values, *, strict: bool = False) -> str | None:
@@ -1180,6 +1369,7 @@ def data_record_review(record_id: int):
         scope=scope,
         finding=finding,
         gbp_group=gbp_group,
+        per_page=request.form.get("per_page", type=int),
         week=investigation_week,
         year=request.form.get("year", type=int),
         release=(
@@ -1198,8 +1388,8 @@ def data_extract_reviews(extract_id: int):
     if not isinstance(payload, dict) or not isinstance(payload.get("capture_identity"), str):
         return jsonify(error="Reopen the saved extract before reviewing."), 400
     items = payload.get("reviews")
-    if not isinstance(items, list) or not 1 <= len(items) <= 25:
-        return jsonify(error="Submit 1 to 25 saved rows."), 400
+    if not isinstance(items, list) or not 1 <= len(items) <= MAX_PAGE_REVIEWS:
+        return jsonify(error=f"Submit 1 to {MAX_PAGE_REVIEWS} saved rows."), 400
     reviews = []
     for item in items:
         if (
@@ -1267,7 +1457,8 @@ def data_extract_confirm_suggestions(extract_id: int):
         flash(f"Confirmed {count} previously reviewed row(s). No source values were changed.", "success")
     return redirect(url_for(
         "forecasting.data_extract", extract_id=extract_id, scope="unreviewed",
-        page=request.form.get("page", 1, type=int), _anchor="saved-records",
+        page=request.form.get("page", 1, type=int),
+        per_page=request.form.get("per_page", type=int), _anchor="saved-records",
     ))
 
 

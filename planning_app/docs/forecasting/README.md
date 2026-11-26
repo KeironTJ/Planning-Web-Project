@@ -39,7 +39,8 @@ extract and order-date period. Workflow links keep that extract in context.
 These indicators show location, not sign-off or forecasting readiness.
 On small screens, expand **AI Tools menu** for the same workflow links.
 
-The overview opens the latest extract by default and recommends reviewing
+The overview opens the latest saved extract by default, which may be an
+adjusted extract, and recommends reviewing
 unreviewed findings, following up investigation/correction outcomes, or
 checking coverage. Completed reviews are not a data approval. Change extract
 opens the saved-extract library. Live import diagnostics, calculation rules,
@@ -305,6 +306,10 @@ Open **AI Tools > Prepare data** at `/ai-tools/data-readiness`.
 Viewing requires `view_planning`; capture and review also require
 `manage_planning`.
 
+Before deploying the adjustment and exclusion workflow, back up the configured
+database and run `flask db upgrade` from `planning_app` using the target
+environment. Apply all migrations before serving the updated application.
+
 The current-import readiness section uses **Epicor order date** for Project 1.
 It counts releases with missing or inconsistent order dates separately from
 releases with consistent dates inside or outside the verified SOI calendar.
@@ -327,9 +332,21 @@ These checks do not change saved extracts or their findings.
    on that kind of issue. To see the job and assembly rows together, select
    **View all rows for this release** on a saved row. Use **All saved rows**
    to browse releases that don't have findings.
+   The active filters are shown above the rows. Remove one at a time or use
+   **Clear all filters** to show all saved rows. A GBP group depends on the
+   nonpositive GBP finding and is cleared with it. Week investigation context
+   and the selected page size are retained.
    The findings summary shows how many affected rows have a saved review
    outcome for each finding. Select **not reviewed** to open the remaining
-   rows. Reviewed does not mean accepted or corrected.
+   rows. The row highlights show red for rows still needing review, amber when
+   all affected rows are reviewed, and green when there are no affected rows.
+   Reviewed does not mean accepted or corrected; these colours indicate review
+   progress, not the severity or resolution of a finding.
+   On the original capture, **Planned rows** counts distinct affected rows
+   covered by active corrections or exclusions, including order-wide date
+   corrections. A planned adjustment may not address that finding, and only
+   takes effect in a separately created adjusted extract. Counts can overlap
+   between finding types; cleared or merely suggested adjustments do not count.
    Selecting the nonpositive GBP finding shows a breakdown directly above the
    saved rows. It splits
    flagged rows into consistently void zeroes, consistently non-void zeroes,
@@ -339,8 +356,13 @@ These checks do not change saved extracts or their findings.
    to the selected group across all pages. Choose **All groups** for the
    whole finding. The breakdown also shows the latest review outcome
    counts for each group across all pages; select a count to filter the
-   rows by that outcome. Collapsed review rows show order and ship-by dates,
-   GBP, quantity, assembly and void status.
+   rows by that outcome. The saved-records table has one set of column
+   headings; scroll horizontally using the bars above or below the table.
+   The order key remains visible while scrolling sideways. Expand a row to
+   see its record context and full findings alongside review evidence.
+   Planning adjustments are grouped separately below them.
+   Choose 25, 50 or 100 rows per page and use the numbered page links to
+   navigate; changing filters or page size returns to the first page.
    Managers can download CSV worklists for **Not reviewed**, **Needs
    investigation**, and **Source correction required**. The links at the
    top under **Correction worklists and new capture** cover the whole extract; the finding links cover that finding or
@@ -365,6 +387,13 @@ These checks do not change saved extracts or their findings.
    multiple rows on the current page, then choose **Save drafted reviews**.
    The batch saves together without reloading. Save drafts before changing
    filters or moving to another page.
+   To give selected rows the same outcome, use **Review selected rows on this
+   page**, tick rows with findings, enter shared evidence and confirm. **Select
+   all rows on this page** also selects rows without findings; deselect those
+   before submitting a review. Selection is limited to the current page; existing outcomes
+   remain in review history. Save individual drafts on those rows first. Use
+   **Back to review controls** below the rows to return to the selection and
+   draft controls without losing the current page's selections.
    To reuse a decision, tick **Remember this decision for matching future
    extracts** when saving it (also available for a shared finding review).
    Existing decisions can be saved again with this option. On a later extract,
@@ -383,6 +412,61 @@ These checks do not change saved extracts or their findings.
    capture fields or a different selection of order rows require a fresh review.
    A suggestion is not a review until confirmed; a row's outcome still covers
    all its findings. No source data or forecast inclusion is changed.
+
+   For historical values that cannot be corrected in Epicor, open **Planning
+   adjustment for this release**. Managers can exclude the whole release or
+   specify replacement quantity, GBP value, void status, order date and/or
+   required ship-by date, with supporting evidence. Quantity and GBP replace
+   main-row values; void and ship-by apply to all rows in the release. An
+   order-date correction requires an explicit choice between this release
+   and all captured releases on the order. The latest adjustment replaces the
+   entire previous adjustment for that release; include every correction still
+   needed. The form shows captured values from the selected row for reference,
+   not as corrections; other rows can differ. An active adjustment is prefilled
+   for editing, including its evidence, which should be reviewed and updated.
+   Clear an adjustment to stop applying it. Previous decisions remain
+   in the adjustment history.
+
+   To exclude individual saved rows instead of a whole release, select rows
+   on the current page and use **Exclude or restore selected rows** with shared
+   evidence. Only the selected observations are excluded; other rows in the
+   release remain. The same control can restore previously excluded rows.
+   Row exclusions are specific to this capture and never apply automatically
+   to later captures. A later capture can suggest an earlier exclusion when
+   the complete saved row values and findings match uniquely within the order
+   in both captures (ignoring local row ID and import timestamp), with the same
+   source, rules and environment. Use **Find suggested row exclusions** to
+   find matches across the extract, including rows without findings. Open
+   the marked rows, inspect the earlier evidence and select suggestions on
+   the current page to confirm together.
+   A confirmed exclusion keeps a link to the earlier evidence. A newer
+   matching restore suppresses older suggestions. Identical ambiguous rows,
+   changed rows and removed rows are not suggested. Review the resulting
+   findings and release totals carefully.
+
+   Under **Planning adjustments**, review the active decisions and confirm
+   **Create adjusted extract**. This creates a separate, retrospective saved
+   extract with recalculated findings and links to the original and the exact
+   decisions used. The latest review outcome for a surviving row carries
+   forward with its original reviewer, date, evidence and a link to the
+   original review only when every captured row and its findings on the order
+   remain unchanged. The original remember setting is preserved; it is not
+   required for this carry-over. Changed orders need fresh reviews, and
+   excluded rows have no review in the adjusted extract. Existing reviews
+   in an adjusted extract are never overwritten by a carry-over.
+   Whole-release exclusions remove all job and assembly rows for the release;
+   individual row exclusions remove only the selected observations.
+   The original observations, reviews and Epicor data are unchanged. Analysis
+   and model comparisons can select the adjusted extract; record which extract
+   and hash were used. Later discoveries may not have been known at historical
+   forecast cutoffs, so adjusted results are not an as-of backtest. A changed
+   order date can move or exclude a captured release from a period; it cannot
+   recover rows omitted by the original capture.
+
+   Later captures suggest a prior adjustment only when the captured order,
+   findings, source, rules and environment match. Suggestions are never
+   applied automatically: inspect the evidence and confirm each one. A newer
+   matching cleared decision suppresses older suggestions.
 5. On **Review data**, expand **Extract details and calculation rules** below
    the review list for assembly guidance and provenance. **Business notes**
    follow these details. Use notes for observations about the extract or a named

@@ -245,7 +245,7 @@ jobs. The live response differs on subassemblies, as recorded below.
 | COOIS retention | Deletes works orders before reloading | Current snapshot, not historical snapshots |
 | COOIS key | Keeps the first job/assembly row | Discarded raw duplicates cannot be assessed locally |
 | COOIS filters | Production plan bounds are `0` to `9999999` | Historical inclusion still needs verification |
-| Sales-order retention | Replaces open rows; closed imports replace orders returned in their batch | Retained history is mutable, not an as-of order book |
+| Sales-order retention | Open imports replace open rows and retained rows for returned open orders; closed imports replace orders returned in their batch | Reopened orders do not retain stale closed rows after a successful open import; retained history is mutable, not an as-of order book |
 | Closed import window | Starts at current-year January on first default run; later uses rolling overlap and capped open-order lookback; manual dates supported | Local coverage differs from available Epicor history |
 | Sales-order key | Order, line, release, assembly, and job | Multiple stored rows per release |
 | Sales-order mapping | Imports requested, need-by, original ship-by, release/selling/shipped quantities, and inventory UOM | Validate meanings and units before aggregation |

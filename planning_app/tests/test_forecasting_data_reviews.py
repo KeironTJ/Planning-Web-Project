@@ -1,5 +1,6 @@
 import csv
 import hashlib
+import html
 import json
 import re
 import runpy
@@ -13,6 +14,7 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import sqlalchemy as sa
@@ -22,6 +24,17 @@ from sqlalchemy.dialects import postgresql
 
 from app.auth.models import AuditLog
 from app.core.exceptions import NotFoundError, ValidationError
+from app.forecasting.adjustments import (
+    adjustment_suggestions,
+    backfill_adjusted_reviews,
+    create_adjusted_extract,
+    finding_adjustment_counts,
+    latest_adjustments,
+    latest_row_exclusions,
+    row_exclusion_suggestions,
+    save_adjustment,
+    save_row_exclusions,
+)
 from app.forecasting.data_quality import (
     finding_matches,
     save_data_decision,
@@ -33,6 +46,7 @@ from app.forecasting.models import (
     ForecastDataNote,
     ForecastDataRecord,
     ForecastFeatureDecision,
+    ForecastRowExclusion,
 )
 from app.forecasting.services import (
     save_model_category,
@@ -86,6 +100,654 @@ def add_source(session, **overrides):
     session.add(row)
     session.commit()
     return row
+
+
+def test_adjusted_extract_preserves_source_and_uses_release_grain(db_session, planner_user, client):
+    add_source(db_session, void_line=False)
+    add_source(db_session, assembly_seq=1, job_num="J2", release_price_gbp=Decimal("999"), void_line=False)
+    add_source(db_session, rel_num=2, job_num="J3", release_price_gbp=Decimal("40"), void_line=False)
+    add_source(db_session, order_num=13, job_num="J4", void_line=False)
+    source = save_va05_extract(planner_user.id, period=(date(2026, 1, 1), date(2026, 1, 31)))
+    rows = ForecastDataRecord.query.filter_by(extract_id=source.id).order_by(ForecastDataRecord.id).all()
+    before = [(row.data.copy(), list(row.findings)) for row in rows]
+    corrected = save_adjustment(
+        rows[0].id, "correct",
+        {"release_qty": "5", "release_price_gbp": "200", "void_line": "false",
+         "order_date": "2026-01-05", "order_date_scope": "order", "req_date": "2026-03-01"},
+        "Verified against historical invoice.", planner_user.id, source.capture_identity, 0,
+    )
+    excluded = save_adjustment(
+        rows[3].id, "exclude", {}, "Duplicate import, verified.", planner_user.id, source.capture_identity, 0,
+    )
+    derived = create_adjusted_extract(source.id, source.capture_identity, excluded.id, planner_user.id)
+    result = ForecastDataRecord.query.filter_by(extract_id=derived.id).order_by(ForecastDataRecord.id).all()
+    assert [(row.data, row.findings) for row in rows] == before
+    assert derived.derived_from_id == source.id
+    assert derived.source_settings["derived_from_hash"] == source.content_hash
+    assert derived.source_settings["adjustment_ids"] == [corrected.id, excluded.id]
+    assert derived.content_hash != source.content_hash
+    assert len(result) == 3
+    main, assembly, other_release = [row.data for row in result]
+    assert (main["release_qty"], main["release_price_gbp"], main["req_date"]) == ("5", "200", "2026-03-01")
+    assert (assembly["release_qty"], assembly["release_price_gbp"], assembly["req_date"]) == ("3.000", "999.0000", "2026-03-01")
+    assert {row.data["order_date"] for row in result} == {"2026-01-05"}
+    assert other_release["release_price_gbp"] == "40.0000"
+    profile = explore_weekly_intake([row.data for row in result], date(2026, 2, 1))
+    assert profile.weeks[0].net_gbp == Decimal("240")
+
+    save_adjustment(rows[0].id, "clear", {}, "Superseded.", planner_user.id, source.capture_identity, corrected.id)
+    login(client, planner_user.email, "Planner!Pass1234")
+    page = client.get(f"{PAGE}/extracts/{derived.id}")
+    assert page.status_code == 200
+    assert b"Verified against historical invoice." in page.data
+    assert b"Duplicate import, verified." in page.data
+    library = client.get(PAGE).get_data(as_text=True)
+    assert "Latest saved extract" in library
+    assert "Latest capture" not in library
+
+
+def test_adjustment_suggestions_require_unchanged_order_and_confirmation(db_session, planner_user):
+    sales = add_source(db_session, void_line=False)
+    old = save_va05_extract(planner_user.id)
+    old_row = ForecastDataRecord.query.filter_by(extract_id=old.id).one()
+    original = save_adjustment(old_row.id, "exclude", {}, "Verified duplicate.", planner_user.id, old.capture_identity, 0)
+    new = save_va05_extract(planner_user.id)
+    row = ForecastDataRecord.query.filter_by(extract_id=new.id).one()
+    key = (12, 1, 1)
+    assert adjustment_suggestions(new, [row], {})[key].id == original.id
+    assert latest_adjustments(new.id) == {}
+    with pytest.raises(ValidationError, match="suggested adjustment has changed"):
+        save_adjustment(row.id, "correct", {"release_qty": "4"}, "Different", planner_user.id,
+                        new.capture_identity, 0, reused_from_id=original.id)
+    db_session.rollback()
+    confirmed = save_adjustment(row.id, "exclude", {}, original.rationale, planner_user.id,
+                                new.capture_identity, 0, reused_from_id=original.id)
+    assert confirmed.reused_from_id == original.id
+    with pytest.raises(ValidationError, match="changed"):
+        save_adjustment(row.id, "clear", {}, "Stale edit", planner_user.id, new.capture_identity, 0)
+    db_session.rollback()
+    sales.release_qty = Decimal("8")
+    db_session.commit()
+    changed = save_va05_extract(planner_user.id)
+    changed_row = ForecastDataRecord.query.filter_by(extract_id=changed.id).one()
+    assert adjustment_suggestions(changed, [changed_row], {}) == {}
+
+
+def test_suggestions_prefer_latest_capture_and_respect_cleared_decisions(db_session, planner_user):
+    add_source(db_session)
+    old = save_va05_extract(planner_user.id)
+    old_row = ForecastDataRecord.query.filter_by(extract_id=old.id).one()
+    initial = save_adjustment(old_row.id, "exclude", {}, "Old evidence", planner_user.id, old.capture_identity, 0)
+    newer = save_va05_extract(planner_user.id)
+    newer_row = ForecastDataRecord.query.filter_by(extract_id=newer.id).one()
+    recent = save_adjustment(newer_row.id, "clear", {}, "No longer excluded", planner_user.id, newer.capture_identity, 0)
+    save_adjustment(old_row.id, "exclude", {}, "Later edit of older capture", planner_user.id, old.capture_identity, initial.id)
+    current = save_va05_extract(planner_user.id)
+    current_row = ForecastDataRecord.query.filter_by(extract_id=current.id).one()
+    assert adjustment_suggestions(current, [current_row], {}) == {}
+    save_adjustment(newer_row.id, "correct", {"release_qty": "4"}, "New evidence",
+                    planner_user.id, newer.capture_identity, recent.id)
+    assert adjustment_suggestions(current, [current_row], {})[(12, 1, 1)].rationale == "New evidence"
+
+
+def test_adjustment_conflicts_and_empty_result_are_rejected(db_session, planner_user):
+    add_source(db_session)
+    add_source(db_session, rel_num=2, job_num="J2")
+    source = save_va05_extract(planner_user.id)
+    first, second = ForecastDataRecord.query.filter_by(extract_id=source.id).order_by(ForecastDataRecord.id).all()
+    one = save_adjustment(first.id, "correct", {"order_date": "2026-01-05", "order_date_scope": "order"},
+                          "Evidence", planner_user.id, source.capture_identity, 0)
+    two = save_adjustment(second.id, "correct", {"order_date": "2026-01-12", "order_date_scope": "release"},
+                          "Evidence", planner_user.id, source.capture_identity, 0)
+    with pytest.raises(ValidationError, match="conflicting"):
+        create_adjusted_extract(source.id, source.capture_identity, two.id, planner_user.id)
+    db_session.rollback()
+    one = save_adjustment(first.id, "exclude", {}, "Evidence", planner_user.id, source.capture_identity, one.id)
+    two = save_adjustment(second.id, "exclude", {}, "Evidence", planner_user.id, source.capture_identity, two.id)
+    with pytest.raises(ValidationError, match="exclude every"):
+        create_adjusted_extract(source.id, source.capture_identity, two.id, planner_user.id)
+    db_session.rollback()
+    assert ForecastDataExtract.query.count() == 1
+
+
+def test_adjustment_rejects_missing_main_and_source_tampering(db_session, planner_user):
+    add_source(db_session, assembly_seq=1)
+    source = save_va05_extract(planner_user.id)
+    row = ForecastDataRecord.query.filter_by(extract_id=source.id).one()
+    entry = save_adjustment(row.id, "correct", {"release_qty": "5"}, "Evidence",
+                            planner_user.id, source.capture_identity, 0)
+    with pytest.raises(ValidationError, match="no main row"):
+        create_adjusted_extract(source.id, source.capture_identity, entry.id, planner_user.id)
+    db_session.rollback()
+    row.data = {**row.data, "release_qty": "7"}
+    db_session.commit()
+    with pytest.raises(ValidationError, match="no longer matches"):
+        create_adjusted_extract(source.id, source.capture_identity, entry.id, planner_user.id)
+    db_session.rollback()
+    assert ForecastDataExtract.query.count() == 1
+
+
+def test_adjustment_recalculates_findings_and_release_only_date(db_session, planner_user):
+    add_source(db_session, release_qty=Decimal("0"), release_price_gbp=Decimal("0"),
+               req_date=None, void_line=True)
+    add_source(db_session, rel_num=2, job_num="J2", void_line=False)
+    source = save_va05_extract(planner_user.id, period=(date(2026, 1, 1), date(2026, 1, 31)))
+    first, second = ForecastDataRecord.query.filter_by(extract_id=source.id).order_by(ForecastDataRecord.id).all()
+    assert "nonpositive_qty" in first.findings
+    change = save_adjustment(
+        first.id, "correct",
+        {"release_qty": "5", "release_price_gbp": "100", "void_line": "false",
+         "req_date": "2026-03-01", "order_date": "2026-01-05", "order_date_scope": "release"},
+        "Verified.", planner_user.id, source.capture_identity, 0,
+    )
+    with pytest.raises(ValidationError, match="changed"):
+        create_adjusted_extract(source.id, source.capture_identity, 0, planner_user.id)
+    db_session.rollback()
+    derived = create_adjusted_extract(source.id, source.capture_identity, change.id, planner_user.id)
+    result = ForecastDataRecord.query.filter_by(extract_id=derived.id).order_by(ForecastDataRecord.id).all()
+    assert "nonpositive_qty" not in result[0].findings
+    assert result[0].data["void_line"] is False
+    assert result[0].data["order_date"] == "2026-01-05"
+    assert result[1].data["order_date"] == second.data["order_date"]
+    assert "nonpositive_qty" in first.findings
+
+
+def test_finding_planned_rows_count_active_adjustment_scope(db_session, planner_user, client):
+    add_source(db_session, order_received_date=None, release_qty=Decimal("0"))
+    add_source(db_session, order_received_date=None, assembly_seq=1, job_num="J2")
+    add_source(db_session, order_received_date=None, rel_num=2, job_num="J3")
+    add_source(db_session, order_num=13, order_received_date=None, job_num="J4")
+    add_source(db_session, order_num=13, order_received_date=None, assembly_seq=1, job_num="J5")
+    add_source(db_session, order_num=14, order_received_date=None, job_num="J6")
+    source = save_va05_extract(planner_user.id)
+    rows = ForecastDataRecord.query.filter_by(extract_id=source.id).order_by(ForecastDataRecord.id).all()
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    def planned_count(rule):
+        page = client.get(f"{PAGE}/extracts/{source.id}").get_data(as_text=True)
+        row = page.split(f'data-finding-progress="{rule}"', 1)[1].split("</tr>", 1)[0]
+        match = re.search(r'data-planned-rows>([\d,]+)</td>', row)
+        assert match is not None
+        return int(match.group(1).replace(",", ""))
+
+    assert planned_count("missing_received") == 0
+    change = save_adjustment(
+        rows[0].id, "correct", {"release_qty": "5"}, "Evidence",
+        planner_user.id, source.capture_identity, 0,
+    )
+    assert planned_count("missing_received") == 1
+    assert planned_count("nonpositive_qty") == 1
+    change = save_adjustment(
+        rows[0].id, "correct",
+        {"release_qty": "5", "order_date": "2026-01-05", "order_date_scope": "order"},
+        "Evidence", planner_user.id, source.capture_identity, change.id,
+    )
+    exclusion = save_adjustment(
+        rows[3].id, "exclude", {}, "Evidence", planner_user.id, source.capture_identity, 0,
+    )
+    assert planned_count("missing_received") == 5
+    assert planned_count("nonpositive_qty") == 1
+
+    derived = create_adjusted_extract(source.id, source.capture_identity, exclusion.id, planner_user.id)
+    derived_page = client.get(f"{PAGE}/extracts/{derived.id}").get_data(as_text=True)
+    assert "Planned rows" not in derived_page
+    assert "data-planned-rows" not in derived_page
+
+    save_adjustment(
+        rows[0].id, "clear", {}, "No longer needed",
+        planner_user.id, source.capture_identity, change.id,
+    )
+    assert planned_count("missing_received") == 2
+    save_adjustment(
+        rows[3].id, "correct", {"release_qty": "5"}, "Replaced exclusion",
+        planner_user.id, source.capture_identity, exclusion.id,
+    )
+    assert planned_count("missing_received") == 1
+
+
+def test_selected_row_exclusions_preserve_other_rows_and_provenance(db_session, planner_user, client):
+    add_source(db_session, release_qty=Decimal("0"), release_price_gbp=Decimal("0"))
+    add_source(db_session, release_qty=Decimal("3"), release_price_gbp=Decimal("120"), job_num="J2")
+    add_source(db_session, assembly_seq=1, job_num="J3")
+    source = save_va05_extract(planner_user.id)
+    rows = ForecastDataRecord.query.filter_by(extract_id=source.id).order_by(ForecastDataRecord.id).all()
+    before = [(row.data.copy(), list(row.findings)) for row in rows]
+    assert "conflicting_qty" in rows[0].findings
+
+    login(client, planner_user.email, "Planner!Pass1234")
+    path = f"{PAGE}/extracts/{source.id}"
+    response = client.post(f"{path}/row-exclusions", data={
+        "capture_identity": source.capture_identity, "expected_revision": "0",
+        "action": "exclude", "record_id": [str(rows[0].id), str(rows[2].id)],
+        "rationale": "Verified duplicate observations.", "confirm": "yes",
+        "scope": "all", "release": str(rows[0].id), "page": "1", "per_page": "50",
+    })
+    assert response.status_code == 302
+    redirect_url = urlsplit(response.location)
+    assert parse_qs(redirect_url.query) == {
+        "scope": ["all"], "release": [str(rows[0].id)], "page": ["1"], "per_page": ["50"],
+    }
+    assert redirect_url.fragment == "saved-records"
+    latest = latest_row_exclusions(source.id)
+    assert set(latest) == {rows[0].id, rows[2].id}
+    revision = max(entry.id for entry in latest.values())
+    page = client.get(path).get_data(as_text=True)
+    assert "2 rows active" in page
+    assert "Row exclusion planned" in page
+    assert finding_adjustment_counts(source.id, {}, latest)["conflicting_qty"] == 2
+    correction = save_adjustment(
+        rows[1].id, "correct", {"req_date": "2026-03-01"}, "Verified.",
+        planner_user.id, source.capture_identity, 0,
+    )
+    assert finding_adjustment_counts(source.id, latest_adjustments(source.id), latest)["conflicting_qty"] == 3
+    derived = create_adjusted_extract(
+        source.id, source.capture_identity, correction.id, planner_user.id, expected_row_revision=revision,
+    )
+    remaining = ForecastDataRecord.query.filter_by(extract_id=derived.id).all()
+    assert len(remaining) == 1
+    assert remaining[0].source_row_id == rows[1].source_row_id
+    assert "conflicting_qty" not in remaining[0].findings
+    assert [(row.data, row.findings) for row in rows] == before
+    assert derived.source_settings["row_exclusion_ids"] == sorted(entry.id for entry in latest.values())
+    save_row_exclusions(
+        source.id, [rows[0].id], "clear", "Restore this row.", planner_user.id,
+        source.capture_identity, revision,
+    )
+    derived_page = client.get(f"{PAGE}/extracts/{derived.id}").get_data(as_text=True)
+    assert "Verified duplicate observations." in derived_page
+    assert f"Excluded saved row {rows[0].id}" in derived_page
+    assert latest_row_exclusions(source.id)[rows[0].id].action == "clear"
+
+
+def test_row_exclusion_batch_is_atomic_and_rejects_stale_or_invalid_requests(
+    db_session, planner_user, viewer_user, client,
+):
+    add_source(db_session, release_qty=Decimal("0"))
+    add_source(db_session, rel_num=2, job_num="J2")
+    source = save_va05_extract(planner_user.id)
+    rows = ForecastDataRecord.query.filter_by(extract_id=source.id).order_by(ForecastDataRecord.id).all()
+    save_row_exclusions(source.id, [rows[0].id], "exclude", "Evidence.", planner_user.id, source.capture_identity, 0)
+    latest = latest_row_exclusions(source.id)
+    revision = latest[rows[0].id].id
+    for selected, action, expected in (
+        ([rows[1].id], "exclude", 0),
+        ([rows[0].id, rows[1].id], "exclude", revision),
+        ([rows[1].id, 99999999], "exclude", revision),
+        ([rows[1].id], "clear", revision),
+    ):
+        with pytest.raises(ValidationError):
+            save_row_exclusions(source.id, selected, action, "Evidence.", planner_user.id,
+                                source.capture_identity, expected)
+        db_session.rollback()
+    assert set(latest_row_exclusions(source.id)) == {rows[0].id}
+    with pytest.raises(ValidationError, match="Row exclusions changed"):
+        create_adjusted_extract(source.id, source.capture_identity, 0, planner_user.id)
+    db_session.rollback()
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    assert client.post(f"{PAGE}/extracts/{source.id}/row-exclusions", data={
+        "action": "exclude", "record_id": str(rows[1].id), "confirm": "yes",
+        "rationale": "Evidence.", "capture_identity": source.capture_identity,
+        "expected_revision": revision,
+    }).status_code == 403
+    client.get("/auth/logout")
+    login(client, planner_user.email, "Planner!Pass1234")
+    response = client.post(f"{PAGE}/extracts/{source.id}/row-exclusions", data={
+        "action": "exclude", "record_id": str(rows[1].id),
+        "rationale": "Evidence.", "capture_identity": source.capture_identity,
+        "expected_revision": revision,
+    }, follow_redirects=True)
+    assert b"Confirm the selected rows" in response.data
+    assert set(latest_row_exclusions(source.id)) == {rows[0].id}
+    for invalid_id in ("0", str(2**63), "9" * 5000):
+        response = client.post(f"{PAGE}/extracts/{source.id}/row-exclusions", data={
+            "action": "exclude", "record_id": invalid_id, "confirm": "yes",
+            "rationale": "Evidence.", "capture_identity": source.capture_identity,
+            "expected_revision": revision,
+        }, follow_redirects=True)
+        assert b"Choose valid saved rows" in response.data
+        assert set(latest_row_exclusions(source.id)) == {rows[0].id}
+
+
+def test_excluding_every_row_cannot_create_empty_adjusted_extract(db_session, planner_user):
+    add_source(db_session)
+    source = save_va05_extract(planner_user.id)
+    row = ForecastDataRecord.query.filter_by(extract_id=source.id).one()
+    save_row_exclusions(source.id, [row.id], "exclude", "Evidence.", planner_user.id, source.capture_identity, 0)
+    revision = latest_row_exclusions(source.id)[row.id].id
+    with pytest.raises(ValidationError, match="exclude every saved row"):
+        create_adjusted_extract(source.id, source.capture_identity, 0, planner_user.id, expected_row_revision=revision)
+    db_session.rollback()
+    assert ForecastDataExtract.query.filter_by(derived_from_id=source.id).count() == 0
+
+
+def test_adjusted_extract_carries_only_unchanged_order_reviews_with_provenance(
+    db_session, planner_user, admin_user, client,
+):
+    for order, release in ((12, 1), (13, 1), (13, 2), (14, 1), (15, 1), (16, 1)):
+        add_source(db_session, order_num=order, rel_num=release, release_qty=None)
+    source = save_va05_extract(planner_user.id)
+    rows = ForecastDataRecord.query.filter_by(extract_id=source.id).order_by(ForecastDataRecord.id).all()
+    for row in rows[:5]:
+        save_data_decision(row.id, "accepted", "Original evidence.", planner_user.id,
+                           capture_identity=source.capture_identity, remember=False)
+    latest = save_data_decision(rows[4].id, "investigate", "Latest evidence.", planner_user.id,
+                                capture_identity=source.capture_identity, remember=True)
+    correction = save_adjustment(rows[2].id, "correct", {"release_qty": "5"}, "Verified.",
+                                 planner_user.id, source.capture_identity, 0)
+    exclusion = save_adjustment(rows[3].id, "exclude", {}, "Verified.",
+                                planner_user.id, source.capture_identity, 0)
+    derived = create_adjusted_extract(source.id, source.capture_identity, exclusion.id, admin_user.id)
+    targets = {row.source_row_id: row for row in ForecastDataRecord.query.filter_by(extract_id=derived.id)}
+    assert rows[3].source_row_id not in targets
+    assert not targets[rows[1].source_row_id].decisions
+    assert not targets[rows[2].source_row_id].decisions
+    carried = targets[rows[0].source_row_id].decisions[0]
+    original = rows[0].decisions[0]
+    assert (carried.status, carried.rationale, carried.remember, carried.reused_from_id) == (
+        "accepted", "Original evidence.", False, original.id,
+    )
+    assert carried.reviewed_by_id == original.reviewed_by_id
+    assert carried.reviewed_at == original.reviewed_at
+    assert targets[rows[4].source_row_id].decisions[0].reused_from_id == latest.id
+    log = AuditLog.query.filter_by(user_id=admin_user.id, action="forecast_data_decision_saved").all()
+    assert len(log) == 2 and all(json.loads(entry.details)["carried_forward"] for entry in log)
+    login(client, planner_user.email, "Planner!Pass1234")
+    page = client.get(f"{PAGE}/extracts/{derived.id}?scope=all").get_data(as_text=True)
+    assert "Reviews are carried forward" in page and "Based on" in page
+    assert correction.action == "correct"
+
+
+def test_adjusted_review_backfill_preserves_existing_decisions_and_is_idempotent(db_session, planner_user):
+    add_source(db_session, order_num=12, release_qty=None)
+    add_source(db_session, order_num=13, release_qty=None)
+    add_source(db_session, order_num=14, release_qty=None)
+    source = save_va05_extract(planner_user.id)
+    rows = ForecastDataRecord.query.filter_by(extract_id=source.id).order_by(ForecastDataRecord.id).all()
+    exclusion = save_adjustment(rows[2].id, "exclude", {}, "Verified.", planner_user.id, source.capture_identity, 0)
+    derived = create_adjusted_extract(source.id, source.capture_identity, exclusion.id, planner_user.id)
+    targets = {row.source_row_id: row for row in ForecastDataRecord.query.filter_by(extract_id=derived.id)}
+    for row in rows[:2]:
+        save_data_decision(row.id, "accepted", "Original.", planner_user.id, capture_identity=source.capture_identity)
+    save_data_decision(targets[rows[0].source_row_id].id, "investigate", "Existing target.",
+                       planner_user.id, capture_identity=derived.capture_identity)
+    with pytest.raises(ValidationError, match="extract has changed"):
+        backfill_adjusted_reviews(derived.id, planner_user.id, "stale")
+    db_session.rollback()
+    assert backfill_adjusted_reviews(derived.id, planner_user.id, derived.capture_identity) == 1
+    assert backfill_adjusted_reviews(derived.id, planner_user.id, derived.capture_identity) == 0
+    db_session.expire_all()
+    assert targets[rows[0].source_row_id].decisions[0].status == "investigate"
+    assert targets[rows[1].source_row_id].decisions[0].status == "accepted"
+    assert targets[rows[1].source_row_id].decisions[0].reused_from_id == rows[1].decisions[0].id
+
+
+def test_row_exclusion_suggestions_require_bulk_confirmation_and_keep_provenance(
+    db_session, client, planner_user, viewer_user,
+):
+    live = [add_source(db_session, order_num=number) for number in (12, 13)]
+    add_source(db_session, order_num=14)
+    original = save_va05_extract(planner_user.id)
+    old_rows = ForecastDataRecord.query.filter_by(extract_id=original.id).order_by(ForecastDataRecord.id).all()
+    save_row_exclusions(original.id, [row.id for row in old_rows[:2]], "exclude",
+                        "Checked original.", planner_user.id, original.capture_identity, 0)
+    previous = latest_row_exclusions(original.id)
+    for row in live:
+        db_session.delete(row)
+    db_session.commit()
+    for number in (12, 13):
+        add_source(db_session, order_num=number)
+    current = save_va05_extract(planner_user.id)
+    new_rows = sorted(
+        ForecastDataRecord.query.filter_by(extract_id=current.id).all(), key=lambda row: row.data["order_num"],
+    )
+    assert all(new_rows[i].source_row_id != old_rows[i].source_row_id for i in range(2))
+    expected = [f"{new_rows[i].id}:{previous[old_rows[i].id].id}" for i in range(2)]
+    path = f"{PAGE}/extracts/{current.id}"
+    payload = {"capture_identity": current.capture_identity, "suggestion": expected, "confirm": "yes", "scope": "all"}
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    assert client.post(f"{path}/confirm-row-exclusions", data=payload).status_code == 403
+    client.get("/auth/logout")
+    login(client, planner_user.email, "Planner!Pass1234")
+    page = client.get(path + "?scope=all").get_data(as_text=True)
+    assert "Previously excluded: 2 suggestion(s)" in page
+    assert "Checked original." in page
+    assert all(value in page for value in expected)
+    suggestions_page = client.get(path + "?scope=exclusion_suggestions").get_data(as_text=True)
+    assert "2 matching saved records" in suggestions_page
+    assert all(value in suggestions_page for value in expected)
+    assert not latest_row_exclusions(current.id)
+    for invalid in (
+        {**payload, "confirm": ""},
+        {**payload, "capture_identity": "stale"},
+        {**payload, "suggestion": [expected[0], f"{new_rows[1].id}:999999"]},
+        {**payload, "suggestion": ["9" * 5000 + ":1"]},
+    ):
+        client.post(f"{path}/confirm-row-exclusions", data=invalid)
+        assert not latest_row_exclusions(current.id)
+    save_row_exclusions(original.id, [old_rows[0].id], "clear", "Restored.", planner_user.id,
+                        original.capture_identity, max(entry.id for entry in previous.values()))
+    client.post(f"{path}/confirm-row-exclusions", data=payload)
+    assert not latest_row_exclusions(current.id)
+    revision = max(entry.id for entry in latest_row_exclusions(original.id).values())
+    save_row_exclusions(original.id, [old_rows[0].id], "exclude", "Checked original.", planner_user.id,
+                        original.capture_identity, revision)
+    previous = latest_row_exclusions(original.id)
+    payload["suggestion"] = [f"{new_rows[i].id}:{previous[old_rows[i].id].id}" for i in range(2)]
+    response = client.post(f"{path}/confirm-row-exclusions", data=payload, follow_redirects=True)
+    assert b"Confirmed 2 suggested row exclusion" in response.data
+    confirmed = latest_row_exclusions(current.id)
+    assert {entry.reused_from_id for entry in confirmed.values()} == {entry.id for entry in previous.values()}
+    assert {entry.rationale for entry in confirmed.values()} == {"Checked original."}
+    assert not row_exclusion_suggestions(current, new_rows, confirmed)
+    assert "0 matching saved records" in client.get(
+        path + "?scope=exclusion_suggestions",
+    ).get_data(as_text=True)
+    revision = max(entry.id for entry in confirmed.values())
+    adjusted = create_adjusted_extract(current.id, current.capture_identity, 0, planner_user.id,
+                                       expected_row_revision=revision)
+    assert adjusted.row_count == 1
+    assert set(adjusted.source_settings["row_exclusion_ids"]) == {entry.id for entry in confirmed.values()}
+    assert "confirmed from exclusion" in client.get(f"{PAGE}/extracts/{adjusted.id}").get_data(as_text=True)
+    save_row_exclusions(current.id, [new_rows[0].id], "clear", "Restored.", planner_user.id,
+                        current.capture_identity, revision)
+    future = save_va05_extract(planner_user.id)
+    future_rows = ForecastDataRecord.query.filter_by(extract_id=future.id).all()
+    suggestions = row_exclusion_suggestions(future, future_rows, {})
+    assert {record.data["order_num"] for record in future_rows if record.id in suggestions} == {13}
+    assert "confirmed from exclusion" in client.get(path + "?scope=all").get_data(as_text=True)
+
+
+def test_row_exclusion_suggestions_require_unique_unchanged_rows_and_matching_context(db_session, planner_user):
+    live = add_source(db_session, order_num=12)
+    add_source(db_session, order_num=13)
+    original = save_va05_extract(planner_user.id)
+    old_rows = ForecastDataRecord.query.filter_by(extract_id=original.id).order_by(ForecastDataRecord.id).all()
+    save_row_exclusions(original.id, [row.id for row in old_rows], "exclude",
+                        "Evidence.", planner_user.id, original.capture_identity, 0)
+    live.release_qty = Decimal("4")
+    add_source(db_session, order_num=13)
+    current = save_va05_extract(planner_user.id)
+    rows = ForecastDataRecord.query.filter_by(extract_id=current.id).all()
+    assert row_exclusion_suggestions(current, rows, {}) == {}
+    live.release_qty = Decimal("3")
+    SalesOrder.query.filter_by(order_num=13).order_by(SalesOrder.id.desc()).first().release_qty = Decimal("4")
+    db_session.commit()
+    matching = save_va05_extract(planner_user.id)
+    rows = ForecastDataRecord.query.filter_by(extract_id=matching.id).all()
+    assert {row.data["order_num"] for row in rows if row.id in row_exclusion_suggestions(matching, rows, {})} == {12}
+    matching.source_settings = {**matching.source_settings, "capture_environment": "different"}
+    assert row_exclusion_suggestions(matching, rows, {}) == {}
+
+
+def test_row_exclusion_suggestions_do_not_guess_between_identical_prior_rows(db_session, planner_user):
+    duplicate = add_source(db_session)
+    add_source(db_session)
+    original = save_va05_extract(planner_user.id)
+    rows = ForecastDataRecord.query.filter_by(extract_id=original.id).order_by(ForecastDataRecord.id).all()
+    save_row_exclusions(original.id, [rows[0].id], "exclude", "Evidence.", planner_user.id,
+                        original.capture_identity, 0)
+    db_session.delete(duplicate)
+    db_session.commit()
+    current = save_va05_extract(planner_user.id)
+    current_row = ForecastDataRecord.query.filter_by(extract_id=current.id).one()
+    assert row_exclusion_suggestions(current, [current_row], {}) == {}
+
+
+def test_adjustment_permissions_and_confirmation(db_session, planner_user, viewer_user, client):
+    add_source(db_session)
+    source = save_va05_extract(planner_user.id)
+    row = ForecastDataRecord.query.filter_by(extract_id=source.id).one()
+    payload = {"action": "exclude", "rationale": "Evidence", "expected_id": "0",
+               "capture_identity": source.capture_identity}
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    assert client.post(f"{PAGE}/records/{row.id}/adjustment", data=payload).status_code == 403
+    client.get("/auth/logout")
+    login(client, planner_user.email, "Planner!Pass1234")
+    response = client.post(f"{PAGE}/records/{row.id}/adjustment", data=payload)
+    assert response.status_code == 302
+    entry = latest_adjustments(source.id)[(12, 1, 1)]
+    response = client.post(f"{PAGE}/extracts/{source.id}/adjusted", data={
+        "capture_identity": source.capture_identity, "expected_revision": entry.id,
+    }, follow_redirects=True)
+    assert b"Confirm the adjustments" in response.data
+    assert ForecastDataExtract.query.count() == 1
+
+
+def test_adjustment_form_shows_captured_row_and_prefills_active_evidence(
+    db_session, planner_user, client,
+):
+    add_source(db_session, release_qty=Decimal("0"), release_price_gbp=None,
+               req_date=None, void_line=False)
+    add_source(db_session, job_num="J2", release_qty=Decimal("8"), void_line=True)
+    source = save_va05_extract(planner_user.id)
+    row = ForecastDataRecord.query.filter_by(extract_id=source.id).order_by(ForecastDataRecord.id).first()
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    def form():
+        page = client.get(f"{PAGE}/extracts/{source.id}").get_data(as_text=True)
+        row_html = page.split(f'<tbody id="record-{row.id}"', 1)[1].split("</tbody>", 1)[0]
+        return row_html.split('data-adjustment-form>', 1)[1].split("</form>", 1)[0]
+
+    original = form()
+    assert f'Captured on this row: 0.000</div>' in original
+    assert 'Captured on this row: Missing</div>' in original
+    assert 'Captured on this row: Not void</div>' in original
+    assert 'name="release_qty" step="0.001" value=""' in original
+    assert 'other rows in the release may differ' in original
+    assert '<option value="correct" selected>' not in original
+
+    adjustment = save_adjustment(
+        row.id, "correct",
+        {"release_qty": "5", "void_line": "false", "order_date": "2026-01-05",
+         "order_date_scope": "order"},
+        "Verified <invoice>.", planner_user.id, source.capture_identity, 0,
+    )
+    existing = form()
+    assert '<option value="correct" selected>' in existing
+    assert 'name="release_qty" step="0.001" value="5"' in existing
+    assert 'name="release_price_gbp" step="0.0001" value=""' in existing
+    assert '<option value="false" selected>Not void</option>' in existing
+    assert 'name="order_date" value="2026-01-05"' in existing
+    assert '<option value="order" selected>' in existing
+    assert 'required>Verified &lt;invoice&gt;.</textarea>' in existing
+    assert f'name="expected_id" value="{adjustment.id}"' in existing
+
+    response = client.post(f"{PAGE}/records/{row.id}/adjustment", data={
+        "capture_identity": source.capture_identity, "expected_id": adjustment.id,
+        "action": "correct", "release_qty": "6", "void_line": "false",
+        "order_date": "2026-01-05", "order_date_scope": "order", "rationale": "Updated evidence.",
+    })
+    assert response.status_code == 302
+    current = latest_adjustments(source.id)[(12, 1, 1)]
+    assert current.corrections == {
+        "release_qty": "6", "void_line": False, "order_date": "2026-01-05",
+        "order_date_scope": "order",
+    }
+
+    cleared = save_adjustment(row.id, "clear", {}, "No longer needed.",
+                              planner_user.id, source.capture_identity, current.id)
+    empty = form()
+    assert f'name="expected_id" value="{cleared.id}"' in empty
+    assert 'name="release_qty" step="0.001" value=""' in empty
+    assert '<option value="correct" selected>' not in empty
+    assert 'required></textarea>' in empty
+
+
+def test_adjustment_migration_preserves_referenced_extracts():
+    path = Path(__file__).parents[1] / "migrations" / "versions" / "e81ad2397b4c_add_forecast_release_adjustments.py"
+    migration = runpy.run_path(str(path))
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(sa.text("PRAGMA foreign_keys=ON"))
+        connection.execute(sa.text("CREATE TABLE users (id INTEGER PRIMARY KEY)"))
+        connection.execute(sa.text("CREATE TABLE forecast_data_extracts (id INTEGER PRIMARY KEY)"))
+        connection.execute(sa.text("CREATE TABLE records (id INTEGER PRIMARY KEY, extract_id INTEGER REFERENCES forecast_data_extracts(id) ON DELETE CASCADE)"))
+        connection.execute(sa.text("INSERT INTO forecast_data_extracts VALUES (1)"))
+        connection.execute(sa.text("INSERT INTO records VALUES (1, 1)"))
+        with Operations.context(MigrationContext.configure(connection)):
+            migration["upgrade"]()
+            assert connection.execute(sa.text("SELECT extract_id FROM records")).scalar_one() == 1
+            assert connection.execute(sa.text("PRAGMA foreign_key_check")).all() == []
+            migration["downgrade"]()
+            assert connection.execute(sa.text("SELECT extract_id FROM records")).scalar_one() == 1
+            assert connection.execute(sa.text("PRAGMA foreign_key_check")).all() == []
+
+
+def test_adjustment_migration_compiles_for_postgresql():
+    path = Path(__file__).parents[1] / "migrations" / "versions" / "e81ad2397b4c_add_forecast_release_adjustments.py"
+    migration = runpy.run_path(str(path))
+    output = StringIO()
+    context = MigrationContext.configure(
+        dialect=postgresql.dialect(), opts={"as_sql": True, "output_buffer": output},
+    )
+    with Operations.context(context):
+        migration["upgrade"]()
+        migration["downgrade"]()
+    sql = output.getvalue()
+    assert "FOREIGN KEY(derived_from_id) REFERENCES forecast_data_extracts (id) ON DELETE RESTRICT" in sql
+    assert "CREATE TABLE forecast_release_adjustments" in sql
+
+
+def test_row_exclusion_migration_preserves_existing_records():
+    path = Path(__file__).parents[1] / "migrations" / "versions" / "f41a7b3c9d20_add_forecast_row_exclusions.py"
+    migration = runpy.run_path(str(path))
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(sa.text("PRAGMA foreign_keys=ON"))
+        connection.execute(sa.text("CREATE TABLE users (id INTEGER PRIMARY KEY)"))
+        connection.execute(sa.text("CREATE TABLE forecast_data_extracts (id INTEGER PRIMARY KEY)"))
+        connection.execute(sa.text("CREATE TABLE forecast_data_records (id INTEGER PRIMARY KEY, extract_id INTEGER REFERENCES forecast_data_extracts(id))"))
+        connection.execute(sa.text("INSERT INTO forecast_data_extracts VALUES (1)"))
+        connection.execute(sa.text("INSERT INTO forecast_data_records VALUES (1, 1)"))
+        with Operations.context(MigrationContext.configure(connection)):
+            migration["upgrade"]()
+            assert connection.execute(sa.text("SELECT extract_id FROM forecast_data_records")).scalar_one() == 1
+            assert connection.execute(sa.text("PRAGMA foreign_key_check")).all() == []
+            migration["downgrade"]()
+            assert connection.execute(sa.text("SELECT extract_id FROM forecast_data_records")).scalar_one() == 1
+
+
+def test_row_exclusion_suggestion_link_migration_preserves_evidence():
+    path = Path(__file__).parents[1] / "migrations" / "versions" / "b2869ef07c41_link_row_exclusion_suggestions.py"
+    migration = runpy.run_path(str(path))
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(sa.text("PRAGMA foreign_keys=ON"))
+        connection.execute(sa.text("CREATE TABLE forecast_row_exclusions (id INTEGER PRIMARY KEY, rationale TEXT NOT NULL)"))
+        connection.execute(sa.text("INSERT INTO forecast_row_exclusions VALUES (1, 'Evidence')"))
+        with Operations.context(MigrationContext.configure(connection)):
+            migration["upgrade"]()
+            connection.execute(sa.text("INSERT INTO forecast_row_exclusions (id, rationale, reused_from_id) VALUES (2, 'Evidence', 1)"))
+            assert connection.execute(sa.text("PRAGMA foreign_key_check")).all() == []
+            assert connection.execute(sa.text("SELECT rationale FROM forecast_row_exclusions WHERE id=1")).scalar_one() == "Evidence"
+            migration["downgrade"]()
+            assert connection.execute(sa.text("SELECT count(*) FROM forecast_row_exclusions")).scalar_one() == 2
+    output = StringIO()
+    context = MigrationContext.configure(dialect=postgresql.dialect(), opts={"as_sql": True, "output_buffer": output})
+    with Operations.context(context):
+        migration["upgrade"]()
+        migration["downgrade"]()
+    assert "FOREIGN KEY(reused_from_id) REFERENCES forecast_row_exclusions (id) ON DELETE RESTRICT" in output.getvalue()
 
 
 def test_weekly_intake_matches_release_grain_and_flags_gaps():
@@ -689,10 +1351,10 @@ def test_week_investigation_traces_saved_releases_and_preserves_flags_after_revi
     review_html = release_review.get_data(as_text=True)
     assert "Back to week 1 investigation" in review_html
     assert 'name="week" value="1"' in review_html
-    assert "Void line:" in review_html
-    assert "Received: 02/01/2026" in review_html
-    assert "Order date: 05/01/2026" in review_html
-    assert "Required ship-by: 01/02/2026" in review_html
+    assert '<th scope="col">Void</th>' in review_html
+    assert "<strong>Received:</strong> 02/01/2026" in review_html
+    assert '<td data-field="order_date">05/01/2026</td>' in review_html
+    assert '<td data-field="req_date">01/02/2026</td>' in review_html
     assert record.data["order_date"] == "2026-01-05"
     review_response = client.post(f"{PAGE}/records/{record.id}/review", data={
         "status": "accepted", "rationale": "Reviewed both observations; reconciliation still required.",
@@ -898,21 +1560,58 @@ def test_saved_rows_show_captured_customer_and_product_details_without_live_back
     login(client, planner_user.email, "Planner!Pass1234")
 
     html = client.get(f"{PAGE}/extracts/{current.id}?scope=all").get_data(as_text=True)
-    assert 'class="ai-review-grid"' in html
-    assert '<span class="ai-review-label">Release value (GBP)</span><strong>120.0000</strong>' in html
-    assert '<span class="ai-review-label">Release quantity</span><strong>3.000</strong>' in html
+    assert 'class="table table-sm ai-review-table"' in html
+    table = html.split('<table class="table table-sm ai-review-table">', 1)[1].split("</table>", 1)[0]
+    record = ForecastDataRecord.query.filter_by(extract_id=current.id).one()
+    assert table.count("<thead>") == 1
+    assert f'aria-controls="record-detail-{record.id}" aria-expanded="false"' in table
+    assert f'<details id="record-detail-{record.id}" data-row-details>' in table
+    assert '<td data-field="release_price_gbp">120.0000</td>' in html
+    assert '<td data-field="release_qty">3.000</td>' in html
     assert "GBP / quantity" not in html
     for value in ("C123", "Trade", "Sofa", "Large", "3-seat"):
         assert value in html
     assert "LIVE-CHANGED" not in html
     old_html = client.get(f"{PAGE}/extracts/{legacy.id}?scope=all").get_data(as_text=True)
-    assert "Customer ID: Not captured" in old_html
+    assert '<td data-field="customer_id">Not captured</td>' in old_html
     assert "LIVE-CHANGED" not in old_html
     source.customer_id = None
     db_session.commit()
     missing = save_va05_extract(planner_user.id)
     missing_html = client.get(f"{PAGE}/extracts/{missing.id}?scope=all").get_data(as_text=True)
-    assert "Customer ID: Missing" in missing_html
+    assert '<td data-field="customer_id">Missing</td>' in missing_html
+
+
+def test_expanded_review_shows_all_findings_and_context(
+    db_session, client, planner_user,
+):
+    add_source(db_session, release_qty=None, release_price_gbp=Decimal("0"))
+    extract = save_va05_extract(planner_user.id)
+    record = ForecastDataRecord.query.filter_by(extract_id=extract.id).one()
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    for selected, other in (
+        ("missing_qty", "nonpositive_value"),
+        ("nonpositive_value", "missing_qty"),
+    ):
+        html = client.get(
+            f"{PAGE}/extracts/{extract.id}",
+            query_string={"finding": selected},
+        ).get_data(as_text=True)
+        row = html.split(f'id="record-{record.id}" data-review-row>', 1)[1]
+        summary, expanded = row.split('<tr data-review-detail-row>', 1)
+        assert extract.summary["rules"][selected] in summary
+        assert extract.summary["rules"][selected] in expanded
+        assert extract.summary["rules"][other] in expanded
+        assert '<h4 class="h6">Record context</h4>' in expanded
+        assert '<h4 class="h6">Review evidence</h4>' in expanded
+        assert "Planning adjustment for this release" in expanded
+        assert "<strong>Received:</strong>" in expanded
+        assert '<h4 class="h6">Findings' in expanded
+        assert "Received:" in expanded and "Current model category:" in expanded
+        assert f"Source row {record.source_row_id}" in expanded
+        for label in ("Order date:", "Release qty:", "Customer ID:", "Void line:"):
+            assert label not in expanded
 
 
 def test_extract_is_reproducible_and_survives_operational_refresh(
@@ -1102,9 +1801,10 @@ def test_release_assemblies_are_visible_without_entering_review_queue(
     assert response.status_code == 200
     assert "4 matching saved records" in html
     for assembly in (0, 4, 5, 6):
-        assert f"assembly {assembly}" in html
-    assert "Model: SOFA" in html and "Model: SUB-6" in html
-    assert "Model: OTHER-" not in html
+        assert f'<td data-field="assembly_seq">{assembly}</td>' in html
+    for model in ("SOFA", "SUB-6"):
+        assert f'<td data-field="model">{model}</td>' in html
+    assert "OTHER-" not in html
     assert "Save review evidence" not in html
 
 
@@ -1367,13 +2067,11 @@ def test_saved_model_shows_current_classification_without_changing_findings(
     html = client.get(
         f"{PAGE}/extracts/{extract.id}",
     ).get_data(as_text=True)
-    assert "Model: SOFA" in html
-    assert "Model: SCATTER" in html
-    assert "Model: sofa" in html
-    assert "Model: Blank" in html
-    assert "Current model category: Sofas" in html
-    assert html.count("Current model category: Scatters") == 2
-    assert "Current model category: Unclassified" in html
+    for model in (" SOFA ", "SCATTER", "sofa", "Missing"):
+        assert f'<td data-field="model">{model}</td>' in html
+    assert "<strong>Current model category:</strong> Sofas" in html
+    assert html.count("<strong>Current model category:</strong> Scatters") == 2
+    assert "<strong>Current model category:</strong> Unclassified" in html
     assert "not historical assignments" in html
 
     save_model_classification("SOFA", scatters.id, planner_user.id)
@@ -1382,7 +2080,7 @@ def test_saved_model_shows_current_classification_without_changing_findings(
     html = client.get(
         f"{PAGE}/extracts/{extract.id}",
     ).get_data(as_text=True)
-    assert html.count("Current model category: Scatters") == 3
+    assert html.count("<strong>Current model category:</strong> Scatters") == 3
     db_session.expire_all()
     assert db_session.get(ForecastDataRecord, first.id).data == before_data
     saved_record = db_session.get(ForecastDataRecord, first.id)
@@ -1409,8 +2107,8 @@ def test_old_extract_does_not_backfill_model_from_live_order(
     html = client.get(
         f"{PAGE}/extracts/{extract.id}",
     ).get_data(as_text=True)
-    assert "Model: Not captured in this extract" in html
-    assert "Model: LATER" not in html
+    assert '<td data-field="model">Not captured</td>' in html
+    assert "LATER" not in html
     db_session.expire_all()
     assert "model" not in db_session.get(ForecastDataRecord, record.id).data
 
@@ -1559,11 +2257,11 @@ def test_nonpositive_gbp_groups_reconcile_and_show_saved_release_evidence(
     assert "Order 12 / line 4 / release 1" in html
     assert "Order 12 / line 5 / release 1" in html
     assert "Order 12 / line 1 / release 1" not in html
-    collapsed = html.split("Order 12 / line 4 / release 1", 1)[1].split("</summary>", 1)[0]
-    assert 'Order date</span><strong>02/01/2026</strong>' in collapsed
-    assert 'Required ship-by</span><strong>01/02/2026</strong>' in collapsed
-    assert 'Void line</span><strong>Yes</strong>' in collapsed
-    assert 'Release value (GBP)</span><strong>0' in collapsed
+    collapsed = html.split(f'id="record-{conflict.id}" data-review-row>', 1)[1].split("</tr>", 1)[0]
+    assert '<td data-field="order_date">02/01/2026</td>' in collapsed
+    assert '<td data-field="req_date">01/02/2026</td>' in collapsed
+    assert '<td data-field="void_line">Yes</td>' in collapsed
+    assert '<td data-field="release_price_gbp">0' in collapsed
     assert f"release={conflict.id}&amp;scope=unreviewed#release-evidence" in html
     assert client.get(f"{review_url}?finding=nonpositive_value&gbp_group=unknown").status_code == 400
     for group, lines in (
@@ -1862,7 +2560,7 @@ def test_batch_review_updates_distinct_rows_and_returns_latest_counts(
     login(client, planner_user.email, "Planner!Pass1234")
     html = client.get(url).get_data(as_text=True)
     assert f'data-save-url="{url}/reviews"' in html
-    assert f'<details class="border rounded mb-1" id="record-{records[0].id}">' in html
+    assert f'<tbody id="record-{records[0].id}" data-review-row>' in html
 
     response = client.post(f"{url}/reviews", json=payload)
     assert response.status_code == 200 and response.is_json
@@ -1876,8 +2574,12 @@ def test_batch_review_updates_distinct_rows_and_returns_latest_counts(
     assert ForecastDataDecision.query.count() == 3
     assert AuditLog.query.filter_by(action="forecast_data_decision_saved").count() == 3
     html = client.get(url).get_data(as_text=True)
-    assert '<span data-reviewed>2</span> of 2 reviewed' in html
+    assert '<span data-reviewed>2</span>' in html
     assert f'data-unreviewed href="{url}?scope=unreviewed&amp;finding=missing_qty#saved-records" hidden' in html
+    assert '<span data-no-unreviewed>0</span>' in html
+    finding_row = html.split('data-finding-progress="missing_qty"', 1)[1].split("</tr>", 1)[0]
+    assert 'data-finding-state data-state="reviewed"' in finding_row
+    assert 'data-finding-status>All affected rows reviewed.' in finding_row
 
 
 def test_remembered_reviews_require_confirmation_and_keep_provenance(
@@ -1922,7 +2624,7 @@ def test_remembered_reviews_require_confirmation_and_keep_provenance(
     assert [(d.status, d.rationale, d.reused_from_id, d.remember) for d in copied] == [
         ("accepted", "Checked original.", decision.id, True) for decision in decisions
     ]
-    assert "Confirmed from" in client.get(f"{url}?scope=all").get_data(as_text=True)
+    assert "Based on" in client.get(f"{url}?scope=all").get_data(as_text=True)
     response = client.post(f"{url}/confirm-suggestions", data=payload, follow_redirects=True)
     assert "suggestion or review has changed" in response.get_data(as_text=True)
     assert ForecastDataDecision.query.count() == 4
@@ -2027,6 +2729,51 @@ def test_batch_review_does_not_save_valid_row_when_another_is_invalid(
     assert AuditLog.query.filter_by(action="forecast_data_decision_saved").count() == 0
 
 
+def test_selected_page_reviews_only_target_reviewable_selected_rows(
+    db_session, client, planner_user, viewer_user,
+):
+    for order_num in range(1, 4):
+        add_source(db_session, order_num=order_num, release_qty=None)
+    add_source(db_session, order_num=4)
+    extract = save_va05_extract(planner_user.id)
+    records = ForecastDataRecord.query.filter_by(extract_id=extract.id).order_by(
+        ForecastDataRecord.id,
+    ).all()
+    save_data_decision(
+        records[0].id, "investigate", "Earlier evidence.", planner_user.id,
+        capture_identity=extract.capture_identity,
+    )
+    path = f"{PAGE}/extracts/{extract.id}"
+    login(client, viewer_user.email, "Viewer!Pass1234")
+    viewer_html = client.get(path + "?scope=all").get_data(as_text=True)
+    assert 'id="selected-review"' not in viewer_html
+    assert "data-review-select" not in viewer_html
+    assert 'id="review-controls-link"' not in viewer_html
+    client.get("/auth/logout")
+    login(client, planner_user.email, "Planner!Pass1234")
+    html = client.get(path + "?scope=all").get_data(as_text=True)
+    assert 'id="selected-review"' in html
+    assert 'id="review-toolbar" class="bg-body border rounded p-2 mb-2" tabindex="-1" hidden' in html
+    assert 'href="#review-toolbar">Back to review controls</a>' in html
+    assert html.count("data-review-select=") == 4
+    assert f'data-review-select="{records[3].id}"' in html
+    assert f'data-record-id="{records[3].id}"' not in html
+    response = client.post(path + "/reviews", json={
+        "capture_identity": extract.capture_identity,
+        "reviews": [
+            {"record_id": record.id, "status": "accepted", "rationale": "Shared evidence."}
+            for record in (records[0], records[2])
+        ],
+    })
+    assert response.status_code == 200
+    decisions = ForecastDataDecision.query.order_by(ForecastDataDecision.id).all()
+    assert [(d.record_id, d.status) for d in decisions] == [
+        (records[0].id, "investigate"),
+        (records[0].id, "accepted"),
+        (records[2].id, "accepted"),
+    ]
+
+
 def test_finding_filter_combines_with_scope_and_preserves_review(
     db_session, client, planner_user,
 ):
@@ -2053,9 +2800,20 @@ def test_finding_filter_combines_with_scope_and_preserves_review(
     assert "Findings by type" in summary
     assert "Missing main-row release quantity" in summary
     assert "Missing main-row GBP release value" in summary
-    assert summary.count("<span data-reviewed>0</span> of 2 reviewed") == 2
-    assert "No affected rows" in summary
+    assert '<table class="table table-sm ai-findings-table ai-findings-with-planned mb-0">' in summary
+    assert all(heading in summary for heading in (
+        "Finding type", "Affected rows", "Reviewed", "Not reviewed", "Planned rows",
+    ))
+    assert summary.count("<span data-reviewed>0</span>") >= 2
+    assert 'class="ai-finding-state ai-finding-current" data-finding-progress="missing_qty" data-total="2"' in summary
+    assert f'data-unreviewed href="{path}?scope=unreviewed&amp;finding=missing_qty#saved-records"' in summary
+    assert '<span data-no-unreviewed hidden>0</span>' in summary
     assert "A saved outcome counts as reviewed, not resolved." in summary
+    finding_row = summary.split('data-finding-progress="missing_qty"', 1)[1].split("</tr>", 1)[0]
+    assert 'data-finding-state data-state="attention"' in finding_row
+    assert 'data-finding-status>Some rows not reviewed.' in finding_row
+    assert 'data-finding-state data-state="clear"' in summary
+    assert 'data-finding-status>No affected rows.' in summary
     assert html.index('id="finding-summary"') < html.index(
         'id="review-finding"',
     )
@@ -2073,7 +2831,9 @@ def test_finding_filter_combines_with_scope_and_preserves_review(
     )
     html = response.get_data(as_text=True)
     assert "1 matching saved records" in html
-    assert "<span data-reviewed>1</span> of 2 reviewed" in html
+    assert "<span data-reviewed>1</span>" in html
+    finding_row = html.split('data-finding-progress="missing_qty"', 1)[1].split("</tr>", 1)[0]
+    assert 'data-finding-state data-state="attention"' in finding_row
     assert "Order 1 / line 1" not in html
     assert "Order 3 / line 1" in html
     assert "scope=unreviewed" in response.request.url
@@ -2093,6 +2853,68 @@ def test_finding_filter_combines_with_scope_and_preserves_review(
             "finding": "invalid",
         },
     ).status_code == 400
+
+
+def test_active_review_filters_can_be_removed_individually_or_cleared(
+    db_session, client, planner_user,
+):
+    for order_num, voided, value, qty in (
+        (1, True, 0, None), (2, True, 0, None),
+        (3, False, 0, None), (4, False, 100, None),
+    ):
+        add_source(
+            db_session, order_num=order_num, void_line=voided,
+            release_price_gbp=Decimal(value), release_qty=qty,
+        )
+    extract = save_va05_extract(planner_user.id)
+    records = ForecastDataRecord.query.filter_by(extract_id=extract.id).order_by(
+        ForecastDataRecord.id,
+    ).all()
+    for record in (records[0], records[2], records[3]):
+        save_data_decision(record.id, "accepted", "Reviewed.", planner_user.id)
+    login(client, planner_user.email, "Planner!Pass1234")
+    path = f"{PAGE}/extracts/{extract.id}"
+
+    def clear_link(page, name):
+        match = re.search(r'data-clear-filter="' + name + r'"[^>]*href="([^"]+)"', page)
+        assert match is not None
+        return html.unescape(match.group(1))
+
+    page = client.get(path, query_string={
+        "scope": "accepted", "finding": "nonpositive_value",
+        "gbp_group": "void_zero", "per_page": 50,
+    }).get_data(as_text=True)
+    assert "Show: Accepted with evidence" in page
+    assert "Finding: Nonpositive main-row GBP release value" in page
+    assert "GBP group: Zero GBP, consistently void" in page
+
+    for name, present, absent in (
+        ("scope", (1, 2), (3, 4)),
+        ("gbp_group", (1, 3), (2, 4)),
+        ("finding", (1, 3, 4), (2,)),
+        ("all", (1, 2, 3, 4), ()),
+    ):
+        link = clear_link(page, name)
+        params = parse_qs(urlsplit(link).query)
+        assert params["per_page"] == ["50"] and "page" not in params
+        if name in ("finding", "all"):
+            assert "gbp_group" not in params and "finding" not in params
+        result = client.get(link).get_data(as_text=True)
+        for num in present:
+            assert f"Order {num} / line 1" in result
+        for num in absent:
+            assert f"Order {num} / line 1" not in result
+    all_page = client.get(clear_link(page, "all")).get_data(as_text=True)
+    assert "None (all saved rows)" in all_page
+
+    release_page = client.get(path, query_string={
+        "scope": "accepted", "finding": "nonpositive_value",
+        "release": records[0].id, "per_page": 50,
+    }).get_data(as_text=True)
+    assert "Release: order 1 / line 1 / release 1" in release_page
+    unfiltered_release = client.get(clear_link(release_page, "release")).get_data(as_text=True)
+    assert "Order 1 / line 1" in unfiltered_release
+    assert "Order 3 / line 1" in unfiltered_release
 
 
 def test_finding_filter_paginates_matching_records_only(
@@ -2131,6 +2953,102 @@ def test_finding_filter_paginates_matching_records_only(
     assert "25 matching saved records" in response.get_data(as_text=True)
     assert "Order 1 / line 1" in response.get_data(as_text=True)
     assert "finding=missing_qty" in response.request.url
+
+
+def test_review_page_size_pagination_and_batch_save(db_session, client, planner_user):
+    for order_num in range(1, 103):
+        add_source(db_session, order_num=order_num, release_qty=None)
+    extract = save_va05_extract(planner_user.id)
+    records = ForecastDataRecord.query.filter_by(extract_id=extract.id).order_by(
+        ForecastDataRecord.id,
+    ).all()
+    login(client, planner_user.email, "Planner!Pass1234")
+    path = f"{PAGE}/extracts/{extract.id}"
+
+    for size, expected_last in ((25, 25), (50, 50), (100, 100)):
+        html = client.get(path, query_string={
+            "scope": "unreviewed", "finding": "missing_qty", "per_page": size,
+        }).get_data(as_text=True)
+        assert html.count("data-review-row>") == size
+        assert f"Order {expected_last} / line 1" in html
+        assert f"Order {expected_last + 1} / line 1" not in html
+        assert f'<option value="{size}" selected>' in html
+        assert f'per_page={size}' in html
+        assert 'aria-label="Saved record pages (top)"' in html
+        assert 'aria-label="Saved record pages (bottom)"' in html
+    response = client.get(path, query_string={
+        "scope": "unreviewed", "finding": "missing_qty", "per_page": 50, "page": 2,
+    })
+    html = response.get_data(as_text=True)
+    assert "Order 51 / line 1" in html and "Order 100 / line 1" in html
+    assert 'per_page=50' in html and 'finding=missing_qty' in html
+    assert "Page 2 of 3" in html
+    assert client.get(path, query_string={"per_page": "invalid"}).status_code == 400
+    assert client.get(path, query_string={"per_page": 1000}).status_code == 400
+    response = client.get(path, query_string={"per_page": 100, "page": 99})
+    assert response.status_code == 302 and "per_page=100" in response.location
+
+    payload = {
+        "capture_identity": extract.capture_identity,
+        "reviews": [
+            {"record_id": record.id, "status": "accepted", "rationale": "Checked."}
+            for record in records[:100]
+        ],
+    }
+    response = client.post(path + "/reviews", json=payload)
+    assert response.status_code == 200 and len(response.json["reviews"]) == 100
+    payload["reviews"].extend([
+        {"record_id": records[100].id, "status": "accepted", "rationale": "Checked."},
+    ])
+    assert client.post(path + "/reviews", json=payload).status_code == 400
+
+
+def test_single_review_preserves_selected_page_size(db_session, client, planner_user):
+    add_source(db_session, release_qty=None)
+    extract = save_va05_extract(planner_user.id)
+    record = ForecastDataRecord.query.filter_by(extract_id=extract.id).one()
+    login(client, planner_user.email, "Planner!Pass1234")
+    response = client.post(f"{PAGE}/records/{record.id}/review", data={
+        "status": "accepted", "rationale": "Checked.", "scope": "findings",
+        "finding": "missing_qty", "page": 1, "per_page": 50,
+        "capture_identity": extract.capture_identity,
+    })
+    assert response.status_code == 302
+    assert "per_page=50" in response.location and "finding=missing_qty" in response.location
+
+
+def test_larger_page_can_confirm_all_suggested_reviews(db_session, client, planner_user):
+    for order_num in range(1, 27):
+        add_source(db_session, order_num=order_num, release_qty=None)
+    original = save_va05_extract(planner_user.id)
+    old_rows = ForecastDataRecord.query.filter_by(extract_id=original.id).order_by(
+        ForecastDataRecord.id,
+    ).all()
+    login(client, planner_user.email, "Planner!Pass1234")
+    response = client.post(f"{PAGE}/extracts/{original.id}/reviews", json={
+        "capture_identity": original.capture_identity,
+        "reviews": [
+            {"record_id": row.id, "status": "accepted", "rationale": "Checked.", "remember": True}
+            for row in old_rows
+        ],
+    })
+    assert response.status_code == 200
+    decisions = ForecastDataDecision.query.order_by(ForecastDataDecision.id).all()
+    newer = save_va05_extract(planner_user.id)
+    new_rows = ForecastDataRecord.query.filter_by(extract_id=newer.id).order_by(
+        ForecastDataRecord.id,
+    ).all()
+    path = f"{PAGE}/extracts/{newer.id}"
+    html = client.get(path, query_string={"scope": "unreviewed", "per_page": 50}).get_data(as_text=True)
+    assert "Previously reviewed: 26 suggestion(s)" in html
+    response = client.post(path + "/confirm-suggestions", data={
+        "capture_identity": newer.capture_identity, "confirm": "yes", "per_page": 50,
+        "suggestion": [f"{row.id}:{decision.id}" for row, decision in zip(new_rows, decisions)],
+    })
+    assert response.status_code == 302 and "per_page=50" in response.location
+    assert ForecastDataDecision.query.filter(
+        ForecastDataDecision.record_id.in_([row.id for row in new_rows]),
+    ).count() == 26
 
 
 def test_finding_filter_matches_exact_saved_rule(

@@ -708,8 +708,8 @@ class SalesOrderOpenImporter(EpicorBaqImporter):
     """
     Daily snapshot of all currently open sales orders.
 
-    Strategy: delete all rows where open_order=True, then INSERT the fresh
-    snapshot.  This keeps closed historical orders untouched.
+    Strategy: replace all open rows and any retained rows for orders in the
+    fresh snapshot. Other closed historical orders remain untouched.
     """
 
     BAQ_NAME    = "bskyVA05v1"
@@ -742,8 +742,27 @@ class SalesOrderOpenImporter(EpicorBaqImporter):
             if isinstance(v, str): return v.strip().lower() in ("true", "1", "yes")
             return None
 
-        # Delete the current open-order snapshot, preserve closed history
-        deleted = SalesOrder.query.filter(SalesOrder.open_order == True).delete()
+        order_nums = set()
+        for r in records:
+            order_num = r.get("OrderHed_OrderNum")
+            if not order_num or _bool(r.get("OrderHed_OpenOrder")) is not True:
+                raise ValueError(
+                    "Open sales order response contains a missing order number "
+                    "or a non-open order."
+                )
+            order_nums.add(order_num)
+
+        deleted = SalesOrder.query.filter(SalesOrder.open_order == True).delete(
+            synchronize_session="fetch"
+        )
+        db.session.flush()
+        # A reopened order can still have rows from an older closed import.
+        order_nums = list(order_nums)
+        reconciled = 0
+        for start in range(0, len(order_nums), 500):
+            reconciled += SalesOrder.query.filter(
+                SalesOrder.order_num.in_(order_nums[start:start + 500])
+            ).delete(synchronize_session="fetch")
         db.session.flush()
 
         seen: set = set()
@@ -768,7 +787,11 @@ class SalesOrderOpenImporter(EpicorBaqImporter):
                 db.session.expunge_all()
 
         batch.rows_inserted = len(records) - skipped
-        batch.notes = f"Deleted {deleted} stale open rows; {skipped} duplicates skipped"
+        batch.notes = (
+            f"Deleted {deleted} stale open rows; "
+            f"reconciled {reconciled} retained rows for open orders; "
+            f"{skipped} duplicates skipped"
+        )
 
 
 class SalesOrderClosedImporter(EpicorBaqImporter):

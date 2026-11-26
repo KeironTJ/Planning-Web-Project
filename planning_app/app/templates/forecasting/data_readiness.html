@@ -46,7 +46,8 @@
             <div class="card-body">
               <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
                 <h3 class="h6 mb-0">Extract {{ extract.reference }}</h3>
-                {% if latest %}<span class="badge text-bg-primary">Latest capture</span>{% endif %}
+                {% if extract.derived_from_id %}<span class="badge text-bg-warning">Adjusted</span>{% endif %}
+                {% if latest %}<span class="badge text-bg-primary">Latest saved extract</span>{% endif %}
               </div>
               <p class="small text-muted mb-1">{{ extract.captured_at | utcfmt('uk-datetime') }}</p>
               {% set period = extract.order_period %}

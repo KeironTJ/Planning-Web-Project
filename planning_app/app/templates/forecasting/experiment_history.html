@@ -31,7 +31,7 @@
         <label class="form-label" for="{{ name }}">{{ label }} run</label>
         <select class="form-select mb-2" id="{{ name }}" name="{{ name }}">
           {% for item, extract in entries %}
-          <option value="{{ item.id }}"{% if chosen[0].id == item.id %} selected{% endif %}>Run {{ item.id }} · {{ extract.reference }} · {{ item.requested_at.strftime('%d/%m/%Y %H:%M:%S') }} UTC</option>
+          <option value="{{ item.id }}"{% if chosen[0].id == item.id %} selected{% endif %}>Run {{ item.id }} · {{ extract.reference }}{% if extract.derived_from_id %} (adjusted, retrospective){% endif %} · {{ item.requested_at.strftime('%d/%m/%Y %H:%M:%S') }} UTC</option>
           {% endfor %}
         </select>
         <label class="form-label" for="{{ name }}_model">{{ label }} method</label>
@@ -54,10 +54,13 @@
 
   <section class="card mb-3"><div class="card-body">
     <h2 class="h5">Saved evidence</h2>
+    {% if baseline[1].derived_from_id or candidate[1].derived_from_id %}
+    <p class="small text-warning">At least one run uses retrospectively adjusted data; those decisions may not have been known at historical forecast dates.</p>
+    {% endif %}
     <p class="small text-muted">Open either run for its settings, source hashes, package versions, predictions and individual errors. A matching extract hash does not prove that modelling code or settings are identical.</p>
     <ul class="mb-0">
       {% for label, item, model in [('Baseline', baseline, baseline_model), ('Candidate', candidate, candidate_model)] %}
-      <li><strong>{{ label }}:</strong> <a href="{{ url_for('forecasting.workflow_todo', stage='experiments', extract_id=item[1].id, run_id=item[0].id) }}">Run {{ item[0].id }} · {{ item[1].reference }}</a>
+      <li><strong>{{ label }}:</strong> <a href="{{ url_for('forecasting.workflow_todo', stage='experiments', extract_id=item[1].id, run_id=item[0].id) }}">Run {{ item[0].id }} · {{ item[1].reference }}</a>{% if item[1].derived_from_id %} (adjusted, retrospective){% endif %}
         · {{ comparison.all_models[model] }} · extract SHA-256 <code class="text-break">{{ item[0].extract_hash }}</code></li>
       {% endfor %}
     </ul>

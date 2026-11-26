@@ -78,6 +78,10 @@ class ForecastDataExtract(db.Model):
     content_hash = db.Column(db.String(64), nullable=False)
     source_settings = db.Column(db.JSON, nullable=False)
     summary = db.Column(db.JSON, nullable=False)
+    derived_from_id = db.Column(
+        db.Integer, db.ForeignKey("forecast_data_extracts.id", ondelete="RESTRICT"),
+        nullable=True, index=True,
+    )
 
     @property
     def reference(self) -> str:
@@ -182,6 +186,60 @@ class ForecastDataRecord(db.Model):
         "ForecastDataDecision", order_by="ForecastDataDecision.id.desc()",
         lazy="selectin",
     )
+
+
+class ForecastReleaseAdjustment(db.Model):
+    """Append-only evidence for a release-level planning adjustment."""
+
+    __tablename__ = "forecast_release_adjustments"
+    __table_args__ = (
+        db.CheckConstraint("action IN ('correct', 'exclude', 'clear')", name="ck_forecast_adjustment_action"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    extract_id = db.Column(
+        db.Integer, db.ForeignKey("forecast_data_extracts.id", ondelete="RESTRICT"),
+        nullable=False, index=True,
+    )
+    order_num = db.Column(db.Integer, nullable=False)
+    order_line = db.Column(db.Integer, nullable=False)
+    rel_num = db.Column(db.Integer, nullable=False)
+    action = db.Column(db.String(12), nullable=False)
+    corrections = db.Column(db.JSON, nullable=False)
+    rationale = db.Column(db.Text, nullable=False)
+    order_signature = db.Column(db.String(64), nullable=False)
+    reused_from_id = db.Column(
+        db.Integer, db.ForeignKey("forecast_release_adjustments.id", ondelete="RESTRICT"),
+    )
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+class ForecastRowExclusion(db.Model):
+    """Append-only exclusion evidence for an individual saved row."""
+
+    __tablename__ = "forecast_row_exclusions"
+    __table_args__ = (
+        db.CheckConstraint("action IN ('exclude', 'clear')", name="ck_forecast_row_exclusion_action"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    extract_id = db.Column(
+        db.Integer, db.ForeignKey("forecast_data_extracts.id", ondelete="RESTRICT"),
+        nullable=False, index=True,
+    )
+    record_id = db.Column(
+        db.Integer, db.ForeignKey("forecast_data_records.id", ondelete="RESTRICT"),
+        nullable=False, index=True,
+    )
+    action = db.Column(db.String(12), nullable=False)
+    rationale = db.Column(db.Text, nullable=False)
+    reused_from_id = db.Column(
+        db.Integer, db.ForeignKey("forecast_row_exclusions.id", ondelete="RESTRICT"),
+    )
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    record = db.relationship("ForecastDataRecord", lazy="joined")
 
 
 class ForecastDataDecision(db.Model):

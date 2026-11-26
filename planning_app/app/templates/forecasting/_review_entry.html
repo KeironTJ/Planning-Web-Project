@@ -5,6 +5,6 @@
   <div class="text-break">{{ decision.rationale }}</div>
   {% if decision.remember %}<div>Remembered for matching future extracts.</div>{% endif %}
   {% if decision.reused_from_id %}
-  <div>Confirmed from <a href="{{ url_for('forecasting.data_record_evidence', record_id=decision.reused_from.record_id) }}">earlier review</a>.</div>
+  <div>Based on <a href="{{ url_for('forecasting.data_record_evidence', record_id=decision.reused_from.record_id) }}">earlier review</a>.</div>
   {% endif %}
 </li>

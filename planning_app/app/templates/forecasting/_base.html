@@ -64,12 +64,15 @@
 {% set period = extract.order_period %}
 <div class="ai-extract-context mb-3" aria-label="Selected data">
   <div class="d-flex flex-wrap align-items-center gap-2">
-    <span class="badge text-bg-secondary">Saved data</span>
+    <span class="badge {{ 'text-bg-warning' if extract.derived_from_id else 'text-bg-secondary' }}">{{ 'Adjusted data' if extract.derived_from_id else 'Saved data' }}</span>
     <strong>{{ extract.reference }}</strong>
     <span class="small text-muted">{% if period %}{{ period[0] | uk_date }} to {{ period[1] | uk_date }}{% else %}All retained order dates{% endif %}</span>
   </div>
   <a class="small fw-semibold" href="{{ url_for('forecasting.data_readiness', _anchor='saved-extracts') }}">Change extract</a>
 </div>
+{% if extract.derived_from_id %}
+<div class="alert alert-warning small">This is an adjusted, retrospective extract derived from <a href="{{ url_for('forecasting.data_extract', extract_id=extract.derived_from_id) }}">the original capture</a>. Adjustments may not have been known at historical forecast dates.</div>
+{% endif %}
 {% endif %}
 {% block tool_page_header %}{% endblock %}
 {% endblock %}
