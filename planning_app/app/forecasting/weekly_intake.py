@@ -41,6 +41,7 @@ MIX_AXES = {
     "Size within model": ("model", "size_desc"),
     "Production size within model": ("model", "prod_size"),
     "Epicor customer group": ("customer_group",),
+    "Customer": ("customer_id",),
 }
 MixKey = tuple[str, tuple[str, ...]]
 
@@ -63,6 +64,7 @@ class IntakeWeek:
     exceptions: int = 0
     net_gbp: Decimal | None = None
     void_gbp: Decimal = Decimal(0)
+    orders: int = 0
 
     @property
     def end(self) -> date:
@@ -96,6 +98,7 @@ class MixSummary:
     missing: MixValue
     conflicting: MixValue
     leaders: list[tuple[tuple[str, ...], MixValue, int]]
+    breakdown: list[tuple[tuple[str, ...], MixValue, int]]
     peak_week: int | None
     peak_leaders: list[tuple[tuple[str, ...], Decimal]]
 
@@ -307,7 +310,8 @@ def summarize_mix(profile: WeeklyIntake) -> dict[str, MixSummary]:
                 if status == "assigned":
                     active_weeks[label] += 1
                 total += value.gbp
-        top = sorted(categories, key=lambda label: (-categories[label].gbp, label))[:5]
+        ranked = sorted(categories, key=lambda label: (-categories[label].gbp, label))
+        top = ranked[:5]
         peak_categories = [
             (label, value.gbp) for (status, label), value in by_week.get(peak.number, {}).items()
             if status == "assigned"
@@ -321,10 +325,49 @@ def summarize_mix(profile: WeeklyIntake) -> dict[str, MixSummary]:
             missing=unresolved["missing"],
             conflicting=unresolved["conflicting"],
             leaders=[(label, categories[label], active_weeks[label]) for label in top],
+            breakdown=[(label, categories[label], active_weeks[label]) for label in ranked],
             peak_week=peak.number if peak else None,
             peak_leaders=sorted(peak_categories, key=lambda entry: (-entry[1], entry[0]))[:3],
         )
     return summaries
+
+
+def customer_concentration(profile: WeeklyIntake) -> list[tuple[IntakeWeek, Decimal | None, Decimal, Decimal]]:
+    """Rank customer IDs independently in each completed observed week."""
+    by_week = profile.mix.get("Customer")
+    if by_week is None:
+        return []
+    results = []
+    for week in profile.weeks:
+        if week.partial or week.net_gbp is None:
+            continue
+        buckets = by_week.get(week.number, {})
+        if (sum(value.releases for value in buckets.values()) != week.included
+                or sum(value.gbp for value in buckets.values()) != week.net_gbp):
+            raise ValueError(f"Customer mix does not reconcile for financial week {week.number}.")
+        amounts = sorted(
+            (value.gbp for (status, _), value in buckets.items() if status == "assigned"),
+            reverse=True,
+        )
+        share = 100 * sum(amounts[:5], Decimal(0)) / week.net_gbp if week.net_gbp > 0 else None
+        missing = buckets.get(("missing", ()), MixValue()).gbp
+        conflicting = buckets.get(("conflicting", ()), MixValue()).gbp
+        results.append((week, share, missing, conflicting))
+    return results
+
+
+def seasonal_heatmap(years: dict[int, list[IntakeWeek]]) -> dict[int, tuple[Decimal | None, dict[int, Decimal]]]:
+    """Index complete, unflagged weeks against their financial year's median."""
+    result = {}
+    for year, weeks in years.items():
+        usable = [week for week in weeks if not week.partial and week.net_gbp is not None and not week.exceptions]
+        midpoint = median(week.net_gbp for week in usable) if usable else None
+        ratios = {
+            week.number: 100 * week.net_gbp / midpoint
+            for week in usable
+        } if midpoint is not None and midpoint > 0 else {}
+        result[year] = (midpoint, ratios)
+    return result
 
 
 def _order_date(value: object) -> date | None:
@@ -410,6 +453,7 @@ def _explore_intake(
         )
 
     weeks_by_start: dict[date, IntakeWeek] = {}
+    included_orders: defaultdict[date, set] = defaultdict(set)
     mix_fields = sorted({name for axis in mix_axes for name in MIX_AXES[axis]})
     mix: dict[str, dict[int, dict[MixKey, MixValue]]] = {axis: {} for axis in mix_axes}
     groups: defaultdict[tuple, list[tuple[object, bool, object, object, dict[str, str]]]] = defaultdict(list)
@@ -477,6 +521,8 @@ def _explore_intake(
         else:
             week.included += 1
             week.net_gbp += amount
+            included_orders[start].add(key[0])
+            week.orders = len(included_orders[start])
             for axis, by_week in mix.items():
                 labels = {tuple(row[4].get(name, "") for name in MIX_AXES[axis]) for row in main}
                 if len(labels) != 1:

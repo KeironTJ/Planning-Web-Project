@@ -10,14 +10,48 @@
 <div class="container-fluid pb-4">
   {% include "forecasting/_analysis_nav.html" %}
   <div class="alert alert-warning">Development evidence from one capture, not verified historical as-of data or an untouched holdout. Apparent patterns do not establish seasonality or forecast readiness.</div>
-  <section class="card mb-3">
+  <section class="card mb-3" aria-labelledby="seasonality-heading">
     <div class="card-body">
-      <h2 class="h5">Weekly trends by financial year</h2>
+      <h2 class="h5" id="seasonality-heading">Financial-week seasonality heatmap</h2>
+      <p class="small text-muted">Each value is weekly net GBP as a percentage of that year's median completed, observed, unflagged week. The median uses the whole available year retrospectively, not information available at a forecast cutoff. Compare similar weeks across years; differences can reflect changing prices, coverage or business conditions, not necessarily seasonality.</p>
+      <p class="small text-muted">Colour bands: <span class="badge ai-heat-band ai-heat-1">&lt;50%</span> <span class="badge ai-heat-band ai-heat-2">50% to &lt;100%</span> <span class="badge ai-heat-band ai-heat-3">100% to &lt;150%</span> <span class="badge ai-heat-band ai-heat-4">150%+</span>. Colours use unrounded values; displayed percentages are rounded. F: quality flagged; P: partial; —: unavailable or outside the extract; N: no positive median. Possible shutdowns are labelled in each cell where configured; historical closure dates are incomplete. Week 53 is absent in some financial years.</p>
+      {% if years %}
+      <div class="table-responsive" tabindex="0" aria-label="Scroll seasonality heatmap horizontally">
+        <table class="table table-bordered table-sm text-center align-middle ai-seasonality-table">
+          <caption>Relative weekly value by financial year; select an available completed week to investigate it.</caption>
+          <thead><tr><th scope="col">Year / median GBP</th>{% for number in range(1, 54) %}<th scope="col">{{ number }}</th>{% endfor %}</tr></thead>
+          <tbody>{% for year, weeks in years | dictsort(reverse=true) %}
+            {% set midpoint, ratios = heatmap[year] %}
+            <tr><th scope="row" class="text-nowrap">SOI {{ year }}<br><span class="small">{{ '{:,.2f}'.format(midpoint) if midpoint is not none else 'Unavailable' }}<br>{{ ratios | length }} indexed weeks</span></th>
+              {% for number in range(1, 54) %}
+              {% set week = weeks_by_number[year].get(number) %}
+              {% set ratio = ratios.get(number) %}
+              <td class="{% if ratio is not none %}ai-heat-band {{ 'ai-heat-1' if ratio < 50 else 'ai-heat-2' if ratio < 100 else 'ai-heat-3' if ratio < 150 else 'ai-heat-4' }}{% endif %}"
+                  title="SOI {{ year }} week {{ number }}{% if week and week.net_gbp is not none %}: {{ '{:,.2f}'.format(week.net_gbp) }} GBP{% endif %}{% if week and week.partial %}; partial{% endif %}{% if week and week.exceptions %}; quality flagged{% endif %}{% if week and week.possible_shutdown %}; possible shutdown{% endif %}">
+                {% if week and not week.partial and week.net_gbp is not none %}
+                <a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=number, year=year) }}" aria-label="Investigate SOI {{ year }} week {{ number }}, {{ '{:,.2f}'.format(week.net_gbp) }} GBP{% if week.exceptions %}, quality flagged{% elif ratio is not none %}, {{ '{:.0f}'.format(ratio) }} percent of annual median{% endif %}{% if week.possible_shutdown %}, possible shutdown{% endif %}">{{ 'F' if week.exceptions else '{:.0f}%'.format(ratio) if ratio is not none else 'N' }}{% if week.possible_shutdown %}*{% endif %}</a>
+                {% elif week and week.partial %}P{% if week.exceptions %}/F{% endif %}{% if week.possible_shutdown %}*{% endif %}
+                {% elif week and week.exceptions %}<a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=number, year=year) }}" aria-label="Investigate SOI {{ year }} week {{ number }}, unavailable, quality flagged">F/—{% if week.possible_shutdown %}*{% endif %}</a>
+                {% else %}—{% if week and week.possible_shutdown %}*{% endif %}{% endif %}
+              </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}</tbody>
+        </table>
+      </div>
+      <p class="small text-muted mb-0">* Possible shutdown. Hover over a cell for its GBP value; exact values and dates are also in the weekly tables below. A year with no positive median cannot be indexed.</p>
+      {% else %}<p>No saved financial weeks are available.</p>{% endif %}
+    </div>
+  </section>
+  <section class="card mb-3" aria-labelledby="trends-heading">
+    <div class="card-body">
+      <h2 class="h5" id="trends-heading">Weekly trends by financial year</h2>
       <p class="small text-muted">Completed observed weeks share the same GBP scale. Gaps and partial weeks are not connected or treated as zero. Flagged totals may be incomplete. Select a point or open the table to investigate releases.</p>
       {% for year, weeks in years | dictsort(reverse=true) %}
       {% set points = chart_years.get(year, []) %}
-      <details class="border rounded p-3 mb-2"{% if loop.first %} open{% endif %}>
-        <summary class="fw-semibold">SOI {{ year }}</summary>
+      <details class="ai-year-disclosure border rounded mb-2"{% if loop.first %} open{% endif %}>
+        <summary class="ai-year-summary fw-semibold">SOI {{ year }}</summary>
+        <div class="ai-year-content">
         {% if points %}
         <svg class="w-100 d-block" viewBox="0 0 640 200" role="img" aria-label="SOI {{ year }} completed weekly net GBP">
           <path d="M70 40H600M70 160H600" stroke="currentColor" opacity=".2"/>
@@ -42,7 +76,7 @@
         </svg>
         <p class="small text-muted"><span class="text-primary">●</span> Observed &middot; <span class="text-danger">◯</span> Quality flagged</p>
         {% else %}<p class="small mt-2">No completed observed weeks to plot.</p>{% endif %}
-        <details>
+        <details class="ai-year-detail">
           <summary>Weekly values and coverage</summary>
           <div class="table-responsive">
             <table class="table table-sm">
@@ -56,15 +90,16 @@
             </table>
           </div>
         </details>
+        </div>
       </details>
       {% else %}<p>No saved releases have a usable order date on or before capture.</p>{% endfor %}
       <p class="small text-muted mb-0">Possible shutdown labels are limited to the currently configured 2026 dates, not a complete closure calendar. Keep observed spikes and use week investigations to record explanations.</p>
     </div>
   </section>
 
-  <section class="card mb-3">
+  <section class="card mb-3" aria-labelledby="lags-heading">
     <div class="card-body">
-      <h2 class="h5">Lag relationships</h2>
+      <h2 class="h5" id="lags-heading">Lag relationships</h2>
       <p class="small text-muted">Pearson correlations use completed, unflagged observations at the exact calendar lag, including across year boundaries. Lag 52 is 52 weeks, not necessarily the same financial week in a 53-week year. The sensitivity excludes each year's retrospectively identified IQR candidates; it is not a real-time rule. At least three pairs and variation in both series are needed.</p>
       <div class="table-responsive"><table class="table table-sm">
         <thead><tr><th scope="col">Lag</th><th scope="col">Pairs</th><th scope="col">Correlation</th><th scope="col">Pairs without outliers</th><th scope="col">Correlation without outliers</th></tr></thead>
@@ -76,9 +111,9 @@
     </div>
   </section>
 
-  <section class="card mb-3">
+  <section class="card mb-3" aria-labelledby="benchmark-heading">
     <div class="card-body">
-      <h2 class="h5">Same financial week last year benchmark</h2>
+      <h2 class="h5" id="benchmark-heading">Same financial week last year benchmark</h2>
       <p class="small text-muted">One-week-ahead development comparison on identical targets: target, previous week and the same numbered financial week in the preceding year must all be complete, observed and unflagged. Week 53 has no match when the preceding year has only 52 weeks. Values come from this capture, not what was known at each historical cutoff. Positive bias means overforecast.</p>
       {% if comparisons %}
       <div class="table-responsive"><table class="table table-sm">

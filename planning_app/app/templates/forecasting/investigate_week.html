@@ -35,7 +35,7 @@
   </section>
 
   <details class="card mb-3" open>
-    <summary class="card-header fw-semibold" id="week-contributors">Largest product and customer-group contributors</summary>
+    <summary class="card-header fw-semibold" id="week-contributors">Largest product and customer contributors</summary>
     <div class="card-body">
       <p class="text-muted small">Included releases only. Each dimension is a separate breakdown; do not add them together.</p>
       <div class="row g-3">
@@ -43,13 +43,14 @@
         {% set summary = mix_summaries.get(axis) %}
         <div class="col-12 col-xl-6">
           <details>
-          <summary class="fw-semibold">{{ axis }}{% if summary and summary.leaders %} &middot; {{ summary.leaders[0][0] | join(' / ') }}{% endif %}</summary>
+          <summary class="fw-semibold">{{ axis }}{% if summary and summary.leaders %} &middot; {% if axis == 'Customer' %}{{ customer_names[summary.leaders[0][0][0]] }} ({{ summary.leaders[0][0][0] }}){% else %}{{ summary.leaders[0][0] | join(' / ') }}{% endif %}{% endif %}</summary>
           {% if summary is none %}<p class="small text-muted">Not captured</p>
           {% elif week.net_gbp is none %}<p class="small text-muted">No usable observations</p>
           {% else %}
+          {% if axis == 'Customer' %}<p class="small text-muted">{% if customer_names_captured %}Names are from this saved extract.{% else %}Names are current labels from local operational orders, not historical values; they may change or be unavailable.{% endif %}</p>{% endif %}
           <ul class="small mt-2">
             {% for label, value, active_weeks in summary.leaders %}
-            <li>{{ label | join(' / ') }}: {{ '{:,.2f}'.format(value.gbp) }} GBP &middot; {{ value.releases }} releases</li>
+            <li>{% if axis == 'Customer' %}{{ customer_names[label[0]] }} ({{ label[0] }}){% else %}{{ label | join(' / ') }}{% endif %}: {{ '{:,.2f}'.format(value.gbp) }} GBP &middot; {{ value.releases }} releases</li>
             {% endfor %}
             <li>Missing labels: {{ '{:,.2f}'.format(summary.missing.gbp) }} GBP &middot; {{ summary.missing.releases }} releases</li>
             <li>Conflicting labels: {{ '{:,.2f}'.format(summary.conflicting.gbp) }} GBP &middot; {{ summary.conflicting.releases }} releases</li>

@@ -709,6 +709,14 @@
   {% elif can_manage %}
   <p class="small text-muted mt-4">This extract cannot be deleted because it has evidence, model experiments, adjustments or a derived extract.</p>
   {% endif %}
+
+  <section class="card mt-4" aria-labelledby="next-workflow">
+    <div class="card-body">
+      <h2 class="h5" id="next-workflow">Next: explore intake</h2>
+      <p class="small text-muted">Continue with this saved extract and check its coverage before analysing weekly intake. You can return to the review at any time. Planned adjustments only apply to a separately created adjusted extract.</p>
+      <a class="btn btn-primary" href="{{ url_for('forecasting.eda', extract_id=extract.id) }}">Explore intake</a>
+    </div>
+  </section>
 </div>
 {% endblock %}
 {% block scripts %}

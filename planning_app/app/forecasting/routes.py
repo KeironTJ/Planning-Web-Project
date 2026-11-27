@@ -18,6 +18,7 @@ from sqlalchemy.orm import lazyload
 from app.core.decorators import permission_required
 from app.core.exceptions import NotFoundError, ValidationError
 from app.extensions import db
+from app.sales.orders.models import SalesOrder
 
 from . import forecasting_bp
 from .adjustments import (
@@ -66,9 +67,10 @@ from .services import (
 )
 from .weekly_intake import (
     CALENDAR, END, FIRST_WEEK, MIX_AXES, REQUIRED_FIELDS, RULES, WEEK,
-    IntakeWeek, available_mix_axes, explore_intake_history, explore_weekly_intake,
-    financial_month, financial_year, financial_year_start, score_forecasts, summarize_mix,
-    summarize_time_patterns, summarize_weekly_distribution,
+    IntakeWeek, MixSummary, available_mix_axes, explore_intake_history, explore_weekly_intake,
+    customer_concentration, financial_month, financial_year, financial_year_start,
+    score_forecasts, seasonal_heatmap, summarize_mix, summarize_time_patterns,
+    summarize_weekly_distribution,
 )
 
 
@@ -128,6 +130,46 @@ def _week_in_extract(extract: ForecastDataExtract, number: int | None, year: int
 
 def _week_year(values) -> int | None:
     return values.get("year", type=int) if "year" in values else 2026
+
+
+def _intake_years(weeks):
+    years = {}
+    for week in weeks:
+        years.setdefault(financial_year(week.start), []).append(week)
+    return years
+
+
+def _intake_records(extract_id: int, names: dict[str, set[str]] | None = None):
+    records = ForecastDataRecord.query.with_entities(ForecastDataRecord.data)
+    for (data,) in records.filter_by(extract_id=extract_id).yield_per(500):
+        if names is not None:
+            customer_id, name = data.get("customer_id"), data.get("customer_name")
+            if isinstance(customer_id, str) and customer_id.strip() and isinstance(name, str) and name.strip():
+                names.setdefault(customer_id.strip(), set()).add(name.strip())
+        yield data
+
+
+def _customer_names(
+    summary: MixSummary | None, captured: bool, names: dict[str, set[str]],
+) -> dict[str, str]:
+    if summary is None:
+        return {}
+    ids = {label[0] for label, _, _ in summary.breakdown}
+    if not captured and ids:
+        rows = db.session.query(SalesOrder.customer_id, SalesOrder.customer_name).filter(
+            SalesOrder.customer_id.isnot(None), SalesOrder.customer_name.isnot(None),
+        ).distinct().yield_per(500)
+        for identity, name in rows:
+            identity, name = identity.strip(), name.strip()
+            if identity in ids and name:
+                names.setdefault(identity, set()).add(name)
+    return {
+        identity: (
+            next(iter(candidates)) if len(candidates) == 1
+            else "Conflicting names" if candidates else "Name unavailable"
+        )
+        for identity in ids for candidates in (names.get(identity, set()),)
+    }
 
 
 @forecasting_bp.route("/")
@@ -325,7 +367,10 @@ def time_patterns(extract_id: int):
     return render_template(
         "forecasting/time_patterns.html", title="Time patterns and lags",
         extract=extract, years=years, chart_years=chart_years, low=low, high=high,
-        lags=lags, sensitivity=sensitivity, comparisons=comparisons, scores=scores, rules=RULES,
+        heatmap=seasonal_heatmap(years),
+        weeks_by_number={year: {week.number: week for week in weeks} for year, weeks in years.items()},
+        lags=lags, sensitivity=sensitivity,
+        comparisons=comparisons, scores=scores, rules=RULES,
     )
 
 
@@ -1110,15 +1155,59 @@ def weekly_intake(extract_id: int):
     """Render the weekly net GBP exploration for a single saved extract."""
     extract = ForecastDataExtract.query.get_or_404(extract_id)
     profile = None
+    years = {}
+    selected_year = None
+    compare_years = []
+    chart_years = {}
+    chart_low = chart_high = None
     fields = extract.source_settings.get("fields", ())
+    names: dict[str, set[str]] = {}
     if REQUIRED_FIELDS.issubset(fields):
-        records = ForecastDataRecord.query.with_entities(ForecastDataRecord.data)
-        records = records.filter_by(extract_id=extract.id).yield_per(500)
-        profile = explore_weekly_intake(
-            (data for (data,) in records), extract.captured_at.date(),
-            mix_axes=available_mix_axes(fields),
+        history = explore_intake_history(
+            _intake_records(extract.id), extract.captured_at.date(),
             period=extract.order_period,
         )
+        years = _intake_years(history.weeks)
+        available_years = {str(year): year for year in years}
+        requested_years = request.args.getlist("compare_year")
+        if any(year not in available_years for year in requested_years):
+            abort(400, description="Choose comparison years covered by this extract.")
+        if requested_years:
+            compare_years = sorted({available_years[year] for year in requested_years}, reverse=True)
+        elif request.args.get("compare") == "all":
+            compare_years = sorted(years, reverse=True)
+        if "year" in request.args:
+            selected_year = request.args.get("year", type=int)
+            if selected_year not in years:
+                abort(400, description="Choose a financial year covered by this extract.")
+        elif years:
+            selected_year = 2026 if 2026 in years else max(years)
+        if selected_year is not None:
+            profile = explore_weekly_intake(
+                _intake_records(extract.id, names if "customer_name" in fields else None),
+                extract.captured_at.date(),
+                mix_axes=available_mix_axes(fields), year=selected_year,
+                period=extract.order_period,
+            )
+        else:
+            profile = history
+        if compare_years:
+            values = [
+                week.net_gbp for year in compare_years for week in years[year]
+                if not week.partial and week.net_gbp is not None
+            ]
+            if values:
+                chart_low, chart_high = min(min(values), Decimal(0)), max(max(values), Decimal(0))
+                span = chart_high - chart_low
+                for year in compare_years:
+                    chart_years[year] = [
+                        {
+                            "week": week,
+                            "x": round(70 + (week.number - 1) * 10, 1),
+                            "y": round(160 - float((week.net_gbp - chart_low) / span if span else Decimal("0.5")) * 120, 1),
+                        }
+                        for week in years[year] if not week.partial and week.net_gbp is not None
+                    ]
     chart_scale = None
     if profile is not None:
         magnitudes = [
@@ -1126,16 +1215,41 @@ def weekly_intake(extract_id: int):
         ]
         if magnitudes:
             chart_scale = max(magnitudes) or 1
+    mix_summaries = summarize_mix(profile) if profile is not None else {}
+    customer_names = _customer_names(mix_summaries.get("Customer"), "customer_name" in fields, names)
+    activity = []
+    concentration = customer_concentration(profile) if profile is not None else []
+    if profile is not None:
+        activity = [
+            (week, week.net_gbp / week.orders if week.orders else None)
+            for week in profile.weeks if not week.partial and week.net_gbp is not None
+        ]
+    averages = [average for _, average in activity if average is not None]
     return render_template(
         "forecasting/weekly_intake.html",
         title="Weekly intake",
         extract=extract,
         profile=profile,
         mix_axes=MIX_AXES,
-        mix_summaries=summarize_mix(profile) if profile is not None else {},
-        calendar=CALENDAR,
+        mix_summaries=mix_summaries,
+        customer_names=customer_names,
+        customer_names_captured="customer_name" in fields,
+        calendar=f"SOI {selected_year}" if selected_year is not None else CALENDAR,
         rules=RULES,
         chart_scale=chart_scale,
+        years=years,
+        selected_year=selected_year,
+        compare_years=compare_years,
+        year_styles={year: index for index, year in enumerate(sorted(years, reverse=True))},
+        chart_years=chart_years,
+        chart_low=chart_low,
+        chart_high=chart_high,
+        activity=activity,
+        activity_scale=max((week.included for week, _ in activity), default=0) or 1,
+        average_low=min(min(averages), Decimal(0)) if averages else None,
+        average_high=max(max(averages), Decimal(0)) if averages else None,
+        concentration=concentration,
+        customer_captured="Customer" in available_mix_axes(fields),
     )
 
 
@@ -1146,20 +1260,34 @@ def weekly_distribution(extract_id: int):
     """Render distribution and unusual-week sensitivity from a saved extract."""
     extract = ForecastDataExtract.query.get_or_404(extract_id)
     profile = None
+    years = {}
+    year_distributions = {}
+    selected_year = None
     fields = extract.source_settings.get("fields", ())
     if REQUIRED_FIELDS.issubset(fields):
-        records = ForecastDataRecord.query.with_entities(ForecastDataRecord.data)
-        records = records.filter_by(extract_id=extract.id).yield_per(500)
-        profile = explore_weekly_intake(
-            (data for (data,) in records), extract.captured_at.date(),
+        history = explore_intake_history(
+            _intake_records(extract.id), extract.captured_at.date(),
             period=extract.order_period,
         )
+        years = _intake_years(history.weeks)
+        year_distributions = {
+            year: summarize_weekly_distribution(weeks) for year, weeks in years.items()
+        }
+        if "year" in request.args:
+            selected_year = request.args.get("year", type=int)
+            if selected_year not in years:
+                abort(400, description="Choose a financial year covered by this extract.")
+        elif years:
+            selected_year = 2026 if 2026 in years else max(years)
+        profile = replace(history, weeks=years[selected_year]) if selected_year is not None else history
 
     distribution = None
     chart_points = []
     chart_min = chart_midpoint = chart_max = median_y = None
     if profile is not None:
-        distribution = summarize_weekly_distribution(profile.weeks)
+        distribution = year_distributions.get(selected_year)
+        if distribution is None:
+            distribution = summarize_weekly_distribution(profile.weeks)
         if distribution.chart_weeks:
             values = [week.net_gbp for week in distribution.chart_weeks]
             chart_min, chart_max = min(values), max(values)
@@ -1194,7 +1322,9 @@ def weekly_distribution(extract_id: int):
         chart_midpoint=chart_midpoint,
         chart_max=chart_max,
         median_y=median_y,
-        calendar=CALENDAR,
+        calendar=f"SOI {selected_year}" if selected_year is not None else CALENDAR,
+        selected_year=selected_year,
+        year_distributions=year_distributions,
         rules=RULES,
     )
 
@@ -1218,10 +1348,10 @@ def investigate_week(extract_id: int, week_number: int):
     page_number = request.args.get("page", type=int) if "page" in request.args else 1
     if page_number is None or page_number < 1:
         abort(400, description="Choose a valid release page.")
-    records = ForecastDataRecord.query.with_entities(ForecastDataRecord.data)
-    records = records.filter_by(extract_id=extract.id).yield_per(500)
+    names: dict[str, set[str]] = {}
     profile = explore_weekly_intake(
-        (data for (data,) in records), extract.captured_at.date(),
+        _intake_records(extract.id, names if "customer_name" in fields else None),
+        extract.captured_at.date(),
         mix_axes=available_mix_axes(fields), detail_week=week_number,
         year=year, period=extract.order_period,
     )
@@ -1257,6 +1387,8 @@ def investigate_week(extract_id: int, week_number: int):
         ).order_by(ForecastDataRecord.id):
             key = tuple(record.data[name] for name in ("order_num", "order_line", "rel_num"))
             saved_records.setdefault(key, []).append(record)
+    mix_summaries = summarize_mix(replace(profile, weeks=[week]))
+    customer_names = _customer_names(mix_summaries.get("Customer"), "customer_name" in fields, names)
     return render_template(
         "forecasting/investigate_week.html",
         title=f"Investigate week {week_number}",
@@ -1264,7 +1396,8 @@ def investigate_week(extract_id: int, week_number: int):
         is_outlier=week_number in distribution.outlier_weeks,
         details=page_details, saved_records=saved_records,
         page_number=page_number, pages=pages, matching_count=len(details),
-        mix_summaries=summarize_mix(replace(profile, weeks=[week])),
+        mix_summaries=mix_summaries, customer_names=customer_names,
+        customer_names_captured="customer_name" in fields,
         mix_axes=MIX_AXES, decision_statuses=DECISION_STATUSES,
         notes=ForecastDataNote.query.filter_by(extract_id=extract.id).order_by(
             ForecastDataNote.id.desc(),

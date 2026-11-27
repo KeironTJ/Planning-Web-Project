@@ -112,6 +112,7 @@ SNAPSHOT_FIELDS = (
     "void_line",
     "imported_at",
 )
+CAPTURE_FIELDS = (*SNAPSHOT_FIELDS, "customer_name")
 
 
 def json_array_elements(array):
@@ -218,7 +219,7 @@ def save_va05_extract(
             "selection": "All locally retained rows at capture",
             "baq_parameters": "Not retained by the operational importer",
             "original_intake": "Unverified: observed release values only",
-            "fields": list(SNAPSHOT_FIELDS),
+            "fields": list(CAPTURE_FIELDS),
         },
         summary={},
     )
@@ -232,7 +233,7 @@ def save_va05_extract(
     db.session.flush()
     query = (
         db.session.query(
-            *(getattr(SalesOrder, field) for field in SNAPSHOT_FIELDS)
+            *(getattr(SalesOrder, field) for field in CAPTURE_FIELDS)
         )
         .order_by(
             SalesOrder.order_num,
@@ -297,7 +298,7 @@ def save_va05_extract(
             for row in rows:
                 findings = common + _row_findings(row)
                 data = {
-                    field: _serialize(row[field]) for field in SNAPSHOT_FIELDS
+                    field: _serialize(row[field]) for field in CAPTURE_FIELDS
                 }
                 digest.update(b"\n")
                 digest.update(
@@ -618,6 +619,17 @@ def save_data_decisions(
     return decisions
 
 
+def record_signature(data, findings, *, include_customer_name=True):
+    excluded = {"id", "imported_at"}
+    if not include_customer_name:
+        excluded.add("customer_name")
+    return json.dumps(
+        {"data": {key: value for key, value in data.items() if key not in excluded},
+         "findings": sorted(findings)},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+    )
+
+
 def review_suggestions(extract: ForecastDataExtract, records: list[ForecastDataRecord]) -> dict[int, tuple[ForecastDataDecision, ForecastDataExtract]]:
     """Find explicit prior decisions only when the entire captured order is unchanged."""
     targets = [
@@ -666,29 +678,31 @@ def review_suggestions(extract: ForecastDataExtract, records: list[ForecastDataR
         grouped[(previous.id, record.data.get("order_num"))].append(record)
         extracts[previous.id] = previous
 
-    def signature(record):
-        return json.dumps(
-            {"data": {key: value for key, value in record.data.items() if key not in ("id", "imported_at")},
-             "findings": sorted(record.findings)},
-            sort_keys=True, separators=(",", ":"), ensure_ascii=True,
-        )
-
     signatures = {
-        key: sorted(signature(record) for record in group)
+        (*key, include_name): sorted(
+            record_signature(record.data, record.findings, include_customer_name=include_name)
+            for record in group
+        )
         for key, group in grouped.items()
+        for include_name in (False, True)
     }
     suggestions = {}
     for target in targets:
         order = target.data["order_num"]
-        current = signatures.get((extract.id, order))
-        target_signature = signature(target)
-        if not current or current.count(target_signature) != 1:
-            continue
         for previous_id in sorted((key[0] for key in grouped if key[1] == order and key[0] < extract.id), reverse=True):
-            previous_signatures = signatures[(previous_id, order)]
+            include_name = (
+                "customer_name" in extract.source_settings.get("fields", ())
+                and "customer_name" in extracts[previous_id].source_settings.get("fields", ())
+            )
+            current = signatures.get((extract.id, order, include_name))
+            target_signature = record_signature(target.data, target.findings, include_customer_name=include_name)
+            if not current or current.count(target_signature) != 1:
+                continue
+            previous_signatures = signatures[(previous_id, order, include_name)]
             if previous_signatures != current:
                 continue
-            previous = next(record for record in grouped[(previous_id, order)] if signature(record) == target_signature)
+            previous = next(record for record in grouped[(previous_id, order)]
+                            if record_signature(record.data, record.findings, include_customer_name=include_name) == target_signature)
             if previous.decisions:
                 decision = previous.decisions[0]
                 if decision.remember:

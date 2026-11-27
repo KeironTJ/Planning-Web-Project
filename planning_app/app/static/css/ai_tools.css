@@ -1,5 +1,36 @@
 :root {
     scroll-behavior: auto;
+    --ai-year-1: #005a9c;
+    --ai-year-2: #a13a00;
+    --ai-year-3: #006b50;
+    --ai-year-4: #7a3e9d;
+    --ai-year-5: #806000;
+    --ai-year-6: #ad2457;
+    --ai-heat-1-bg: #e8f1fb;
+    --ai-heat-1-fg: #132b44;
+    --ai-heat-2-bg: #a9c9ee;
+    --ai-heat-2-fg: #10263e;
+    --ai-heat-3-bg: #5d96cb;
+    --ai-heat-3-fg: #071b31;
+    --ai-heat-4-bg: #164d80;
+    --ai-heat-4-fg: #ffffff;
+}
+
+[data-bs-theme="dark"] {
+    --ai-year-1: #69b8ff;
+    --ai-year-2: #ffae72;
+    --ai-year-3: #70d7b6;
+    --ai-year-4: #d8a8ff;
+    --ai-year-5: #eed070;
+    --ai-year-6: #ff91bc;
+    --ai-heat-1-bg: #183451;
+    --ai-heat-1-fg: #e7f2ff;
+    --ai-heat-2-bg: #2b5780;
+    --ai-heat-2-fg: #ffffff;
+    --ai-heat-3-bg: #7daed8;
+    --ai-heat-3-fg: #0b1b2a;
+    --ai-heat-4-bg: #c0def4;
+    --ai-heat-4-fg: #0a1a29;
 }
 
 .ai-breadcrumb {
@@ -39,6 +70,93 @@
     padding-bottom: .75rem;
     margin-bottom: 1rem;
     border-bottom: 1px solid var(--bs-border-color);
+}
+
+.ai-analysis-nav {
+    padding-bottom: .75rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+.ai-analysis-pages {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+
+.ai-analysis-submenu {
+    margin: .75rem 0 0 .5rem;
+    padding-left: .75rem;
+    border-left: 3px solid var(--bs-border-color);
+}
+
+.ai-analysis-sublink {
+    display: inline-block;
+    padding: .2rem .25rem;
+    font-size: .875rem;
+}
+
+.ai-workspace #seasonality-heading,
+.ai-workspace #trends-heading,
+.ai-workspace #lags-heading,
+.ai-workspace #benchmark-heading,
+.ai-workspace #activity-heading,
+.ai-workspace #concentration-heading,
+.ai-workspace #mix-heading {
+    scroll-margin-top: 5rem;
+}
+
+.ai-wide-chart {
+    min-width: 640px;
+}
+
+.ai-heat-1 { --ai-heat-bg: var(--ai-heat-1-bg); --ai-heat-fg: var(--ai-heat-1-fg); }
+.ai-heat-2 { --ai-heat-bg: var(--ai-heat-2-bg); --ai-heat-fg: var(--ai-heat-2-fg); }
+.ai-heat-3 { --ai-heat-bg: var(--ai-heat-3-bg); --ai-heat-fg: var(--ai-heat-3-fg); }
+.ai-heat-4 { --ai-heat-bg: var(--ai-heat-4-bg); --ai-heat-fg: var(--ai-heat-4-fg); }
+
+.ai-heat-band {
+    color: var(--ai-heat-fg);
+    background-color: var(--ai-heat-bg);
+}
+
+.ai-seasonality-table td.ai-heat-band {
+    --bs-table-bg: var(--ai-heat-bg);
+    --bs-table-color: var(--ai-heat-fg);
+}
+
+.ai-seasonality-table td.ai-heat-band a {
+    color: var(--ai-heat-fg);
+}
+
+.ai-seasonality-table tr > :first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--bs-body-bg);
+}
+
+.ai-year-summary {
+    padding: .75rem 1rem;
+    background: var(--bs-tertiary-bg);
+}
+
+.ai-year-content {
+    padding: .75rem 1rem;
+}
+
+.ai-year-detail {
+    margin-left: .5rem;
+    padding-left: .75rem;
+    border-left: 3px solid var(--bs-border-color);
+}
+
+.ai-year-detail > summary {
+    color: var(--bs-link-color);
+    font-weight: 600;
 }
 
 .ai-workspace .ai-release-list > details {

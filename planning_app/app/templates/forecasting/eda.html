@@ -25,10 +25,10 @@
   </div></section>
   <div class="row row-cols-1 row-cols-md-3 g-3 mb-4">
     {% set tools = [
-      ('Weekly intake', 'See how net order value changes week by week.', url_for('forecasting.weekly_intake', extract_id=extract.id), true),
-      ('Product and customer mix', 'See which products and customer groups contribute.', url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor='mix-heading'), captured_mix),
+      ('Weekly intake', 'Compare net order value, order and release activity.', url_for('forecasting.weekly_intake', extract_id=extract.id), true),
+      ('Product and customer mix', 'See which products and customers contribute and how concentration changes.', url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor='mix-heading'), captured_mix),
       ('Unusual weeks', 'Investigate high or low weeks and compare their impact.', url_for('forecasting.weekly_distribution', extract_id=extract.id), true),
-      ('Time patterns and lags', 'Compare financial years, lag relationships and seasonal benchmarks.', url_for('forecasting.time_patterns', extract_id=extract.id), true),
+      ('Time patterns and lags', 'Explore a seasonality heatmap, lag relationships and seasonal benchmarks.', url_for('forecasting.time_patterns', extract_id=extract.id), true),
       ('Feature decisions', 'Record candidate inputs, evidence and cutoff availability.', url_for('forecasting.feature_decisions', extract_id=extract.id), true)
     ] %}
     {% for name, description, href, available in tools %}
@@ -43,7 +43,7 @@
     </div>
     {% endfor %}
   </div>
-  <p class="small text-muted">Weekly intake, mix and unusual weeks cover SOI 2026. Coverage and time patterns include other years in the saved period.</p>
+  <p class="small text-muted">Weekly intake, mix and unusual weeks can be viewed by financial year. Coverage and time patterns include years in the saved period.</p>
   <a href="{{ url_for('forecasting.workflow_todo', stage='experiments', extract_id=extract.id) }}">Next: compare models <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
   {% endif %}
   {% if extract %}

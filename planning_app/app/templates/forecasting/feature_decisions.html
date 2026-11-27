@@ -56,10 +56,13 @@
 <div class="container-fluid pb-4">
   {% include "forecasting/_analysis_nav.html" %}
   <div class="alert alert-warning">These are manual assessments for this extract, not data approval or model configuration. A test decision does not add a feature to an experiment. Validate availability at each forecast cutoff before modelling.</div>
+  <p class="small text-muted">For each candidate, describe its grain and aggregation, gaps and missing-value treatment, when it would be known, and how it could be compared on the same chronological targets. For example, investigate prior-period order counts or customer concentration, and calendar week or known shutdowns; realised target-week activity is not a forecast input.</p>
   <p class="small">
     Evidence: <a href="{{ url_for('forecasting.data_extract', extract_id=extract.id, _anchor='extract-notes') }}">extract findings and notes</a>
     {% if has_weekly %}&middot; <a href="{{ url_for('forecasting.intake_history', extract_id=extract.id) }}">coverage</a>
     &middot; <a href="{{ url_for('forecasting.time_patterns', extract_id=extract.id) }}">time patterns and lags</a>
+    &middot; <a href="{{ url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor='activity-heading') }}">order value and activity</a>
+    &middot; <a href="{{ url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor='concentration-heading') }}">customer concentration</a>
     &middot; <a href="{{ url_for('forecasting.weekly_intake', extract_id=extract.id, _anchor='mix-heading') }}">product and customer mix</a>{% endif %}
     &middot; <a href="{{ url_for('forecasting.workflow_todo', stage='experiments', extract_id=extract.id) }}">model experiments</a>
   </p>

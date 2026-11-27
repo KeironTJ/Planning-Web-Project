@@ -8,12 +8,35 @@
 {% block content %}
 <div class="container-fluid pb-4">
   {% include "forecasting/_analysis_nav.html" %}
-  <p class="small text-muted">{{ calendar }} &middot; Select a week to investigate. An unusual value is not necessarily a data error.</p>
+  <p class="small text-muted">Select a year and week to investigate. An unusual value is not necessarily a data error.</p>
   {% if profile is none %}
   <div class="alert alert-warning">Distribution analysis is unavailable because this saved extract does not contain all required weekly GBP fields, including the void flag. Choose a compatible saved extract; live values are never used to fill the gap.</div>
   {% elif not profile.weeks %}
-  <div class="alert alert-warning">This capture predates the supported financial calendar.</div>
+  <div class="alert alert-warning">No financial weeks are available in this saved extract.</div>
   {% else %}
+  <section class="card mb-3" aria-labelledby="year-overview-heading">
+    <div class="card-body">
+      <h2 class="h5" id="year-overview-heading">Compare financial years</h2>
+      <p class="small text-muted">Outlier candidates use each year's own completed, unflagged weeks; at least four are required. Flags, unavailable and partial weeks are separate coverage measures and may overlap. Select a year for details below.</p>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead><tr><th scope="col">Financial year</th><th scope="col" class="text-end">Unflagged observed weeks</th><th scope="col" class="text-end">Outlier candidates</th><th scope="col" class="text-end">Quality-flagged weeks</th><th scope="col" class="text-end">Unavailable weeks</th><th scope="col" class="text-end">Partial weeks</th></tr></thead>
+          <tbody>{% for year, summary in year_distributions | dictsort(reverse=true) %}
+            {% set unflagged_count = summary.unflagged_statistics.count if summary.unflagged_statistics else 0 %}
+            <tr{% if year == selected_year %} class="table-active"{% endif %}>
+              <th scope="row"><a href="{{ url_for('forecasting.weekly_distribution', extract_id=extract.id, year=year, _anchor='selected-year') }}"{% if year == selected_year %} aria-current="true"{% endif %}>SOI {{ year }}</a>{% if year == selected_year %} <span class="small fw-normal">(selected)</span>{% endif %}</th>
+              <td class="text-end">{{ unflagged_count }}</td>
+              <td class="text-end">{% if unflagged_count >= 4 %}{{ summary.outlier_weeks | length }}{% else %}Insufficient data{% endif %}</td>
+              <td class="text-end">{{ summary.quality_flagged_weeks | length }}</td>
+              <td class="text-end">{{ summary.missing_weeks | length }}</td>
+              <td class="text-end">{{ summary.partial_weeks | length }}</td>
+            </tr>
+          {% endfor %}</tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+  <h2 class="h5" id="selected-year">{{ calendar }} details</h2>
   <div class="row g-3 mb-3">
     <div class="col-12 col-xl-7">
       <section class="card h-100" aria-labelledby="distribution-chart-heading">
@@ -22,7 +45,7 @@
           {% if chart_points %}
           <svg class="w-100 d-block" viewBox="0 0 640 224" role="img" aria-labelledby="distribution-chart-title distribution-chart-desc">
             <title id="distribution-chart-title">Sorted completed-week net GBP values</title>
-            <desc id="distribution-chart-desc">Each point is a completed week sorted by net GBP. Week 1 is marked as a statistical outlier candidate when present; exception weeks are outlined. Missing and partial weeks are not plotted.</desc>
+            <desc id="distribution-chart-desc">Each point is a completed week sorted by net GBP. Statistical outlier candidates are marked; exception weeks are outlined. Missing and partial weeks are not plotted.</desc>
             <g fill="currentColor" font-size="10">
               <path d="M76 36H612M76 104H612M76 172H612" stroke="currentColor" opacity=".18"/>
               <text x="68" y="39" text-anchor="end">{{ '{:,.0f}'.format(chart_max) }}</text>
@@ -36,7 +59,7 @@
             <text x="608" y="{{ median_y - 4 }}" fill="currentColor" font-size="10" text-anchor="end">Unflagged median</text>
             {% endif %}
             {% for point in chart_points %}
-            <a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=point.week) }}" aria-label="Investigate week {{ point.week }}">
+            <a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=point.week, year=selected_year, scope='excluded' if point.quality_flagged else 'included') }}" aria-label="Investigate {{ calendar }} week {{ point.week }}">
             <circle cx="{{ point.x }}" cy="{{ point.y }}" r="4"
                     class="{{ 'text-danger' if point.quality_flagged else ('text-warning' if point.outlier else 'text-primary') }}"
                     fill="{{ 'none' if point.quality_flagged else 'currentColor' }}"
@@ -67,7 +90,9 @@
             {{ distribution.outlier_weeks | join(', ') }} by the 1.5x IQR rule, calculated from unflagged complete weeks.
             This is a statistical signal, not a data-quality failure; it remains in the extract.
           </p>
-          <p>{% for number in distribution.outlier_weeks %}<a class="btn btn-sm btn-outline-primary me-1" href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=number) }}">Investigate week {{ number }}</a>{% endfor %}</p>
+          <p>{% for number in distribution.outlier_weeks %}<a class="btn btn-sm btn-outline-primary me-1" href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=number, year=selected_year, scope='included') }}">Investigate week {{ number }}</a>{% endfor %}</p>
+          {% elif not distribution.unflagged_statistics or distribution.unflagged_statistics.count < 4 %}
+          <p>Not enough unflagged completed weeks to identify IQR outlier candidates; at least four are required.</p>
           {% else %}
           <p>No IQR outlier candidates were found among unflagged complete weeks.</p>
           {% endif %}
@@ -80,7 +105,7 @@
               retained net GBP
               {{ '{:,.2f}'.format(week.net_gbp) if week.net_gbp is not none else 'unavailable' }}.
               The total may be incomplete because affected releases are excluded.
-              <a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number) }}">Investigate week {{ week.number }}</a>
+              <a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number, year=selected_year, scope='excluded') }}">Investigate week {{ week.number }}</a>
             </li>
             {% endfor %}
           </ul>

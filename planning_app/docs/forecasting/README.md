@@ -92,11 +92,32 @@ Development comparisons are not approved training datasets or issued forecasts.
 
 Open **AI Tools > Explore intake** to explore saved data, or select
 **Review data** on an extract card in **Prepare data** to inspect findings.
+At the bottom of the review page, **Explore intake** continues with that same
+saved extract; return to the review whenever needed.
 The live-source diagnostics sit separately under **Live import checks and
 source limitations**. Start the extract analysis with
 coverage and exclusions, then review the weekly GBP chart and product and
-customer mix. **Distribution and unusual weeks** uses the same saved-extract
-EDA calculations as `--eda`: it plots completed observed weeks, marks
+customer mix. The analysis navigation distinguishes pages from sections within
+Weekly intake; Time patterns and lags also links to its own sections.
+**Weekly intake** lets you select a financial year for the mix
+and coverage table, and tick any available years to overlay their completed
+weeks on the chart. Leave all comparison years unchecked for the selected-year
+bar chart. Partial weeks are omitted from the overlay and gaps are not joined;
+an apparent pattern alone does not establish seasonality.
+The selected year's activity charts compare distinct included order numbers and
+included releases with weekly GBP and GBP per order. An order is counted once
+per week, and can appear in more than one week; the average is weekly value
+per active included order, not necessarily total order value. Completed weeks
+with quality exceptions are marked, while partial and unavailable weeks are
+omitted. Customer concentration shows the weekly top five assigned IDs as a
+share of all net GBP, including unassigned amounts. Leaders can change each
+week; non-positive totals have no share and credit-driven shares outside
+0–100% appear only in the accompanying table.
+**Distribution and unusual weeks** compares coverage and outlier counts across
+available financial years. Select a year to inspect its distribution and
+sensitivity; its IQR threshold is calculated from that year's completed,
+unflagged weeks, requiring at least four observations. It uses the same
+saved-extract EDA calculations as `--eda`: it plots completed observed weeks, marks
 statistical outliers separately from data-quality exceptions, and compares
 summaries with each flagged-week type excluded. Partial and unavailable weeks
 are not treated as zero, and the page does not change the extract. For DEV-7,
@@ -126,7 +147,14 @@ automatically split or remove it.
 
 **Time patterns and lags** shows completed weekly values by financial year on
 a common scale, with gaps, quality flags and configured possible shutdowns
-visible. Select a week to investigate its releases and record an explanation.
+visible. Its heatmap indexes completed, unflagged weekly GBP to the median of
+the whole available year. Partial, missing and flagged weeks are marked
+separately, and a non-positive median cannot be indexed. The retrospective
+median is descriptive, not an input available at a historical forecast cutoff.
+The heatmap and legend use matching colour bands in both themes; eligible cells
+also show their percentages without relying on colour alone.
+Week 53 does not exist in every year; configured shutdowns are not a complete
+historical calendar. Select a week to investigate its releases and record an explanation.
 The lag table excludes partial, unavailable and quality-flagged weeks and pairs
 observations by exact calendar distance, including across year boundaries.
 Its outlier sensitivity uses retrospective per-year IQR candidates; neither
@@ -287,7 +315,7 @@ rather than closing gaps by shifting rows. A possible shutdown is a label, not
 a reason to discard a recorded total.
 
 Append `--mix` for model, size within model, production size within model,
-and Epicor customer-group profiles. The command checks each breakdown against
+Epicor customer-group and customer-ID profiles. The command checks each breakdown against
 weekly GBP and release counts, then reports unresolved labels, concentration,
 category activity and the main contributors to the peak week. Save a new
 VA05 capture for size and customer group. Older captures report unavailable
@@ -295,7 +323,13 @@ dimensions without reading live rows. Keep detailed category results local.
 The **Product and customer mix** table in **Weekly intake** shows
 the same coverage, activity and concentration metrics for the saved extract.
 Partial weeks are excluded; dimensions absent from the capture are marked
-**Not captured**.
+**Not captured**. Expand the customer breakdown to see all included customers
+by saved ID, name, value and activity. New captures save customer names; older
+captures show clearly labelled current names from local operational orders.
+Names that are missing or conflict are not guessed. Customer IDs and names may
+identify individuals and require appropriate access and retention controls.
+When comparing with an older capture that lacks names, suggestions compare the
+other saved evidence; when both captures have names, names must match too.
 
 ## Prepare data
 
@@ -409,7 +443,8 @@ These checks do not change saved extracts or their findings.
    and capture environment must match, as must every captured row and its findings for the whole order, apart from
    local row IDs and import timestamps. Incomplete release keys and indistinguishable
    duplicate rows are not matched. Changed values, additional findings, different
-   capture fields or a different selection of order rows require a fresh review.
+   capture fields or a different selection of order rows require a fresh review,
+   except that customer names are compared only when both captures contain them.
    A suggestion is not a review until confirmed; a row's outcome still covers
    all its findings. No source data or forecast inclusion is changed.
 
@@ -434,7 +469,8 @@ These checks do not change saved extracts or their findings.
    Row exclusions are specific to this capture and never apply automatically
    to later captures. A later capture can suggest an earlier exclusion when
    the complete saved row values and findings match uniquely within the order
-   in both captures (ignoring local row ID and import timestamp), with the same
+   in both captures (ignoring local row ID and import timestamp, and customer
+   name when either capture lacks it), with the same
    source, rules and environment. Use **Find suggested row exclusions** to
    find matches across the extract, including rows without findings. Open
    the marked rows, inspect the earlier evidence and select suggestions on

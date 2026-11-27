@@ -27,6 +27,7 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.forecasting.adjustments import (
     adjustment_suggestions,
     backfill_adjusted_reviews,
+    confirm_row_exclusion_suggestions,
     create_adjusted_extract,
     finding_adjustment_counts,
     latest_adjustments,
@@ -36,7 +37,10 @@ from app.forecasting.adjustments import (
     save_row_exclusions,
 )
 from app.forecasting.data_quality import (
+    SNAPSHOT_FIELDS,
+    confirm_review_suggestions,
     finding_matches,
+    review_suggestions,
     save_data_decision,
     save_va05_extract,
 )
@@ -56,9 +60,11 @@ from app.forecasting.services import (
 from app.forecasting.weekly_intake import (
     REQUIRED_FIELDS,
     IntakeWeek,
+    customer_concentration,
     explore_weekly_intake,
     financial_year_start,
     score_forecasts,
+    seasonal_heatmap,
     summarize_time_patterns,
     summarize_weekly_distribution,
 )
@@ -793,6 +799,59 @@ def test_weekly_intake_matches_release_grain_and_flags_gaps():
     )
 
 
+def test_weekly_activity_and_customer_concentration_use_included_release_grain():
+    base = {
+        "order_num": 1, "order_line": 1, "rel_num": 1, "assembly_seq": 0,
+        "order_date": "2026-01-05", "release_price_gbp": "100", "void_line": False,
+        "customer_id": "C1",
+    }
+    rows = [
+        base, {**base, "job_num": "duplicate"},
+        {**base, "assembly_seq": 1, "release_price_gbp": "999"},
+        {**base, "rel_num": 2, "release_price_gbp": "50"},
+        {**base, "order_num": 2, "release_price_gbp": "-20", "customer_id": "C2"},
+        {**base, "order_num": 3, "release_price_gbp": "20", "customer_id": None},
+        {**base, "order_num": 4, "release_price_gbp": "30", "customer_id": "C4"},
+        {**base, "order_num": 4, "release_price_gbp": "30", "customer_id": "C5"},
+        {**base, "order_num": 5, "release_price_gbp": None},
+        {**base, "order_num": 6, "void_line": True},
+        {**base, "order_num": 7, "order_date": "2026-01-12", "void_line": True},
+        {**base, "rel_num": 3, "order_date": "2026-01-19"},
+    ]
+    profile = explore_weekly_intake(rows, date(2026, 1, 21), mix_axes=("Customer",))
+    first, second, partial = profile.weeks
+    assert (first.net_gbp, first.included, first.orders, first.exceptions) == (180, 5, 4, 1)
+    assert (second.net_gbp, second.orders) == (0, 0)
+    assert partial.partial and partial.orders == 1
+    concentration = customer_concentration(profile)
+    assert len(concentration) == 2
+    assert concentration[0][1:] == (Decimal(130) * 100 / 180, Decimal(20), Decimal(30))
+    assert concentration[1][1] is None
+    credit_profile = explore_weekly_intake([
+        {**base, "order_num": index, "customer_id": str(index), "release_price_gbp": str(amount)}
+        for index, amount in enumerate((100, 20, 10, 5, 1, -70), 1)
+    ], date(2026, 1, 12), mix_axes=("Customer",))
+    assert customer_concentration(credit_profile)[0][1] == Decimal(13600) / 66
+
+
+def test_seasonality_index_excludes_flags_partials_and_nonpositive_medians():
+    def week(year, number, value, *, partial=False, exceptions=0):
+        return IntakeWeek(
+            number, financial_year_start(year) + timedelta(weeks=number - 1),
+            partial, False, net_gbp=Decimal(value) if value is not None else None,
+            exceptions=exceptions,
+        )
+
+    heatmap = seasonal_heatmap({
+        2025: [week(2025, 1, 10), week(2025, 2, 30),
+               week(2025, 3, 900, exceptions=1), week(2025, 4, 900, partial=True),
+               week(2025, 5, None)],
+        2024: [week(2024, 53, 0)],
+    })
+    assert heatmap[2025] == (Decimal(20), {1: Decimal(50), 2: Decimal(150)})
+    assert heatmap[2024] == (Decimal(0), {})
+
+
 def test_weekly_review_exports_and_benchmarks_without_bridging_gaps(tmp_path):
     database = tmp_path / "capture.db"
     output = tmp_path / "review.csv"
@@ -1102,7 +1161,7 @@ def test_time_patterns_page_shows_history_and_common_benchmark(client, planner_u
     extract = ForecastDataExtract(
         captured_at=datetime(2026, 1, 21, tzinfo=timezone.utc),
         captured_by_id=planner_user.id, source="bskyVA05v1", rules_version="test",
-        row_count=4, content_hash="test",
+        row_count=5, content_hash="test",
         source_settings={"capture_environment": "testing", "fields": list(REQUIRED_FIELDS)},
         summary={},
     )
@@ -1110,7 +1169,7 @@ def test_time_patterns_page_shows_history_and_common_benchmark(client, planner_u
     db_session.flush()
     for index, (order_date, amount) in enumerate([
         ("2025-01-06", "10"), ("2025-01-13", "20"),
-        ("2025-12-29", "30"), ("2026-01-05", "40"),
+        ("2025-12-29", "30"), ("2026-01-05", "40"), ("2025-01-20", None),
     ], start=1):
         db_session.add(ForecastDataRecord(
             extract_id=extract.id, source_row_id=index,
@@ -1130,9 +1189,52 @@ def test_time_patterns_page_shows_history_and_common_benchmark(client, planner_u
     assert "Same financial week last year" in html
     assert "Inspect 1 common target weeks" in html
     assert "not what was known at each historical cutoff" in html
+    assert "Financial-week seasonality heatmap" in html
+    assert "50 percent of annual median" in html and "150 percent of annual median" in html
+    assert "week 3, unavailable, quality flagged" in html and "F/—" in html
+    assert 'aria-label="Intake analysis"' in html
+    assert 'aria-label="Sections within Weekly intake"' in html
+    assert 'aria-label="Sections within Time patterns and lags"' in html
+    for anchor in ("seasonality-heading", "trends-heading", "lags-heading", "benchmark-heading"):
+        assert f'href="#{anchor}"' in html and f'id="{anchor}"' in html
+    assert 'class="ai-year-detail"' in html
     assert f"/extracts/{extract.id}/weeks/1?year=2026" in html
-    assert ForecastDataRecord.query.filter_by(extract_id=extract.id).count() == 4
+    assert ForecastDataRecord.query.filter_by(extract_id=extract.id).count() == 5
     assert ForecastDataNote.query.filter_by(extract_id=extract.id).count() == 0
+
+
+def test_seasonality_heatmap_colour_bands_follow_unrounded_boundaries(
+    client, planner_user, db_session,
+):
+    extract = ForecastDataExtract(
+        captured_at=datetime(2026, 1, 21, tzinfo=timezone.utc),
+        captured_by_id=planner_user.id, source="bskyVA05v1", rules_version="test",
+        row_count=5, content_hash="test",
+        source_settings={"capture_environment": "testing", "fields": list(REQUIRED_FIELDS)},
+        summary={},
+    )
+    db_session.add(extract)
+    db_session.flush()
+    for number, amount in enumerate((0, 50, 100, 150, 200), 1):
+        order_date = financial_year_start(2025) + timedelta(weeks=number - 1)
+        db_session.add(ForecastDataRecord(
+            extract_id=extract.id, source_row_id=number,
+            data={"order_num": number, "order_line": 1, "rel_num": 1, "assembly_seq": 0,
+                  "order_date": order_date.isoformat(), "release_price_gbp": str(amount),
+                  "void_line": False},
+            findings=[], has_findings=False,
+        ))
+    db_session.commit()
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    response = client.get(f"{PAGE}/extracts/{extract.id}/time-patterns")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    for number, band in enumerate((1, 2, 3, 4, 4), 1):
+        assert re.search(
+            rf'<td class="ai-heat-band ai-heat-{band}"\s+title="SOI 2025 week {number}:',
+            html,
+        )
 
 
 def test_distribution_page_renders_read_only_saved_extract_comparisons(
@@ -1212,6 +1314,67 @@ def test_distribution_page_renders_read_only_saved_extract_comparisons(
     assert gap.status_code == 200
     assert "Unavailable (not zero)" in gap.get_data(as_text=True)
     assert "No saved releases match this filter" in gap.get_data(as_text=True)
+
+
+def test_distribution_compares_years_without_mixing_week_numbers(db_session, client, planner_user):
+    extract = ForecastDataExtract(
+        captured_at=datetime(2026, 2, 3, tzinfo=timezone.utc),
+        captured_by_id=planner_user.id, source="bskyVA05v1", rules_version="test",
+        row_count=0, content_hash="test",
+        source_settings={"capture_environment": "testing", "fields": list(REQUIRED_FIELDS)},
+        summary={},
+    )
+    db_session.add(extract)
+    db_session.flush()
+    observations = [(99, 1, date(2024, 12, 30), "5")]
+    observations += [
+        (index, 1, date(2021, 1, 4) + timedelta(weeks=index - 1), amount)
+        for index, amount in enumerate(("1000", "10", "10", "10", "10"), 1)
+    ]
+    observations += [
+        (50, 1, date(2021, 2, 8), "80"),
+        (50, 1, date(2021, 2, 8), "90"),
+        (51, 1, date(2021, 2, 8), "200"),
+    ]
+    observations += [
+        (100 + index, 1, date(2026, 1, 5) + timedelta(weeks=index - 1), amount)
+        for index, amount in enumerate(("100", "100", "100", "100", "500"), 1)
+    ]
+    for index, (order, release, day, value) in enumerate(observations, 1):
+        db_session.add(ForecastDataRecord(
+            extract_id=extract.id, source_row_id=index,
+            data={"order_num": order, "order_line": 1, "rel_num": release, "assembly_seq": 0,
+                  "order_date": day.isoformat(), "release_price_gbp": value, "void_line": False},
+            findings=[], has_findings=False,
+        ))
+    extract.row_count = len(observations)
+    db_session.commit()
+    login(client, planner_user.email, "Planner!Pass1234")
+    path = f"{PAGE}/extracts/{extract.id}/distribution"
+
+    response = client.get(path + "?year=2021")
+    assert response.status_code == 200
+    html = " ".join(response.get_data(as_text=True).split())
+    assert "SOI 2021 details" in html
+    assert "week 1 by the 1.5x IQR rule" in html
+    assert "Week 6: 1 exception" in html
+    assert f"/extracts/{extract.id}/weeks/1?year=2021&amp;scope=included" in html
+    assert f"/extracts/{extract.id}/weeks/6?year=2021&amp;scope=excluded" in html
+    assert f"/extracts/{extract.id}/weekly-intake?year=2021" in html
+    year_row = html.split(f'{path}?year=2021#selected-year', 1)[1].split("</tr>", 1)[0]
+    assert re.search(r">5</td>\s*<td[^>]*>1</td>\s*<td[^>]*>1</td>", year_row)
+    assert client.get(f"{PAGE}/extracts/{extract.id}/weeks/1?year=2021&scope=included").status_code == 200
+
+    current = client.get(path + "?year=2026").get_data(as_text=True)
+    assert "SOI 2026 details" in current
+    assert "No IQR outlier candidates" in current
+    assert "500.00 GBP" not in current
+    sparse = client.get(path + "?year=2024").get_data(as_text=True)
+    assert "Not enough unflagged completed weeks" in sparse
+    assert "Insufficient data" in sparse
+    assert f"/extracts/{extract.id}/weeks/53?year=2024&amp;scope=included" in sparse
+    assert client.get(path + "?year=2019").status_code == 400
+    assert client.get(path + "?year=invalid").status_code == 400
 
 
 def test_intake_history_reviews_fixed_period_across_years_and_keeps_gaps(
@@ -1484,6 +1647,82 @@ def test_weekly_intake_page_reads_saved_capture_and_handles_legacy_extract(
     assert client.get(f"{PAGE}/extracts/{legacy.id}/weeks/1").status_code == 400
 
 
+def test_weekly_intake_year_selection_and_overlay_use_saved_history(
+    db_session, client, planner_user,
+):
+    extract = ForecastDataExtract(
+        captured_at=datetime(2026, 1, 21, tzinfo=timezone.utc),
+        captured_by_id=planner_user.id, source="bskyVA05v1", rules_version="test",
+        row_count=7, content_hash="test",
+        source_settings={"capture_environment": "testing", "fields": list(REQUIRED_FIELDS | {"model"})},
+        summary={},
+    )
+    db_session.add(extract)
+    db_session.flush()
+    for index, (order_date, amount) in enumerate([
+        ("2024-12-30", "530"), ("2025-01-06", "100"),
+        ("2025-01-20", "300"), ("2025-01-21", None),
+        ("2026-01-05", "400"), ("2026-01-12", "-50"),
+        ("2026-01-19", "900"),
+    ], start=1):
+        db_session.add(ForecastDataRecord(
+            extract_id=extract.id, source_row_id=index,
+            data={"order_num": index, "order_line": 1, "rel_num": 1, "assembly_seq": 0,
+                  "order_date": order_date, "release_price_gbp": amount, "void_line": False,
+                  "model": "Earlier" if order_date < "2026" else "Later"},
+            findings=[], has_findings=False,
+        ))
+    db_session.commit()
+    login(client, planner_user.email, "Planner!Pass1234")
+    path = f"{PAGE}/extracts/{extract.id}/weekly-intake"
+
+    default = client.get(path).get_data(as_text=True)
+    assert '<option value="2026" selected>' in default
+    assert "400.00 GBP" in default
+    selected = client.get(path + "?year=2025").get_data(as_text=True)
+    assert '<option value="2025" selected>' in selected
+    assert "100.00 GBP" in selected and "300.00 GBP" in selected
+    assert "400.00 GBP" not in selected
+    assert "SOI 2025 included releases in completed weeks only" in selected
+    assert "100.0%" in selected
+    assert f"/extracts/{extract.id}/weeks/1?year=2025" in selected
+    assert f"{path}?year=2025#mix-heading" in selected
+    overlay = client.get(path + "?year=2025&compare=all").get_data(as_text=True)
+    assert "SOI 2024 week 53: 530.00 GBP" in overlay
+    assert "SOI 2025 week 1: 100.00 GBP" in overlay
+    assert "SOI 2025 week 3: 300.00 GBP; quality flagged" in overlay
+    assert "SOI 2026 week 1: 400.00 GBP" in overlay
+    assert "SOI 2026 week 2: -50.00 GBP" in overlay
+    assert "SOI 2026 week 3: 900.00 GBP" not in overlay
+    assert overlay.count('<line x1="70"') == 1
+    assert "-50</text>" in overlay
+    assert "table and mix below remain for SOI 2025" in overlay
+    pair = client.get(
+        path + "?year=2025&compare_year=2025&compare_year=2026",
+    ).get_data(as_text=True)
+    chart = pair.split('id="overlay-title"', 1)[1].split("</svg>", 1)[0]
+    assert "SOI 2025 week 1: 100.00 GBP" in chart
+    assert "SOI 2026 week 1: 400.00 GBP" in chart
+    assert "SOI 2024 week 53" not in chart
+    assert '<option value="2025" selected>' in pair
+    assert 'id="compare-year-2025" checked' in pair
+    assert 'id="compare-year-2026" checked' in pair
+    assert 'id="compare-year-2024" checked' not in pair
+    assert f"{path}?year=2025&amp;compare_year=2026&amp;compare_year=2025#mix-heading" in pair
+    previous_pair = client.get(
+        path + "?year=2025&compare_year=2024&compare_year=2025",
+    ).get_data(as_text=True)
+    previous_chart = previous_pair.split('id="overlay-title"', 1)[1].split("</svg>", 1)[0]
+    assert "SOI 2024 week 53: 530.00 GBP" in previous_chart
+    assert "SOI 2025 week 1: 100.00 GBP" in previous_chart
+    assert "SOI 2026 week 1" not in previous_chart
+    assert 'stroke="var(--ai-year-2)"' in chart and 'stroke="var(--ai-year-2)"' in previous_chart
+    assert client.get(path + "?year=2025&compare_year=2023").status_code == 400
+    assert client.get(path + "?year=2025&compare_year=invalid").status_code == 400
+    assert client.get(path + "?year=2023").status_code == 400
+    assert client.get(path + "?year=invalid").status_code == 400
+
+
 def test_weekly_intake_mix_uses_capture_metadata_and_excludes_partial_week(
     db_session, client, planner_user, viewer_user,
 ):
@@ -1512,7 +1751,7 @@ def test_weekly_intake_mix_uses_capture_metadata_and_excludes_partial_week(
     login(client, viewer_user.email, "Viewer!Pass1234")
 
     hub = client.get(f"/ai-tools/eda/{current.id}").get_data(as_text=True)
-    assert current.reference in hub and "4 of 4 dimensions captured" in hub
+    assert current.reference in hub and "5 of 5 dimensions captured" in hub
     assert f'{PAGE}/extracts/{current.id}/history' in hub
     assert f'{PAGE}/extracts/{current.id}/weekly-intake"' in hub
     assert f'{PAGE}/extracts/{current.id}/weekly-intake#mix-heading' in hub
@@ -1522,7 +1761,7 @@ def test_weekly_intake_mix_uses_capture_metadata_and_excludes_partial_week(
     assert "Validate availability at each forecast cutoff" in plan
     assert f'href="/ai-tools/eda/{current.id}"' in plan
     latest = client.get("/ai-tools/eda").get_data(as_text=True)
-    assert legacy.reference in latest and "1 of 4 dimensions captured" in latest
+    assert legacy.reference in latest and "2 of 5 dimensions captured" in latest
 
     def mix_html(extract_id):
         response = client.get(f"{PAGE}/extracts/{extract_id}/weekly-intake")
@@ -1538,6 +1777,157 @@ def test_weekly_intake_mix_uses_capture_metadata_and_excludes_partial_week(
     old_html = mix_html(legacy.id)
     assert old_html.count("Not captured") == 3
     assert "100.0%" in old_html and "50.0%" not in old_html
+
+
+def test_customer_mix_preserves_ids_and_labels_for_old_and_new_captures(
+    db_session, client, planner_user,
+):
+    base = {"order_date": date(2026, 1, 5), "void_line": False}
+    first = add_source(db_session, **base, customer_id="C1", customer_name="Shared name")
+    add_source(db_session, **base, rel_num=2, customer_id="C2", customer_name="Shared name")
+    add_source(db_session, **base, rel_num=3, customer_id="C3", customer_name="First name")
+    add_source(db_session, **base, rel_num=4, customer_id="C3", customer_name="Other name")
+    add_source(db_session, **base, rel_num=5, customer_id="C4", customer_name=None)
+    add_source(db_session, **base, rel_num=6, customer_id=None, customer_name="No ID")
+    with patch("app.forecasting.data_quality.CAPTURE_FIELDS", SNAPSHOT_FIELDS):
+        old = save_va05_extract(planner_user.id)
+    new = save_va05_extract(planner_user.id)
+    for extract in (old, new):
+        extract.captured_at = datetime(2026, 1, 14, tzinfo=timezone.utc)
+    first.customer_name = "Current name"
+    db_session.commit()
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    def page(extract):
+        response = client.get(f"{PAGE}/extracts/{extract.id}/weekly-intake?year=2026")
+        assert response.status_code == 200
+        return response.get_data(as_text=True)
+
+    old_html = page(old)
+    new_html = page(new)
+    assert "Order value and activity" in new_html
+    assert "Average net GBP per included order" in new_html
+    assert "Customer concentration over time" in new_html
+    assert "top five share 83.3 percent" in new_html
+    assert "current labels from local operational orders" in old_html
+    assert "Current name" in old_html and "Shared name" in old_html
+    assert "Names are from this saved extract" in new_html
+    assert "Current name" not in new_html
+    assert new_html.count(">Shared name</td>") == 2
+    assert ">C1</th>" in new_html and ">C2</th>" in new_html
+    assert ">Conflicting names</td><th scope=\"row\">C3</th>" in new_html
+    assert ">Name unavailable</td><th scope=\"row\">C4</th>" in new_html
+    assert "1 release<br>" in new_html
+    week_html = client.get(f"{PAGE}/extracts/{old.id}/weeks/1?year=2026").get_data(as_text=True)
+    assert "Current name (C1)" in week_html
+    assert "not historical values" in week_html
+
+    for extract in (old, new):
+        row = ForecastDataRecord.query.filter_by(extract_id=extract.id).first()
+        adjustment = save_adjustment(
+            row.id, "exclude", {}, "Verified.", planner_user.id, extract.capture_identity, 0,
+        )
+        derived = create_adjusted_extract(extract.id, extract.capture_identity, adjustment.id, planner_user.id)
+        saved = ForecastDataRecord.query.filter_by(extract_id=derived.id).first()
+        assert ("customer_name" in saved.data) == (extract.id == new.id)
+        assert ("customer_name" in derived.source_settings["fields"]) == (extract.id == new.id)
+
+
+def test_activity_and_concentration_page_exposes_credit_and_zero_edge_cases(
+    db_session, client, planner_user,
+):
+    extract = ForecastDataExtract(
+        captured_at=datetime(2026, 1, 21, tzinfo=timezone.utc),
+        captured_by_id=planner_user.id, source="bskyVA05v1", rules_version="test",
+        row_count=8, content_hash="test",
+        source_settings={"capture_environment": "testing", "fields": list(REQUIRED_FIELDS | {"customer_id"})},
+        summary={},
+    )
+    db_session.add(extract)
+    db_session.flush()
+    rows = [
+        ("2026-01-05", amount, False) for amount in (100, 20, 10, 5, 1, -70)
+    ] + [("2026-01-12", 50, True), ("2026-01-19", 900, False)]
+    for index, (order_date, amount, voided) in enumerate(rows, 1):
+        db_session.add(ForecastDataRecord(
+            extract_id=extract.id, source_row_id=index,
+            data={"order_num": index, "order_line": 1, "rel_num": 1, "assembly_seq": 0,
+                  "order_date": order_date, "release_price_gbp": str(amount),
+                  "void_line": voided, "customer_id": str(index)},
+            findings=[], has_findings=False,
+        ))
+    db_session.commit()
+    login(client, planner_user.email, "Planner!Pass1234")
+    response = client.get(f"{PAGE}/extracts/{extract.id}/weekly-intake?year=2026")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    activity = html.split('id="activity-heading"', 1)[1].split("</section>", 1)[0]
+    concentration = html.split('id="concentration-heading"', 1)[1].split("</section>", 1)[0]
+    assert "11.00" in activity and "Unavailable" in activity
+    assert "900.00" not in activity
+    assert "206.1%" in concentration and "Unavailable" in concentration
+    assert "top five share 206.1 percent" not in concentration
+    assert ForecastFeatureDecision.query.filter_by(extract_id=extract.id).count() == 0
+
+
+def test_suggestions_compare_customer_name_only_when_both_captures_include_it(
+    db_session, planner_user,
+):
+    first = add_source(db_session, order_num=12, release_qty=None, customer_id="C1", customer_name="First")
+    other = add_source(db_session, order_num=13, release_qty=None, customer_id="C2", customer_name="Old")
+    with patch("app.forecasting.data_quality.CAPTURE_FIELDS", SNAPSHOT_FIELDS):
+        old = save_va05_extract(planner_user.id)
+    old_row = ForecastDataRecord.query.filter_by(extract_id=old.id).order_by(ForecastDataRecord.id).first()
+    review = save_data_decision(old_row.id, "accepted", "Evidence.", planner_user.id, remember=True)
+    adjustment = save_adjustment(old_row.id, "exclude", {}, "Evidence.", planner_user.id, old.capture_identity, 0)
+    save_row_exclusions(old.id, [old_row.id], "exclude", "Evidence.", planner_user.id, old.capture_identity, 0)
+    exclusion = latest_row_exclusions(old.id)[old_row.id]
+
+    new = save_va05_extract(planner_user.id)
+    rows = ForecastDataRecord.query.filter_by(extract_id=new.id).order_by(ForecastDataRecord.id).all()
+    assert review_suggestions(new, rows)[rows[0].id][0].id == review.id
+    assert adjustment_suggestions(new, rows, {})[(12, 1, 1)].id == adjustment.id
+    assert row_exclusion_suggestions(new, rows, {})[rows[0].id][0].id == exclusion.id
+    assert confirm_review_suggestions(
+        new.id, [(rows[0].id, review.id)], planner_user.id, capture_identity=new.capture_identity,
+    ) == 1
+    assert save_adjustment(
+        rows[0].id, "exclude", {}, "Evidence.", planner_user.id, new.capture_identity, 0,
+        reused_from_id=adjustment.id,
+    ).reused_from_id == adjustment.id
+    assert confirm_row_exclusion_suggestions(
+        new.id, [(rows[0].id, exclusion.id)], planner_user.id, new.capture_identity,
+    ) == 1
+
+    save_data_decision(rows[1].id, "accepted", "Evidence.", planner_user.id, remember=True)
+    save_adjustment(rows[1].id, "exclude", {}, "Evidence.", planner_user.id, new.capture_identity, 0)
+    revision = max(entry.id for entry in latest_row_exclusions(new.id).values())
+    save_row_exclusions(new.id, [rows[1].id], "exclude", "Evidence.", planner_user.id, new.capture_identity, revision)
+    first.release_price_gbp = Decimal("200")
+    other.customer_name = "Changed"
+    db_session.commit()
+    changed = save_va05_extract(planner_user.id)
+    changed_rows = ForecastDataRecord.query.filter_by(extract_id=changed.id).order_by(ForecastDataRecord.id).all()
+    assert changed_rows[0].id not in review_suggestions(changed, changed_rows)
+    assert (12, 1, 1) not in adjustment_suggestions(changed, changed_rows, {})
+    assert changed_rows[0].id not in row_exclusion_suggestions(changed, changed_rows, {})
+    assert changed_rows[1].id not in review_suggestions(changed, changed_rows)
+    assert (13, 1, 1) not in adjustment_suggestions(changed, changed_rows, {})
+    assert changed_rows[1].id not in row_exclusion_suggestions(changed, changed_rows, {})
+
+
+def test_name_field_does_not_make_ambiguous_old_rows_unique(db_session, planner_user):
+    add_source(db_session, release_qty=None, customer_id="C1", customer_name="First")
+    add_source(db_session, release_qty=None, customer_id="C1", customer_name="Second")
+    with patch("app.forecasting.data_quality.CAPTURE_FIELDS", SNAPSHOT_FIELDS):
+        old = save_va05_extract(planner_user.id)
+    row = ForecastDataRecord.query.filter_by(extract_id=old.id).first()
+    save_data_decision(row.id, "accepted", "Evidence.", planner_user.id, remember=True)
+    save_row_exclusions(old.id, [row.id], "exclude", "Evidence.", planner_user.id, old.capture_identity, 0)
+    new = save_va05_extract(planner_user.id)
+    rows = ForecastDataRecord.query.filter_by(extract_id=new.id).all()
+    assert review_suggestions(new, rows) == {}
+    assert row_exclusion_suggestions(new, rows, {}) == {}
 
 
 def test_saved_rows_show_captured_customer_and_product_details_without_live_backfill(
@@ -1623,7 +2013,7 @@ def test_extract_is_reproducible_and_survives_operational_refresh(
         release_qty=None,
         release_price_gbp=Decimal("0"),
         customer_id="C123",
-        customer_name="Do not copy",
+        customer_name="Saved customer",
         sur_name="Do not copy",
         order_book_comments="Do not copy",
     )
@@ -1636,7 +2026,8 @@ def test_extract_is_reproducible_and_survives_operational_refresh(
     assert Decimal(record.data["release_price_gbp"]) == 0
     assert record.data["customer_id"] == "C123"
     assert "customer_id" in extract.source_settings["fields"]
-    assert "customer_name" not in record.data
+    assert record.data["customer_name"] == "Saved customer"
+    assert "customer_name" in extract.source_settings["fields"]
     assert "sur_name" not in record.data
     assert "order_book_comments" not in record.data
     assert set(record.findings) == {"missing_qty", "nonpositive_value"}
@@ -3109,6 +3500,17 @@ def test_missing_extracts_filters_and_cross_permission_access(
         ).status_code
         == 400
     )
+
+
+def test_review_next_workflow_keeps_the_selected_extract(db_session, client, planner_user):
+    add_source(db_session, release_qty=None)
+    extract = save_va05_extract(planner_user.id)
+    login(client, planner_user.email, "Planner!Pass1234")
+
+    html = client.get(f"{PAGE}/extracts/{extract.id}?scope=unreviewed").get_data(as_text=True)
+    section = html.split('id="next-workflow"', 1)[1]
+    assert f'href="/ai-tools/eda/{extract.id}"' in section
+    assert "Planned adjustments only apply to a separately created adjusted extract." in section
 
 
 def test_extract_notes_are_append_only_and_protect_evidence(

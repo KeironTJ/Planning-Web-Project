@@ -96,10 +96,12 @@ of historical membership.
 | Order and receipt dates; financial calendar | Epicor order date assigns the reporting week. Receipt date supports timing comparisons. The verified financial calendar defines period boundaries. | Published calendar fields may be known in advance. Receipt and order activity may be used only from periods available at the forecast cutoff. |
 | GBP, quantity, UOM and void status | Stored VA05 release value, release quantity, inventory UOM and line-void flag. GBP uses the confirmed net rule. | Prior-period GBP is a candidate predictor. Quantity-derived features require a verified quantity basis and comparable UOM. Current void flags are not proof of status at past cutoffs. |
 | Product model and size | `model`, `size_desc` and `prod_size` as captured from VA05. Size is profiled within model; the two size fields are evaluated separately. | Candidate historical mix features only. Check coverage, cardinality, definition and stability before use. |
-| Customer ID and Epicor group | New captures include `customer_id` and `customer_group` as observed in VA05, not historically effective assignments. Older extracts may not have customer IDs. Names are not captured. | Descriptive review context; group is a candidate historical mix feature. Customer ID is not a model input in the current comparison. |
+| Customer ID and Epicor group | Captured `customer_id` and `customer_group` reflect VA05 at capture, not historically effective assignments. New captures also retain customer names; older captures may lack IDs or names. | Descriptive review context; group is a candidate historical mix feature. Customer ID is not a model input in the current comparison. |
 
 The capture field list is authoritative. Older extracts without a dimension
-cannot be profiled for it and are not backfilled from live data. Mix analysis
+cannot be profiled for it and are not backfilled from live data. For display only,
+older captures with IDs but no names can use clearly labelled current names
+from local operational orders; these are not historical values. Mix analysis
 uses the same eligible release set as net GBP. Missing or conflicting
 dimension labels remain unassigned and their GBP stays in the overall total.
 Realised target-week orders, customer mix, model mix and adjustments are not
@@ -371,9 +373,11 @@ Experiments will reference the dataset version alongside code, settings, and
 evaluation dates.
 
 Use read-only Epicor access and application permissions. New captures retain
-customer IDs for review; IDs may identify individuals and must be governed
-under company access and retention policy. Exclude customer names and free-text
-comments from the forecasting extract. Credentials and
+customer IDs and names for review; both may identify individuals and must be
+governed under company access and retention policy. Free-text comments remain
+excluded from the forecasting extract. Older captures without names can display
+current labels from local operational orders, clearly marked as non-historical;
+missing or conflicting names are not guessed. Credentials and
 raw company data stay outside source control; storage and retention must follow
 company policy.
 

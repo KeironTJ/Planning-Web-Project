@@ -238,7 +238,8 @@ for sensitivity; lag four weakened. The spike remains in the source.
 This supports testing a small lag-based regression, not assuming annual
 seasonality from less than a full year.
 
-Saved capture `DEV-7` (19 November 2026) includes all four mix dimensions.
+Saved capture `DEV-7` (19 November 2026) includes the four mix dimensions
+analysed at that stage, before the customer-ID breakdown was added.
 All 45 completed weeks matched independent SQL, and each mix breakdown
 reconciled to the weekly included release counts and net GBP. No conflicting
 labels were found among included releases; missing labels remained unassigned.

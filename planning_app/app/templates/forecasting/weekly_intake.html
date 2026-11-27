@@ -11,13 +11,78 @@
   {% if profile is none %}
   <div class="alert alert-warning">Weekly net GBP is unavailable for this extract because it does not contain all required fields, including the void flag. Use a newer saved extract; live values are never used to fill the gap.</div>
   {% elif not profile.weeks %}
-  <div class="alert alert-warning">This capture predates the supported financial calendar.</div>
+  <div class="alert alert-warning">No financial weeks are available in this saved extract.</div>
   {% else %}
-  <p class="small text-muted">{{ calendar }} &middot; Net GBP by Epicor order date, excluding voided releases. Gaps are not zero; the capture week is partial.</p>
+  <form method="get" class="card mb-3">
+    <div class="card-body">
+      <div>
+        <label for="intake-year" class="form-label">Financial year for mix and coverage</label>
+        <select id="intake-year" name="year" class="form-select w-auto">
+          {% for year in years | sort(reverse=true) %}
+          <option value="{{ year }}"{% if year == selected_year %} selected{% endif %}>SOI {{ year }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <fieldset class="mt-3">
+        <legend class="fs-6 mb-1">Compare years on the chart</legend>
+        <p class="small text-muted mb-2">Select years to overlay, or leave all unchecked to show the selected year as bars. Mix and coverage stay on the financial year selected above.</p>
+        <div class="d-flex flex-wrap gap-3">
+          {% for year in years | sort(reverse=true) %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="compare_year" value="{{ year }}" id="compare-year-{{ year }}"{% if year in compare_years %} checked{% endif %}>
+            <label class="form-check-label" for="compare-year-{{ year }}">SOI {{ year }}</label>
+          </div>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <button class="btn btn-primary mt-3" type="submit">Update view</button>
+    </div>
+  </form>
+  <p class="small text-muted">{{ calendar }} &middot; Net GBP by Epicor order date, excluding voided releases. Gaps are not zero; weeks crossing the capture or extract boundary are partial.</p>
   <section class="card mb-3" aria-labelledby="weekly-net-heading">
     <div class="card-body">
       <h2 class="h5" id="weekly-net-heading">Weekly net GBP</h2>
-      {% if chart_scale %}
+      {% if compare_years and chart_years %}
+      <p class="small text-muted">Completed weeks from the selected comparison years on one GBP scale. The table and mix below remain for {{ calendar }}. Partial weeks are omitted; gaps are not connected. Flagged totals may be incomplete. Apparent patterns do not by themselves establish seasonality.</p>
+      {% set colours = ['var(--ai-year-1)', 'var(--ai-year-2)', 'var(--ai-year-3)', 'var(--ai-year-4)', 'var(--ai-year-5)', 'var(--ai-year-6)'] %}
+      {% set dashes = ['none', '7 3', '2 3', '8 3 2 3'] %}
+      <svg class="w-100 d-block" viewBox="0 0 640 200" role="img" aria-labelledby="overlay-title overlay-desc">
+        <title id="overlay-title">Weekly net GBP across financial years</title>
+        <desc id="overlay-desc">Lines compare completed weeks by financial week number. Hollow points are quality flagged. Gaps and partial weeks are not connected. See the selected year table for exact values.</desc>
+        <path d="M70 40H600M70 160H600" stroke="currentColor" opacity=".2"/>
+        <g fill="currentColor" font-size="10">
+          <text x="64" y="43" text-anchor="end">{{ '{:,.0f}'.format(chart_high) }}</text>
+          <text x="64" y="163" text-anchor="end">{{ '{:,.0f}'.format(chart_low) }}</text>
+          <text x="70" y="183">Week 1</text><text x="600" y="183" text-anchor="end">Week 53</text>
+        </g>
+        {% for year, points in chart_years.items() %}
+        {% set style_index = year_styles[year] %}
+        {% set colour = colours[style_index % colours|length] %}
+        {% set dash = dashes[(style_index // (colours|length)) % (dashes|length)] %}
+        {% for point in points %}
+        {% if not loop.first %}
+        {% set previous = points[loop.index0 - 1] %}
+        {% if point.week.number == previous.week.number + 1 %}
+        <line x1="{{ previous.x }}" y1="{{ previous.y }}" x2="{{ point.x }}" y2="{{ point.y }}" stroke="{{ colour }}" stroke-dasharray="{{ dash }}" opacity=".8"/>
+        {% endif %}
+        {% endif %}
+        <a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=point.week.number, year=year) }}" aria-label="Investigate SOI {{ year }} week {{ point.week.number }}">
+          <circle cx="{{ point.x }}" cy="{{ point.y }}" r="3" fill="{{ 'var(--bs-body-bg)' if point.week.exceptions else colour }}" stroke="{{ colour }}">
+            <title>SOI {{ year }} week {{ point.week.number }}: {{ '{:,.2f}'.format(point.week.net_gbp) }} GBP{% if point.week.exceptions %}; quality flagged{% endif %}</title>
+          </circle>
+        </a>
+        {% endfor %}
+        {% endfor %}
+      </svg>
+      <div class="d-flex flex-wrap gap-3 small" aria-label="Financial year legend">
+        {% for year, points in chart_years.items() %}
+        {% set style_index = year_styles[year] %}
+        <span><svg width="24" height="10" aria-hidden="true"><line x1="0" y1="5" x2="24" y2="5" stroke="{{ colours[style_index % colours|length] }}" stroke-width="2" stroke-dasharray="{{ dashes[(style_index // (colours|length)) % (dashes|length)] }}"/></svg> SOI {{ year }}{% if not points %} (no completed values){% endif %}</span>
+        {% endfor %}
+      </div>
+      {% elif compare_years %}
+      <p class="mb-0">No completed weekly GBP values to compare in the selected years.</p>
+      {% elif chart_scale %}
       {% set negative = profile.weeks | rejectattr('net_gbp', 'none') | selectattr('net_gbp', 'lt', 0) | list %}
       {% set baseline = 96 if negative else 152 %}
       {% set plot_height = baseline - 22 %}
@@ -60,11 +125,101 @@
       {% endif %}
     </div>
   </section>
+  <section class="card mb-3" aria-labelledby="activity-heading">
+    <div class="card-body">
+      <h2 class="h5" id="activity-heading">Order value and activity — {{ calendar }}</h2>
+      <p class="small text-muted">Compare these charts with weekly net GBP above. Counts use the same included, non-void releases as GBP: each order number is counted once per week, even if it has several releases. A multi-week order can count in each week. Partial and unavailable weeks are omitted; outlined marks indicate quality exceptions and may undercount activity.</p>
+      {% if activity %}
+      <div class="table-responsive" tabindex="0" aria-label="Scroll weekly activity chart horizontally">
+      <svg class="w-100 d-block ai-wide-chart" viewBox="0 0 640 200" role="img" aria-labelledby="activity-title activity-desc">
+        <title id="activity-title">Weekly included orders and releases</title>
+        <desc id="activity-desc">Grouped bars show distinct orders and included releases on the same count scale. See the table for exact values.</desc>
+        <path d="M70 40H600M70 160H600" stroke="currentColor" opacity=".2"/>
+        <g fill="currentColor" font-size="10"><text x="64" y="43" text-anchor="end">{{ activity_scale }}</text><text x="64" y="163" text-anchor="end">0</text><text x="70" y="183">Week 1</text><text x="600" y="183" text-anchor="end">Week 53</text></g>
+        {% for week, average in activity %}
+        {% set x = 70 + (week.number - 1) * 10 %}
+        {% for count, offset, colour, label in [(week.orders, -4, 'var(--ai-year-1)', 'orders'), (week.included, 0, 'var(--ai-year-2)', 'releases')] %}
+        {% set height = count / activity_scale * 120 %}
+        {% if count %}
+        <rect x="{{ x + offset }}" y="{{ 160 - height }}" width="4" height="{{ height }}" fill="{{ 'none' if week.exceptions else colour }}" stroke="{{ colour }}"><title>Week {{ week.number }}: {{ count }} {{ label }}{% if week.exceptions %}; quality flagged{% endif %}</title></rect>
+        {% else %}<circle cx="{{ x + offset + 2 }}" cy="160" r="1.5" fill="{{ colour }}"><title>Week {{ week.number }}: 0 {{ label }}</title></circle>{% endif %}
+        {% endfor %}
+        {% endfor %}
+      </svg>
+      </div>
+      <p class="small text-muted"><span style="color:var(--ai-year-1)">■</span> Distinct orders &middot; <span style="color:var(--ai-year-2)">■</span> Included releases &middot; outline: quality flagged</p>
+      <h3 class="h6">Average net GBP per included order</h3>
+      <p class="small text-muted">Weekly net GBP divided by distinct included orders in that week. Not an average complete order value when an order spans weeks. A week without included orders has no average, even if its net GBP is zero.</p>
+      {% if average_low is not none %}
+      {% set span = average_high - average_low %}
+      <div class="table-responsive" tabindex="0" aria-label="Scroll average order value chart horizontally">
+      <svg class="w-100 d-block text-primary ai-wide-chart" viewBox="0 0 640 200" role="img" aria-labelledby="average-title average-desc">
+        <title id="average-title">Average weekly net GBP per included order</title>
+        <desc id="average-desc">Points show completed weeks with an average. Gaps are not connected; hollow points are quality flagged. See the table for exact values.</desc>
+        <path d="M70 40H600M70 160H600" stroke="currentColor" opacity=".2"/>
+        <g fill="currentColor" font-size="10"><text x="64" y="43" text-anchor="end">{{ '{:,.0f}'.format(average_high) }}</text><text x="64" y="163" text-anchor="end">{{ '{:,.0f}'.format(average_low) }}</text><text x="70" y="183">Week 1</text><text x="600" y="183" text-anchor="end">Week 53</text></g>
+        {% for week, average in activity if average is not none %}
+        {% set x = 70 + (week.number - 1) * 10 %}
+        {% set y = 160 - ((average - average_low) / span * 120 if span else 60) %}
+        <a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number, year=selected_year) }}" aria-label="Investigate {{ calendar }} week {{ week.number }}, average {{ '{:,.2f}'.format(average) }} GBP per order">
+          <circle cx="{{ x }}" cy="{{ y }}" r="3" fill="{{ 'var(--bs-body-bg)' if week.exceptions else 'currentColor' }}" stroke="currentColor"><title>Week {{ week.number }}: {{ '{:,.2f}'.format(average) }} GBP per order{% if week.exceptions %}; quality flagged{% endif %}</title></circle>
+        </a>
+        {% endfor %}
+      </svg>
+      </div>
+      {% else %}<p>No completed week has an included order.</p>{% endif %}
+      <details>
+        <summary>Weekly activity and values</summary>
+        <div class="table-responsive"><table class="table table-sm">
+          <thead><tr><th scope="col">Week</th><th scope="col">Status</th><th scope="col" class="text-end">Net GBP</th><th scope="col" class="text-end">Orders</th><th scope="col" class="text-end">Releases</th><th scope="col" class="text-end">GBP per order</th></tr></thead>
+          <tbody>{% for week, average in activity %}<tr>
+            <th scope="row"><a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number, year=selected_year) }}">{{ week.number }}</a></th>
+            <td>{{ 'Quality flagged' if week.exceptions else 'Observed' }}</td><td class="text-end">{{ '{:,.2f}'.format(week.net_gbp) }}</td><td class="text-end">{{ week.orders }}</td><td class="text-end">{{ week.included }}</td><td class="text-end">{{ '{:,.2f}'.format(average) if average is not none else 'Unavailable' }}</td>
+          </tr>{% endfor %}</tbody>
+        </table></div>
+      </details>
+      {% else %}<p>No completed observed weeks to compare.</p>{% endif %}
+    </div>
+  </section>
+  <section class="card mb-3" aria-labelledby="concentration-heading">
+    <div class="card-body">
+      <h2 class="h5" id="concentration-heading">Customer concentration over time — {{ calendar }}</h2>
+      <p class="small text-muted">Each point is the share of weekly net GBP contributed by that week's five largest assigned customer IDs; the five may change each week. The denominator includes missing and conflicting IDs. Complete observed weeks only; hollow points are quality flagged. Net credits can make shares fall outside 0–100%; those weeks are listed in the table rather than plotted. A non-positive total has no share.</p>
+      {% if not customer_captured %}<p>Customer IDs were not captured in this extract.</p>
+      {% elif not concentration %}<p>No completed observed weeks to compare.</p>
+      {% else %}
+      <div class="table-responsive" tabindex="0" aria-label="Scroll customer concentration chart horizontally">
+      <svg class="w-100 d-block text-primary ai-wide-chart" viewBox="0 0 640 200" role="img" aria-labelledby="concentration-title concentration-desc">
+        <title id="concentration-title">Weekly top five customer share of net GBP</title>
+        <desc id="concentration-desc">Points show top-five customer share from zero to one hundred percent. Hollow points are quality flagged; unplottable shares are in the table.</desc>
+        <path d="M70 40H600M70 160H600" stroke="currentColor" opacity=".2"/>
+        <g fill="currentColor" font-size="10"><text x="64" y="43" text-anchor="end">100%</text><text x="64" y="163" text-anchor="end">0%</text><text x="70" y="183">Week 1</text><text x="600" y="183" text-anchor="end">Week 53</text></g>
+        {% for week, share, missing, conflicting in concentration if share is not none and 0 <= share <= 100 %}
+        <a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number, year=selected_year) }}" aria-label="Investigate {{ calendar }} week {{ week.number }}, top five share {{ '{:.1f}'.format(share) }} percent">
+          <circle cx="{{ 70 + (week.number - 1) * 10 }}" cy="{{ 160 - share * 120 / 100 }}" r="3" fill="{{ 'var(--bs-body-bg)' if week.exceptions else 'currentColor' }}" stroke="currentColor"><title>Week {{ week.number }}: {{ '{:.1f}'.format(share) }}%{% if week.exceptions %}; quality flagged{% endif %}</title></circle>
+        </a>
+        {% endfor %}
+      </svg>
+      </div>
+      <details>
+        <summary>Weekly concentration and unassigned value</summary>
+        <div class="table-responsive"><table class="table table-sm">
+          <thead><tr><th scope="col">Week</th><th scope="col">Status</th><th scope="col" class="text-end">Net GBP</th><th scope="col" class="text-end">Top five share</th><th scope="col" class="text-end">Missing ID GBP</th><th scope="col" class="text-end">Conflicting ID GBP</th></tr></thead>
+          <tbody>{% for week, share, missing, conflicting in concentration %}<tr>
+            <th scope="row"><a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number, year=selected_year) }}">{{ week.number }}</a></th>
+            <td>{{ 'Quality flagged' if week.exceptions else 'Observed' }}</td><td class="text-end">{{ '{:,.2f}'.format(week.net_gbp) }}</td><td class="text-end">{{ '{:.1f}%'.format(share) if share is not none else 'Unavailable' }}</td><td class="text-end">{{ '{:,.2f}'.format(missing) }}</td><td class="text-end">{{ '{:,.2f}'.format(conflicting) }}</td>
+          </tr>{% endfor %}</tbody>
+        </table></div>
+      </details>
+      {% endif %}
+      <p class="small text-muted mb-0 mt-2">Use these descriptive results to <a href="{{ url_for('forecasting.feature_decisions', extract_id=extract.id) }}">record feature evidence</a>. Current-week activity or customer mix is not known in advance; historical cutoff availability still needs verification.</p>
+    </div>
+  </section>
   <section class="card mb-3" aria-labelledby="mix-heading">
     <div class="card-body">
       <h2 class="h5" id="mix-heading">Product and customer mix</h2>
       <p class="text-muted">
-        Included releases in completed weeks only. Flagged weeks contribute their retained totals.
+        {{ calendar }} included releases in completed weeks only. Flagged weeks contribute their retained totals.
         Missing or conflicting labels stay in net GBP but are not assigned to a category.
         This describes the saved extract; it does not select forecast inputs.
       </p>
@@ -116,11 +271,31 @@
           </tbody>
         </table>
       </div>
+      {% set customer_summary = mix_summaries.get('Customer') %}
+      {% if customer_summary and customer_summary.breakdown %}
+      <details class="mt-3">
+        <summary class="fw-semibold">Customer breakdown ({{ customer_summary.categories }})</summary>
+        <p class="small text-muted mt-2">
+          Grouped by saved customer ID, not name.
+          {% if customer_names_captured %}Names are from this saved extract.
+          {% else %}Names are current labels from local operational orders, not historical values; they may change or be unavailable.{% endif %}
+          Missing or conflicting customer IDs remain in the totals above and are not assigned to a customer.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead><tr><th scope="col">Customer name</th><th scope="col">Customer ID</th><th scope="col" class="text-end">Net GBP</th><th scope="col" class="text-end">Releases</th><th scope="col" class="text-end">Active weeks</th></tr></thead>
+            <tbody>{% for label, value, active_weeks in customer_summary.breakdown %}
+              <tr><td>{{ customer_names[label[0]] }}</td><th scope="row">{{ label[0] }}</th><td class="text-end">{{ '{:,.2f}'.format(value.gbp) }}</td><td class="text-end">{{ value.releases }}</td><td class="text-end">{{ active_weeks }}</td></tr>
+            {% endfor %}</tbody>
+          </table>
+        </div>
+      </details>
+      {% endif %}
     </div>
   </section>
   <section class="mb-3" aria-labelledby="coverage-heading">
     <h2 class="h5" id="coverage-heading">Coverage and exclusions</h2>
-    <p>{{ profile.outside_calendar }} dated releases outside the supported calendar.</p>
+    <p>{{ profile.outside_calendar }} dated releases outside {{ calendar }}.</p>
     {% if profile.issues %}
     <ul>
       {% for label, count in profile.issues | dictsort %}
@@ -140,7 +315,7 @@
         <tbody>
           {% for week in profile.weeks %}
           <tr>
-            <th scope="row">{% if not week.partial %}<a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number) }}" aria-label="Investigate week {{ week.number }}">{{ week.number }}</a>{% else %}{{ week.number }}{% endif %}</th><td>{{ week.start | uk_date }} to {{ week.end | uk_date }}</td>
+            <th scope="row">{% if not week.partial %}<a href="{{ url_for('forecasting.investigate_week', extract_id=extract.id, week_number=week.number, year=selected_year) }}" aria-label="Investigate {{ calendar }} week {{ week.number }}">{{ week.number }}</a>{% else %}{{ week.number }}{% endif %}</th><td>{{ week.start | uk_date }} to {{ week.end | uk_date }}</td>
             <td>
               {% if week.partial %}<div>Partial week</div>{% endif %}
               {% if week.possible_shutdown %}<div>Possible shutdown</div>{% endif %}

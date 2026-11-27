@@ -14,7 +14,7 @@ from app.auth.models import AuditLog
 from app.core.exceptions import ValidationError
 from app.extensions import db
 
-from .data_quality import SNAPSHOT_FIELDS, _append_data_decision, _lock_extract, _release_findings, _row_findings, _serialize
+from .data_quality import SNAPSHOT_FIELDS, _append_data_decision, _lock_extract, _release_findings, _row_findings, _serialize, record_signature
 from .models import ForecastDataDecision, ForecastDataExtract, ForecastDataRecord, ForecastReleaseAdjustment, ForecastRowExclusion
 from .weekly_intake import release_order_date
 
@@ -36,16 +36,9 @@ def _order_rows(extract_id, order_num):
     ).order_by(ForecastDataRecord.id).all()
 
 
-def order_signature(rows):
-    observations = sorted(_row_signature(data, findings) for data, findings in rows)
+def order_signature(rows, *, include_customer_name=True):
+    observations = sorted(record_signature(data, findings, include_customer_name=include_customer_name) for data, findings in rows)
     return hashlib.sha256(json.dumps(observations, separators=(",", ":")).encode()).hexdigest()
-
-
-def _row_signature(data, findings):
-    return json.dumps({
-        "data": {key: value for key, value in data.items() if key not in ("id", "imported_at")},
-        "findings": sorted(findings),
-    }, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def latest_adjustments(extract_id):
@@ -93,14 +86,17 @@ def row_exclusion_suggestions(extract, records, current):
         ForecastDataRecord.extract_id.in_(extract_ids),
         ForecastDataRecord.data["order_num"].as_integer().in_(orders),
     ).with_entities(ForecastDataRecord.extract_id, ForecastDataRecord.data, ForecastDataRecord.findings)
-    counts = Counter(
-        (extract_id, data["order_num"], _row_signature(data, findings))
-        for extract_id, data, findings in rows
-    )
+    counts = Counter()
+    for extract_id, data, findings in rows:
+        for include_name in (False, True):
+            signature = record_signature(data, findings, include_customer_name=include_name)
+            counts[(extract_id, data["order_num"], include_name, signature)] += 1
     targets_by_signature = {
-        (record.data["order_num"], _row_signature(record.data, record.findings)): record
+        (record.data["order_num"], include_name, signature): record
         for record in targets
-        if counts[(extract.id, record.data["order_num"], _row_signature(record.data, record.findings))] == 1
+        for include_name in (False, True)
+        for signature in (record_signature(record.data, record.findings, include_customer_name=include_name),)
+        if counts[(extract.id, record.data["order_num"], include_name, signature)] == 1
     }
     suggestions = {}
     seen_records = set()
@@ -110,11 +106,16 @@ def row_exclusion_suggestions(extract, records, current):
             continue
         seen_records.add(entry.record_id)
         record = entry.record
-        key = (record.data["order_num"], _row_signature(record.data, record.findings))
+        include_name = (
+            "customer_name" in extract.source_settings.get("fields", ())
+            and "customer_name" in prior.source_settings.get("fields", ())
+        )
+        key = (record.data["order_num"], include_name,
+               record_signature(record.data, record.findings, include_customer_name=include_name))
         target = targets_by_signature.get(key)
-        if target is None or key in resolved:
+        if target is None or target.id in resolved:
             continue
-        resolved.add(key)
+        resolved.add(target.id)
         if counts[(prior.id, *key)] == 1 and entry.action == "exclude":
             suggestions[target.id] = (entry, prior)
     return suggestions
@@ -284,9 +285,26 @@ def adjustment_suggestions(extract, records, current):
         prior = db.session.get(ForecastDataExtract, entry.extract_id)
         if prior.source_settings.get("capture_environment") != extract.source_settings.get("capture_environment"):
             continue
-        if key[0] not in signatures:
-            signatures[key[0]] = order_signature((row.data, row.findings) for row in _order_rows(extract.id, key[0]))
-        if entry.order_signature == signatures[key[0]]:
+        include_name = (
+            "customer_name" in extract.source_settings.get("fields", ())
+            and "customer_name" in prior.source_settings.get("fields", ())
+        )
+        signature_key = (key[0], include_name)
+        if signature_key not in signatures:
+            signatures[signature_key] = order_signature(
+                ((row.data, row.findings) for row in _order_rows(extract.id, key[0])),
+                include_customer_name=include_name,
+            )
+        if include_name or "customer_name" not in prior.source_settings.get("fields", ()):
+            previous_signature = entry.order_signature
+        else:
+            prior_rows = _order_rows(prior.id, key[0])
+            if order_signature((row.data, row.findings) for row in prior_rows) != entry.order_signature:
+                continue
+            previous_signature = order_signature(
+                ((row.data, row.findings) for row in prior_rows), include_customer_name=False,
+            )
+        if previous_signature == signatures[signature_key]:
             if entry.action != "clear":
                 suggestions[key] = entry
             keys.remove(key)
@@ -408,7 +426,7 @@ def _carry_unchanged_reviews(source, extract, user_id):
         ).yield_per(500)
         for extract_id, source_row_id, data, findings in rows:
             order = data["order_num"]
-            observed[extract_id].setdefault(order, {})[source_row_id] = _row_signature(data, findings)
+            observed[extract_id].setdefault(order, {})[source_row_id] = record_signature(data, findings)
         unchanged = {
             order for order in order_batch
             if observed[source.id].get(order) and observed[source.id].get(order) == observed[extract.id].get(order)
@@ -445,6 +463,9 @@ def create_adjusted_extract(extract_id, identity, expected_revision, user_id, *,
         raise ValidationError("Create an adjusted extract from the original capture.")
     if not set(SNAPSHOT_FIELDS).issubset(source.source_settings.get("fields", ())):
         raise ValidationError("This capture lacks fields required to recalculate findings.")
+    saved_fields = (*SNAPSHOT_FIELDS, *(
+        ("customer_name",) if "customer_name" in source.source_settings["fields"] else ()
+    ))
     latest = latest_adjustments(source.id)
     if expected_revision != max((entry.id for entry in latest.values()), default=0):
         raise ValidationError("Adjustments changed. Review them before creating an adjusted extract.")
@@ -515,7 +536,7 @@ def create_adjusted_extract(extract_id, identity, expected_revision, user_id, *,
             source_digest.update(b"\n")
             source_digest.update(json.dumps(item.data, sort_keys=True, separators=(",", ":")).encode())
             data = dict(item.data)
-            if not set(SNAPSHOT_FIELDS).issubset(data):
+            if not set(saved_fields).issubset(data):
                 raise ValidationError("A saved row lacks fields required to recalculate findings.")
             key = _key(data)
             entry = active.get(key)
@@ -573,7 +594,7 @@ def create_adjusted_extract(extract_id, identity, expected_revision, user_id, *,
                 common.append("conflicting_received")
             for source_row_id, row in release_rows:
                 findings = common + _row_findings(row)
-                data = {field: _serialize(row[field]) for field in SNAPSHOT_FIELDS}
+                data = {field: _serialize(row[field]) for field in saved_fields}
                 digest.update(b"\n")
                 digest.update(json.dumps(data, sort_keys=True, separators=(",", ":")).encode())
                 pending.append({"extract_id": extract.id, "source_row_id": source_row_id, "data": data,
